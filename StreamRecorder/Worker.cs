@@ -1,4 +1,4 @@
-namespace StreamKeeper.Recorder;
+namespace StreamRecorder;
 
 public class Worker(ILogger<Worker> logger) : BackgroundService
 {

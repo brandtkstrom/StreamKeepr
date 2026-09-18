@@ -1,6 +1,6 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StreamKeeper.Recorder", "StreamKeeper.Recorder\StreamKeeper.Recorder.csproj", "{AF4AEB52-AFB4-462B-9D63-13F174EAD5DC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StreamRecorder", "StreamRecorder\StreamRecorder.csproj", "{AF4AEB52-AFB4-462B-9D63-13F174EAD5DC}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{F9CAB6A3-269C-419B-B414-908E948DDD0C}"
 	ProjectSection(SolutionItems) = preProject
