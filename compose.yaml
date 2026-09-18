@@ -1,0 +1,7 @@
+﻿services:
+  streamkeeper.recorder:
+    image: streamkeeper.recorder
+    build:
+      context: .
+      dockerfile: StreamKeeper.Recorder/Dockerfile
+
