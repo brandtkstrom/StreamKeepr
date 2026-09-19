@@ -1,7 +1,49 @@
+using dotenv.net;
+using Microsoft.Extensions.Options;
+using Serilog;
 using StreamRecorder;
 
-var builder = Host.CreateApplicationBuilder(args);
-builder.Services.AddHostedService<Worker>();
+Log.Logger = new LoggerConfiguration()
+             .WriteTo.Console()
+             .CreateLogger();
+try
+{
+    Log.Information("Starting stream recorder...");
 
-var host = builder.Build();
-host.Run();
+    DotEnv.Load(new DotEnvOptions(trimValues: true, overwriteExistingVars: true));
+
+    var builder = Host.CreateApplicationBuilder(args);
+
+    // Configure logging
+    builder.Services
+           .AddSerilog((services, config) => config.ReadFrom.Configuration(builder.Configuration)
+                                                   .ReadFrom.Services(services)
+                                                   .Enrich.FromLogContext());
+
+    builder.Services.AddHostedService<Worker>();
+
+    builder.Services.Configure<HostOptions>(o =>
+    {
+        o.ShutdownTimeout = TimeSpan.FromSeconds(30);
+        o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.StopHost;
+    });
+
+    var host = builder.Build();
+    host.Run();
+}
+catch (OptionsValidationException ex)
+{
+    Log.Fatal("Invalid configuration: {Message}", ex.Failures);
+}
+catch (OperationCanceledException)
+{
+    Log.Information("Stream recorder shutting down");
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Stream recorder terminated unexpectedly");
+}
+finally
+{
+    Log.CloseAndFlush();
+}
