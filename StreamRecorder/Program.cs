@@ -14,6 +14,13 @@ try
 
     var builder = Host.CreateApplicationBuilder(args);
 
+    // Load & validate config
+    builder.Services
+           .AddSingleton<IValidateOptions<AppConfig>, AppConfigValidator>()
+           .AddOptions<AppConfig>()
+           .Bind(builder.Configuration)
+           .ValidateOnStart();
+
     // Configure logging
     builder.Services
            .AddSerilog((services, config) => config.ReadFrom.Configuration(builder.Configuration)
