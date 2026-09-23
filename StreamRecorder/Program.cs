@@ -2,6 +2,7 @@ using dotenv.net;
 using Microsoft.Extensions.Options;
 using Serilog;
 using StreamRecorder;
+using StreamRecorder.Twitch;
 
 Log.Logger = new LoggerConfiguration()
              .WriteTo.Console()
@@ -21,13 +22,12 @@ try
            .Bind(builder.Configuration)
            .ValidateOnStart();
 
-    // Configure logging
     builder.Services
            .AddSerilog((services, config) => config.ReadFrom.Configuration(builder.Configuration)
                                                    .ReadFrom.Services(services)
-                                                   .Enrich.FromLogContext());
-
-    builder.Services.AddHostedService<Worker>();
+                                                   .Enrich.FromLogContext())
+           .AddTwitchServices()
+           .AddHostedService<Worker>();
 
     builder.Services.Configure<HostOptions>(o =>
     {
