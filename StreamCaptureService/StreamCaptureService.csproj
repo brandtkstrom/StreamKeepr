@@ -6,6 +6,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <UserSecretsId>dotnet-StreamKeeper.Recorder-17ecb3a6-a017-4635-93c9-170d2d2078ad</UserSecretsId>
         <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+        <RootNamespace>StreamRecorder</RootNamespace>
     </PropertyGroup>
 
     <ItemGroup>
