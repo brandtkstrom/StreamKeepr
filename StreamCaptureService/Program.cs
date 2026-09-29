@@ -1,19 +1,25 @@
-using dotenv.net;
 using Microsoft.Extensions.Options;
 using Serilog;
 using StreamRecorder;
+using StreamRecorder.Infrastructure;
 using StreamRecorder.Twitch;
 
-Log.Logger = new LoggerConfiguration()
-             .WriteTo.Console()
-             .CreateLogger();
+Log.Logger = Logging.CreateBootstrapLogger();
+
 try
 {
     Log.Information("Starting stream recorder...");
 
-    DotEnv.Load(new DotEnvOptions(trimValues: true, overwriteExistingVars: true));
-
     var builder = Host.CreateApplicationBuilder(args);
+
+    var settings = builder.LoadRecorderSettings();
+
+    // Configuration exists now, so swap in the real logger — console plus a rolling file
+    // under RecorderSettings:RootPath — before anything resolves ILogger<T>. Both Log.Logger and
+    // the DI registration point at the same instance so CloseAndFlushAsync flushes it.
+    Serilog.ILogger logger = Logging.CreateLogger(settings);
+    Log.Logger = logger;
+    builder.Services.AddSerilog(logger);
 
     // Load & validate config
     builder.Services
