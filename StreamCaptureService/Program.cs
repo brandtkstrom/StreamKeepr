@@ -1,7 +1,9 @@
+using dotenv.net;
 using Microsoft.Extensions.Options;
 using Serilog;
 using StreamRecorder;
 using StreamRecorder.Infrastructure;
+using StreamRecorder.Services;
 using StreamRecorder.Twitch;
 
 Log.Logger = Logging.CreateBootstrapLogger();
@@ -10,29 +12,23 @@ try
 {
     Log.Information("Starting stream recorder...");
 
+    // Local development convenience: pull .env into the process environment before the host
+    // builds configuration, so the standard environment-variable provider sees the values.
+    // Real environment variables and command-line arguments take precedence.
+    if (File.Exists(".env"))
+    {
+        Log.Debug("Loading environment variables from .env file");
+        DotEnv.Load();
+    }
+
     var builder = Host.CreateApplicationBuilder(args);
 
-    var settings = builder.LoadRecorderSettings();
-
-    // Configuration exists now, so swap in the real logger — console plus a rolling file
-    // under RecorderSettings:RootPath — before anything resolves ILogger<T>. Both Log.Logger and
-    // the DI registration point at the same instance so CloseAndFlushAsync flushes it.
-    Serilog.ILogger logger = Logging.CreateLogger(settings);
+    Serilog.ILogger logger = builder.LoadAppConfig().CreateLogger();
     Log.Logger = logger;
-    builder.Services.AddSerilog(logger);
-
-    // Load & validate config
     builder.Services
-           .AddSingleton<IValidateOptions<AppConfig>, AppConfigValidator>()
-           .AddOptions<AppConfig>()
-           .Bind(builder.Configuration)
-           .ValidateOnStart();
-
-    builder.Services
-           .AddSerilog((services, config) => config.ReadFrom.Configuration(builder.Configuration)
-                                                   .ReadFrom.Services(services)
-                                                   .Enrich.FromLogContext())
+           .AddSerilog(logger)
            .AddTwitchServices()
+           .AddSingleton<StreamInfoAccessor>()
            .AddHostedService<Worker>();
 
     builder.Services.Configure<HostOptions>(o =>

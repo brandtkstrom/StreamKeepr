@@ -1,37 +1,39 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.Extensions.Options;
 
-namespace StreamRecorder;
+ namespace StreamRecorder.Infrastructure;
 
 public record AppConfig
 {
+    public const string SectionName = "AppConfig";
+
     [ConfigurationKeyName("CLIENT_ID")]
     [Required(ErrorMessage = "Twitch client id is required"),
      RegularExpression(@"^\w{10,100}$", ErrorMessage = "{0} is invalid")]
-    public string ClientId { get; init; } = string.Empty;
+    public string ClientId { get; set; } = string.Empty;
 
     [ConfigurationKeyName("CLIENT_SECRET")]
     [Required(ErrorMessage = "Twitch client secret is required"),
      RegularExpression(@"^\w{10,100}$", ErrorMessage = "{0} is invalid")]
-    public string ClientSecret { get; init; } = string.Empty;
+    public string ClientSecret { get; set; } = string.Empty;
 
     [ConfigurationKeyName("USER_AUTH_TOKEN")]
     [RegularExpression(@"^\w{0,100}$", ErrorMessage = "{0} is invalid")]
-    public string UserAuthToken { get; init; } = string.Empty;
+    public string UserAuthToken { get; set; } = string.Empty;
 
     [ConfigurationKeyName("CHECK_INTERVAL_SECONDS")]
     [Range(1, 60 * 60 * 24, ErrorMessage = "{0} must be between {1} and {2}")]
-    public uint CheckIntervalSeconds { get; init; } = 60;
+    public int CheckIntervalSeconds { get; set; } = 60;
 
     [ConfigurationKeyName("CHANNEL_NAME")]
     [Required(ErrorMessage = "Twitch channel name is required")]
-    public string ChannelName { get; init; } = string.Empty;
+    public string ChannelName { get; set; } = string.Empty;
 
-    [ConfigurationKeyName("OUTPUT_DIR")]
-    public string OutputDir { get; init; } = "recordings";
+    [ConfigurationKeyName("OUTPUT_PATH")]
+    public string OutputPath { get; set; } = "recordings";
 
-    [ConfigurationKeyName("STREAMLINK_CMD_ARGS")]
-    public string[] StreamLinkArgs { get; init; } = Array.Empty<string>();
+    [ConfigurationKeyName("LOG_LEVEL")]
+    public string LogLevel { get; set; } = "information";
 }
 
 public sealed class AppConfigValidator : IValidateOptions<AppConfig>

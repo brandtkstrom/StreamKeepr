@@ -1,3 +1,5 @@
+using LanguageExt;
+using Microsoft.Extensions.Options;
 using Serilog;
 using Serilog.Debugging;
 using Serilog.Events;
@@ -25,19 +27,23 @@ public static class Logging
     /// <c>RecorderSettings:LogLevel</c>. The log directory is created eagerly so an unwritable path
     /// fails loudly at startup instead of silently swallowing every subsequent write.
     /// </summary>
-    public static Serilog.ILogger CreateLogger(RecorderSettings settings)
+    public static Serilog.ILogger CreateLogger(this HostApplicationBuilder builder)
     {
         // Sink failures are otherwise silent — this is what made the old hardcoded path
         // fail invisibly. Surface them on stderr.
         SelfLog.Enable(Console.Error);
 
-        if (!TryParseLevel(settings.LogLevel, out var level))
-        {
-            Console.Error.WriteLine(
-                $"Unknown configured LogLevel '{settings.LogLevel}'; using Information");
-        }
+        using var serviceProvider = builder.Services.BuildServiceProvider();
 
-        var logDirectory = Path.Combine(settings.RootPath, "logs");
+        var config = serviceProvider.GetRequiredService<IOptions<AppConfig>>().Value;
+
+        var logDirectory = Path.Combine(config.OutputPath, "logs");
+
+        var level = ParseLogLevel(config.LogLevel).IfNone(() =>
+        {
+            Console.Error.WriteLine($"Unknown configured LogLevel '{config.LogLevel}'; using Information");
+            return LogEventLevel.Information;
+        });
 
         Directory.CreateDirectory(logDirectory);
 
@@ -56,44 +62,24 @@ public static class Logging
                .CreateLogger();
     }
 
+    // TODO - update
     /// <summary>
     /// Maps a configured level name to a Serilog level, case-insensitively. Accepts
     /// <c>verbose</c>/<c>trace</c>, <c>debug</c>, <c>info</c>/<c>information</c>,
     /// <c>warn</c>/<c>warning</c>, <c>error</c>, and <c>fatal</c>/<c>critical</c>; a missing
-    /// name means Information, while an unknown name falls back to Information and returns false.
+    /// name means Information, while an unknown name falls back to Information.
     /// </summary>
-    internal static bool TryParseLevel(string? value, out LogEventLevel level)
+    private static Option<LogEventLevel> ParseLogLevel(string? value)
     {
-        switch (value?.Trim().ToLowerInvariant())
+        return value?.Trim().ToLowerInvariant() switch
         {
-            case null or "":
-            case "info" or "information":
-                level = LogEventLevel.Information;
-                return true;
-
-            case "verbose" or "trace":
-                level = LogEventLevel.Verbose;
-                return true;
-
-            case "debug":
-                level = LogEventLevel.Debug;
-                return true;
-
-            case "warn" or "warning":
-                level = LogEventLevel.Warning;
-                return true;
-
-            case "error":
-                level = LogEventLevel.Error;
-                return true;
-
-            case "fatal" or "critical":
-                level = LogEventLevel.Fatal;
-                return true;
-
-            default:
-                level = LogEventLevel.Information;
-                return false;
-        }
+            null or "" or "info" or "information" => LogEventLevel.Information,
+            "verbose" or "trace" => LogEventLevel.Verbose,
+            "debug" => LogEventLevel.Debug,
+            "warn" or "warning" => LogEventLevel.Warning,
+            "error" => LogEventLevel.Error,
+            "fatal" or "critical" => LogEventLevel.Fatal,
+            var _ => Option<LogEventLevel>.None
+        };
     }
 }

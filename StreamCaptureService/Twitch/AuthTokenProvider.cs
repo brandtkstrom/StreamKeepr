@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using StreamRecorder.Infrastructure;
 
 namespace StreamRecorder.Twitch;
 
