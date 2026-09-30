@@ -25,11 +25,11 @@ try
 
     Serilog.ILogger logger = builder.LoadAppConfig().CreateLogger();
     Log.Logger = logger;
+
     builder.Services
            .AddSerilog(logger)
            .AddTwitchServices()
-           .AddSingleton<StreamInfoAccessor>()
-           .AddHostedService<Worker>();
+           .AddSingleton<StreamInfoAccessor>();
 
     builder.Services.Configure<HostOptions>(o =>
     {
