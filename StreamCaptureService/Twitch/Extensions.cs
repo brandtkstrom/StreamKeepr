@@ -1,9 +1,12 @@
 using System.Net;
 using System.Net.Http.Headers;
+using LanguageExt;
 using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Timeout;
+using StreamRecorder.Core;
+using StreamRecorder.Infrastructure;
 
 namespace StreamRecorder.Twitch;
 
@@ -17,12 +20,17 @@ public static class Extensions
             {Result.StatusCode: HttpStatusCode.Unauthorized} => false,
             {Result.StatusCode: >= HttpStatusCode.InternalServerError} => true,
             {Exception: HttpRequestException or TimeoutRejectedException} => true,
-            _ => false,
+            _ => false
         }),
         MaxRetryAttempts = 3,
         BackoffType = DelayBackoffType.Exponential,
         UseJitter = true
     };
+
+    public static Option<StreamInfo> ToStreamInfo(this Option<TwitchStreamDto> dto)
+    {
+        return dto.Map(d => new StreamInfo(d.Channel, d.Title, d.StartedAt ?? DateTimeOffset.UtcNow));
+    }
 
     public static IServiceCollection AddTwitchServices(this IServiceCollection services)
     {

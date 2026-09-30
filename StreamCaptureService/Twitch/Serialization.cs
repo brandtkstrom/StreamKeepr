@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using StreamRecorder.Core;
 
 namespace StreamRecorder.Twitch;
 
@@ -9,6 +10,6 @@ namespace StreamRecorder.Twitch;
                              UseStringEnumConverter = true)]
 [JsonSerializable(typeof(GetTokenDto))]
 [JsonSerializable(typeof(GetStreamsDto))]
-[JsonSerializable(typeof(List<StreamInfo>))]
-[JsonSerializable(typeof(StreamInfo))]
+[JsonSerializable(typeof(List<TwitchStreamDto>))]
+[JsonSerializable(typeof(TwitchStreamDto))]
 internal partial class TwitchJsonContext : JsonSerializerContext { }
