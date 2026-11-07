@@ -2,6 +2,7 @@ using dotenv.net;
 using Microsoft.Extensions.Options;
 using Serilog;
 using StreamRecorder;
+using StreamRecorder.Config;
 using StreamRecorder.Twitch;
 
 Log.Logger = new LoggerConfiguration()
@@ -17,10 +18,24 @@ try
 
     // Load & validate config
     builder.Services
-           .AddSingleton<IValidateOptions<AppConfig>, AppConfigValidator>()
-           .AddOptions<AppConfig>()
-           .Bind(builder.Configuration)
+           .AddSingleton<IValidateOptions<AppConfig>, AppConfigValidator>();
+
+    builder.Services
+           .AddOptions<TwitchOptions>()
+           .Bind(builder.Configuration.GetSection(TwitchOptions.SectionName))
            .ValidateOnStart();
+
+    builder.Services
+           .AddOptions<RecorderOptions>()
+           .Bind(builder.Configuration.GetSection(RecorderOptions.SectionName))
+           .ValidateOnStart();
+
+    builder.Services.AddSingleton<AppConfig>(sp =>
+    {
+        var twitchOpts = sp.GetRequiredService<IOptions<TwitchOptions>>();
+        var recorderOpts = sp.GetRequiredService<IOptions<RecorderOptions>>();
+        return new AppConfig(twitchOpts.Value, recorderOpts.Value);
+    });
 
     builder.Services
            .AddSerilog((services, config) => config.ReadFrom.Configuration(builder.Configuration)

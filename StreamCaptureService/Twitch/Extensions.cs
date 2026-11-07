@@ -1,9 +1,9 @@
 using System.Net;
 using System.Net.Http.Headers;
 using Microsoft.Extensions.Http.Resilience;
-using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Timeout;
+using StreamRecorder.Config;
 
 namespace StreamRecorder.Twitch;
 
@@ -35,8 +35,8 @@ public static class Extensions
                 .AddHttpMessageHandler<AuthenticationHandler>()
                 .ConfigureHttpClient((sp, client) =>
                 {
-                    var config = sp.GetRequiredService<IOptions<AppConfig>>().Value;
-                    client.DefaultRequestHeaders.Add("Client-ID", config.ClientId);
+                    var config = sp.GetRequiredService<AppConfig>();
+                    client.DefaultRequestHeaders.Add("Client-ID", config.TwitchOptions.ClientId);
                 });
 
         return services;

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Options;
+using StreamRecorder.Config;
 
 namespace StreamRecorder.Twitch;
 
@@ -19,11 +19,11 @@ public class AuthTokenProvider : IAuthTokenProvider
     private DateTimeOffset _expiresAt = DateTimeOffset.MinValue;
 
     public AuthTokenProvider(HttpClient httpClient,
-                             IOptions<AppConfig> appConfig,
+                             AppConfig appConfig,
                              ILogger<AuthTokenProvider> logger)
     {
         _httpClient = httpClient;
-        _appConfig = appConfig.Value;
+        _appConfig = appConfig;
         _logger = logger;
     }
 
@@ -39,8 +39,8 @@ public class AuthTokenProvider : IAuthTokenProvider
             using var content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"] = "client_credentials",
-                ["client_id"] = _appConfig.ClientId,
-                ["client_secret"] = _appConfig.ClientSecret
+                ["client_id"] = _appConfig.TwitchOptions.ClientId,
+                ["client_secret"] = _appConfig.TwitchOptions.ClientSecret
             });
 
             var response = await _httpClient.PostAsync("/oauth2/token", TwitchJsonContext.Default.GetTokenDto, content, cancelToken);
