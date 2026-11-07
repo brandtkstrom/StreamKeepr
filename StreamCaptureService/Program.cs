@@ -3,11 +3,13 @@ using Microsoft.Extensions.Options;
 using Serilog;
 using StreamRecorder;
 using StreamRecorder.Config;
-using StreamRecorder.Twitch;
+using StreamRecorder.Domain;
+using StreamRecorder.Monitor;
 
 Log.Logger = new LoggerConfiguration()
              .WriteTo.Console()
              .CreateLogger();
+
 try
 {
     Log.Information("Starting stream recorder...");
@@ -41,8 +43,9 @@ try
            .AddSerilog((services, config) => config.ReadFrom.Configuration(builder.Configuration)
                                                    .ReadFrom.Services(services)
                                                    .Enrich.FromLogContext())
+           .AddSingleton<IStreamInfoAccessor, StreamInfoAccessor>()
            .AddTwitchServices()
-           .AddHostedService<Worker>();
+           .AddHostedService<StreamMonitorService>();
 
     builder.Services.Configure<HostOptions>(o =>
     {
