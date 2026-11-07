@@ -26,12 +26,16 @@ public class TwitchApiClient : ITwitchApiClient
             var uri = $"/helix/streams?user_login={channelName}&first=1";
             await using var responseStream = await _httpClient.GetStreamAsync(uri, cancelToken);
 
-            var response = await _httpClient.GetAsync(uri, TwitchJsonContext.Default.GetStreamsDto, cancelToken);
+            var response = await _httpClient.GetAsync(uri, TwitchJsonContext.Default.GetStreamsResponse, cancelToken);
 
             if (!string.IsNullOrWhiteSpace(response.Error))
+            {
                 _logger.LogWarning(response.Error);
+            }
 
-            return response.Data?.Streams.FirstOrDefault();
+            var liveStream = response.Data?.Streams.FirstOrDefault(s => s.Type.Equals("live", StringComparison.OrdinalIgnoreCase));
+
+            return MapStreamInfo(liveStream);
         }
         catch (Exception ex)
         {
@@ -40,10 +44,31 @@ public class TwitchApiClient : ITwitchApiClient
 
         return null;
     }
+
+    private static StreamInfo? MapStreamInfo(TwitchStreamDto? dto)
+    {
+        return dto is not null
+                   ? new StreamInfo(dto.Id,
+                                    dto.UserLogin,
+                                    dto.UserName,
+                                    dto.Title,
+                                    dto.StartedAt ?? DateTimeOffset.UtcNow)
+                   : null;
+    }
 }
 
-public sealed record GetStreamsDto
-{
-    [JsonPropertyName("data")]
-    public List<StreamInfo> Streams { get; init; } = new();
-}
+internal sealed record TwitchStreamDto(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("user_login")]
+    string UserLogin,
+    [property: JsonPropertyName("user_name")]
+    string UserName,
+    [property: JsonPropertyName("game_name")]
+    string GameName,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("started_at")]
+    DateTimeOffset? StartedAt);
+
+internal sealed record GetStreamsResponse(
+    [property: JsonPropertyName("data")] IReadOnlyList<TwitchStreamDto> Streams);

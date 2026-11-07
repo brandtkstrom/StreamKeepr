@@ -4,8 +4,9 @@ using Microsoft.Extensions.Http.Resilience;
 using Polly;
 using Polly.Timeout;
 using StreamRecorder.Config;
+using StreamRecorder.Twitch;
 
-namespace StreamRecorder.Twitch;
+namespace StreamRecorder;
 
 public static class Extensions
 {
