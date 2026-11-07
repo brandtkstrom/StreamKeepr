@@ -15,8 +15,8 @@ public class RecordingStore(AppConfig config) : IRecordingStore
     {
         // TODO - sanitize stream title, update record paths
         var recordPath = Path.Join(config.RecorderOptions.OutputDirectory,
-                                  config.TwitchOptions.UserLogin,
-                                  $"{DateTime.Now:s}_{streamInfo.StreamId}");
+                                   config.TwitchOptions.UserLogin,
+                                   $"{DateTime.Now:s}_{streamInfo.StreamId}");
 
         var playlistPath = Path.Join(recordPath, "index.m3u8");
 
@@ -25,7 +25,17 @@ public class RecordingStore(AppConfig config) : IRecordingStore
 
     public bool Writable()
     {
-        // TODO - check dest path write perms
-        return true;
+        try
+        {
+            // Create a file with a random name, ensuring it's deleted on close.
+            var testPath = Path.Combine(config.RecorderOptions.OutputDirectory, Path.GetRandomFileName());
+            using var _ = File.Create(testPath, 1, FileOptions.DeleteOnClose);
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
