@@ -12,7 +12,7 @@ public class AuthTokenProvider : IAuthTokenProvider
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private readonly HttpClient _httpClient;
-    private readonly AppConfig _appConfig;
+    private readonly TwitchOptions _twitchOptions;
     private readonly ILogger<AuthTokenProvider> _logger;
 
     private string? _token = string.Empty;
@@ -23,7 +23,7 @@ public class AuthTokenProvider : IAuthTokenProvider
                              ILogger<AuthTokenProvider> logger)
     {
         _httpClient = httpClient;
-        _appConfig = appConfig;
+        _twitchOptions = appConfig.TwitchOptions;
         _logger = logger;
     }
 
@@ -39,8 +39,8 @@ public class AuthTokenProvider : IAuthTokenProvider
             using var content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"] = "client_credentials",
-                ["client_id"] = _appConfig.TwitchOptions.ClientId,
-                ["client_secret"] = _appConfig.TwitchOptions.ClientSecret
+                ["client_id"] = _twitchOptions.ClientId,
+                ["client_secret"] = _twitchOptions.ClientSecret
             });
 
             var response = await _httpClient.PostAsync("/oauth2/token", TwitchJsonContext.Default.GetTokenDto, content, cancelToken);
@@ -71,13 +71,4 @@ public class AuthTokenProvider : IAuthTokenProvider
     /// </summary>
     private bool ValidTokenSet()
         => !string.IsNullOrEmpty(_token) && _expiresAt > DateTimeOffset.UtcNow.AddMinutes(5);
-}
-
-public sealed record GetTokenDto
-{
-    public string? AccessToken { get; init; }
-
-    public int ExpiresIn { get; init; }
-
-    public string? TokenType { get; init; }
 }
