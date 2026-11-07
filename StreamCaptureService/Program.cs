@@ -5,6 +5,7 @@ using StreamRecorder;
 using StreamRecorder.Config;
 using StreamRecorder.Domain;
 using StreamRecorder.Monitor;
+using StreamRecorder.Recording;
 
 Log.Logger = new LoggerConfiguration()
              .WriteTo.Console()
@@ -45,7 +46,8 @@ try
                                                    .Enrich.FromLogContext())
            .AddSingleton<IStreamInfoAccessor, StreamInfoAccessor>()
            .AddTwitchServices()
-           .AddHostedService<StreamMonitorService>();
+           .AddHostedService<StreamMonitorService>()
+           .AddHostedService<StreamRecorderService>();
 
     builder.Services.Configure<HostOptions>(o =>
     {
