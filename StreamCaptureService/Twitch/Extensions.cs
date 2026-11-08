@@ -8,7 +8,7 @@ using StreamRecorder.Twitch;
 
 namespace StreamRecorder;
 
-public static class Extensions
+public static partial class Extensions
 {
     private static readonly HttpRetryStrategyOptions HttpRetryOptions = new()
     {
