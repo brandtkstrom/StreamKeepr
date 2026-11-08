@@ -6,6 +6,7 @@ using StreamRecorder.Config;
 using StreamRecorder.Domain;
 using StreamRecorder.Monitor;
 using StreamRecorder.Recording;
+using StreamRecorder.Storage;
 
 Log.Logger = new LoggerConfiguration()
              .WriteTo.Console()
@@ -44,7 +45,9 @@ try
            .AddSerilog((services, config) => config.ReadFrom.Configuration(builder.Configuration)
                                                    .ReadFrom.Services(services)
                                                    .Enrich.FromLogContext())
+           .AddSingleton<IRecordingStore, RecordingStore>()
            .AddSingleton<IStreamInfoAccessor, StreamInfoAccessor>()
+           .AddSingleton<IStreamCapturePipeline, StreamCapturePipeline>()
            .AddTwitchServices()
            .AddHostedService<StreamMonitorService>()
            .AddHostedService<StreamRecorderService>();

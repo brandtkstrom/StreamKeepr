@@ -1,3 +1,4 @@
+using System.Globalization;
 using StreamRecorder.Config;
 using StreamRecorder.Domain;
 
@@ -11,14 +12,17 @@ public interface IRecordingStore
 
 public class RecordingStore(AppConfig config) : IRecordingStore
 {
+    private string OutputBaseDir => Path.GetFullPath(config.RecorderOptions.OutputDirectory);
+
     public RecordingTarget CreateTarget(StreamInfo streamInfo)
     {
-        // TODO - sanitize stream title, update record paths
-        var recordPath = Path.Join(config.RecorderOptions.OutputDirectory,
-                                   config.TwitchOptions.UserLogin,
-                                   $"{DateTime.Now:s}_{streamInfo.StreamId}");
+        var timestamp = streamInfo.StartedAt.LocalDateTime.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture);
 
-        var playlistPath = Path.Join(recordPath, "index.m3u8");
+        var recordPath = Path.Join(OutputBaseDir,
+                                   config.TwitchOptions.UserLogin,
+                                   $"{timestamp}_{streamInfo.StreamId}");
+
+        var playlistPath = Path.Join(recordPath, $"{streamInfo.Title.Sanitize()}.m3u8");
 
         return new RecordingTarget(recordPath, playlistPath);
     }
@@ -28,14 +32,16 @@ public class RecordingStore(AppConfig config) : IRecordingStore
         try
         {
             // Create a file with a random name, ensuring it's deleted on close.
-            var testPath = Path.Combine(config.RecorderOptions.OutputDirectory, Path.GetRandomFileName());
+            var testPath = Path.Combine(OutputBaseDir, Path.GetRandomFileName());
             using var _ = File.Create(testPath, 1, FileOptions.DeleteOnClose);
 
             return true;
         }
         catch
         {
-            return false;
+            // suppress errors
         }
+
+        return false;
     }
 }
