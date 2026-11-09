@@ -1,7 +1,8 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.Extensions.Options;
+using StreamRecorder.Config;
 
-namespace StreamRecorder.Config;
+namespace StreamRecorder.Configuration;
 
 public sealed class AppConfigValidator : IValidateOptions<AppConfig>
 {

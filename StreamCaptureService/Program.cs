@@ -1,8 +1,10 @@
 using dotenv.net;
 using Microsoft.Extensions.Options;
+using Polly.Telemetry;
 using Serilog;
 using StreamRecorder;
 using StreamRecorder.Config;
+using StreamRecorder.Configuration;
 using StreamRecorder.Domain;
 using StreamRecorder.Monitor;
 using StreamRecorder.Recording;
@@ -27,11 +29,13 @@ try
     builder.Services
            .AddOptions<TwitchOptions>()
            .Bind(builder.Configuration.GetSection(TwitchOptions.SectionName))
+           .ValidateDataAnnotations()
            .ValidateOnStart();
 
     builder.Services
            .AddOptions<RecorderOptions>()
            .Bind(builder.Configuration.GetSection(RecorderOptions.SectionName))
+           .ValidateDataAnnotations()
            .ValidateOnStart();
 
     builder.Services.AddSingleton<AppConfig>(sp =>
@@ -47,16 +51,27 @@ try
                                                    .Enrich.FromLogContext())
            .AddSingleton<IRecordingStore, RecordingStore>()
            .AddSingleton<IStreamInfoAccessor, StreamInfoAccessor>()
+           .AddSingleton<IStreamInfoUpdater, StreamInfoUpdater>()
            .AddSingleton<IStreamCapturePipeline, StreamCapturePipeline>()
            .AddTwitchServices()
            .AddHostedService<StreamMonitorService>()
            .AddHostedService<StreamRecorderService>();
 
-    builder.Services.Configure<HostOptions>(o =>
-    {
-        o.ShutdownTimeout = TimeSpan.FromSeconds(30);
-        o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.StopHost;
-    });
+    builder.Services
+           .Configure<TelemetryOptions>(options =>
+           {
+               options.SeverityProvider = args => args.Event.EventName switch
+               {
+                   "ExecutionAttempt" => ResilienceEventSeverity.Debug,
+                   "OnRetry" => ResilienceEventSeverity.Debug,
+                   _ => args.Event.Severity
+               };
+           })
+           .Configure<HostOptions>(o =>
+           {
+               o.ShutdownTimeout = TimeSpan.FromSeconds(30);
+               o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.StopHost;
+           });
 
     var host = builder.Build();
     host.Run();

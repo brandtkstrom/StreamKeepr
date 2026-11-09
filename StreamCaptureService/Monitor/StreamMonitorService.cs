@@ -1,25 +1,21 @@
 using StreamRecorder.Config;
 using StreamRecorder.Domain;
-using StreamRecorder.Twitch;
 
 namespace StreamRecorder.Monitor;
 
 public class StreamMonitorService : BackgroundService
 {
     private readonly AppConfig _appConfig;
-    private readonly IStreamInfoAccessor _streamInfo;
-    private readonly ITwitchApiClient _twitchApi;
+    private readonly IStreamInfoUpdater _streamInfoUpdater;
     private readonly ILogger<StreamMonitorService> _logger;
 
     public StreamMonitorService(
         AppConfig appConfig,
-        IStreamInfoAccessor streamInfo,
-        ITwitchApiClient twitchApi,
+        IStreamInfoUpdater streamInfoUpdater,
         ILogger<StreamMonitorService> logger)
     {
         _appConfig = appConfig;
-        _streamInfo = streamInfo;
-        _twitchApi = twitchApi;
+        _streamInfoUpdater = streamInfoUpdater;
         _logger = logger;
     }
 
@@ -36,19 +32,18 @@ public class StreamMonitorService : BackgroundService
 
             while (!stoppingToken.IsCancellationRequested)
             {
-                var streamInfo = await _twitchApi.GetStreamInfoAsync(userLogin, stoppingToken);
+                // var streamInfo = await _twitchApi.GetStreamInfoAsync(userLogin, stoppingToken);
+                var streamInfo = await _streamInfoUpdater.RefreshAsync(stoppingToken);
 
                 if (streamInfo is not null)
                 {
-                    _logger.LogDebug("User {UserLogin} is live: {StreamInfo}",
-                                     userLogin, streamInfo);
+                    _logger.LogInformation("User {UserLogin} is live: {StreamInfo}",
+                                           userLogin, streamInfo);
                 }
                 else
                 {
                     _logger.LogDebug("User {UserLogin} is offline", userLogin);
                 }
-
-                _streamInfo.Set(streamInfo);
 
                 await DelayNextCheck(stoppingToken);
             }

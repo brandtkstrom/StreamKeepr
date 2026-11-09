@@ -2,7 +2,7 @@ namespace StreamRecorder.Domain;
 
 public enum RecordingOutcome
 {
-     None, StreamEnded, Failed
+     Cancelled, StreamEnded, Failed
 }
 
 public sealed record RecordingResult(

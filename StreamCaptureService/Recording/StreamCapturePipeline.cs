@@ -7,25 +7,6 @@ using StreamRecorder.Domain;
 namespace StreamRecorder.Recording;
 
 /// <summary>
-/// Outcome of a stream capture. Exit codes are null when the process was killed or never started.
-/// PlaylistFinalized is true when ffmpeg wrote #EXT-X-ENDLIST itself (a clean shutdown).
-/// The *Error properties hold anything that was thrown while running that process
-/// (for example the executable not being found); RunAsync itself never throws for these.
-/// </summary>
-public sealed record StreamCaptureResult(
-    ProcessResult StreamlinkResult,
-    ProcessResult FfmpegResult,
-    string? playlistPath,
-    bool playlistFinalized)
-{
-    public bool Cancelled
-    {
-        get => StreamlinkResult is ProcessResult.Cancelled
-               || FfmpegResult is ProcessResult.Cancelled;
-    }
-};
-
-/// <summary>
 /// Process outcome state.
 /// </summary>
 /// <param name="ExitCode">Process exit code</param>
@@ -39,12 +20,16 @@ public abstract record ProcessResult(int? ExitCode, Exception? Error)
     public static Exited WithCode(int ExitCode) => new(ExitCode);
     public static Faulted WithError(Exception Error) => new(Error);
     public static readonly Cancelled ProcessCancelled = new();
+
+    public bool HasError => (ExitCode.HasValue && ExitCode != 0)
+                            || Error is not null;
 }
 
 public interface IStreamCapturePipeline
 {
-    public Task<StreamCaptureResult> StartCaptureAsync(RecordingTarget recordingTarget,
-                                                       CancellationToken cancelToken);
+    public Task<RecordingResult> StartCaptureAsync(RecordingTarget recordingTarget,
+                                                   CancellationToken cancelToken);
+
     Task StopAsync();
 }
 
@@ -67,8 +52,8 @@ public sealed class StreamCapturePipeline : IStreamCapturePipeline
     // ffmpeg rename an empty playlist over the good one.
     private static readonly TimeSpan FinalizeGraceTime = TimeSpan.FromSeconds(30);
 
-    public async Task<StreamCaptureResult> StartCaptureAsync(RecordingTarget recordingTarget,
-                                                             CancellationToken cancelToken)
+    public async Task<RecordingResult> StartCaptureAsync(RecordingTarget recordingTarget,
+                                                         CancellationToken cancelToken)
     {
         var outputDir = recordingTarget.Directory;
         var playlistPath = recordingTarget.PlaylistPath;
@@ -76,7 +61,6 @@ public sealed class StreamCapturePipeline : IStreamCapturePipeline
 
         Directory.CreateDirectory(segmentsPath);
 
-        // TODO: fix bin paths
         var streamlinkPath = _appConfig.RecorderOptions.StreamlinkPath;
         var ffmpegPath = _appConfig.RecorderOptions.FfmpegPath;
 
@@ -91,7 +75,12 @@ public sealed class StreamCapturePipeline : IStreamCapturePipeline
         // ffmpeg is guaranteed to be gone at this point, so nothing can overwrite our repair.
         var finalized = await EnsurePlaylistEndedAsync(playlistPath);
 
-        return new StreamCaptureResult(streamlinkResult, ffmpegResult, playlistPath, finalized);
+        if (!finalized)
+        {
+            _logger.LogWarning("failed to finalize playlist: {PlaylistPath}", playlistPath);
+        }
+
+        return MapRecordingResult(streamlinkResult, ffmpegResult, playlistPath);
 
         Command WrapProcess(string name, string exePath, Action<ArgumentsBuilder> argsBuilder)
         {
@@ -109,7 +98,7 @@ public sealed class StreamCapturePipeline : IStreamCapturePipeline
         void BuildStreamlinkArgs(ArgumentsBuilder args)
         {
             args.Add("--stdout")
-                .Add("--loglevel").Add("debug")
+                .Add("--loglevel").Add("error")
                 .Add("--retry-max").Add("20")
                 .Add("--retry-open").Add("10")
                 .Add("--retry-streams").Add("15")
@@ -135,7 +124,7 @@ public sealed class StreamCapturePipeline : IStreamCapturePipeline
         void BuildFfmpegArgs(ArgumentsBuilder args)
         {
             args.Add("-hide_banner").Add("-y") //.Add("-stats")
-                .Add("-loglevel").Add("debug")
+                .Add("-loglevel").Add("warning")
                 .Add("-fflags").Add("+genpts+igndts+discardcorrupt")
                 .Add("-err_detect").Add("ignore_err")
                 .Add("-bsf:a").Add("aac_adtstoasc")
@@ -156,6 +145,25 @@ public sealed class StreamCapturePipeline : IStreamCapturePipeline
     }
 
     public Task StopAsync() => CTS.CancelAsync();
+
+    private static RecordingResult MapRecordingResult(ProcessResult StreamlinkResult,
+                                                      ProcessResult FfmpegResult,
+                                                      string playlistPath)
+    {
+        RecordingOutcome outcome = RecordingOutcome.StreamEnded;
+
+        if (StreamlinkResult is ProcessResult.Cancelled
+            || FfmpegResult is ProcessResult.Cancelled)
+        {
+            outcome = RecordingOutcome.Cancelled;
+        }
+        else if (StreamlinkResult.HasError || FfmpegResult.HasError)
+        {
+            outcome = RecordingOutcome.Failed;
+        }
+
+        return new RecordingResult(outcome, playlistPath);
+    }
 
     private async Task<(ProcessResult StreamlinkResult, ProcessResult FfmpegResult)> StartCaptureAsync(
         Command streamlinkCommand, Command ffmpegCommand, CancellationToken cancelToken)
