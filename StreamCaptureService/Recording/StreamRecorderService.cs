@@ -144,8 +144,8 @@ public class StreamRecorderService : BackgroundService
                     }
 
                     break;
-                case RecorderCommand.Sleep:
-                    await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+                case RecorderCommand.Sleep sleep:
+                    await Task.Delay(sleep.SleepDuration, stoppingToken);
                     break;
                 case RecorderCommand.StartCooldown:
                     await Task.Delay(_appConfig.RecorderOptions.Cooldown, stoppingToken);

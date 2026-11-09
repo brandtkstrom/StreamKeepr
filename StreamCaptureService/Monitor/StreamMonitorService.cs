@@ -42,7 +42,7 @@ public class StreamMonitorService : BackgroundService
                 }
                 else
                 {
-                    _logger.LogDebug("User {UserLogin} is offline", userLogin);
+                    _logger.LogInformation("User {UserLogin} is offline", userLogin);
                 }
 
                 await DelayNextCheck(stoppingToken);

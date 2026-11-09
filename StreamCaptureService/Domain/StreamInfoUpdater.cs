@@ -36,9 +36,7 @@ public class StreamInfoUpdater : IStreamInfoUpdater
 
             _streamInfo.Set(streamInfo);
 
-            var status = streamInfo is not null ? "live" : "offline";
-
-            _logger.LogDebug("User {UserLogin} stream info refresh complete: {Status}", userLogin, status);
+            _logger.LogDebug("User {UserLogin} stream info refresh complete", userLogin);
 
             return streamInfo;
         }

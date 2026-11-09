@@ -16,7 +16,7 @@ public static class RecorderStateMachine
             (RecorderState.Polling, RecorderEvent.StreamInfoPolled) =>
                 TransitionResult.Create(state,
                                         new RecorderCommand.Log(LogLevel.Debug, "Channel polled: stream offline"),
-                                        new RecorderCommand.Sleep(),
+                                        new RecorderCommand.Sleep(TimeSpan.FromSeconds(10)),
                                         new RecorderCommand.PollStreamInfo()),
             (RecorderState.Polling, RecorderEvent.StreamOnline o) =>
                 TransitionResult.Create(new RecorderState.Recording(),
@@ -25,7 +25,7 @@ public static class RecorderStateMachine
             (RecorderState.Recording, RecorderEvent.CaptureError {AttemptCount: < 5} err) =>
                 TransitionResult.Create(new RecorderState.Recording(),
                                         new RecorderCommand.Log(LogLevel.Information, $"Stream capture error: retry capture attempt {err.AttemptCount + 1}"),
-                                        new RecorderCommand.Sleep(),
+                                        new RecorderCommand.Sleep(TimeSpan.FromSeconds(2)),
                                         new RecorderCommand.StartCapture(err.StreamInfo, err.AttemptCount + 1)),
             (RecorderState.Recording, RecorderEvent.CaptureError {AttemptCount: >= 5} err) =>
                 TransitionResult.Create(new RecorderState.Cooldown(),
@@ -86,6 +86,6 @@ public abstract record RecorderCommand
     public sealed record PollStreamInfo : RecorderCommand;
     public sealed record StartCapture(StreamInfo StreamInfo, int Attempt = 1) : RecorderCommand;
     public sealed record StartCooldown : RecorderCommand;
-    public sealed record Sleep : RecorderCommand;
+    public sealed record Sleep(TimeSpan SleepDuration) : RecorderCommand;
     public sealed record Log(LogLevel Level, string Message) : RecorderCommand;
 }
