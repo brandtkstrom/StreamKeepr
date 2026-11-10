@@ -55,3 +55,11 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Development
+*/**/*.Development.json
+
+# Local IDE and agent tool state
+.idea/
+.serena/
+*.DotSettings.user
