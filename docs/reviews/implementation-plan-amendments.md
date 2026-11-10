@@ -90,6 +90,7 @@ Every fix names an owner ticket. A finding is not resolved until its owner ticke
 | E-15 | HTTPS is an external reverse-proxy requirement; Compose publishes plain HTTP 8080. | Accept | Sign-in works over HTTPS or `localhost`; admin features are unavailable over plain LAN HTTP. Provide a TLS proxy outside Compose. Owner: **Hosting, media security, health, and container**. |
 | E-16 | Coverage is collected but no percentage gate is enforced initially. | Accept | Add a threshold once the pure core is covered; do not block early work on an arbitrary number. Owner: **Testing strategy and fake-Twitch harness**. |
 | E-17 | No automatic test retries; flaky tests are fixed or quarantined with a linked issue and deadline. | Accept | Keeps flakes visible; no silent retries or skips. Owner: **Testing strategy and fake-Twitch harness**. |
+| E-18 | Generated design-system CSS is committed; `npm run sync:ds` is deferred until the design system changes. | Accept | No Node runtime; source stays in `design-system/`, built CSS in `src/StreamKeepr/wwwroot/css/`. Add a dev-only sync when needed. Owner: **Frontend foundation and app shell**. |
 
 ## Corrected dependency edges
 
