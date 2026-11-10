@@ -92,6 +92,8 @@ Every fix names an owner ticket. A finding is not resolved until its owner ticke
 | E-17 | No automatic test retries; flaky tests are fixed or quarantined with a linked issue and deadline. | Accept | Keeps flakes visible; no silent retries or skips. Owner: **Testing strategy and fake-Twitch harness**. |
 | E-18 | Generated design-system CSS is committed; `npm run sync:ds` is deferred until the design system changes. | Accept | No Node runtime; source stays in `design-system/`, built CSS in `src/StreamKeepr/wwwroot/css/`. Add a dev-only sync when needed. Owner: **Frontend foundation and app shell**. |
 | E-19 | F2-T7's `<Virtualize>` over variable-height group/day/row items is replaced by all-DOM rendering with `content-visibility`; revisit at roughly 2,000 items. | Accept (deviation) | Preserves keyboard/focus/scroll and avoids a fixed-height virtualizer. Revisit only with measurements. Owner: **Library, search, and live updates**. |
+| E-20 | The F3-T2 quality menu and F3-T8 preferred quality are deferred; the player shows a static “Source” pill. | Accept (deferral) | The recorder captures one Streamlink quality and the stitched `index.m3u8` is a single media playlist, so hls.js has no alternate levels to switch. Add both when a multi-variant master playlist exists. Owner: **Player, stats, and resume**. |
+| E-21 | E2E playback runs on branded Chrome (`channel: "chrome"`) installed in CI; fullscreen, PiP, and native-HLS transitions stay unit-tested, with native Safari manual. | Accept (environment) | Playwright's bundled Chromium lacks proprietary H.264, so the H.264 Mock fixture cannot play there. Chrome channel provides deterministic playback without changing the app. Owner: **Player, stats, and resume**. |
 
 ## Corrected dependency edges
 
