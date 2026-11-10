@@ -1,0 +1,65 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>StreamKeepr</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--surface); color: var(--on-surface); font-family: var(--font-sans); overflow: hidden; }
+  .cover { position: relative; width: 960px; height: 288px; overflow: hidden; background: var(--surface); }
+  .art { position: absolute; top: 0; left: 480px; width: 480px; height: 288px; overflow: hidden; }
+  .art svg { display: block; width: 480px; height: 288px; }
+  .slab { fill: var(--primary-container); }
+  .brand { fill: var(--primary); }
+  .tert { fill: var(--tertiary); }
+  .rec { fill: var(--rec); }
+  .blk { rx: var(--radius-md); }
+  .seg { rx: var(--radius-xs); }
+  .seg.played { fill: var(--primary); }
+  .seg.buf { fill: var(--secondary); }
+  .seg.todo { fill: var(--surface-container-highest); }
+  .bar { fill: var(--primary); rx: var(--radius-xs); }
+  .track { fill: var(--surface); opacity: 0.5; rx: var(--radius-xs); }
+  .words { position: absolute; left: var(--space-8); bottom: var(--space-8); max-width: 440px; }
+  .name { margin: 0; font-size: 60px; line-height: 0.92; font-weight: 700; letter-spacing: -0.01em; color: var(--on-surface); }
+  .tag { margin: var(--space-3) 0 0 2px; font-size: 13px; line-height: 20px; color: var(--on-surface-variant); }
+</style>
+</head>
+<body>
+<div class="cover">
+  <div class="art" aria-hidden="true">
+    <svg viewBox="0 0 480 288" width="480" height="288">
+      <!--
+        blocks      primary-container 304×168 "player" slab (largest: the video is the product) · primary 160×152 bleeding off the top-right · tertiary 112×96 satellite (network stats) · rec 16px disc once (it only ever means "recording now") — ≈38% of 960×288
+        arrangement one 16:9 slab with satellites stacked on its right, top block bleeding off the top and right edges, space-4 gutters
+        pattern     a row of HLS segments, from the README ("captures streams to disk as HLS playlists"): 8-tall radius-xs bars at a space-8 pitch — played in primary, buffered in secondary, not yet loaded in surface-container-highest — under the slab, plus its own progress bar cut into the slab
+        scales      sides in space-2 multiples; gutters space-4; segment pitch space-8 (24 + space-2 gap); corners radius-md, segments radius-xs, disc radius-full
+      -->
+      <rect class="slab blk" x="0" y="32" width="304" height="168" rx="12"/>
+      <rect class="track" x="16" y="176" width="272" height="8" rx="4"/>
+      <rect class="bar" x="16" y="176" width="168" height="8" rx="4"/>
+      <rect class="brand blk" x="320" y="-16" width="176" height="152" rx="12"/>
+      <rect class="tert blk" x="320" y="152" width="112" height="96" rx="12"/>
+      <circle class="rec" cx="456" cy="232" r="8"/>
+      <rect class="seg played" x="0" y="224" width="24" height="8" rx="4"/>
+      <rect class="seg played" x="32" y="224" width="24" height="8" rx="4"/>
+      <rect class="seg played" x="64" y="224" width="24" height="8" rx="4"/>
+      <rect class="seg played" x="96" y="224" width="24" height="8" rx="4"/>
+      <rect class="seg played" x="128" y="224" width="24" height="8" rx="4"/>
+      <rect class="seg played" x="160" y="224" width="24" height="8" rx="4"/>
+      <rect class="seg buf" x="192" y="224" width="24" height="8" rx="4"/>
+      <rect class="seg buf" x="224" y="224" width="24" height="8" rx="4"/>
+      <rect class="seg todo" x="256" y="224" width="24" height="8" rx="4"/>
+      <rect class="seg todo" x="0" y="240" width="24" height="8" rx="4"/>
+      <rect class="seg todo" x="32" y="240" width="24" height="8" rx="4"/>
+      <rect class="seg todo" x="64" y="240" width="24" height="8" rx="4"/>
+    </svg>
+  </div>
+  <div class="words">
+    <h1 class="name">StreamKeepr</h1>
+    <p class="tag">Twitch streams, kept — captured to disk as HLS and played back in the browser.</p>
+  </div>
+</div>
+</body>
+</html>
