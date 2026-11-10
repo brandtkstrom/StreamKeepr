@@ -91,6 +91,7 @@ Every fix names an owner ticket. A finding is not resolved until its owner ticke
 | E-16 | Coverage is collected but no percentage gate is enforced initially. | Accept | Add a threshold once the pure core is covered; do not block early work on an arbitrary number. Owner: **Testing strategy and fake-Twitch harness**. |
 | E-17 | No automatic test retries; flaky tests are fixed or quarantined with a linked issue and deadline. | Accept | Keeps flakes visible; no silent retries or skips. Owner: **Testing strategy and fake-Twitch harness**. |
 | E-18 | Generated design-system CSS is committed; `npm run sync:ds` is deferred until the design system changes. | Accept | No Node runtime; source stays in `design-system/`, built CSS in `src/StreamKeepr/wwwroot/css/`. Add a dev-only sync when needed. Owner: **Frontend foundation and app shell**. |
+| E-19 | F2-T7's `<Virtualize>` over variable-height group/day/row items is replaced by all-DOM rendering with `content-visibility`; revisit at roughly 2,000 items. | Accept (deviation) | Preserves keyboard/focus/scroll and avoids a fixed-height virtualizer. Revisit only with measurements. Owner: **Library, search, and live updates**. |
 
 ## Corrected dependency edges
 
