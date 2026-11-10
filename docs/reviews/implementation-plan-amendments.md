@@ -142,5 +142,12 @@ Add or change these edges; then recompute the Part 2 waves from the corrected gr
 
 ## Open items
 
-- E-01, E-02, E-04, E-05, E-06, E-07 remain unresolved product questions; they do not block the backend route.
+- E-01 (thumbnail strategy) remains an open product choice; `ThumbnailUrl` stays nullable and the spec must not assume a source.
+- E-02 is resolved as a stub with a snackbar; no scheduling feature.
+- E-04 is resolved semantically: empty `AllowedTwitchLogins` means open administration; viewing stays public; exact deployment values are configuration.
+- E-05 is resolved as an external TLS proxy; sign-in works over HTTPS or localhost, and plain LAN HTTP cannot administer.
+- E-06 is resolved as a local-license constraint: MonoLisa woff2 stay Git-ignored and are never redistributed; commercial/product use needs the Creator plan.
+- E-07/E-14 keep the manual subscriber token; a Settings rotation entry is deferred.
+- E-20, E-22, and E-23 are accepted deviations/deferrals recorded in the binding contracts.
 - B-05 and C-01 are confirmed: backend-owned fields move into Part 1, and export is always a single MP4 with an explicit incompatible-parts error.
+- The consolidated handoff is `docs/decision-digest.md`; post-implementation review criteria live there.
