@@ -84,6 +84,7 @@ Every fix names an owner ticket. A finding is not resolved until its owner ticke
 | E-09 | No hardware target; defaults stand. | Accept | No action. |
 | E-10 | HEVC and AV1 recording enabled alongside h264 via `--twitch-supported-codecs h264,h265,av1`. | Accept (risk) | The player must surface unsupported-codec errors; MP4 export should tag HEVC as `hvc1`; test with HEVC/AV1 streams. Owner: **Player, stats, and resume**; **Details, export, delete, auth UX, and settings**. |
 | E-11 | The live stitched `#EXT-X-TARGETDURATION` can change when a part spans an ad break, violating RFC 8216 §6.2.1; hls.js tolerates it. | Accept (risk) | Keep the live max-of-parts target; the final index is stable. Revisit if a strict client appears or the drift prevents FFmpeg finalization. Owner: **Session store, stitching, recovery, and retention**. |
+| E-12 | No global concurrent-recording cap; one job per channel and channels record in parallel. | Accept | The channel list is user-controlled. Add a cap only if disk or bandwidth pressure appears. Owner: **Supervisor, coordinators, and channel control**. |
 
 ## Corrected dependency edges
 
