@@ -130,13 +130,15 @@ public interface IExportService
     event Action? Changed;
     ExportJob Start(string recordingId, ClaimsPrincipal user, CancellationToken ct);
     ExportJob? Find(string exportId);
+    ExportJob? FindByRecording(string recordingId);
     void Cancel(string exportId, ClaimsPrincipal user);
 }
 ```
 
 - **Always one MP4.** No ZIP fallback.
 - `Start` requires an authenticated admin. The recording must be Complete; Recording/Reconnecting throws `InvalidOperationException`. Unknown id throws `KeyNotFoundException`.
-- `ffprobe` checks every part's video parameters before enqueueing. Incompatible parts produce a `Failed` job with `ExportIncompatibleParts`; no file is produced.
+- `FindByRecording` returns the most recent job for the recording: the active job while Queued/Running, otherwise the latest result. It returns null when no job exists or a Succeeded job's file has been cleaned up, so the details card can rehydrate after navigation or reload. `Find(exportId)` and the download endpoint keep their 404 semantics.
+- `ffprobe` checks every part's video parameters before enqueueing. Incompatible parts produce a `Failed` job with `ExportIncompatibleParts`; no file is produced. The error value is the stable code the UI uses to suppress Retry; other error values are user-safe messages.
 - One export at a time; FIFO queue. FFmpeg runs `-i <index> -c copy -movflags +faststart -progress pipe:1` into `.streamkeepr/exports/{exportId}.mp4`, writes a temp file, and renames atomically.
 - `Progress` is 0..1 from `out_time_us` / recording duration; `Changed` fires at most every 500 ms.
 - A lease (`IExportLeaseRegistry`) is held from start through success/failure/cancel. Delete refuses while the recording is leased.
@@ -172,6 +174,7 @@ public interface IStorageMonitor
 | `IProgressStore` | Public write (viewing is open) |
 | `IChannelsView` | Signed-in for read and mutation |
 | `IExportService.Start/Cancel` | Signed-in; `ClaimsPrincipal` parameter |
+| `IExportService.Find/FindByRecording` | Public read of job metadata; the download itself stays signed-in |
 | `IRecordingAdmin.DeleteAsync` | Signed-in; `ClaimsPrincipal` parameter |
 | Export download endpoint | Signed-in |
 | Media/health/static assets | Public |
@@ -216,6 +219,7 @@ Progress:
 Export:
 
 - Queue one at a time; progress; incompatible parts fail; recording rejected; lease blocks delete; cancel; cleanup; download auth/range/404/409.
+- `FindByRecording` rehydration for Queued/Running/Succeeded/Failed/Cancelled; latest job wins; null after file cleanup.
 
 Admin/storage:
 
@@ -229,7 +233,7 @@ Graph/integration:
 
 ## 10. Binding versus implementation freedom
 
-Binding: view-model shapes and derivation, query/sort/state rules, `ILibraryView`/`IChannelsView` scoping and 500 ms throttle, progress file/endpoint semantics, export always-MP4/queue/lease/cleanup/download contract, delete rules, storage threshold, authorization seams, and corrected F10 graph.
+Binding: view-model shapes and derivation, query/sort/state rules, `ILibraryView`/`IChannelsView` scoping and 500 ms throttle, progress file/endpoint semantics, export always-MP4/queue/lease/cleanup/download/`FindByRecording` contract, delete rules, storage threshold, authorization seams, and corrected F10 graph.
 
 Freedom: service internals, FFmpeg process wiring, JSON serialization, timer implementation, error message wording, and test framework.
 
