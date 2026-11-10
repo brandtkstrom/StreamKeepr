@@ -82,6 +82,7 @@ Every fix names an owner ticket. A finding is not resolved until its owner ticke
 | E-07 | Subscriber-only stream token handling. | Defer | Owner **Twitch polling, EventSub, and auth**. |
 | E-08 | Hover thumbnails dropped. | Accept | No action. |
 | E-09 | No hardware target; defaults stand. | Accept | No action. |
+| E-10 | HEVC and AV1 recording enabled alongside h264 via `--twitch-supported-codecs h264,h265,av1`. | Accept (risk) | The player must surface unsupported-codec errors; MP4 export should tag HEVC as `hvc1`; test with HEVC/AV1 streams. Owner: **Player, stats, and resume**; **Details, export, delete, auth UX, and settings**. |
 
 ## Corrected dependency edges
 
