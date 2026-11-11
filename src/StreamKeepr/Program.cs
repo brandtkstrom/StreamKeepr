@@ -13,6 +13,13 @@ using StreamKeepr.Ui;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Compose mounts secret files at /run/secrets. AddKeyPerFile maps "__" in a
+// file name to ":" in the key (Twitch__ClientId becomes Twitch:ClientId), so
+// secrets bind exactly like the matching environment variables. This runs
+// before the Mock profile adds its in-memory credentials, so Mock stays fake.
+if (Directory.Exists("/run/secrets"))
+    builder.Configuration.AddKeyPerFile("/run/secrets", optional: true);
+
 // The Mock profile is a disposable local/E2E host: it forces dummy credentials and a
 // recordings root under the system temp directory before any options are bound.
 bool mock = builder.Environment.IsEnvironment(MockEnvironment.Name);

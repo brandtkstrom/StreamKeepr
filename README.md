@@ -81,24 +81,57 @@ to a unique directory under the system temp directory. Set `STREAMKEEPR_E2E_ARTI
 them at a known path; CI sets it and uploads the directory as `playwright-results`. E2E has no
 automatic retries; a failure is fixed or quarantined explicitly.
 
-## Container image
+## Compose deployment
 
-The app ships as a non-root image (UID 1654) with Streamlink and static FFmpeg/ffprobe inside. It listens on port 8080 and checks `/health/live`.
+`compose.yaml` builds the non-root image (UID 1654) and runs one `stream-keepr` service with Streamlink and static FFmpeg/ffprobe inside. It publishes plain HTTP on port 8080, stores recordings on a named volume, enables `init`, inherits the image's `/health/live` healthcheck, rotates Docker logs, and gives shutdown a 50 s grace period.
+
+### Secret files and permissions
+
+Create the secret files from the checked-in examples, from the repository root:
 
 ```bash
-docker build -t streamkeepr .
-docker run --rm -p 8080:8080 \
-  -v streamkeepr-recordings:/recordings \
-  -e Twitch__ClientId="<client-id>" \
-  -e Twitch__ClientSecret="<client-secret>" \
-  streamkeepr
+cp secrets/twitch_client_id.txt.example secrets/twitch_client_id.txt
+cp secrets/twitch_client_secret.txt.example secrets/twitch_client_secret.txt
+# Edit both files and replace the placeholders.
 ```
 
-A named volume inherits the image's ownership. For a bind mount, run `sudo chown -R 1654:1654 <recordings>` first; the startup preflight fails with that instruction when the folder is not writable. Streamlink is pinned at 8.6.3 and can be bumped with `--build-arg STREAMLINK_VERSION=<version>`.
+Docker Compose mounts these files into `/run/secrets`. That is a bind mount on Linux, so the container process (UID 1654) must be able to read the host files. Make UID 1654 the owner and remove group/other access:
 
-## HTTPS and the reverse proxy
+```bash
+sudo chown 1654:1654 secrets/twitch_client_id.txt secrets/twitch_client_secret.txt
+sudo chmod 400 secrets/twitch_client_id.txt secrets/twitch_client_secret.txt
+```
 
-Twitch sign-in requires HTTPS except on `localhost`. When TLS terminates at a reverse proxy, trust only that proxy (or network) so the app builds the public callback URL and secure cookie:
+Mode `600` with owner `1654:1654` also works. Do not make real secrets world-readable or add them to the image, and never commit them. On macOS Docker Desktop, file ownership is mapped by the VM; the `chown` is harmless but usually unnecessary.
+
+`secrets/.gitignore` keeps the `*.example` files and ignores the real files.
+
+Start the service:
+
+```bash
+docker compose up --build --detach
+docker compose logs --follow stream-keepr
+```
+
+Open <http://localhost:8080>. The image runs as UID 1654 and reads recordings from `/recordings`.
+
+The service reads secret files from `/run/secrets`; `AddKeyPerFile` maps `__` in a file name to `:` in the configuration key, so `Twitch__ClientId` becomes `Twitch:ClientId`. The secrets are not environment variables and are never baked into the image. To use a subscriber-only Streamlink token, create `secrets/recorder_twitch_user_oauth_token.txt`, apply the same ownership and mode, and uncomment both `Recorder__TwitchUserOAuthToken` entries in `compose.yaml`.
+
+To seed the first channel on a fresh deployment, uncomment `Twitch__Channels__0` in `compose.yaml` and set it to a Twitch login, or leave `${TWITCH_CHANNEL_LOGIN}` and set that variable in `.env`. Do not leave an empty value: an empty login fails options validation. The seeded login is only used when the persisted channel list is first created; later changes are made through the application's channel controls.
+
+### Volume ownership
+
+A named volume inherits the image's ownership of `/recordings`. To use a host folder instead, replace the volume with `- ./recordings:/recordings` and run:
+
+```bash
+sudo chown -R 1654:1654 ./recordings
+```
+
+The startup preflight fails with this instruction when the root is not writable.
+
+### HTTPS reverse proxy
+
+Sign-in requires HTTPS except on `localhost`, so plain port 8080 is for viewing and local administration only. Put a TLS-terminating reverse proxy in front of the service and trust only that proxy (or its network):
 
 ```json
 "Hosting": {
@@ -110,5 +143,36 @@ Twitch sign-in requires HTTPS except on `localhost`. When TLS terminates at a re
 ```
 
 Both lists default to empty, which ignores every `X-Forwarded-*` header. An app behind an unconfigured proxy refuses sign-in with `authError=httpsRequired` instead of sending Twitch a broken callback.
+
+### Stop, restart, and logs
+
+`docker compose stop` sends SIGTERM through `init` to the app. Active recordings finalize within the host's 40 s shutdown budget, below Compose's 50 s grace period. `docker compose restart` (or `start`) recovers unfinished sessions on the next launch. Data Protection keys live under `/recordings/.streamkeepr/keys`, so sign-in cookies survive a restart. `docker compose down` keeps the recordings volume; `docker compose down --volumes` deletes recordings and keys.
+
+Docker log rotation is capped at 10 MB per file with five files.
+
+### Compose smoke test
+
+The smoke test builds an isolated image and first checks the production contract: health, non-root UID, volume ownership, secret availability as UID 1654, log rotation, clean stop, and restart. It then starts the test-only Mock override with `./tests/fixtures` mounted read-only, records the growing Mock capture through the fake Streamlink, stops the service, and verifies every part playlist has exactly one `ENDLIST`. It restarts the same container to prove the `sk-auth` cookie and Data Protection keys survive and a seeded deep link still renders.
+
+```bash
+./scripts/compose-smoke.sh
+```
+
+The smoke test uses a unique Compose project, container, image tag, and temporary secret directory. It never touches an operator's stack, recordings, or secrets.
+
+## Container image
+
+The image can also be run directly. A named volume inherits the image's ownership; a bind mount needs the `chown` above. Mount secret files rather than passing credentials in `docker run --env` arguments:
+
+```bash
+docker build -t streamkeepr .
+docker run --rm -p 8080:8080 \
+  -v streamkeepr-recordings:/recordings \
+  --mount type=bind,source="$PWD/secrets/twitch_client_id.txt",target=/run/secrets/Twitch__ClientId,readonly \
+  --mount type=bind,source="$PWD/secrets/twitch_client_secret.txt",target=/run/secrets/Twitch__ClientSecret,readonly \
+  streamkeepr
+```
+
+The two files must have the ownership and mode described above. Streamlink is pinned at 8.6.3 and can be bumped with `--build-arg STREAMLINK_VERSION=<version>`.
 
 The old worker still builds beside the new app until the migration switch.
