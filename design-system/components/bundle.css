@@ -330,3 +330,10 @@ mark.sk-hl { background: var(--highlight); color: var(--on-highlight); border-ra
 .sk-details-meta .who { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--on-surface); font-weight: 600; }
 .sk-details-meta .sep { width: 4px; height: 4px; border-radius: var(--radius-full); background: var(--outline); }
 .sk-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+/* Visually hidden but available to assistive technology. */
+.sk-visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
+  white-space: nowrap; border: 0;
+}

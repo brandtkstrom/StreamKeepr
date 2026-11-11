@@ -8,9 +8,16 @@ using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
+using StreamKeepr.Mock;
 using StreamKeepr.Ui;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// The Mock profile is a disposable local/E2E host: it forces dummy credentials and a
+// recordings root under the system temp directory before any options are bound.
+bool mock = builder.Environment.IsEnvironment(MockEnvironment.Name);
+if (mock)
+    MockEnvironment.Configure(builder);
 
 // The host budget is the recorder job budget plus shutdown/cleanup headroom.
 TimeSpan shutdownTimeout = ChannelCoordinator.JobStopBudget + TimeSpan.FromSeconds(5);
@@ -41,6 +48,13 @@ builder.Services.AddOptions<AuthOptions>()
         $"{AuthOptions.SectionName}:{nameof(AuthOptions.AllowedTwitchLogins)} contains an invalid Twitch login.")
     .ValidateOnStart();
 
+if (mock)
+{
+    builder.Services.AddOptions<MockSeedOptions>()
+        .BindConfiguration(MockSeedOptions.SectionName)
+        .ValidateOnStart();
+}
+
 builder.Services.AddStreamKeeprForwardedHeaders();
 
 builder.Services.AddSingleton(TimeProvider.System);
@@ -55,15 +69,27 @@ builder.Services.AddSingleton<RecoveryService>();
 builder.Services.AddSingleton<RecorderJob>();
 builder.Services.AddSingleton<IRecorder>(services => services.GetRequiredService<RecorderJob>());
 
-// Runtime: one coordinator per stored channel, fed by the Helix poller.
+// Runtime: one coordinator per stored channel, fed by the Helix poller. The Mock profile
+// swaps in deterministic fakes and never constructs the Twitch HTTP/EventSub clients.
 builder.Services.AddSingleton<IRetryJitter, RandomizedRetryJitter>();
 builder.Services.AddSingleton<DvrStatus>();
 builder.Services.AddSingleton<ChannelCoordinatorFactory>();
-builder.Services.AddSingleton<TwitchTokenProvider>();
 builder.Services.AddSingleton<PollSchedule>();
-builder.Services.AddSingleton<IStreamPoller, TwitchStreamPoller>();
-builder.Services.AddSingleton<IEventSubSocketFactory, ClientWebSocketEventSubSocketFactory>();
-builder.Services.AddSingleton<IEventSubClient, EventSubClient>();
+
+if (mock)
+{
+    builder.Services.AddSingleton<MockTwitch>();
+    builder.Services.AddSingleton<IStreamPoller, MockStreamPoller>();
+    builder.Services.AddSingleton<IEventSubClient, MockEventSubClient>();
+}
+else
+{
+    builder.Services.AddSingleton<TwitchTokenProvider>();
+    builder.Services.AddSingleton<IStreamPoller, TwitchStreamPoller>();
+    builder.Services.AddSingleton<IEventSubSocketFactory, ClientWebSocketEventSubSocketFactory>();
+    builder.Services.AddSingleton<IEventSubClient, EventSubClient>();
+}
+
 builder.Services.AddSingleton<DvrSupervisor>();
 builder.Services.AddSingleton<IChannelControl>(
     services => services.GetRequiredService<DvrSupervisor>());
@@ -71,6 +97,9 @@ builder.Services.AddSingleton<IChannelControl>(
 // Hosted services start in registration order, so preflight runs before Data
 // Protection, the supervisor, and any channel or recording service.
 builder.Services.AddHostedService<ToolPreflight>();
+
+if (mock)
+    builder.Services.AddHostedService<MockSeeder>();
 
 // Keys live on the recordings volume and are ready before auth or token storage runs.
 builder.Services.AddStreamKeeprDataProtection();
@@ -89,7 +118,11 @@ builder.Services.AddHttpClient(TwitchHttpClients.Helix, client =>
     client.BaseAddress = new Uri("https://api.twitch.tv/"));
 builder.Services.AddSingleton<IAdminTokenStore, AdminTokenStore>();
 
-builder.Services.AddStreamKeeprAdminAuth();
+if (mock)
+    builder.Services.AddStreamKeeprMockAuth();
+else
+    builder.Services.AddStreamKeeprAdminAuth();
+
 builder.Services.AddAuthorization();
 builder.Services.AddCascadingAuthenticationState();
 
@@ -106,7 +139,14 @@ var app = builder.Build();
 
 app.Lifetime.ApplicationStarted.Register(() =>
 {
-    if (app.Services.GetRequiredService<IOptions<AuthOptions>>().Value.AllowedTwitchLogins.Count == 0)
+    if (mock)
+    {
+        app.Logger.LogWarning(
+            "Running the Mock profile: dummy Twitch credentials, fake poller/EventSub/auth, " +
+            "and a disposable recordings root at {Root}. Never use it for production data.",
+            app.Services.GetRequiredService<IOptions<StorageOptions>>().Value.RecordingsRoot);
+    }
+    else if (app.Services.GetRequiredService<IOptions<AuthOptions>>().Value.AllowedTwitchLogins.Count == 0)
     {
         app.Logger.LogWarning(
             "AllowedTwitchLogins is empty; any Twitch user can administer this app. " +
@@ -122,6 +162,8 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
 
 app.UseAuthentication();
+if (mock)
+    app.UseStreamKeeprMockAuth();
 app.UseAuthorization();
 app.UseAntiforgery();
 
@@ -147,8 +189,13 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-app.MapGet(AdminAuth.LoginPath, AdminAuth.HandleLogin);
-app.MapPost(AdminAuth.LogoutPath, AdminAuth.HandleLogoutAsync);
+// Mock uses a fake cookie identity; the Twitch OAuth endpoints do not exist there.
+if (!mock)
+{
+    app.MapGet(AdminAuth.LoginPath, AdminAuth.HandleLogin);
+    app.MapPost(AdminAuth.LogoutPath, AdminAuth.HandleLogoutAsync);
+}
+
 app.MapMethods(
     LiveIndexEndpoint.Route,
     [HttpMethods.Get, HttpMethods.Head],
