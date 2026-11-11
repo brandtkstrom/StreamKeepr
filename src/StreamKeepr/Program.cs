@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using StreamKeepr.Components;
 using StreamKeepr.Configuration;
+using StreamKeepr.Hosting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -47,6 +48,8 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
 
 app.UseAntiforgery();
+
+app.UseRecordingsMedia();
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
