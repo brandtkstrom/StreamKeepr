@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
+using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Twitch;
 
 namespace StreamKeepr.Tests.Twitch;
@@ -240,6 +241,81 @@ public sealed class HelixPollerTests
     }
 
     [Fact]
+    public async Task A_recording_channel_forces_the_short_interval_even_with_full_push_coverage()
+    {
+        var clock = new FakeTimeProvider(
+            new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
+        var status = new DvrStatus();
+        var session = new Session(
+            "20261110T163000Z_1", "streamer", "1", clock.GetUtcNow(), "/tmp/session");
+        status.Applied(
+            "streamer",
+            null,
+            new DvrState.Recording(
+                session,
+                new JobId(session.Id, 1),
+                new LiveStream("1", "Title", "Game", clock.GetUtcNow(), null),
+                Attempt: 0,
+                HasMedia: false,
+                Streak: 0),
+            clock.GetUtcNow());
+
+        var schedule = new PollSchedule(clock);
+        schedule.SetPushCoverage(true);
+
+        int polls = 0;
+        var firstPoll = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondPoll = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new StubHandler(request =>
+        {
+            if (request.RequestUri!.Host == "id.twitch.tv")
+                return Task.FromResult(Token());
+
+            int poll = Interlocked.Increment(ref polls);
+            if (poll == 1)
+                firstPoll.TrySetResult();
+            else if (poll == 2)
+                secondPoll.TrySetResult();
+
+            return Task.FromResult(Streams("""{"data":[]}"""));
+        });
+
+        var factory = new StubHttpClientFactory(handler);
+        var options = Options.Create(new TwitchOptions
+        {
+            ClientId = "client-id",
+            ClientSecret = "client-secret",
+            PollIntervalSeconds = 30,
+            PollIntervalWithEventSubSeconds = 300,
+        });
+        var poller = new TwitchStreamPoller(
+            factory,
+            new TwitchTokenProvider(factory, options, clock),
+            schedule,
+            status,
+            options,
+            NullLogger<TwitchStreamPoller>.Instance);
+
+        using var stop = new CancellationTokenSource();
+        Task run = poller.RunAsync(
+            () => ["streamer"],
+            (_, _, _) => ValueTask.CompletedTask,
+            stop.Token);
+
+        await firstPoll.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        clock.Advance(TimeSpan.FromSeconds(29));
+        Assert.Equal(1, Volatile.Read(ref polls));
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await secondPoll.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public async Task Nudge_wakes_the_run_loop_for_an_immediate_poll()
     {
         int polls = 0;
@@ -291,8 +367,9 @@ public sealed class HelixPollerTests
         return new TwitchStreamPoller(
             factory,
             new TwitchTokenProvider(factory, options, clock),
+            new PollSchedule(clock),
+            new DvrStatus(),
             options,
-            clock,
             NullLogger<TwitchStreamPoller>.Instance);
     }
 

@@ -58,6 +58,7 @@ builder.Services.AddSingleton<IRetryJitter, RandomizedRetryJitter>();
 builder.Services.AddSingleton<DvrStatus>();
 builder.Services.AddSingleton<ChannelCoordinatorFactory>();
 builder.Services.AddSingleton<TwitchTokenProvider>();
+builder.Services.AddSingleton<PollSchedule>();
 builder.Services.AddSingleton<IStreamPoller, TwitchStreamPoller>();
 builder.Services.AddSingleton<DvrSupervisor>();
 builder.Services.AddSingleton<IChannelControl>(

@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
+using StreamKeepr.Infrastructure.Runtime;
 
 namespace StreamKeepr.Infrastructure.Twitch;
 
@@ -15,12 +16,11 @@ namespace StreamKeepr.Infrastructure.Twitch;
 public sealed class TwitchStreamPoller(
     IHttpClientFactory httpFactory,
     TwitchTokenProvider tokens,
+    PollSchedule schedule,
+    DvrStatus status,
     IOptions<TwitchOptions> options,
-    TimeProvider clock,
-    ILogger<TwitchStreamPoller> logger) : IStreamPoller, IDisposable
+    ILogger<TwitchStreamPoller> logger) : IStreamPoller
 {
-    private readonly SemaphoreSlim _nudge = new(0, 1);
-
     public async Task RunAsync(
         Func<IReadOnlyList<string>> logins,
         StreamObservationRoute route,
@@ -28,6 +28,10 @@ public sealed class TwitchStreamPoller(
     {
         try
         {
+            TimeSpan normal = TimeSpan.FromSeconds(options.Value.PollIntervalSeconds);
+            TimeSpan withPush = TimeSpan.FromSeconds(
+                options.Value.PollIntervalWithEventSubSeconds);
+
             while (!ct.IsCancellationRequested)
             {
                 IReadOnlyList<string> channels = logins()
@@ -44,7 +48,13 @@ public sealed class TwitchStreamPoller(
                         await route(login, observation, ct);
                 }
 
-                await WaitForNextPollAsync(ct);
+                bool recording = status.Current.Values.Any(
+                    snapshot => snapshot.State is DvrState.Recording
+                        or DvrState.WaitingToRetry);
+
+                schedule.Polled();
+                await schedule.WaitAsync(
+                    normal, recording ? normal : withPush, ct);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -119,19 +129,7 @@ public sealed class TwitchStreamPoller(
             : new ChannelInfo(channel.Title, channel.GameName);
     }
 
-    public void Nudge()
-    {
-        try
-        {
-            _nudge.Release();
-        }
-        catch (SemaphoreFullException)
-        {
-            // A nudge is already pending; coalesce it.
-        }
-    }
-
-    public void Dispose() => _nudge.Dispose();
+    public void Nudge() => schedule.Nudge();
 
     private async Task<Dictionary<string, LiveStream>?> LiveStreamsAsync(
         IReadOnlyList<string> batch, CancellationToken ct)
@@ -226,33 +224,6 @@ public sealed class TwitchStreamPoller(
 
     private static bool IsTransient(HttpStatusCode status) =>
         status == HttpStatusCode.TooManyRequests || (int)status >= 500;
-
-    private async Task WaitForNextPollAsync(CancellationToken ct)
-    {
-        TimeSpan interval = TimeSpan.FromSeconds(options.Value.PollIntervalSeconds);
-
-        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        using var nudgeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        Task delay = Task.Delay(interval, clock, delayCts.Token);
-        Task nudge = _nudge.WaitAsync(nudgeCts.Token);
-
-        Task first = await Task.WhenAny(delay, nudge);
-        if (first == delay)
-        {
-            await nudgeCts.CancelAsync();
-            await delay;
-            return;
-        }
-
-        await delayCts.CancelAsync();
-        try
-        {
-            await delay;
-        }
-        catch (OperationCanceledException) when (delayCts.IsCancellationRequested)
-        {
-        }
-    }
 
     private static bool IsNumericId(string id) =>
         id.Length is > 0 and <= 20 && id.All(char.IsAsciiDigit);
