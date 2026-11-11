@@ -1,7 +1,46 @@
-﻿services:
-  streamkeeper.recorder:
-    image: streamkeeper.recorder
-    build:
-      context: .
-      dockerfile: StreamKeeper.Recorder/Dockerfile
+# Production Compose deployment. The image builds from this checkout; runtime
+# configuration comes from the environment plus files under ./secrets.
+services:
+  stream-keepr:
+    build: .
+    image: ${STREAMKEEP_IMAGE:-stream-keepr:latest}
+    container_name: ${STREAMKEEP_CONTAINER_NAME:-stream-keepr}
+    restart: unless-stopped
+    init: true
+    # Above HostOptions.ShutdownTimeout (40 s) so an active part can finalize.
+    stop_grace_period: 50s
+    ports:
+      - "${STREAMKEEP_PORT:-8080}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      TZ: ${TZ:-UTC}
+      Storage__RecordingsRoot: /recordings
+      # Optional first-start channel seed. An empty value fails options
+      # validation, so uncomment the line only when you set the login.
+      # Twitch__Channels__0: ${TWITCH_CHANNEL_LOGIN}
+    secrets:
+      - Twitch__ClientId
+      - Twitch__ClientSecret
+      # Optional subscriber-only token: uncomment after creating
+      # ./secrets/recorder_twitch_user_oauth_token.txt.
+      # - Recorder__TwitchUserOAuthToken
+    volumes:
+      - recordings:/recordings
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
+volumes:
+  recordings:
+
+secrets:
+  Twitch__ClientId:
+    file: ${STREAMKEEP_SECRETS_DIR:-./secrets}/twitch_client_id.txt
+  Twitch__ClientSecret:
+    file: ${STREAMKEEP_SECRETS_DIR:-./secrets}/twitch_client_secret.txt
+  # Optional subscriber-only token. Uncomment this entry and the matching
+  # service entry above.
+  # Recorder__TwitchUserOAuthToken:
+  #   file: ${STREAMKEEP_SECRETS_DIR:-./secrets}/recorder_twitch_user_oauth_token.txt
