@@ -41,7 +41,8 @@ tests/
 ```
 
 - `tests/StreamKeepr.Tests` references `src/StreamKeepr` directly. No separate test-only public API.
-- `tests/StreamKeepr.E2E` starts the app with the `Mock` launch profile on a fixed local port, waits for `/health/ready`, then runs Playwright.
+- `tests/StreamKeepr.E2E` starts the app with the `Mock` launch profile on a free loopback port, waits for `/health/ready`, then runs Playwright.
+- The E2E fixture may publish the Debug output and run `StreamKeepr.dll` with `ASPNETCORE_ENVIRONMENT=Mock` when the SDK development static-asset handler cannot serve the framework `_framework/*.js` assets. It keeps the source project as the content root for the Mock fixture path and points `ASPNETCORE_WEBROOT` at the publish output.
 - `tests/js` is dev-only; Node never enters the image.
 - The old `StreamCaptureService.Tests` project is deleted with the old app in the migration route.
 
@@ -86,7 +87,7 @@ Rules:
 - `fake-streamlink` for the growing capture.
 - No Twitch client credentials are required.
 
-`dotnet run --launch-profile Mock` is the local/E2E path. Plain `dotnet run` is the real recorder.
+`dotnet run --launch-profile Mock` is the local path. The E2E fixture may run the published Debug output with the Mock environment as described in §3 when the SDK static-asset handler cannot serve the framework assets. Plain `dotnet run` is the real recorder.
 
 ## 6. Determinism and isolation
 

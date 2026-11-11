@@ -71,6 +71,7 @@ This contract covers the library drawer, grouping and day headers, search/filter
 - Focus movement is handled by `tree-nav.js` on the rendered DOM, without a server round-trip. Focus ring is the design-system 2 px `primary`.
 - Global `/` focuses search; Esc clears search; typing in an input is never intercepted. The player's shortcuts (later) must ignore editable targets and not conflict; the library tree handles keys only while focus is inside the drawer.
 - Collapse/expand and selection changes re-render through the normal Blazor state; focus returns to the same logical item after a re-render.
+- #56 ships the drawer with ordinary navigation semantics (`nav` plus real links and `aria-current`) and defers `role="tree"`, roving tabindex, and the key handling above to #58. Until then the drawer remains keyboard-usable through its normal links and group buttons.
 
 ## 7. Long lists (F2-T7 revision)
 

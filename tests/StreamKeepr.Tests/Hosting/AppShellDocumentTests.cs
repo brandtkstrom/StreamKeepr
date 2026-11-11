@@ -51,7 +51,8 @@ public sealed class AppShellDocumentTests
         var html = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("data-selected-recording=\"abc123\"", html);
+        Assert.Contains("data-unknown-recording", html);
+        Assert.Contains("Back to library", html);
         Assert.Contains("class=\"sk-shell", html);
         Assert.Contains("data-slot=\"player\"", html);
         Assert.Contains("data-slot=\"stats\"", html);

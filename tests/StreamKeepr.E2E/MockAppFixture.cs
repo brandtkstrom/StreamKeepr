@@ -1,22 +1,30 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
+using System.Net.Sockets;
 
 namespace StreamKeepr.E2E;
 
 /// <summary>
-/// Starts the real app with the <c>Mock</c> launch profile on a fixed loopback port, waits for
-/// <c>/health/ready</c>, and keeps its logs for a failure report. The recordings root is a unique
-/// temp directory so the suite never reads or writes a developer's or production library.
+/// Publishes the app once, starts the published host with the <c>Mock</c> environment on a free
+/// loopback port, waits for <c>/health/ready</c>, and keeps its logs for a failure report. The
+/// recordings root is a unique temp directory so the suite never reads or writes a developer's or
+/// production library.
+///
+/// The suite runs the published output rather than <c>dotnet run</c>: the SDK's static-web-asset
+/// development handler resolves the framework <c>_framework/*.js</c> files against the source
+/// <c>wwwroot</c>, where they do not exist, so the interactive circuit never starts. Publish
+/// copies the framework assets into the output webroot and serves them correctly.
 /// </summary>
 public sealed class MockAppFixture : IAsyncLifetime
 {
-    public const string BaseUrl = "http://127.0.0.1:5187";
+    public string BaseUrl { get; } = $"http://127.0.0.1:{FindFreePort()}";
 
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(120);
+    private static readonly TimeSpan PublishTimeout = TimeSpan.FromSeconds(300);
 
     private readonly ConcurrentQueue<string> _logs = new();
-    private readonly string _recordingsRoot = Path.Combine(
+    private readonly string _tempRoot = Path.Combine(
         Path.GetTempPath(), "streamkeepr-e2e", Guid.NewGuid().ToString("N"));
     private Process? _process;
     private string? _logPath;
@@ -25,14 +33,20 @@ public sealed class MockAppFixture : IAsyncLifetime
 
     public string ArtifactsDirectory { get; } = ResolveArtifactsDirectory();
 
+    private string RecordingsRoot => Path.Combine(_tempRoot, "recordings");
+
+    private string PublishRoot => Path.Combine(_tempRoot, "publish");
+
     public async Task InitializeAsync()
     {
         try
         {
             Directory.CreateDirectory(ArtifactsDirectory);
-            Directory.CreateDirectory(_recordingsRoot);
+            Directory.CreateDirectory(RecordingsRoot);
             _logPath = Path.Combine(ArtifactsDirectory, "mock-app.log");
             File.Delete(_logPath);
+
+            await PublishAsync();
 
             var startInfo = new ProcessStartInfo("dotnet")
             {
@@ -42,16 +56,16 @@ public sealed class MockAppFixture : IAsyncLifetime
                 UseShellExecute = false,
             };
 
-            startInfo.ArgumentList.Add("run");
-            startInfo.ArgumentList.Add("--project");
-            startInfo.ArgumentList.Add(Path.Combine(RepositoryRoot, "src", "StreamKeepr"));
-            startInfo.ArgumentList.Add("--launch-profile");
-            startInfo.ArgumentList.Add("Mock");
-            startInfo.ArgumentList.Add("--no-build");
-            startInfo.ArgumentList.Add("--");
+            startInfo.ArgumentList.Add(Path.Combine(PublishRoot, "StreamKeepr.dll"));
             startInfo.ArgumentList.Add("--urls");
             startInfo.ArgumentList.Add(BaseUrl);
-            startInfo.Environment["Mock__RecordingsRoot"] = _recordingsRoot;
+            startInfo.Environment["ASPNETCORE_ENVIRONMENT"] = "Mock";
+            startInfo.Environment["ASPNETCORE_CONTENTROOT"] =
+                Path.Combine(RepositoryRoot, "src", "StreamKeepr");
+            startInfo.Environment["ASPNETCORE_WEBROOT"] =
+                Path.Combine(PublishRoot, "wwwroot");
+            startInfo.Environment["Mock__RecordingsRoot"] = RecordingsRoot;
+            startInfo.Environment["Mock__Seed__ResetOnStart"] = "true";
 
             _process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             _process.OutputDataReceived += (_, args) => Capture(args.Data);
@@ -93,10 +107,55 @@ public sealed class MockAppFixture : IAsyncLifetime
             }
         }
 
-        if (Directory.Exists(_recordingsRoot))
-            Directory.Delete(_recordingsRoot, recursive: true);
+        if (Directory.Exists(_tempRoot))
+            Directory.Delete(_tempRoot, recursive: true);
 
         WriteReport();
+    }
+
+    private async Task PublishAsync()
+    {
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = RepositoryRoot,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+
+        startInfo.ArgumentList.Add("publish");
+        startInfo.ArgumentList.Add(Path.Combine("src", "StreamKeepr", "StreamKeepr.csproj"));
+        startInfo.ArgumentList.Add("-c");
+        startInfo.ArgumentList.Add("Debug");
+        startInfo.ArgumentList.Add("-warnaserror");
+        startInfo.ArgumentList.Add("-o");
+        startInfo.ArgumentList.Add(PublishRoot);
+        startInfo.ArgumentList.Add("-nologo");
+
+        using var process = new Process { StartInfo = startInfo };
+        if (!process.Start())
+            throw new InvalidOperationException("Could not publish the app for the E2E suite.");
+
+        Task<string> stdout = process.StandardOutput.ReadToEndAsync();
+        Task<string> stderr = process.StandardError.ReadToEndAsync();
+
+        try
+        {
+            await process.WaitForExitAsync().WaitAsync(PublishTimeout);
+        }
+        catch (TimeoutException)
+        {
+            process.Kill(entireProcessTree: true);
+            throw new TimeoutException(
+                $"The E2E publish did not finish within {PublishTimeout.TotalSeconds:N0} s.");
+        }
+
+        string output = $"{await stdout}{Environment.NewLine}{await stderr}";
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"The E2E publish failed with exit code {process.ExitCode}.{Environment.NewLine}{output}");
+        }
     }
 
     private async Task WaitForReadyAsync()
@@ -195,6 +254,13 @@ public sealed class MockAppFixture : IAsyncLifetime
             """;
 
         File.WriteAllText(reportPath, html);
+    }
+
+    private static int FindFreePort()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
 
     private static string ResolveArtifactsDirectory()

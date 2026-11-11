@@ -135,6 +135,28 @@ public sealed class MockTwitchTests
     }
 }
 
+public sealed class MockDiskSpaceTests
+{
+    [Fact]
+    public void Advances_by_two_percent_and_stops_at_five_percent_free()
+    {
+        var disk = new MockDiskSpace();
+
+        Assert.Equal(MockDiskSpace.TotalBytes, disk.AvailableFreeSpace(Path.GetTempPath()));
+
+        disk.Advance();
+        Assert.Equal(
+            MockDiskSpace.TotalBytes - MockDiskSpace.TotalBytes / 50,
+            disk.AvailableFreeSpace(Path.GetTempPath()));
+
+        for (int index = 0; index < 100; index++)
+            disk.Advance();
+
+        Assert.Equal(MockDiskSpace.TotalBytes / 20, disk.AvailableFreeSpace(Path.GetTempPath()));
+        Assert.Equal(MockDiskSpace.TotalBytes, disk.TotalSize(Path.GetTempPath()));
+    }
+}
+
 public sealed class MockEventSubClientTests
 {
     [Fact]
@@ -168,6 +190,224 @@ public sealed class MockEventSubClientTests
 
         await cts.CancelAsync();
         await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+}
+
+public sealed class MockLiveFeedTests : IDisposable
+{
+    private readonly string _root = Path.Combine(
+        Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
+
+    [Fact]
+    public async Task Produces_start_end_delete_and_storage_changes()
+    {
+        using var harness = new FeedHarness(_root);
+        harness.CreateMarker();
+        RecordingSummary target = harness.CreateDeleteTarget();
+
+        await harness.StartAsync();
+        await AdvanceToStartAsync(harness);
+        Assert.True(harness.Disk.AvailableFreeSpace(_root) < MockDiskSpace.TotalBytes);
+
+        await AdvanceToEndAsync(harness);
+        await AdvanceToDeleteAsync(harness);
+        await WaitUntilAsync(() => !Directory.Exists(harness.DeletedDirectory));
+
+        Assert.True(harness.StorageChanges > 0);
+        Assert.Null(harness.Library.Find(target.Id));
+
+        await harness.StopAsync();
+    }
+
+    [Fact]
+    public async Task Refuses_to_delete_without_the_mock_seeded_marker()
+    {
+        using var harness = new FeedHarness(_root);
+        RecordingSummary target = harness.CreateDeleteTarget();
+
+        await harness.StartAsync();
+        await AdvanceToStartAsync(harness);
+        await AdvanceToEndAsync(harness);
+        await AdvanceToDeleteAsync(harness);
+
+        Assert.True(Directory.Exists(harness.DeletedDirectory));
+        Assert.NotNull(harness.Library.Find(target.Id));
+
+        await harness.StopAsync();
+    }
+
+    private static async Task AdvanceToStartAsync(FeedHarness harness)
+    {
+        harness.Clock.Advance(TimeSpan.FromSeconds(1));
+        await WaitUntilAsync(
+            () => harness.Twitch.Observe("mock_echo") is StreamObservation.Live);
+    }
+
+    private static async Task AdvanceToEndAsync(FeedHarness harness)
+    {
+        harness.Clock.Advance(TimeSpan.FromSeconds(1));
+        await WaitUntilAsync(
+            () => harness.Twitch.Observe("mock_echo") is StreamObservation.Offline);
+    }
+
+    private async Task AdvanceToDeleteAsync(FeedHarness harness)
+    {
+        long freeBefore = harness.Disk.AvailableFreeSpace(_root);
+        harness.Clock.Advance(TimeSpan.FromSeconds(1));
+        await WaitUntilAsync(
+            () => harness.Disk.AvailableFreeSpace(_root) < freeBefore);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (int attempt = 0; attempt < 20_000; attempt++)
+        {
+            if (condition())
+                return;
+
+            // Yield normally, but periodically release the thread so the feed's fake-timer
+            // continuation can be scheduled while the rest of the suite runs in parallel.
+            if ((attempt & 0xF) == 0)
+                await Task.Delay(1);
+            else
+                await Task.Yield();
+        }
+
+        throw new TimeoutException("The Mock live feed did not reach the expected state.");
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_root))
+            Directory.Delete(_root, recursive: true);
+    }
+
+    private sealed class FeedHarness : IDisposable
+    {
+        private readonly CancellationTokenSource _cts = new();
+        private int _storageChanges;
+
+        public FeedHarness(string root)
+        {
+            var storageOptions = Options.Create(new StorageOptions
+            {
+                RecordingsRoot = root,
+                MinFreeGb = 1,
+            });
+            var recorder = Options.Create(new RecorderOptions { SegmentSeconds = 2 });
+            var sessions = new SessionStore(
+                recorder,
+                Library,
+                Clock,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<SessionStore>.Instance);
+
+            Storage = new StorageMonitor(
+                new DiskGuard(storageOptions, Disk),
+                Library,
+                Clock,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<StorageMonitor>.Instance);
+            Storage.Changed += () => Interlocked.Increment(ref _storageChanges);
+
+            var options = Options.Create(new MockLiveFeedOptions
+            {
+                TickSeconds = 1,
+                StartSeconds = 1,
+                EndSeconds = 2,
+                DeleteSeconds = 3,
+            });
+
+            Feed = new MockLiveFeed(
+                Twitch,
+                Disk,
+                Library,
+                sessions,
+                Storage,
+                storageOptions,
+                options,
+                Clock,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<MockLiveFeed>.Instance);
+
+            Deleted = MockCatalog.Recordings
+                .Where(recording => recording.Complete && recording.Channel == "mock_echo")
+                .OrderBy(recording => recording.StartedAt)
+                .First();
+            DeletedSession = MockCatalog.SessionFor(Deleted, root);
+            MarkerPath = Path.Combine(
+                AppDataPaths.AppDataDirectory(root), "mock-seeded");
+        }
+
+        public FakeTimeProvider Clock { get; } = new(MockCatalog.T0);
+
+        public MockTwitch Twitch { get; } = new();
+
+        public MockDiskSpace Disk { get; } = new();
+
+        public RecordingLibrary Library { get; } = new(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<RecordingLibrary>.Instance);
+
+        public StorageMonitor Storage { get; }
+
+        public MockLiveFeed Feed { get; }
+
+        public MockRecording Deleted { get; }
+
+        public Session DeletedSession { get; }
+
+        public string DeletedDirectory => DeletedSession.Directory;
+
+        public string MarkerPath { get; }
+
+        public int StorageChanges => Volatile.Read(ref _storageChanges);
+
+        public void CreateMarker()
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(MarkerPath)!);
+            File.WriteAllText(MarkerPath, "1");
+        }
+
+        public RecordingSummary CreateDeleteTarget()
+        {
+            Directory.CreateDirectory(DeletedDirectory);
+            File.WriteAllText(Path.Combine(DeletedDirectory, "keep.txt"), "x");
+
+            var summary = new RecordingSummary(
+                DeletedSession.Id,
+                DeletedSession.Channel,
+                Deleted.Title,
+                Deleted.Game,
+                DeletedSession.StartedAt,
+                DeletedSession.StartedAt.AddHours(1),
+                IsRecording: false,
+                DurationSeconds: 3600,
+                SizeBytes: 1024,
+                PartCount: 1,
+                SegmentCount: 1,
+                HasThumbnail: false,
+                Chapters: []);
+
+            Library.Upsert(summary);
+            return summary;
+        }
+
+        public async Task StartAsync()
+        {
+            await Feed.StartAsync(_cts.Token);
+            await Task.Yield();
+        }
+
+        public async Task StopAsync()
+        {
+            await _cts.CancelAsync();
+            await Feed.StopAsync(CancellationToken.None);
+        }
+
+        public void Dispose()
+        {
+            _cts.Cancel();
+            Feed.Dispose();
+            Storage.Dispose();
+            _cts.Dispose();
+        }
     }
 }
 
