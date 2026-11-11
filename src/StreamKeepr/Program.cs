@@ -2,6 +2,8 @@ using Microsoft.Extensions.Options;
 using StreamKeepr.Components;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
+using StreamKeepr.Infrastructure.Media;
+using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Ui;
@@ -11,6 +13,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOptions<TwitchOptions>()
     .BindConfiguration(TwitchOptions.SectionName)
     .ValidateDataAnnotations()
+    .Validate(options => options.Channels.All(AuthOptions.IsValidLogin),
+        $"{TwitchOptions.SectionName}:{nameof(TwitchOptions.Channels)} contains an invalid Twitch login.")
     .ValidateOnStart();
 
 builder.Services.AddOptions<RecorderOptions>()
@@ -39,6 +43,16 @@ builder.Services.AddSingleton<RecordingLibrary>();
 builder.Services.AddSingleton<IDiskSpace, DriveInfoDiskSpace>();
 builder.Services.AddSingleton<DiskGuard>();
 builder.Services.AddSingleton<SessionStore>();
+builder.Services.AddSingleton<RecorderJob>();
+builder.Services.AddSingleton<IRecorder>(services => services.GetRequiredService<RecorderJob>());
+
+// Runtime: one coordinator per configured channel, fed by the poller. The real Helix
+// poller replaces the temporary binding in #40.
+builder.Services.AddSingleton<IRetryJitter, RandomizedRetryJitter>();
+builder.Services.AddSingleton<DvrStatus>();
+builder.Services.AddSingleton<ChannelCoordinatorFactory>();
+builder.Services.AddSingleton<IStreamPoller, UnconfiguredStreamPoller>();
+builder.Services.AddSingleton<DvrSupervisor>();
 
 // Hosted services start in registration order, so preflight runs before Data
 // Protection, the supervisor, and any channel or recording service.
@@ -46,6 +60,9 @@ builder.Services.AddHostedService<ToolPreflight>();
 
 // Keys live on the recordings volume and are ready before auth or token storage runs.
 builder.Services.AddStreamKeeprDataProtection();
+
+// The supervisor starts only after preflight and the key-ring check have succeeded.
+builder.Services.AddHostedService(services => services.GetRequiredService<DvrSupervisor>());
 
 builder.Services.AddHttpClient(TwitchHttpClients.Auth, client =>
     client.BaseAddress = new Uri("https://id.twitch.tv/"));

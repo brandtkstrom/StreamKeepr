@@ -11,7 +11,16 @@ public sealed class TwitchOptions
     [Required] public string ClientSecret { get; set => field = value?.Trim() ?? ""; } = "";
 
     // Seed list only: copied into channels.json on first start; after that the Settings page owns the list.
-    public List<string> Channels { get; set; } = [];
+    public List<string> Channels
+    {
+        get;
+        set => field = value is null
+            ? []
+            : value
+                .Select(login => login?.Trim().ToLowerInvariant() ?? "")
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+    } = [];
 
     [Range(10, 600)] public int PollIntervalSeconds { get; set; } = 30;
 

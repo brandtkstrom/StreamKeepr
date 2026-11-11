@@ -34,4 +34,7 @@ public sealed class RecorderOptions
     [Range(15, 600)] public int StallTimeoutSeconds { get; set; } = 120;
 
     [Range(5, 15)] public int FinalizeTimeoutSeconds { get; set; } = 10;
+
+    // A part shorter than this counts toward the failure streak instead of resetting it.
+    [Range(5, 600)] public int HealthyPartSeconds { get; set; } = 30;
 }

@@ -9,6 +9,8 @@ public sealed class OptionsStartupTests
     [InlineData("Recorder:FfprobePath", "", "FfprobePath")]
     [InlineData("Recorder:SegmentSeconds", "1", "SegmentSeconds")]
     [InlineData("Recorder:FinalizeTimeoutSeconds", "16", "FinalizeTimeoutSeconds")]
+    [InlineData("Recorder:HealthyPartSeconds", "1", "HealthyPartSeconds")]
+    [InlineData("Twitch:Channels:0", "not a login", "Channels")]
     [InlineData("Storage:RecordingsRoot", "", "RecordingsRoot")]
     [InlineData("Auth:AllowedTwitchLogins:0", "not a login", "AllowedTwitchLogins")]
     [InlineData("Hosting:ForwardedHeaders:KnownProxies:0", "not-an-ip", "KnownProxies")]
