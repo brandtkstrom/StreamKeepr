@@ -66,6 +66,9 @@ public sealed class MockAppFixture : IAsyncLifetime
                 Path.Combine(PublishRoot, "wwwroot");
             startInfo.Environment["Mock__RecordingsRoot"] = RecordingsRoot;
             startInfo.Environment["Mock__Seed__ResetOnStart"] = "true";
+            // Exports run at 6x real time so the cancel/retry journey can catch one Running.
+            startInfo.Environment["Recorder__FfmpegPath"] =
+                Path.Combine(RepositoryRoot, "tests", "fixtures", "slow-export-ffmpeg");
 
             _process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             _process.OutputDataReceived += (_, args) => Capture(args.Data);

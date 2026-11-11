@@ -118,6 +118,91 @@ public sealed class RecordingExportTests
         Assert.Empty(cut.FindAll("[data-export-row]"));
     }
 
+    [Fact]
+    public void Queued_and_running_jobs_offer_cancel_which_ends_in_cancelled_with_retry_and_no_snackbar()
+    {
+        using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
+        cut.Find("button[data-export]").Click();
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("button[data-export-cancel]")));
+        cut.InvokeAsync(() => exports.Set(new ExportJob("e1", "r1", ExportState.Running, 0.3, null, null)));
+
+        cut.WaitForAssertion(() => cut.Find("button[data-export-cancel]").Click());
+
+        (string id, var user) = Assert.Single(exports.Cancels);
+        Assert.Equal("e1", id);
+        Assert.Equal("mock_admin", user.Identity?.Name);
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("Export cancelled", cut.Find("[data-export-row] [role='status']").TextContent);
+            Assert.NotNull(cut.Find("button[data-export-retry]"));
+            Assert.Empty(cut.FindAll("button[data-export-cancel]"));
+        });
+        Assert.Null(context.Services.GetRequiredService<SnackbarService>().Current);
+
+        cut.Find("button[data-export-retry]").Click();
+
+        Assert.Equal(2, exports.Starts.Count);
+        cut.WaitForAssertion(() =>
+            Assert.Equal("Queued — waiting for another export", cut.Find("[data-export-row] [role='status']").TextContent));
+    }
+
+    [Fact]
+    public void A_cancel_that_loses_the_race_with_completion_is_ignored()
+    {
+        using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        exports.Set(new ExportJob("e1", "r1", ExportState.Running, 0.9, null, null));
+        IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
+        exports.CancelFailure = _ =>
+        {
+            exports.Set(new ExportJob("e1", "r1", ExportState.Succeeded, 1, "x.mp4", null));
+            return new InvalidOperationException("The export has already finished.");
+        };
+        SnackbarService snackbars = context.Services.GetRequiredService<SnackbarService>();
+
+        cut.Find("button[data-export-cancel]").Click();
+
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("a[data-export-download]")));
+        Assert.NotEqual("The export has already finished.", snackbars.Current?.Text);
+    }
+
+    [Fact]
+    public void A_failed_export_shows_the_safe_message_with_retry()
+    {
+        using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
+        cut.Find("button[data-export]").Click();
+
+        cut.InvokeAsync(() => exports.Set(
+            new ExportJob("e1", "r1", ExportState.Failed, 0.2, null, "The export could not be completed.")));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("The export could not be completed.", cut.Find("[data-export-row] [role='status']").TextContent);
+            Assert.NotNull(cut.Find("button[data-export-retry]"));
+        });
+        Assert.Equal("Export failed", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+        Assert.False(cut.Find("button[data-export]").HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public void Incompatible_parts_explain_why_offer_no_retry_and_keep_export_disabled()
+    {
+        using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        exports.Set(new ExportJob("e1", "r1", ExportState.Failed, 0, null, ExportService.IncompatibleParts));
+
+        IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
+
+        Assert.Equal(
+            "This recording's parts cannot be joined into one MP4.",
+            cut.Find("[data-export-row] [role='status']").TextContent);
+        Assert.Empty(cut.FindAll("button[data-export-retry]"));
+        Assert.True(cut.Find("button[data-export]").HasAttribute("disabled"));
+        Assert.Equal(
+            "The parts of this recording use different video settings",
+            cut.Find("[role='tooltip']").TextContent);
+    }
+
     private static IRenderedComponent<RecordingDetails> Render(BunitContext context, RecordingView recording) =>
         context.Render<RecordingDetails>(p => p.Add(c => c.Recording, recording));
 

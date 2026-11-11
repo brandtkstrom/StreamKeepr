@@ -12,6 +12,11 @@ internal sealed class TestExportService : IExportService
 
     public Func<string, Exception?> StartFailure { get; set; } = _ => null;
 
+    public List<(string ExportId, ClaimsPrincipal User)> Cancels { get; } = [];
+
+    /// <summary>When set, Cancel throws it instead of cancelling the job.</summary>
+    public Func<string, Exception?> CancelFailure { get; set; } = _ => null;
+
     public event Action? Changed;
 
     public ExportJob Start(string recordingId, ClaimsPrincipal user, CancellationToken ct)
@@ -31,6 +36,15 @@ internal sealed class TestExportService : IExportService
         _jobs.Values.LastOrDefault(job => job.RecordingId == recordingId);
 
     public string? FilePath(string exportId) => null;
+
+    public void Cancel(string exportId, ClaimsPrincipal user)
+    {
+        Cancels.Add((exportId, user));
+        if (CancelFailure(exportId) is { } failure)
+            throw failure;
+
+        Set(_jobs[exportId] with { State = ExportState.Cancelled });
+    }
 
     /// <summary>Replaces (or adds) a job and raises <see cref="Changed"/>.</summary>
     public void Set(ExportJob job)

@@ -47,6 +47,34 @@ public sealed class ExportJourneyTests(MockAppFixture app)
     }
 
     [Fact]
+    public async Task A_running_export_can_be_cancelled_and_retried()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        // A different finished recording from the download journey, so the two never share a job.
+        ILocator saved = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").Nth(1);
+        string id = (await saved.GetAttributeAsync("data-recording-id"))!;
+        await saved.ClickAsync();
+        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+
+        await page.Locator("button[data-export]").ClickAsync();
+        ILocator status = page.Locator("[data-export-row] [role='status']");
+        await page.Locator("[data-export-row='Running'] [role='progressbar']").WaitForAsync(new() { Timeout = 30_000 });
+
+        await page.Locator("button[data-export-cancel]").ClickAsync();
+
+        await page.Locator("[data-export-row='Cancelled']").WaitForAsync();
+        Assert.Equal("Export cancelled", (await status.InnerTextAsync()).Trim());
+        Assert.Equal(0, await page.Locator(".sk-snackbar", new() { HasTextString = "Export" }).CountAsync());
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "export-cancelled");
+
+        await page.Locator("button[data-export-retry]").ClickAsync();
+
+        await page.Locator("a[data-export-download]").WaitForAsync(new() { Timeout = 60_000 });
+        await page.Locator(".sk-snackbar", new() { HasTextString = "Export ready" }).WaitForAsync();
+    }
+
+    [Fact]
     public async Task A_live_recording_cannot_be_exported()
     {
         await using Session session = await OpenAsync(app.BaseUrl);

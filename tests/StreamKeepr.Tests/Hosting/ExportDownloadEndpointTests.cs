@@ -115,5 +115,7 @@ public sealed class ExportDownloadEndpointTests : IDisposable
 
         public string? FilePath(string exportId) =>
             Jobs.GetValueOrDefault(exportId)?.State == ExportState.Succeeded ? Paths.GetValueOrDefault(exportId) : null;
+
+        public void Cancel(string exportId, ClaimsPrincipal user) => throw new NotSupportedException();
     }
 }

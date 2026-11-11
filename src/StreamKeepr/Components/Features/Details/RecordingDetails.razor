@@ -32,9 +32,9 @@
                         Copy playlist URL
                     </Button>
                     <RequiresTwitch>
-                        @if (IsLive)
+                        @if (ExportBlockedReason is { } reason)
                         {
-                            <Tooltip Text="Available when the recording finishes" tabindex="0">
+                            <Tooltip Text="@reason" tabindex="0">
                                 <Button Variant="ButtonVariant.Tonal" Disabled="true" data-export="true">
                                     <Icon Name="movie" Size="IconSize.Small" />
                                     Export MP4
@@ -97,6 +97,29 @@
                             <i style="width:@(percent)%"></i>
                         </div>
                     }
+                    @if (job.IsActive)
+                    {
+                        <RequiresTwitch>
+                            <Button Variant="ButtonVariant.Text"
+                                    Disabled="@_cancelling"
+                                    OnClick="CancelExportAsync"
+                                    data-export-cancel="true">
+                                Cancel
+                            </Button>
+                        </RequiresTwitch>
+                    }
+                    @if (CanRetry(job))
+                    {
+                        <RequiresTwitch>
+                            <Button Variant="ButtonVariant.Text"
+                                    Disabled="@_starting"
+                                    OnClick="StartExportAsync"
+                                    data-export-retry="true">
+                                <Icon Name="refresh" Size="IconSize.Small" />
+                                Retry
+                            </Button>
+                        </RequiresTwitch>
+                    }
                     @if (job.State == ExportState.Succeeded)
                     {
                         <RequiresTwitch>
@@ -158,9 +181,19 @@
     private ExportJob? _job;
     private string? _jobRecordingId;
     private bool _starting;
+    private bool _cancelling;
 
     private bool IsLive =>
         Recording.State is RecordingState.Recording or RecordingState.Reconnecting;
+
+    private bool IsIncompatible =>
+        _job is { State: ExportState.Failed, Error: ExportService.IncompatibleParts };
+
+    // Why Export MP4 is disabled with a tooltip; null when the button is live.
+    private string? ExportBlockedReason =>
+        IsLive ? "Available when the recording finishes"
+        : IsIncompatible ? "The parts of this recording use different video settings"
+        : null;
 
     private bool ShowSize =>
         Recording.State is RecordingState.Partial or RecordingState.Saved;
@@ -257,11 +290,50 @@
         }
     }
 
+    private async Task CancelExportAsync()
+    {
+        if (_cancelling || _job is not { IsActive: true } job || AuthenticationState is null)
+            return;
+
+        _cancelling = true;
+        try
+        {
+            // No confirmation: Retry is right there.
+            Exports.Cancel(job.Id, (await AuthenticationState).User);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or KeyNotFoundException
+            or UnauthorizedAccessException)
+        {
+            // Usually the job finished first; re-read it and only report a job still running.
+            RefreshExport();
+            if (_job is { IsActive: true })
+                Snackbars.Show(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Cancelling export {ExportId} failed.", job.Id);
+            RefreshExport();
+            if (_job is { IsActive: true })
+                Snackbars.Show("Could not cancel the export. Try again.");
+        }
+        finally
+        {
+            _cancelling = false;
+        }
+    }
+
+    // Retrying an incompatible recording would fail the same way.
+    private static bool CanRetry(ExportJob job) =>
+        job.State == ExportState.Cancelled
+        || job is { State: ExportState.Failed, Error: not ExportService.IncompatibleParts };
+
     private static string ExportText(ExportJob job) => job.State switch
     {
         ExportState.Queued => "Queued — waiting for another export",
         ExportState.Running => "Exporting…",
         ExportState.Succeeded => job.FileName is { } name ? $"MP4 ready · {name}" : "MP4 ready",
+        ExportState.Cancelled => "Export cancelled",
+        _ when job.Error == ExportService.IncompatibleParts => "This recording's parts cannot be joined into one MP4.",
         _ => job.Error ?? "Export failed",
     };
 
@@ -270,6 +342,7 @@
         ExportState.Queued => "schedule",
         ExportState.Running => "hourglass_top",
         ExportState.Succeeded => "check_circle",
+        ExportState.Cancelled => "cancel",
         _ => "error",
     };
 

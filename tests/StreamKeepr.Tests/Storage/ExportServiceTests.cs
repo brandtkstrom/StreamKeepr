@@ -3,8 +3,10 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
+using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Storage;
 using CliWrap;
+using Microsoft.Extensions.Time.Testing;
 
 namespace StreamKeepr.Tests.Storage;
 
@@ -18,29 +20,46 @@ public sealed class ExportServiceTests : IAsyncLifetime
         Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
     private readonly RecordingLibrary _library = new(NullLogger<RecordingLibrary>.Instance);
     private readonly ExportLeaseRegistry _leases = new();
+    private readonly List<ExportService> _started = [];
     private ExportService _service = null!;
     private string _ffmpeg = null!;
+    private string _ffprobe = null!;
+
+    private string ExportsDirectory => AppDataPaths.ExportsDirectory(_root);
 
     public async Task InitializeAsync()
     {
         _ffmpeg = TestPaths.RequireExecutable(
             "ffmpeg", "ffmpeg is required for export tests. Install it and put it on PATH.");
-        _service = new ExportService(
-            _library,
-            _leases,
-            Options.Create(new StorageOptions { RecordingsRoot = _root }),
-            Options.Create(new RecorderOptions { FfmpegPath = _ffmpeg }),
-            TimeProvider.System,
-            NullLogger<ExportService>.Instance);
-        await _service.StartAsync(CancellationToken.None);
+        _ffprobe = TestPaths.RequireExecutable(
+            "ffprobe", "ffprobe is required for export tests. Install it and put it on PATH.");
+        _service = await StartServiceAsync();
     }
 
     public async Task DisposeAsync()
     {
-        await _service.StopAsync(CancellationToken.None);
-        _service.Dispose();
+        foreach (ExportService service in _started)
+        {
+            await service.StopAsync(CancellationToken.None);
+            service.Dispose();
+        }
+
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
+    }
+
+    private async Task<ExportService> StartServiceAsync(TimeProvider? clock = null, string? ffmpeg = null)
+    {
+        var service = new ExportService(
+            _library,
+            _leases,
+            Options.Create(new StorageOptions { RecordingsRoot = _root }),
+            Options.Create(new RecorderOptions { FfmpegPath = ffmpeg ?? _ffmpeg, FfprobePath = _ffprobe }),
+            clock ?? TimeProvider.System,
+            NullLogger<ExportService>.Instance);
+        _started.Add(service);
+        await service.StartAsync(CancellationToken.None);
+        return service;
     }
 
     [Fact]
@@ -161,6 +180,133 @@ public sealed class ExportServiceTests : IAsyncLifetime
         await WaitForAsync(next.Id, ExportState.Succeeded);
     }
 
+    [Fact]
+    public async Task Incompatible_parts_fail_with_the_stable_code_and_produce_no_file()
+    {
+        await SeedPartsAsync("r1", ("160x90", "libx264"), ("320x180", "libx264"));
+
+        ExportJob job = await WaitForAsync(_service.Start("r1", Admin, CancellationToken.None).Id, ExportState.Failed);
+
+        Assert.Equal(ExportService.IncompatibleParts, job.Error);
+        Assert.False(_leases.IsLeased("r1"));
+        Assert.False(Directory.Exists(ExportsDirectory) && Directory.EnumerateFiles(ExportsDirectory).Any());
+        Assert.Same(_service.Find(job.Id), _service.FindByRecording("r1"));
+    }
+
+    [Fact]
+    public async Task Compatible_parts_export_to_one_mp4()
+    {
+        await SeedPartsAsync("r1", ("160x90", "libx264"), ("160x90", "libx264"));
+
+        ExportJob job = await WaitForAsync(_service.Start("r1", Admin, CancellationToken.None).Id, ExportState.Succeeded);
+
+        Assert.NotNull(_service.FilePath(job.Id));
+    }
+
+    [Fact]
+    public async Task An_hevc_export_is_tagged_hvc1()
+    {
+        await SeedPartsAsync("r1", ("160x90", "libx265"));
+
+        ExportJob job = await WaitForAsync(_service.Start("r1", Admin, CancellationToken.None).Id, ExportState.Succeeded);
+
+        byte[] head = new byte[64 * 1024];
+        await using (FileStream file = File.OpenRead(_service.FilePath(job.Id)!))
+            _ = await file.ReadAsync(head);
+        string text = System.Text.Encoding.ASCII.GetString(head);
+        Assert.Contains("hvc1", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("hev1", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cancelling_a_queued_job_removes_it_from_the_queue_and_releases_its_lease()
+    {
+        await SeedAsync("r1", "First");
+        await SeedAsync("r2", "Second");
+        ExportJob first = _service.Start("r1", Admin, CancellationToken.None);
+        ExportJob second = _service.Start("r2", Admin, CancellationToken.None);
+
+        _service.Cancel(second.Id, Admin);
+
+        Assert.Equal(ExportState.Cancelled, _service.Find(second.Id)?.State);
+        Assert.False(_leases.IsLeased("r2"));
+        await WaitForAsync(first.Id, ExportState.Succeeded);
+        Assert.Equal(ExportState.Cancelled, _service.Find(second.Id)?.State);
+        Assert.Null(_service.FilePath(second.Id));
+        Assert.False(File.Exists(Path.Combine(ExportsDirectory, $"{second.Id}.mp4")));
+    }
+
+    [Fact]
+    public async Task Cancelling_a_running_job_stops_ffmpeg_deletes_the_partial_file_and_allows_a_retry()
+    {
+        ExportService service = await StartServiceAsync(ffmpeg: TestPaths.FixturePath("fake-hanging-export-ffmpeg"));
+        await SeedAsync("r1", "Title");
+        ExportJob job = service.Start("r1", Admin, CancellationToken.None);
+        string partial = Path.Combine(ExportsDirectory, $"{job.Id}.mp4.tmp");
+        await WaitUntilAsync(() => service.Find(job.Id)?.State == ExportState.Running && File.Exists(partial));
+
+        service.Cancel(job.Id, Admin);
+
+        await WaitUntilAsync(() => service.Find(job.Id)?.State == ExportState.Cancelled);
+        Assert.False(File.Exists(partial));
+        Assert.False(_leases.IsLeased("r1"));
+        Assert.Null(service.Find(job.Id)?.Error);
+
+        ExportJob retry = service.Start("r1", Admin, CancellationToken.None);
+        Assert.NotEqual(job.Id, retry.Id);
+        Assert.Same(service.Find(retry.Id), service.FindByRecording("r1"));
+    }
+
+    [Fact]
+    public async Task Cancel_requires_an_admin_a_known_job_and_an_active_one()
+    {
+        await SeedAsync("r1", "Title");
+        ExportJob job = await WaitForAsync(_service.Start("r1", Admin, CancellationToken.None).Id, ExportState.Succeeded);
+
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            _service.Cancel(job.Id, new ClaimsPrincipal(new ClaimsIdentity())));
+        Assert.Throws<KeyNotFoundException>(() => _service.Cancel("missing", Admin));
+        Assert.Throws<InvalidOperationException>(() => _service.Cancel(job.Id, Admin));
+        Assert.Equal(ExportState.Succeeded, _service.Find(job.Id)?.State);
+    }
+
+    [Fact]
+    public async Task Export_files_older_than_a_day_are_removed_at_startup_and_periodically()
+    {
+        Directory.CreateDirectory(ExportsDirectory);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        string stale = Path.Combine(ExportsDirectory, "stale.mp4");
+        string staleTemp = Path.Combine(ExportsDirectory, "stale.mp4.tmp");
+        string fresh = Path.Combine(ExportsDirectory, "fresh.mp4");
+        foreach (string file in new[] { stale, staleTemp, fresh })
+            await File.WriteAllTextAsync(file, "x");
+        File.SetLastWriteTimeUtc(stale, clock.GetUtcNow().UtcDateTime.AddHours(-25));
+        File.SetLastWriteTimeUtc(staleTemp, clock.GetUtcNow().UtcDateTime.AddHours(-25));
+
+        await StartServiceAsync(clock);
+
+        await WaitUntilAsync(() => !File.Exists(stale));
+        Assert.False(File.Exists(staleTemp));
+        Assert.True(File.Exists(fresh));
+
+        clock.Advance(ExportService.MaxExportAge + ExportService.CleanupInterval);
+
+        await WaitUntilAsync(() => !File.Exists(fresh));
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (int attempt = 0; attempt < 400; attempt++)
+        {
+            if (condition())
+                return;
+
+            await Task.Delay(50);
+        }
+
+        Assert.True(condition(), "the condition was never met");
+    }
+
     private async Task<ExportJob> WaitForAsync(string id, ExportState state)
     {
         for (int attempt = 0; attempt < 1_200; attempt++)
@@ -200,6 +346,49 @@ public sealed class ExportServiceTests : IAsyncLifetime
             .ExecuteAsync();
 
         RecordingSummary summary = Summary(id, title: title);
+        _library.Upsert(summary);
+        return summary;
+    }
+
+    /// <summary>
+    /// Writes one HLS part per (size, encoder) as <c>init_NNN.mp4</c>/<c>pNNN_*.m4s</c> and joins
+    /// them into the session index with discontinuities, the way the recorder lays out parts.
+    /// </summary>
+    private async Task<RecordingSummary> SeedPartsAsync(string id, params (string Size, string Encoder)[] parts)
+    {
+        string directory = Path.Combine(_root, "mock_nova", id);
+        Directory.CreateDirectory(directory);
+        var index = new List<string> { "#EXTM3U", "#EXT-X-VERSION:7", "#EXT-X-TARGETDURATION:2", "#EXT-X-PLAYLIST-TYPE:VOD" };
+        for (int part = 1; part <= parts.Length; part++)
+        {
+            (string size, string encoder) = parts[part - 1];
+            await Cli.Wrap(_ffmpeg)
+                .WithWorkingDirectory(directory)
+                .WithArguments(
+                [
+                    "-hide_banner", "-loglevel", "error", "-y", "-nostdin",
+                    "-f", "lavfi", "-i", $"testsrc2=size={size}:rate=15:duration=4",
+                    "-c:v", encoder, "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-g", "30",
+                    .. (encoder == "libx265" ? new[] { "-x265-params", "log-level=error" } : Array.Empty<string>()),
+                    "-f", "hls", "-hls_segment_type", "fmp4", "-hls_time", "2",
+                    "-hls_playlist_type", "vod", "-hls_fmp4_init_filename", PartFiles.Init(part),
+                    "-hls_segment_filename", PartFiles.SegmentPattern(part),
+                    PartFiles.Playlist(part),
+                ])
+                .ExecuteAsync();
+
+            if (part > 1)
+                index.Add("#EXT-X-DISCONTINUITY");
+            index.AddRange((await File.ReadAllLinesAsync(Path.Combine(directory, PartFiles.Playlist(part))))
+                .Where(line => line.StartsWith("#EXT-X-MAP", StringComparison.Ordinal)
+                    || line.StartsWith("#EXTINF", StringComparison.Ordinal)
+                    || (line.Length > 0 && line[0] != '#')));
+        }
+
+        index.Add("#EXT-X-ENDLIST");
+        await File.WriteAllLinesAsync(Path.Combine(directory, SessionStore.IndexFileName), index);
+
+        RecordingSummary summary = Summary(id) with { DurationSeconds = 4 * parts.Length, PartCount = parts.Length };
         _library.Upsert(summary);
         return summary;
     }

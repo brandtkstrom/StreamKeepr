@@ -1,0 +1,10 @@
+#!/bin/sh
+# E2E wrapper around the real FFmpeg: an MP4 export (the only command that uses +faststart)
+# reads its input at 6x real time, so a 60 s mock clip stays Running for ~10 s and the
+# journey can cancel it. Every other command runs unchanged.
+for arg; do
+    if [ "$arg" = "+faststart" ]; then
+        exec ffmpeg -readrate 6 "$@"
+    fi
+done
+exec ffmpeg "$@"

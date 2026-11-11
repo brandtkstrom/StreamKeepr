@@ -38,12 +38,22 @@ public interface IExportService
 
     /// <summary>The finished file on disk, or null when the job is unknown or not finished.</summary>
     string? FilePath(string exportId);
+
+    /// <summary>
+    /// Removes a queued job or stops a running one, deleting its partial file and releasing the
+    /// lease; the job ends Cancelled. Throws <see cref="KeyNotFoundException"/> for an unknown job
+    /// and <see cref="InvalidOperationException"/> once it has finished.
+    /// </summary>
+    void Cancel(string exportId, ClaimsPrincipal user);
 }
 
 /// <summary>
 /// Singleton export queue: one FFmpeg stream copy at a time, FIFO, independent of any circuit.
-/// Each job writes <c>.streamkeepr/exports/{id}.mp4</c> through a temp file and rename, reports
-/// progress 0..1 from <c>out_time_us</c>, and holds a recording lease for its whole lifetime.
+/// Each job is first probed (every part's video parameters must match), then writes
+/// <c>.streamkeepr/exports/{id}.mp4</c> through a temp file and rename, reports progress 0..1
+/// from <c>out_time_us</c>, and holds a recording lease for its whole lifetime. Export files
+/// older than <see cref="MaxExportAge"/> are swept at startup and every
+/// <see cref="CleanupInterval"/>.
 /// </summary>
 public sealed class ExportService : BackgroundService, IExportService
 {
@@ -51,18 +61,29 @@ public sealed class ExportService : BackgroundService, IExportService
     public const string ContentType = "video/mp4";
     internal const string FailedMessage = "The export could not be completed.";
 
+    /// <summary>The stable <see cref="ExportJob.Error"/> code for parts that cannot be joined.</summary>
+    public const string IncompatibleParts = "ExportIncompatibleParts";
+
+    public static readonly TimeSpan MaxExportAge = TimeSpan.FromHours(24);
+    public static readonly TimeSpan CleanupInterval = TimeSpan.FromHours(1);
+
     private readonly RecordingLibrary _library;
     private readonly IExportLeaseRegistry _leases;
     private readonly IOptions<StorageOptions> _storage;
     private readonly IOptions<RecorderOptions> _recorder;
     private readonly TimeProvider _clock;
     private readonly ILogger<ExportService> _logger;
+    // Jobs are probed in start order, then run in that same order: two single-reader stages.
+    private readonly Channel<string> _probeQueue = Channel.CreateUnbounded<string>(
+        new UnboundedChannelOptions { SingleReader = true });
     private readonly Channel<string> _queue = Channel.CreateUnbounded<string>(
         new UnboundedChannelOptions { SingleReader = true });
     private readonly object _gate = new();
     private readonly Dictionary<string, ExportJob> _jobs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IDisposable> _held = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _latestByRecording = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, CancellationTokenSource> _running = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _hevc = new(StringComparer.Ordinal);
 
     private DateTimeOffset _lastChanged = DateTimeOffset.MinValue;
     private ITimer? _changedTimer;
@@ -111,7 +132,7 @@ public sealed class ExportService : BackgroundService, IExportService
             _held[job.Id] = _leases.Acquire(recordingId);
         }
 
-        _queue.Writer.TryWrite(job.Id);
+        _probeQueue.Writer.TryWrite(job.Id);
         _logger.LogInformation("Queued export {ExportId} for {RecordingId}.", job.Id, recordingId);
         RaiseChanged(immediate: true);
         return job;
@@ -142,15 +163,49 @@ public sealed class ExportService : BackgroundService, IExportService
         return File.Exists(path) ? path : null;
     }
 
+    public void Cancel(string exportId, ClaimsPrincipal user)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(exportId);
+        ArgumentNullException.ThrowIfNull(user);
+        if (user.Identity?.IsAuthenticated != true)
+            throw new UnauthorizedAccessException("Connect Twitch to cancel exports.");
+
+        lock (_gate)
+        {
+            ExportJob job = _jobs.GetValueOrDefault(exportId)
+                ?? throw new KeyNotFoundException("That export no longer exists.");
+            if (!job.IsActive)
+                throw new InvalidOperationException("The export has already finished.");
+
+            if (_running.TryGetValue(exportId, out CancellationTokenSource? running))
+            {
+                // The worker sees the cancellation, deletes the partial file, and ends the job.
+                running.Cancel();
+                return;
+            }
+
+            // Still queued (or being probed): the worker skips anything that is no longer Queued.
+            _jobs[exportId] = job with { State = ExportState.Cancelled };
+        }
+
+        ReleaseLease(exportId);
+        _logger.LogInformation("Cancelled queued export {ExportId}.", exportId);
+        RaiseChanged(immediate: true);
+    }
+
     private ExportJob? LatestLocked(string recordingId) =>
         _latestByRecording.TryGetValue(recordingId, out string? id) ? _jobs.GetValueOrDefault(id) : null;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Created before the first await so the first periodic tick is never missed.
+        using var cleanup = new PeriodicTimer(CleanupInterval, _clock);
         try
         {
-            await foreach (string id in _queue.Reader.ReadAllAsync(stoppingToken))
-                await RunAsync(id, stoppingToken);
+            await Task.WhenAll(
+                ProbeLoopAsync(stoppingToken),
+                RunLoopAsync(stoppingToken),
+                CleanupLoopAsync(cleanup, stoppingToken));
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -158,11 +213,120 @@ public sealed class ExportService : BackgroundService, IExportService
         }
     }
 
-    private async Task RunAsync(string id, CancellationToken stoppingToken)
+    private async Task ProbeLoopAsync(CancellationToken stoppingToken)
+    {
+        await foreach (string id in _probeQueue.Reader.ReadAllAsync(stoppingToken))
+        {
+            if (await ProbeAsync(id, stoppingToken))
+                _queue.Writer.TryWrite(id);
+        }
+    }
+
+    private async Task RunLoopAsync(CancellationToken stoppingToken)
+    {
+        await foreach (string id in _queue.Reader.ReadAllAsync(stoppingToken))
+            await RunAsync(id, stoppingToken);
+    }
+
+    private async Task CleanupLoopAsync(PeriodicTimer timer, CancellationToken stoppingToken)
+    {
+        await Task.Yield();
+        do
+        {
+            SweepExports();
+        }
+        while (await timer.WaitForNextTickAsync(stoppingToken));
+    }
+
+    /// <summary>
+    /// Checks that every part's video parameters match before the job may run. Incompatible
+    /// parts fail the job with <see cref="IncompatibleParts"/> and no file; returns true when the
+    /// job should be queued. A probe that cannot run leaves the decision to FFmpeg.
+    /// </summary>
+    private async Task<bool> ProbeAsync(string id, CancellationToken stoppingToken)
     {
         if (Find(id) is not { State: ExportState.Queued } job)
+            return false;
+
+        try
+        {
+            if (_library.Find(job.RecordingId) is not { } summary
+                || !RecordingsPath.TryResolve(
+                    _storage.Value.RecordingsRoot,
+                    [summary.Channel, summary.Id, SessionStore.IndexFileName],
+                    out string index)
+                || !File.Exists(index))
+            {
+                return true;
+            }
+
+            var parts = new List<PartVideo>();
+            foreach (string init in ExportPartProbe.InitFiles(index))
+                parts.Add(await ExportPartProbe.ProbeAsync(_recorder.Value.FfprobePath, init, stoppingToken));
+
+            if (parts.Distinct().Count() > 1)
+            {
+                _logger.LogInformation(
+                    "Export {ExportId} refused: the parts of {RecordingId} have different video parameters.",
+                    id, job.RecordingId);
+                FailQueued(id, IncompatibleParts);
+                return false;
+            }
+
+            if (parts.Any(part => part.IsHevc))
+            {
+                lock (_gate)
+                    _hevc.Add(id);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Could not probe the parts for export {ExportId}; FFmpeg will decide.", id);
+        }
+
+        return true;
+    }
+
+    /// <summary>Removes export files (and leftover temp files) older than <see cref="MaxExportAge"/>.</summary>
+    private void SweepExports()
+    {
+        if (!Directory.Exists(ExportsDirectory))
             return;
 
+        DateTime cutoff = (_clock.GetUtcNow() - MaxExportAge).UtcDateTime;
+        HashSet<string> active;
+        lock (_gate)
+            active = _jobs.Values.Where(job => job.IsActive).Select(job => job.Id).ToHashSet(StringComparer.Ordinal);
+
+        foreach (string file in Directory.EnumerateFiles(ExportsDirectory).ToArray())
+        {
+            string name = Path.GetFileName(file);
+            string id = name.Split('.', 2)[0];
+            if (active.Contains(id) || File.GetLastWriteTimeUtc(file) >= cutoff)
+                continue;
+
+            TryDelete(file);
+        }
+    }
+
+    private async Task RunAsync(string id, CancellationToken stoppingToken)
+    {
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        ExportJob job;
+        bool hevc;
+        lock (_gate)
+        {
+            // A job cancelled while queued never runs.
+            if (_jobs.GetValueOrDefault(id) is not { State: ExportState.Queued } queued)
+                return;
+
+            job = queued with { State = ExportState.Running };
+            _jobs[id] = job;
+            _running[id] = cancel;
+            hevc = _hevc.Remove(id);
+        }
+
+        RaiseChanged(immediate: true);
         string temp = Path.Combine(ExportsDirectory, $"{id}.mp4.tmp");
         try
         {
@@ -177,7 +341,6 @@ public sealed class ExportService : BackgroundService, IExportService
                 throw new FileNotFoundException("The recording's playlist is missing.");
             }
 
-            Update(id, current => current with { State = ExportState.Running }, immediate: true);
             Directory.CreateDirectory(ExportsDirectory);
 
             double duration = summary.DurationSeconds is > 0 and double d ? d : 0;
@@ -185,14 +348,7 @@ public sealed class ExportService : BackgroundService, IExportService
             var stderr = new StringBuilder();
 
             await Cli.Wrap(_recorder.Value.FfmpegPath)
-                .WithArguments(
-                [
-                    "-hide_banner", "-loglevel", "error", "-nostdin", "-nostats", "-y",
-                    "-i", index,
-                    "-map", "0", "-c", "copy", "-movflags", "+faststart",
-                    "-f", "mp4", "-progress", "pipe:1",
-                    temp,
-                ])
+                .WithArguments(Arguments(index, temp, hevc))
                 .WithStandardOutputPipe(PipeTarget.ToDelegate(line =>
                 {
                     if (parser.Feed(line) is { } sample)
@@ -202,7 +358,7 @@ public sealed class ExportService : BackgroundService, IExportService
                     }
                 }))
                 .WithStandardErrorPipe(PipeTarget.ToStringBuilder(stderr))
-                .ExecuteAsync(stoppingToken);
+                .ExecuteAsync(cancel.Token);
 
             File.Move(temp, FinalPath(id), overwrite: true);
             Update(
@@ -216,6 +372,12 @@ public sealed class ExportService : BackgroundService, IExportService
             TryDelete(temp);
             throw;
         }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested)
+        {
+            TryDelete(temp);
+            Update(id, current => current with { State = ExportState.Cancelled }, immediate: true);
+            _logger.LogInformation("Cancelled running export {ExportId}.", id);
+        }
         catch (Exception ex)
         {
             // Any failure ends this job, never the worker: the next queued job still runs.
@@ -225,8 +387,35 @@ public sealed class ExportService : BackgroundService, IExportService
         }
         finally
         {
+            lock (_gate)
+                _running.Remove(id);
             ReleaseLease(id);
         }
+    }
+
+    /// <summary>
+    /// The stream-copy command line. HEVC is tagged <c>hvc1</c> so Apple players and browsers
+    /// recognize the MP4 (E-10); FFmpeg's default <c>hev1</c> tag is often refused.
+    /// </summary>
+    public static IReadOnlyList<string> Arguments(string index, string output, bool hevc) =>
+    [
+        "-hide_banner", "-loglevel", "error", "-nostdin", "-nostats", "-y",
+        "-i", index,
+        "-map", "0", "-c", "copy",
+        .. (hevc ? new[] { "-tag:v", "hvc1" } : Array.Empty<string>()),
+        "-movflags", "+faststart",
+        "-f", "mp4", "-progress", "pipe:1",
+        output,
+    ];
+
+    /// <summary>Fails a job that has not started running; a job cancelled meanwhile stays Cancelled.</summary>
+    private void FailQueued(string id, string error)
+    {
+        Update(
+            id,
+            current => current.State == ExportState.Queued ? current with { State = ExportState.Failed, Error = error } : current,
+            immediate: true);
+        ReleaseLease(id);
     }
 
     /// <summary>FFmpeg's <c>out_time_us</c> over the recording duration, clamped to 0..1.</summary>
