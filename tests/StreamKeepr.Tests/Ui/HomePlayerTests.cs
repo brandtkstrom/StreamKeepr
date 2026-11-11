@@ -27,6 +27,23 @@ public sealed class HomePlayerTests
         IRenderedComponent<Home> cut = context.Render<Home>();
 
         Assert.Empty(cut.FindAll("[data-sk-player]"));
+        Assert.Empty(cut.FindAll("[data-sk-stats]"));
+    }
+
+    [Fact]
+    public void The_stats_panel_renders_once_and_shares_the_open_state_with_the_player_button()
+    {
+        const string openCookie =
+            """{"v":1,"drawer":"expanded","theater":false,"stats":true,"details":true,"collapsed":[]}""";
+        using BunitContext context = CreateContext(out _, openCookie);
+
+        IRenderedComponent<Home> cut = context.Render<Home>(p => p.Add(c => c.RecordingId, "r1"));
+
+        Assert.Single(cut.FindAll("[data-slot='stats'] [data-sk-stats]"));
+        Assert.Equal("true", cut.Find("[data-sk-stats]").GetAttribute("data-open"));
+        Assert.Equal("true", cut.Find("[data-sk='stats-toggle']").GetAttribute("aria-checked"));
+        Assert.False(cut.Find("[data-sk='stats-body']").HasAttribute("inert"));
+        Assert.Equal("true", cut.Find("[data-sk='stats']").GetAttribute("aria-pressed"));
     }
 
     [Fact]
@@ -43,7 +60,7 @@ public sealed class HomePlayerTests
         Assert.Single(module.Invocations, call => call.Identifier == "load");
     }
 
-    private static BunitContext CreateContext(out BunitJSModuleInterop module)
+    private static BunitContext CreateContext(out BunitJSModuleInterop module, string? statsCookie = null)
     {
         var view = new TestLibraryView();
         view.FindById["r1"] = VideoPlayerTests.Recording("r1", "First");
@@ -53,7 +70,16 @@ public sealed class HomePlayerTests
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         module = context.JSInterop.SetupModule("./Components/Features/Player/VideoPlayer.razor.js");
         module.Mode = JSRuntimeMode.Loose;
+        context.JSInterop.SetupModule("./Components/Features/Player/StatsPanel.razor.js").Mode = JSRuntimeMode.Loose;
         context.Services.AddLogging();
+
+        var store = new TestClientStateStore();
+        if (statsCookie is not null)
+            store.Cookies[UiPreferences.CookieName] = statsCookie;
+        context.Services.AddSingleton<IClientStateStore>(store);
+        context.Services.AddScoped<UiPreferences>();
+        context.Services.AddScoped<SnackbarService>();
+        context.Services.AddSingleton(TimeProvider.System);
         context.Services.AddSingleton<ILibraryView>(view);
         return context;
     }

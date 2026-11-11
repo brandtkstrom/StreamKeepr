@@ -18,6 +18,7 @@ public sealed class VideoPlayerTests
         "video", "title", "streamer", "chip", "center", "spinner", "overlay", "overlay-message",
         "retry", "seek", "buffered", "played", "ticks", "knob", "hover-time", "play", "back",
         "forward", "mute", "volume", "volume-level", "current", "duration", "speed", "speed-menu",
+        "stats",
     ];
 
     [Fact]
@@ -63,8 +64,24 @@ public sealed class VideoPlayerTests
         Assert.Equal("/media/ann/r1/index.m3u8", payload.GetProperty("playlistUrl").GetString());
         Assert.Equal("saved", payload.GetProperty("state").GetString());
         Assert.Equal(3600, payload.GetProperty("durationSec").GetDouble());
+        Assert.False(payload.GetProperty("statsOpen").GetBoolean());
         Assert.Equal(60, payload.GetProperty("chapters")[0].GetProperty("startSeconds").GetDouble());
         Assert.Equal("Main", payload.GetProperty("chapters")[0].GetProperty("title").GetString());
+    }
+
+    [Fact]
+    public void The_stats_button_reflects_the_initial_ui_preference()
+    {
+        using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(p =>
+        {
+            p.Add(c => c.Recording, Recording("r1", "First"));
+            p.Add(c => c.StatsOpen, true);
+        });
+
+        Assert.Equal("true", cut.Find("[data-sk='stats']").GetAttribute("aria-pressed"));
+        Assert.Equal("Stats for nerds", cut.Find("[data-sk='stats']").GetAttribute("aria-label"));
     }
 
     [Fact]

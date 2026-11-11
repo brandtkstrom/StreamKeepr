@@ -2,6 +2,12 @@
 // this module owns hls.js, every control, and all dynamic player DOM. hls.js is imported lazily
 // from the vendored copy, only on recording pages, through an injectable loader for tests.
 
+import {
+  createStatsProbe,
+  registerStatsSource,
+  unregisterStatsSource,
+} from "/js/stats.js";
+
 // Defaults plus the contract's overrides. The stitched playlist targets 12 s segments, so one
 // target duration behind the end is the live edge.
 export const HLS_CONFIG = Object.freeze({
@@ -39,6 +45,7 @@ export const HOOKS = [
   "video", "title", "streamer", "chip", "center", "spinner", "overlay", "overlay-message",
   "retry", "seek", "buffered", "played", "ticks", "knob", "hover-time", "play", "back",
   "forward", "mute", "volume", "volume-level", "current", "duration", "speed", "speed-menu",
+  "stats",
 ];
 
 // JS twin of Ui/Format.Timecode (the source of truth); keep the two in step.
@@ -84,6 +91,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
   let dragging = false;
   let chapters = [];
   let hlsClass = null; // imported once per player, on the first load that needs it
+  const stats = createStatsProbe({ video });
 
   // ----- helpers -----
 
@@ -240,6 +248,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
     clearTimeout(retryTimer);
     clearTimeout(spinnerTimer);
     retryTimer = 0;
+    stats.detachEngine();
     hls?.destroy();
     hls = null;
     if (native || video.hasAttribute("src")) {
@@ -308,6 +317,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
 
     if (Hls?.isSupported?.()) {
       hls = new Hls({ ...HLS_CONFIG });
+      stats.attachHls(hls, Hls);
       hls.on(Hls.Events.ERROR, (_event, data) => onHlsError(Hls, data));
       hls.on(Hls.Events.FRAG_LOADED, () => {
         networkAttempts = 0;
@@ -320,6 +330,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
 
     if (video.canPlayType?.(NATIVE_HLS)) {
       native = true;
+      stats.setNative(true);
       video.setAttribute("src", source);
       return;
     }
@@ -393,6 +404,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
     });
   }
   on(video, "error", () => {
+    stats.onNativeError(video.error);
     if (native) showOverlay(FAILED_MESSAGE, true);
   });
 
@@ -531,6 +543,10 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
     async load(next) {
       if (disposed || !next) return;
       view = next;
+      stats.setView(next);
+      stats.reset();
+      if (el.stats)
+        el.stats.setAttribute("aria-pressed", next.statsOpen ? "true" : "false");
       renderView();
       renderSpeed();
       renderVolume();
@@ -544,6 +560,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
       if (disposed || !next || !view || next.recordingId !== view.recordingId) return;
       // Same recording: refresh what it shows, never the source or the position.
       view = { ...next, resumeSec: view.resumeSec };
+      stats.setView(view);
       renderView();
       renderPosition();
     },
@@ -553,9 +570,11 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
       disposed = true;
       generation++;
       teardownEngine();
+      stats.dispose();
       listeners.abort();
       view = null;
     },
+    stats,
   };
 }
 
@@ -566,8 +585,10 @@ const players = new WeakMap();
 export async function init(root, view) {
   if (!root) return;
   players.get(root)?.dispose();
+  unregisterStatsSource(root);
   const player = createPlayer(root);
   players.set(root, player);
+  registerStatsSource(root, player.stats);
   await player.load(view);
 }
 
@@ -580,6 +601,7 @@ export function update(root, view) {
 }
 
 export function dispose(root) {
+  unregisterStatsSource(root);
   players.get(root)?.dispose();
   players.delete(root);
 }

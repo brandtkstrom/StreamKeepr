@@ -278,7 +278,7 @@ public sealed class LibraryDrawerTests
     {
         var view = new TestLibraryView { IsLoaded = true };
 
-        using BunitContext context = CreateContext(view, includePreferences: false);
+        using BunitContext context = CreateContext(view);
         IRenderedComponent<Home> cut = context.Render<Home>(parameters =>
             parameters.Add(component => component.RecordingId, "missing"));
 
@@ -293,7 +293,7 @@ public sealed class LibraryDrawerTests
         var view = new TestLibraryView { IsLoaded = true };
         view.FindById["r1"] = Recording("r1", "alpha", RecordingState.Saved, Now.AddHours(-1));
 
-        using BunitContext context = CreateContext(view, includePreferences: false);
+        using BunitContext context = CreateContext(view);
         IRenderedComponent<Home> cut = context.Render<Home>(parameters =>
             parameters.Add(component => component.RecordingId, "r1"));
 
@@ -308,7 +308,6 @@ public sealed class LibraryDrawerTests
 
     private static BunitContext CreateContext(
         TestLibraryView view,
-        bool includePreferences = true,
         string? timeZoneId = null)
     {
         var context = new BunitContext();
@@ -324,9 +323,7 @@ public sealed class LibraryDrawerTests
         context.Services.AddScoped<SnackbarService>();
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddSingleton<ILibraryView>(view);
-
-        if (includePreferences)
-            context.Services.AddScoped<UiPreferences>();
+        context.Services.AddScoped<UiPreferences>();
 
         return context;
     }
