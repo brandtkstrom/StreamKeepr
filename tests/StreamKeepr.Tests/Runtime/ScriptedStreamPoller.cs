@@ -45,6 +45,10 @@ internal sealed class ScriptedStreamPoller : IStreamPoller
     public Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct) =>
         Task.FromResult(Profiles.GetValueOrDefault(login));
 
+    public Task<ChannelInfo?> GetChannelInfoAsync(
+        string broadcasterId, CancellationToken ct) =>
+        Task.FromResult<ChannelInfo?>(null);
+
     public void Nudge() => Interlocked.Increment(ref _nudges);
 
     public void Send(string login, StreamObservation observation) =>
