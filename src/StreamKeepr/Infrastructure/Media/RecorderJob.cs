@@ -17,10 +17,9 @@ public sealed class RecorderJob(
     TimeProvider clock,
     ILogger<RecorderJob> logger)
 {
-    private const int PipePauseThreshold = 4 << 20;
-    private const int PipeResumeThreshold = 2 << 20;
     private const int StderrCapacity = 20;
 
+    private static readonly TimeSpan WatchdogInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan GracefulStopTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ForceStopTimeout = TimeSpan.FromSeconds(5);
 
@@ -69,6 +68,8 @@ public sealed class RecorderJob(
         var tail = new StderrTail(StderrCapacity);
         var parser = new FfmpegProgressParser();
         int producing = 0;
+        long lastMediaAdvanceTicks = clock.GetUtcNow().UtcTicks;
+        long adGraceUntilTicks = 0;
 
         string Redact(string line) =>
             string.IsNullOrEmpty(recorder.TwitchUserOAuthToken)
@@ -77,9 +78,7 @@ public sealed class RecorderJob(
 
         // The bounded pipe is the backpressure boundary between the two tools: Streamlink
         // pauses at 4 MiB and resumes when FFmpeg has consumed back down to 2 MiB.
-        var pipe = new Pipe(new PipeOptions(
-            pauseWriterThreshold: PipePauseThreshold,
-            resumeWriterThreshold: PipeResumeThreshold));
+        Pipe pipe = RecorderPipe.Create();
 
         using var ffmpegGraceful = new CancellationTokenSource();
         using var ffmpegForce = new CancellationTokenSource();
@@ -104,10 +103,15 @@ public sealed class RecorderJob(
                     bytes,
                     sample.MediaTime);
 
-                if (sample.Advanced && Interlocked.Exchange(ref producing, 1) == 0)
+                if (!sample.Advanced)
+                    return;
+
+                DateTimeOffset advancedAt = clock.GetUtcNow();
+                Interlocked.Exchange(ref lastMediaAdvanceTicks, advancedAt.UtcTicks);
+                if (Interlocked.Exchange(ref producing, 1) == 0)
                 {
                     await publish(
-                        new DvrEvent.PartProducingMedia(job, clock.GetUtcNow()),
+                        new DvrEvent.PartProducingMedia(job, advancedAt),
                         CancellationToken.None);
                 }
             }))
@@ -126,6 +130,23 @@ public sealed class RecorderJob(
             .WithStandardErrorPipe(PipeTarget.ToDelegate(line =>
             {
                 string safe = Redact(line);
+
+                // Streamlink announces skipped ads before it starves FFmpeg of media. Extend the
+                // grace window before logging so a later stall check observes the new deadline.
+                if (StreamlinkAdBreak.TryGetGraceUntil(line, clock.GetUtcNow(), out DateTimeOffset graceUntil))
+                {
+                    long candidate = graceUntil.UtcTicks;
+                    long current = Interlocked.Read(ref adGraceUntilTicks);
+                    while (candidate > current)
+                    {
+                        long seen = Interlocked.CompareExchange(
+                            ref adGraceUntilTicks, candidate, current);
+                        if (seen == current)
+                            break;
+                        current = seen;
+                    }
+                }
+
                 tail.Add("streamlink", safe);
                 logger.LogDebug("[streamlink {Job}] {Line}", job, safe);
             }));
@@ -140,15 +161,29 @@ public sealed class RecorderJob(
             static state => ((TaskCompletionSource)state!).TrySetResult(),
             stopSignal);
 
+        var stalled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var watchdog = new CancellationTokenSource();
+        Task watchdogTask = WatchForStallAsync(
+            () => Math.Max(
+                Interlocked.Read(ref lastMediaAdvanceTicks),
+                Interlocked.Read(ref adGraceUntilTicks)),
+            TimeSpan.FromSeconds(recorder.StallTimeoutSeconds),
+            stalled,
+            watchdog.Token);
+
         string reason;
         bool forcedKill = false;
         bool finalizeTimedOut = false;
+        bool stalledEnd = false;
         try
         {
-            Task first = await Task.WhenAny(streamlinkTask, ffmpegTask, stopSignal.Task);
+            Task first = await Task.WhenAny(
+                streamlinkTask, ffmpegTask, stopSignal.Task, stalled.Task);
 
+            stalledEnd = first == stalled.Task;
             reason = first == streamlinkTask ? "streamlink exited"
                 : first == ffmpegTask ? "ffmpeg exited first"
+                : stalledEnd ? $"stall: no new media for {recorder.StallTimeoutSeconds} s"
                 : "stop requested";
 
             // Contract order: release the reader before stopping Streamlink when FFmpeg is
@@ -198,6 +233,11 @@ public sealed class RecorderJob(
             await ffmpegForce.CancelAsync();
             throw;
         }
+        finally
+        {
+            await watchdog.CancelAsync();
+            await watchdogTask;
+        }
 
         if (PartFiles.HasSegments(session.Directory, job.Part)
             && Interlocked.Exchange(ref producing, 1) == 0)
@@ -211,9 +251,9 @@ public sealed class RecorderJob(
         if (Volatile.Read(ref producing) == 0)
             PartFiles.Delete(session.Directory, job.Part);
 
-        // Force kill and watchdog paths beat a requested stop; an escalated finalize did not
+        // The watchdog and force-kill paths beat a requested stop; an escalated finalize did not
         // end on its own, so it is reported as killed rather than as a self exit.
-        RecorderExitKind kind = forcedKill || finalizeTimedOut
+        RecorderExitKind kind = forcedKill || finalizeTimedOut || stalledEnd
             ? RecorderExitKind.Killed
             : stopRequested.IsCancellationRequested
                 ? RecorderExitKind.Stopped
@@ -224,6 +264,10 @@ public sealed class RecorderJob(
         if (stderr.Length > 0)
             detail = $"{detail}; {stderr}";
 
+        // Diagnostic text can include a tool exception message; redact once more at the boundary
+        // so the subscriber token can never leak through the detail or the log.
+        detail = Redact(detail);
+
         logger.LogInformation("Recorder {Job} finished ({Kind}): {Detail}", job, kind, detail);
         await publish(
             new DvrEvent.RecorderExited(
@@ -232,6 +276,35 @@ public sealed class RecorderJob(
                 kind,
                 detail),
             CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Polls every five seconds and completes <paramref name="stalled"/> when neither fresh media
+    /// nor an advertised ad-break grace window has moved the activity deadline forward.
+    /// </summary>
+    private async Task WatchForStallAsync(
+        Func<long> lastActivityTicks,
+        TimeSpan timeout,
+        TaskCompletionSource stalled,
+        CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(WatchdogInterval, clock);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                long idleTicks = clock.GetUtcNow().UtcTicks - lastActivityTicks();
+                if (idleTicks > timeout.Ticks)
+                {
+                    stalled.TrySetResult();
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The job ended on its own; the watchdog is no longer needed.
+        }
     }
 
     private static async Task<ProcessOutcome> RunProcessAsync(

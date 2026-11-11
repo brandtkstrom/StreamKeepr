@@ -1,0 +1,12 @@
+#!/bin/sh
+# Exits without writing media, like an offline or empty stream. Recorder tests use it to prove
+# that a no-media run publishes no media event and removes its part files.
+set -eu
+
+if [ "${1:-}" = "--version" ]; then
+    echo "streamlink 0.0.0-fake"
+    exit 0
+fi
+
+echo "fake-streamlink-no-media: stream ended without media" >&2
+exit 0

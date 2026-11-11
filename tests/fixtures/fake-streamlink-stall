@@ -1,0 +1,28 @@
+#!/bin/sh
+# Writes a few seconds of media and then keeps stdout open without producing more, like a
+# Streamlink that stopped receiving segments. The recorder's stall watchdog must fire.
+set -eu
+
+if [ "${1:-}" = "--version" ]; then
+    echo "streamlink 0.0.0-fake"
+    exit 0
+fi
+
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "fake-streamlink-stall: ffmpeg is required for recorder integration tests" >&2
+    exit 127
+fi
+
+ffmpeg \
+    -hide_banner -loglevel error -nostdin \
+    -f lavfi -i "testsrc2=size=160x120:rate=15:duration=6" \
+    -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=6" \
+    -map 0:v -map 1:a \
+    -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p \
+    -g 15 -keyint_min 15 -sc_threshold 0 \
+    -c:a aac -b:a 64k \
+    -f mpegts pipe:1
+
+# Hold stdout open so the recorder cannot mistake the gap for a stream end. exec replaces the
+# shell, so the recorder's single-PID SIGINT reaches the sleeping process and closes stdout.
+exec sleep 600
