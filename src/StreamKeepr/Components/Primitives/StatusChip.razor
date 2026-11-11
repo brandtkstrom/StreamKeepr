@@ -30,7 +30,10 @@
         _ => "saved",
     };
 
-    private string? IconName => Status switch
+    /// <summary>Replaces the kind's default icon, e.g. a pause glyph on a neutral chip.</summary>
+    [Parameter] public string? Icon { get; set; }
+
+    private string? IconName => Icon ?? Status switch
     {
         StatusChipKind.Processing => "hourglass_top",
         StatusChipKind.Partial => "warning",

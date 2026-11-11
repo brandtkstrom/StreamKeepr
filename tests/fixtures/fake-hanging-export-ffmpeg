@@ -1,0 +1,12 @@
+#!/bin/sh
+# Stands in for an export FFmpeg that never finishes: writes a partial output file (the last
+# argument), reports some progress on stdout, then hangs until killed.
+set -eu
+
+for output; do :; done
+printf 'partial' > "$output"
+echo "out_time_us=5000000"
+echo "progress=continue"
+while :; do
+    sleep 0.05
+done

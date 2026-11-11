@@ -50,6 +50,15 @@ public static class MockCatalog
         new("mock_rain", "Rain Ash", "9100007"),
     ];
 
+    /// <summary>
+    /// Channels the fake Helix lookup resolves but that are not watched at start, so Settings
+    /// can add (and then remove) one without disturbing the seeded library.
+    /// </summary>
+    public static readonly IReadOnlyList<MockStreamer> UnwatchedStreamers =
+    [
+        new("mock_wren", "Wren Field", "9100009"),
+    ];
+
     public static readonly IReadOnlyList<MockRecording> Recordings =
     [
         new(

@@ -1,0 +1,264 @@
+@using StreamKeepr.Infrastructure.Runtime
+@implements IDisposable
+@inject IChannelsView Channels
+@inject SnackbarService Snackbars
+@inject ILogger<ChannelSettings> Logger
+
+@* Rendered only for a signed-in admin. ChannelsView enforces the same rule on every call. *@
+<section class="sk-panel sk-settings-section" aria-labelledby="sk-settings-channels">
+    <h2 id="sk-settings-channels">Channels</h2>
+
+    @if (_channels.Count == 0)
+    {
+        <p class="sk-settings-empty" data-channels-empty>No channels watched.</p>
+    }
+    else
+    {
+        <ul class="sk-channel-list" data-channel-list>
+            @foreach (ChannelView channel in _channels)
+            {
+                bool removing = _removing.Contains(channel.Login);
+                <li class="sk-channel-row" @key="channel.Login" data-channel="@channel.Login" aria-busy="@(removing ? "true" : null)">
+                    <Avatar Name="@channel.DisplayName" ImageUrl="@channel.AvatarUrl" aria-hidden="true" />
+                    <span class="who">
+                        <b>@channel.DisplayName</b>
+                        <span class="login">@channel.Login</span>
+                    </span>
+                    <StatusChip Status="@ChipKind(channel.State)" Label="@StateLabel(channel.State)" Icon="@StateIcon(channel.State)" data-channel-state="@channel.State" />
+                    <span class="grow"></span>
+                    @if (removing)
+                    {
+                        <span class="sk-channel-busy" role="status">Removing…</span>
+                    }
+                    else
+                    {
+                        <Button Variant="ButtonVariant.Text"
+                                OnClick="() => AskRemove(channel)"
+                                aria-label="@($"Remove {channel.DisplayName}")"
+                                data-channel-remove>
+                            Remove
+                        </Button>
+                    }
+                    @if (_rowErrors.TryGetValue(channel.Login, out string? rowError))
+                    {
+                        <p class="sk-field-error" role="alert">@rowError</p>
+                    }
+                </li>
+            }
+        </ul>
+    }
+
+    <div class="sk-channel-add">
+        <label for="sk-channel-login">Add channel</label>
+        <div class="row">
+            <input id="sk-channel-login"
+                   type="text"
+                   autocomplete="off"
+                   spellcheck="false"
+                   placeholder="Twitch login"
+                   aria-describedby="@(_addError is null ? null : "sk-channel-add-error")"
+                   aria-invalid="@(_addError is null ? null : "true")"
+                   @bind="_login"
+                   @bind:event="oninput"
+                   @onkeydown="OnKeyDownAsync"
+                   @ref="_input"
+                   data-channel-login />
+            <button type="button"
+                    class="sk-btn filled"
+                    disabled="@(!CanAdd)"
+                    aria-busy="@(_adding ? "true" : null)"
+                    @onclick="AddAsync"
+                    data-channel-add>
+                @if (_adding)
+                {
+                    <span class="sk-spin" aria-hidden="true"></span>
+                    <span>Adding…</span>
+                }
+                else
+                {
+                    <span>Add</span>
+                }
+            </button>
+        </div>
+        @if (_addError is not null)
+        {
+            <p class="sk-field-error" id="sk-channel-add-error" role="alert" data-channel-add-error>@_addError</p>
+        }
+    </div>
+</section>
+
+<Dialog Open="@(_confirm is not null)"
+        OpenChanged="OnConfirmOpenChanged"
+        Title="@($"Remove {_confirm?.DisplayName}?")"
+        data-channel-remove-dialog>
+    <ChildContent>
+        <p>Recordings are kept. An open capture is finalized first.</p>
+    </ChildContent>
+    <Actions>
+        <Button Variant="ButtonVariant.Text" OnClick="CancelRemove">Cancel</Button>
+        <Button Variant="ButtonVariant.Danger" OnClick="ConfirmRemoveAsync" data-channel-remove-confirm>Remove</Button>
+    </Actions>
+</Dialog>
+
+@code {
+    private const string SessionEnded = "Your Twitch session ended. Reconnect to manage channels.";
+
+    private readonly HashSet<string> _removing = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _rowErrors = new(StringComparer.Ordinal);
+    private IReadOnlyList<ChannelView> _channels = [];
+    private ElementReference _input;
+    private string _login = "";
+    private string? _addError;
+    private bool _adding;
+    private ChannelView? _confirm;
+
+    private bool CanAdd => !_adding && !string.IsNullOrWhiteSpace(_login);
+
+    protected override void OnInitialized()
+    {
+        Channels.Changed += OnChannelsChanged;
+        Refresh();
+    }
+
+    internal static StatusChipKind ChipKind(ChannelRuntimeState state) => state switch
+    {
+        ChannelRuntimeState.Recording => StatusChipKind.Rec,
+        ChannelRuntimeState.Reconnecting => StatusChipKind.Reconnecting,
+        ChannelRuntimeState.CoolingDown => StatusChipKind.Processing,
+        _ => StatusChipKind.Saved,
+    };
+
+    // Neutral states reuse the outlined chip without its "saved" check mark.
+    internal static string? StateIcon(ChannelRuntimeState state) => state switch
+    {
+        ChannelRuntimeState.Paused => "pause",
+        ChannelRuntimeState.Watching => "visibility",
+        _ => null,
+    };
+
+    internal static string StateLabel(ChannelRuntimeState state) => state switch
+    {
+        ChannelRuntimeState.Recording => "Rec",
+        ChannelRuntimeState.Reconnecting => "Reconnecting",
+        ChannelRuntimeState.Paused => "Paused",
+        ChannelRuntimeState.CoolingDown => "Cooling down",
+        _ => "Watching",
+    };
+
+    private void Refresh()
+    {
+        try
+        {
+            _channels = Channels.All;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            // The session ended under the page; the shell re-renders the signed-out branch.
+            Logger.LogDebug(ex, "Channel list hidden: the circuit is no longer signed in.");
+            _channels = [];
+        }
+    }
+
+    private async Task OnKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+            await AddAsync();
+    }
+
+    private async Task AddAsync()
+    {
+        if (!CanAdd)
+            return;
+
+        string login = _login.Trim().ToLowerInvariant();
+        _adding = true;
+        _addError = null;
+        try
+        {
+            await Channels.AddAsync(login, CancellationToken.None);
+            _login = "";
+            Snackbars.Show("Channel added");
+            Refresh();
+        }
+        catch (Exception ex)
+        {
+            _addError = AddErrorMessage(ex, login);
+        }
+        finally
+        {
+            _adding = false;
+        }
+
+        await _input.FocusAsync();
+    }
+
+    /// <summary>User-safe text for an add failure. The control surface's messages are user-safe.</summary>
+    internal string AddErrorMessage(Exception ex, string login)
+    {
+        switch (ex)
+        {
+            case UnknownChannelException:
+                return $"No Twitch channel is named “{login}”.";
+            case ArgumentException:
+                return "That is not a valid Twitch login.";
+            case InvalidOperationException:
+                return ex.Message;
+            case UnauthorizedAccessException:
+                return SessionEnded;
+            default:
+                Logger.LogWarning(ex, "Adding channel {Login} failed.", login);
+                return "Could not reach Twitch. Try again.";
+        }
+    }
+
+    private void AskRemove(ChannelView channel)
+    {
+        _rowErrors.Remove(channel.Login);
+        _confirm = channel;
+    }
+
+    private void CancelRemove() => _confirm = null;
+
+    private void OnConfirmOpenChanged(bool open)
+    {
+        if (!open)
+            _confirm = null;
+    }
+
+    private async Task ConfirmRemoveAsync()
+    {
+        if (_confirm is not { } channel)
+            return;
+
+        _confirm = null;
+        _removing.Add(channel.Login);
+        StateHasChanged();
+        try
+        {
+            // No client timeout: the recorder's stop budget bounds how long finalizing takes,
+            // and abandoning the wait would report a failure for a removal that still lands.
+            await Channels.RemoveAsync(channel.Login, CancellationToken.None);
+            Snackbars.Show("Channel removed");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Removing channel {Login} failed.", channel.Login);
+            _rowErrors[channel.Login] = ex is UnauthorizedAccessException
+                ? SessionEnded
+                : $"Could not remove {channel.DisplayName}. Try again.";
+        }
+        finally
+        {
+            _removing.Remove(channel.Login);
+            Refresh();
+        }
+    }
+
+    private void OnChannelsChanged() => _ = InvokeAsync(() =>
+    {
+        Refresh();
+        StateHasChanged();
+    });
+
+    public void Dispose() => Channels.Changed -= OnChannelsChanged;
+}

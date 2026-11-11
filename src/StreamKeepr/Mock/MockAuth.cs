@@ -64,6 +64,8 @@ public static class MockAuth
                 options.SlidingExpiration = true;
                 options.LoginPath = AdminAuth.LoginPath;
                 options.LogoutPath = AdminAuth.LogoutPath;
+                options.Events.OnRedirectToLogin = AdminAuth.ChallengeApiWithStatus(StatusCodes.Status401Unauthorized);
+                options.Events.OnRedirectToAccessDenied = AdminAuth.ChallengeApiWithStatus(StatusCodes.Status403Forbidden);
             });
 
         return services;

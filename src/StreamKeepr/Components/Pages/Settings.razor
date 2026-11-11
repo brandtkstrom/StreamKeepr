@@ -1,0 +1,78 @@
+@page "/settings"
+@using StreamKeepr.Infrastructure.Twitch
+@using Microsoft.AspNetCore.Components.Forms
+@inject NavigationManager Navigation
+@inject AdminSessionState Session
+@implements IDisposable
+
+<PageTitle>Settings · Stream Keepr</PageTitle>
+
+@* Spec: docs/details-auth-settings-contract.md §8. Public route; signed out it never creates a
+   ChannelsView, which is the server-side guard for channel data and changes. *@
+<div class="sk-settings">
+    <h1>Settings</h1>
+
+    @if (HttpsRequired)
+    {
+        <p class="sk-settings-note" data-https-note>
+            <span class="sk-icon" aria-hidden="true">info</span>
+            Twitch sign-in needs HTTPS through the reverse proxy. This page is plain HTTP.
+        </p>
+    }
+
+    <AuthorizeView>
+        <Authorized>
+            <section class="sk-panel sk-settings-section" id="twitch" aria-labelledby="sk-settings-twitch">
+                <h2 id="sk-settings-twitch">Twitch account</h2>
+                <div class="sk-settings-account">
+                    <Avatar Name="@TwitchAccount.DisplayName(context.User)" Tone="AvatarTone.Tertiary" Large="true" />
+                    <div class="who">
+                        <b data-account-name>@TwitchAccount.DisplayName(context.User)</b>
+                        <span data-account-login>@TwitchAccount.Login(context.User)</span>
+                    </div>
+                    <span class="sk-auth-dot" aria-hidden="true"></span>
+                    <span class="sk-visually-hidden">Connected to Twitch</span>
+                    <form method="post" action="@AdminAuth.LogoutPath" class="actions">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="returnUrl" value="/settings" />
+                        <button type="submit" class="sk-btn outlined" data-settings-disconnect>Disconnect</button>
+                    </form>
+                </div>
+            </section>
+
+            <ChannelSettings />
+        </Authorized>
+        <NotAuthorized>
+            <section class="sk-panel sk-settings-signin" data-settings-signed-out>
+                @if (Session.Expired)
+                {
+                    <StatusChip Status="StatusChipKind.Error" Label="Twitch session expired" />
+                }
+                <h2>Connect Twitch to manage channels</h2>
+                <a class="sk-twitch" href="@AuthLinks.LoginHref(Navigation.Uri)" data-enhance-nav="false" data-twitch-connect>
+                    <span class="sk-icon" aria-hidden="true">link</span>
+                    <span class="lbl">@(Session.Expired ? "Reconnect Twitch" : "Connect with Twitch")</span>
+                </a>
+            </section>
+        </NotAuthorized>
+    </AuthorizeView>
+</div>
+
+@code {
+    // Plain HTTP outside localhost cannot complete Twitch sign-in (twitch-auth contract §6).
+    private bool HttpsRequired
+    {
+        get
+        {
+            var uri = new Uri(Navigation.Uri);
+            return uri.Scheme == Uri.UriSchemeHttp
+                && !AdminAuth.IsLocalHost(new HostString(uri.Authority));
+        }
+    }
+
+    protected override void OnInitialized() => Session.Changed += OnSessionChanged;
+
+    private void OnSessionChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Session.Changed -= OnSessionChanged;
+}

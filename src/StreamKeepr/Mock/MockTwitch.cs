@@ -18,7 +18,8 @@ public sealed class MockTwitch
     private readonly Dictionary<string, StreamObservation> _observations =
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, MockStreamer> _streamers =
-        MockCatalog.Streamers.ToDictionary(streamer => streamer.Login, StringComparer.Ordinal);
+        MockCatalog.Streamers.Concat(MockCatalog.UnwatchedStreamers)
+            .ToDictionary(streamer => streamer.Login, StringComparer.Ordinal);
     private readonly Channel<MockPush> _pushes =
         Channel.CreateUnbounded<MockPush>(new UnboundedChannelOptions { SingleReader = true });
 

@@ -1,3 +1,4 @@
+using Bunit.TestDoubles;
 using System.Globalization;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
@@ -209,7 +210,8 @@ public sealed class RecordingDetailsTests
         SnackbarService snackbars = context.Services.GetRequiredService<SnackbarService>();
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
-        Assert.Empty(cut.FindAll(".sk-requires-twitch"));
+        // Copying needs no sign-in; only admin actions such as Export sit behind RequiresTwitch.
+        Assert.Empty(cut.FindAll(".sk-requires-twitch [data-copy-playlist]"));
 
         cut.Find("[data-copy-playlist]").Click();
 
@@ -266,6 +268,8 @@ public sealed class RecordingDetailsTests
         context.Services.AddScoped<UiPreferences>();
         context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<PlayerBridge>();
+        context.Services.AddSingleton<IExportService>(new TestExportService());
+        context.AddAuthorization().SetNotAuthorized();
         return context;
     }
 
