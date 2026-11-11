@@ -238,14 +238,14 @@ public sealed class MockLiveFeedTests : IDisposable
 
     private static async Task AdvanceToStartAsync(FeedHarness harness)
     {
-        harness.Clock.Advance(TimeSpan.FromSeconds(1));
+        await AdvanceOneTickAsync(harness, tick: 1);
         await WaitUntilAsync(
             () => harness.Twitch.Observe("mock_echo") is StreamObservation.Live);
     }
 
     private static async Task AdvanceToEndAsync(FeedHarness harness)
     {
-        harness.Clock.Advance(TimeSpan.FromSeconds(1));
+        await AdvanceOneTickAsync(harness, tick: 2);
         await WaitUntilAsync(
             () => harness.Twitch.Observe("mock_echo") is StreamObservation.Offline);
     }
@@ -253,9 +253,21 @@ public sealed class MockLiveFeedTests : IDisposable
     private async Task AdvanceToDeleteAsync(FeedHarness harness)
     {
         long freeBefore = harness.Disk.AvailableFreeSpace(_root);
-        harness.Clock.Advance(TimeSpan.FromSeconds(1));
+        await AdvanceOneTickAsync(harness, tick: 3);
         await WaitUntilAsync(
             () => harness.Disk.AvailableFreeSpace(_root) < freeBefore);
+    }
+
+    /// <summary>
+    /// Advances the fake clock by one feed tick, but only once the feed has armed the delay for
+    /// that tick. ExecuteAsync runs on the thread pool, so StartAsync (and each tick's work) can
+    /// return before the feed reaches Task.Delay; advancing earlier would be lost, because the
+    /// late timer is then due one tick after the already-advanced time.
+    /// </summary>
+    private static async Task AdvanceOneTickAsync(FeedHarness harness, int tick)
+    {
+        await WaitUntilAsync(() => harness.FeedTimersCreated >= tick);
+        harness.Clock.Advance(TimeSpan.FromSeconds(1));
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)
@@ -286,6 +298,7 @@ public sealed class MockLiveFeedTests : IDisposable
     {
         private readonly CancellationTokenSource _cts = new();
         private int _storageChanges;
+        private int _feedTimersCreated;
 
         public FeedHarness(string root)
         {
@@ -324,7 +337,7 @@ public sealed class MockLiveFeedTests : IDisposable
                 Storage,
                 storageOptions,
                 options,
-                Clock,
+                new TimerCountingClock(Clock, () => Interlocked.Increment(ref _feedTimersCreated)),
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<MockLiveFeed>.Instance);
 
             Deleted = MockCatalog.Recordings
@@ -358,6 +371,12 @@ public sealed class MockLiveFeedTests : IDisposable
         public string MarkerPath { get; }
 
         public int StorageChanges => Volatile.Read(ref _storageChanges);
+
+        /// <summary>
+        /// Timers the feed has created on the fake clock; one per tick's Task.Delay. Counted on a
+        /// feed-only view of the clock because StorageMonitor arms its own timer on the same clock.
+        /// </summary>
+        public int FeedTimersCreated => Volatile.Read(ref _feedTimersCreated);
 
         public void CreateMarker()
         {
@@ -407,6 +426,26 @@ public sealed class MockLiveFeedTests : IDisposable
             Feed.Dispose();
             Storage.Dispose();
             _cts.Dispose();
+        }
+    }
+
+    /// <summary>Delegates to the shared fake clock and reports each timer it creates.</summary>
+    private sealed class TimerCountingClock(TimeProvider inner, Action onTimerCreated) : TimeProvider
+    {
+        public override TimeZoneInfo LocalTimeZone => inner.LocalTimeZone;
+
+        public override long TimestampFrequency => inner.TimestampFrequency;
+
+        public override DateTimeOffset GetUtcNow() => inner.GetUtcNow();
+
+        public override long GetTimestamp() => inner.GetTimestamp();
+
+        public override ITimer CreateTimer(
+            TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            ITimer timer = inner.CreateTimer(callback, state, dueTime, period);
+            onTimerCreated();
+            return timer;
         }
     }
 }
