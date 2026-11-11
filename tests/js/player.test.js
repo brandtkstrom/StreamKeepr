@@ -357,10 +357,13 @@ describe("VideoPlayer.razor.js", () => {
       expect(hook("video").muted).toBe(true);
       expect(hook("mute").getAttribute("aria-label")).toBe("Unmute");
 
+      // Lowering the volume keeps it muted; only raising it above 0 unmutes.
       key(slider, "ArrowLeft");
       expect(hook("video").volume).toBeCloseTo(0.95);
-      expect(hook("video").muted).toBe(false);
+      expect(hook("video").muted).toBe(true);
       expect(slider.getAttribute("aria-valuenow")).toBe("95");
+      key(slider, "ArrowRight");
+      expect(hook("video").muted).toBe(false);
 
       for (let i = 0; i < 25; i++) key(slider, "ArrowLeft");
       expect(hook("video").volume).toBe(0);
@@ -542,6 +545,43 @@ describe("VideoPlayer.razor.js", () => {
 
       instance.emit("hlsError", fatal(MEDIA_ERROR));
       expect(hook("overlay").hidden).toBe(false);
+    });
+
+    it("Retry before playback starts keeps the resume position", async () => {
+      await start(view({ resumeSec: 30 }));
+      hls.instances[0].emit("hlsError", fatal(hls.FakeHls.ErrorTypes.OTHER_ERROR));
+
+      hook("retry").click();
+      await vi.runAllTimersAsync();
+      media.metadata(100);
+
+      expect(media.seeks.at(-1)).toBe(30);
+    });
+
+    it("clears busy state and the pending spinner when the alert shows", async () => {
+      await start();
+      hls.instances[0].emit("hlsError", fatal(hls.FakeHls.ErrorTypes.OTHER_ERROR));
+      vi.advanceTimersByTime(1000);
+
+      expect(document.querySelector("[data-sk-player]").hasAttribute("aria-busy")).toBe(false);
+      expect(hook("spinner").hidden).toBe(true);
+    });
+
+    it("a failed hls.js import is reported as a retryable failure and retried", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      loadHls = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue(hls.FakeHls);
+
+      await start();
+      expect(hook("overlay").hidden).toBe(false);
+      expect(hook("retry").hidden).toBe(false);
+      expect(warn).toHaveBeenCalled();
+
+      hook("retry").click();
+      await vi.runAllTimersAsync();
+
+      expect(loadHls).toHaveBeenCalledTimes(2);
+      expect(hls.instances).toHaveLength(1);
+      expect(hook("overlay").hidden).toBe(true);
     });
 
     it("ignores non-fatal errors", async () => {

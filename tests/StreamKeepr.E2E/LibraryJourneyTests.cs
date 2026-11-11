@@ -39,6 +39,13 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
             0);
         Assert.True(await Rows(page).CountAsync() >= 5);
 
+        // Selecting a recording keeps the filtered view instead of resetting it.
+        await Rows(page).First.ClickAsync();
+        await page.WaitForURLAsync(url => url.Contains("/r/", StringComparison.Ordinal) &&
+            url.Contains("state=saved", StringComparison.Ordinal));
+        Assert.Equal("true", await page.Locator(".sk-filters [data-filter='saved']").GetAttributeAsync("aria-pressed"));
+        historyLength++; // selecting a recording is real navigation; view changes are not
+
         await page.GetByRole(AriaRole.Button, new() { Name = "Library options" }).ClickAsync();
         await page.GetByRole(AriaRole.Menuitem, new() { Name = "A–Z by streamer" }).ClickAsync();
         await page.WaitForURLAsync(url => url.Contains("sort=az", StringComparison.Ordinal));

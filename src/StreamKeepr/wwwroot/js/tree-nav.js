@@ -3,6 +3,7 @@
 // server round-trip. Collapsing and expanding activate the group head, which is the only call
 // back to .NET. Rows are real links, so Enter on a row is the browser's own navigation.
 const ITEM = '[role="treeitem"]';
+// Same breakpoint as the modal drawer in AppShell.razor.js and components.css.
 const MOBILE = "(max-width: 959.98px)";
 
 const state = new WeakMap();

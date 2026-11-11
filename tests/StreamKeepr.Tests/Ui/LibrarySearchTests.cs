@@ -90,6 +90,17 @@ public sealed class LibrarySearchTests
     }
 
     [Fact]
+    public void Row_links_keep_the_library_view_so_selection_does_not_reset_it()
+    {
+        using BunitContext context = CreateContext(OneStreamer());
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/?q=chef&sort=oldest");
+
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        Assert.Equal("/r/r1?q=chef&sort=oldest", cut.Find("a[data-recording-id='r1']").GetAttribute("href"));
+    }
+
+    [Fact]
     public void No_matches_shows_a_distinct_message_from_an_empty_library()
     {
         var view = new TestLibraryView();

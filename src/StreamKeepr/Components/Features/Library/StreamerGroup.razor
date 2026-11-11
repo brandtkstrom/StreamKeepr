@@ -40,6 +40,7 @@
                               Recording="recording"
                               Selected="@string.Equals(recording.Id, SelectedId, StringComparison.Ordinal)"
                               Search="@Search"
+                              ViewQuery="@ViewQuery"
                               TimeZone="TimeZone" />
             }
         </div>
@@ -63,6 +64,8 @@
 
     [Parameter] public string? Search { get; set; }
 
+    [Parameter] public string ViewQuery { get; set; } = "";
+
     private StreamerView? _lastStreamer;
     private IReadOnlyList<RecordingView> _lastRecordings = [];
     private bool _lastExpanded;
@@ -70,6 +73,7 @@
     private string? _lastTimeZoneId;
     private DateTime _lastDay;
     private string? _lastSearch;
+    private string _lastViewQuery = "";
 
     private string BodyId => $"sk-group-{Streamer.Login}";
 
@@ -114,7 +118,8 @@
             _lastSelectedId != SelectedId ||
             _lastTimeZoneId != TimeZone.Id ||
             _lastDay != Now.Date ||
-            _lastSearch != Search;
+            _lastSearch != Search ||
+            _lastViewQuery != ViewQuery;
 
         _lastStreamer = Streamer;
         _lastRecordings = Recordings;
@@ -123,6 +128,7 @@
         _lastTimeZoneId = TimeZone.Id;
         _lastDay = Now.Date;
         _lastSearch = Search;
+        _lastViewQuery = ViewQuery;
         return changed;
     }
 }

@@ -72,6 +72,7 @@
                                Streamer="streamer"
                                Recordings="Library.Recordings(streamer.Login, _query)"
                                Search="@_query.Search"
+                               ViewQuery="@ViewQuery"
                                Expanded="@(!Preferences.IsCollapsed(streamer.Login))"
                                SelectedId="@SelectedId"
                                TimeZone="@Clock.TimeZone"
@@ -115,12 +116,18 @@
             try
             {
                 _tree = await JS.InvokeAsync<IJSObjectReference>("import", TreeModule);
+                if (_disposed)
+                {
+                    // DisposeAsync ran during the import: release the module, never attach listeners.
+                    await _tree.DisposeAsync();
+                    return;
+                }
                 await _tree.InvokeVoidAsync("init", _list);
                 await _tree.InvokeVoidAsync("revealCurrent", _list);
             }
             catch (JSException ex)
             {
-                // Without the module the drawer is still usable through its links and heads.
+                // Without the module rows stay ordinary links; group heads then work by pointer only.
                 Logger.LogDebug(ex, "The library tree module could not be initialized.");
             }
 
@@ -188,6 +195,7 @@
         }
         catch (JSDisconnectedException)
         {
+            // The circuit is gone, so there is no browser state left to update.
         }
     }
 
@@ -207,6 +215,8 @@
         _query = query;
         _ = InvokeAsync(StateHasChanged);
     }
+
+    private string ViewQuery => LibraryUrl.With("/", _query)[1..];
 
     private bool Filtered => _query.Search is not null || _query.State is not null;
 

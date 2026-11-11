@@ -41,12 +41,17 @@
 
     [Parameter] public string? Search { get; set; }
 
+    /// <summary>The library view's query string ("" or "?q=…"), kept so selecting a row
+    /// does not reset the filter, sort, or drawer scroll.</summary>
+    [Parameter] public string ViewQuery { get; set; } = "";
+
     private RecordingView? _lastRecording;
     private string? _lastSearch;
+    private string _lastViewQuery = "";
     private bool _lastSelected;
     private string? _lastTimeZoneId;
 
-    private string Href => $"/r/{Recording.Id}";
+    private string Href => $"/r/{Uri.EscapeDataString(Recording.Id)}{ViewQuery}";
 
     private bool IsRecording => Recording.State == RecordingState.Recording;
 
@@ -97,10 +102,12 @@
         bool changed = !ReferenceEquals(_lastRecording, Recording) ||
             _lastSelected != Selected ||
             _lastTimeZoneId != TimeZone.Id ||
-            _lastSearch != Search;
+            _lastSearch != Search ||
+            _lastViewQuery != ViewQuery;
 
         _lastRecording = Recording;
         _lastSearch = Search;
+        _lastViewQuery = ViewQuery;
         _lastSelected = Selected;
         _lastTimeZoneId = TimeZone.Id;
         return changed;

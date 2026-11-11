@@ -24,6 +24,7 @@ const NATIVE_HLS = "application/vnd.apple.mpegurl";
 const UNSUPPORTED_MESSAGE = "This browser can't play HLS video. Try a current version of Chrome, Edge, Firefox, or Safari.";
 const FAILED_MESSAGE = "The video could not be played.";
 
+// Mirrors Primitives/StatusChip.razor markup for the states the player shows.
 const CHIPS = {
   recording: '<span class="sk-status rec"><span class="dot" aria-hidden="true"></span>Rec</span>',
   reconnecting:
@@ -40,6 +41,7 @@ export const HOOKS = [
   "forward", "mute", "volume", "volume-level", "current", "duration", "speed", "speed-menu",
 ];
 
+// JS twin of Ui/Format.Timecode (the source of truth); keep the two in step.
 export function formatTimecode(seconds) {
   const total = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
   const hours = Math.floor(total / 3600);
@@ -98,7 +100,9 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
   }
 
   function showOverlay(message, canRetry) {
+    clearTimeout(spinnerTimer);
     setSpinner(false);
+    setBusy(false);
     el["overlay-message"].textContent = message;
     el.retry.hidden = !canRetry;
     el.overlay.hidden = false;
@@ -223,8 +227,10 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
   }
 
   function setVolume(value) {
+    const before = video.volume;
     video.volume = clamp(Math.round(value * 100) / 100, 0, 1);
-    if (video.volume > 0) video.muted = false;
+    // Raising the volume above 0 unmutes; lowering it leaves mute alone.
+    if (video.volume > before && video.volume > 0) video.muted = false;
     renderVolume();
   }
 
@@ -286,14 +292,17 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
   async function attach(source, token) {
     let Hls = null;
     if (hasMediaSource()) {
-      hlsClass ??= (async () => {
-        try {
-          return await loadHls();
-        } catch {
-          return null;
-        }
-      })();
-      Hls = await hlsClass;
+      hlsClass ??= loadHls();
+      try {
+        Hls = await hlsClass;
+      } catch (error) {
+        // A failed import (offline, blocked) is retryable: forget it so Retry imports again.
+        hlsClass = null;
+        if (token !== generation || disposed) return;
+        console.warn("Stream Keepr: hls.js could not be loaded.", error);
+        showOverlay(FAILED_MESSAGE, true);
+        return;
+      }
     }
     if (token !== generation || disposed) return;
 
@@ -324,6 +333,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
     teardownEngine();
     resetUi();
     startAt = position;
+    lastKnownTime = position ?? 0;
     renderPosition(position ?? 0);
     spinnerTimer = setTimeout(() => setSpinner(true), SPINNER_DELAY_MS);
     await attach(view.playlistUrl, token);

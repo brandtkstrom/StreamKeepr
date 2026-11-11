@@ -161,6 +161,12 @@
         {
             _module = await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
             _loaded = Recording;
+            if (_disposed)
+            {
+                // DisposeAsync ran during the import: release the module, never attach listeners.
+                await _module.DisposeAsync();
+                return;
+            }
             await _module.InvokeVoidAsync("init", _root, ToPayload(Recording));
         }
         catch (JSException ex)
@@ -180,6 +186,7 @@
         }
         catch (JSDisconnectedException)
         {
+            // The circuit is gone, so there is no browser state left to update.
         }
         catch (JSException ex)
         {
@@ -227,6 +234,7 @@
         }
         catch (JSDisconnectedException)
         {
+            // The circuit is gone, so there is no browser state left to update.
         }
     }
 }
