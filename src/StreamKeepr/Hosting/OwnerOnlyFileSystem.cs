@@ -56,6 +56,55 @@ internal static class OwnerOnlyFileSystem
     }
 
     /// <summary>
+    /// Creates the private app-data folder and gives the owner exclusive access.
+    /// </summary>
+    public static void EnsurePrivateDirectory(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        SetOwnerOnlyDirectory(directory);
+    }
+
+    /// <summary>
+    /// Writes a private file through a sibling temp file and renames it into
+    /// place, so readers never observe a partial payload.
+    /// </summary>
+    public static void WriteAtomically(string filePath, ReadOnlySpan<byte> contents)
+    {
+        var directory = Path.GetDirectoryName(filePath)
+            ?? throw new ArgumentException("A file path with a directory is required.", nameof(filePath));
+        var tempPath = Path.Combine(directory, $".{Path.GetFileName(filePath)}.{Guid.NewGuid():N}.tmp");
+
+        try
+        {
+            var options = new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                Share = FileShare.None,
+            };
+            if (!OperatingSystem.IsWindows())
+                options.UnixCreateMode = OwnerOnlyFileMode;
+
+            using (var stream = new FileStream(tempPath, options))
+            {
+                stream.Write(contents);
+                stream.Flush(flushToDisk: true);
+            }
+
+            // Publish only after the mode is 0600 so the token is never briefly readable.
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(tempPath, OwnerOnlyFileMode);
+
+            File.Move(tempPath, filePath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+        }
+    }
+
+    /// <summary>
     /// Applies owner-only permissions to every persisted key and revocation file.
     /// </summary>
     public static void EnforceOwnerOnlyKeyFiles(string keyDirectory)

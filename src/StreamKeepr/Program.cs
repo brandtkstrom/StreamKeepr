@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using StreamKeepr.Components;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
+using StreamKeepr.Infrastructure.Twitch;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -31,6 +32,10 @@ builder.Services.AddSingleton(TimeProvider.System);
 
 // Keys live on the recordings volume and are ready before auth or token storage runs.
 builder.Services.AddStreamKeeprDataProtection();
+
+builder.Services.AddHttpClient(TwitchHttpClients.Auth, client =>
+    client.BaseAddress = new Uri("https://id.twitch.tv/"));
+builder.Services.AddSingleton<IAdminTokenStore, AdminTokenStore>();
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
