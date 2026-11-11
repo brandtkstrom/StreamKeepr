@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # Builds and exercises the Compose deployment against the hosting contract.
 #
-# It uses a temporary secrets directory, a unique project/container name, a
-# separate image tag, and an isolated recordings volume, so it never reads or
-# replaces an operator's real secrets, recordings, or running stack.
+# Production phase: contract, health, non-root UID, volume, secrets, logging,
+# clean stop, and restart. Mock phase: a real growing recording through the
+# committed fake Streamlink, stop-mid-recording finalization, cookie continuity,
+# and a seeded deep link.
+#
+# Everything is isolated: a temporary secrets directory, a unique project,
+# container and image name, and a disposable volume. It never touches an
+# operator's stack, recordings, or secrets.
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
+mock_override="$repo_root/scripts/compose-smoke.mock.yaml"
 
 project="streamkeepr-smoke-$$"
 suffix="$$"
@@ -15,7 +21,9 @@ port="${COMPOSE_SMOKE_PORT:-18080}"
 container="streamkeepr-smoke-${suffix}"
 image="streamkeepr-smoke:${suffix}"
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/streamkeepr-compose-smoke.XXXXXX")"
-compose=(docker compose --project-name "$project" --file "$repo_root/compose.yaml")
+base_compose=(docker compose --project-name "$project" --file "$repo_root/compose.yaml")
+mock_compose=(docker compose --project-name "$project" --file "$repo_root/compose.yaml" --file "$mock_override")
+compose=("${base_compose[@]}")
 
 fail() {
     echo "::error::$*" >&2
@@ -30,7 +38,10 @@ cleanup() {
         return
     fi
 
-    "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+    # Both compose commands carry the unique smoke project name, so this cannot
+    # touch an operator's real stack.
+    "${base_compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+    "${mock_compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
     docker image rm --force "$image" >/dev/null 2>&1 || true
     rm -rf "$temp_dir"
 }
@@ -127,28 +138,23 @@ print("Compose contract check passed")
 export STREAMKEEP_IMAGE="$image"
 export STREAMKEEP_CONTAINER_NAME="$container"
 export STREAMKEEP_PORT="$port"
-compose=(docker compose --project-name "$project" --file "$repo_root/compose.yaml")
+export COMPOSE_SMOKE_FIXTURES="$repo_root/tests/fixtures"
+base_compose=(docker compose --project-name "$project" --file "$repo_root/compose.yaml")
+mock_compose=(docker compose --project-name "$project" --file "$repo_root/compose.yaml" --file "$mock_override")
+compose=("${base_compose[@]}")
 
-wait_for_health() {
-    local url="http://127.0.0.1:$port/health/live"
-    for _ in $(seq 1 90); do
+wait_for_url() {
+    local url="$1"
+    local label="$2"
+    local attempts="${3:-90}"
+
+    for _ in $(seq 1 "$attempts"); do
         if curl --fail --silent --show-error --max-time 5 "$url" >/dev/null 2>&1; then
             return 0
         fi
         sleep 2
     done
-    fail "$url did not become healthy"
-}
-
-wait_for_media() {
-    local url="http://127.0.0.1:$port/media/seedstreamer/20261111T000000Z_12345/index.m3u8"
-    for _ in $(seq 1 60); do
-        if curl --fail --silent --show-error --max-time 5 "$url" >/dev/null 2>&1; then
-            return 0
-        fi
-        sleep 2
-    done
-    fail "$url did not become available after recovery"
+    fail "$label ($url) did not become available"
 }
 
 assert_status() {
@@ -164,10 +170,28 @@ assert_status() {
 echo "Building $image"
 "${compose[@]}" build
 
-echo "Starting the Compose service"
+# Compose file secrets are bind mounts on Linux. The container runs as UID 1654,
+# so make the disposable dummy files readable by that UID without making them
+# world-readable. A one-shot root container performs the chown on host files.
+echo "Making disposable secrets readable by UID 1654"
+docker run --rm --user 0:0 --volume "$STREAMKEEP_SECRETS_DIR:/secrets" \
+    --entrypoint sh "$image" -c 'chown 1654:1654 /secrets/*.txt && chmod 400 /secrets/*.txt'
+
+# Read the exact file-to-target mapping a Compose secret mount produces, as the
+# same UID the app uses. This is the check that a 0600 file owned by the runner
+# would fail on Linux; Docker Desktop on macOS maps ownership, so the Linux CI
+# job is the real bind-mount permission check.
+docker run --rm --user 1654:1654 \
+    --mount "type=bind,source=$STREAMKEEP_SECRETS_DIR/twitch_client_id.txt,target=/run/secrets/Twitch__ClientId,readonly" \
+    --mount "type=bind,source=$STREAMKEEP_SECRETS_DIR/twitch_client_secret.txt,target=/run/secrets/Twitch__ClientSecret,readonly" \
+    --entrypoint sh "$image" \
+    -c 'test "$(cat /run/secrets/Twitch__ClientId)" = "dummy-client-id" && test "$(cat /run/secrets/Twitch__ClientSecret)" = "dummy-client-secret"'
+echo "UID 1654 can read the mounted secrets"
+
+echo "Starting the production Compose service"
 "${compose[@]}" up --detach --no-build
 
-wait_for_health
+wait_for_url "http://127.0.0.1:$port/health/live" "/health/live"
 assert_status "http://127.0.0.1:$port/" 200
 echo "Home page and /health/live are healthy"
 
@@ -216,7 +240,7 @@ docker run --rm --user 1654:1654 --volume "$volume:/recordings" \
     || fail "Data Protection key directory is not mode 0700"
 echo "Data Protection keys exist on the recordings volume"
 
-echo "Stopping the service"
+echo "Stopping the production service"
 started_at="$(date +%s)"
 "${compose[@]}" stop
 stopped_after=$(( $(date +%s) - started_at ))
@@ -225,84 +249,109 @@ exit_code="$(docker inspect --format '{{.State.ExitCode}}' "$container")"
 [ "$stopped_after" -le 55 ] || fail "container took ${stopped_after}s to stop"
 echo "Stopped cleanly in ${stopped_after}s (exit 0)"
 
-# The Mock profile does not exist in this tree, so a real Twitch recording
-# cannot be started in Compose. Seed the on-disk state a graceful stop leaves
-# behind (a Recording manifest with one part and no index) and let startup
-# recovery finalize it. This covers the ENDLIST/recovery path honestly without
-# weakening the production image.
-seed_root="$temp_dir/seed/seedstreamer/20261111T000000Z_12345"
-mkdir -p "$seed_root"
-cat > "$seed_root/session.json" <<'JSON'
-{
-  "version": 1,
-  "id": "20261111T000000Z_12345",
-  "channel": "seedstreamer",
-  "streamId": "12345",
-  "startedAt": "2026-11-11T00:00:00+00:00",
-  "status": "Recording",
-  "metadata": [
-    {
-      "at": "2026-11-11T00:00:00+00:00",
-      "title": "Seeded interrupted recording",
-      "game": "Testing"
-    }
-  ]
-}
-JSON
-cat > "$seed_root/p001.m3u8" <<'PLAYLIST'
-#EXTM3U
-#EXT-X-VERSION:7
-#EXT-X-TARGETDURATION:6
-#EXT-X-MEDIA-SEQUENCE:0
-#EXT-X-PLAYLIST-TYPE:EVENT
-#EXT-X-INDEPENDENT-SEGMENTS
-#EXT-X-MAP:URI="init_001.mp4"
-#EXT-X-PROGRAM-DATE-TIME:2026-11-11T00:00:00Z
-#EXTINF:6,
-p001_00000.m4s
-#EXT-X-ENDLIST
-PLAYLIST
-printf 'seed' > "$seed_root/p001_00000.m4s"
-printf 'seed' > "$seed_root/init_001.mp4"
-
-docker run --rm --user 1654:1654 --volume "$volume:/recordings" \
-    --volume "$temp_dir/seed:/seed:ro" --entrypoint sh "$image" \
-    -c 'cp -R /seed/. /recordings/ && chown -R 1654:1654 /recordings/seedstreamer'
-
-echo "Restarting the service"
+echo "Restarting the production service"
 "${compose[@]}" start
-wait_for_health
-wait_for_media
-assert_status "http://127.0.0.1:$port/r/20261111T000000Z_12345" 200
-curl --fail --silent --show-error "http://127.0.0.1:$port/r/20261111T000000Z_12345" \
-    | grep -q 'data-selected-recording="20261111T000000Z_12345"' \
-    || fail "deep link did not render the recording page"
-
-playlist="$(curl --fail --silent --show-error "http://127.0.0.1:$port/media/seedstreamer/20261111T000000Z_12345/index.m3u8")"
-endlist_count="$(printf '%s\n' "$playlist" | grep -c '^#EXT-X-ENDLIST$' || true)"
-[ "$endlist_count" = "1" ] || fail "recovered index has $endlist_count ENDLIST markers, expected 1"
-docker run --rm --user 1654:1654 --volume "$volume:/recordings" \
-    --entrypoint sh "$image" -c "grep -q '\"status\": \"Complete\"' /recordings/seedstreamer/20261111T000000Z_12345/session.json" \
-    || fail "recovery did not mark the seeded session Complete"
-echo "Recovery finalized the interrupted session with one ENDLIST"
-
+wait_for_url "http://127.0.0.1:$port/health/live" "/health/live after restart"
+assert_status "http://127.0.0.1:$port/" 200
 keys_after="$(docker run --rm --user 1654:1654 --volume "$volume:/recordings" \
     --entrypoint sh "$image" -c 'cd /recordings/.streamkeepr/keys && ls -1 | sort')"
 [ "$keys_before" = "$keys_after" ] || fail "Data Protection keys changed across restart"
-echo "Data Protection keys survived the restart"
+echo "Production phase passed; keys survived the restart"
 
-echo "Restarting once more with docker compose restart"
-"${compose[@]}" restart
-wait_for_health
+"${compose[@]}" down --volumes --remove-orphans
+
+echo "Starting the test-only Mock Compose service"
+compose=("${mock_compose[@]}")
+"${compose[@]}" up --detach --no-build
+wait_for_url "http://127.0.0.1:$port/health/ready" "Mock /health/ready" 120
+
+cookie_jar="$temp_dir/mock-sk-auth.cookies"
+headers_before="$temp_dir/mock-headers-before.txt"
+curl --fail --silent --show-error --cookie-jar "$cookie_jar" \
+    --dump-header "$headers_before" "http://127.0.0.1:$port/" --output /dev/null
+cookie_before="$(awk '$6 == "sk-auth" { print $7 }' "$cookie_jar" | tail -1)"
+[ -n "$cookie_before" ] || fail "the Mock profile did not issue an sk-auth cookie"
+
+mock_root="/tmp/streamkeepr-mock/recordings"
+active_part=""
+for _ in $(seq 1 120); do
+    active_part="$(docker exec "$container" sh -c '
+        root="$1"
+        latest=$(ls -1 "$root"/mock_rain/*/p[0-9][0-9][0-9].m3u8 2>/dev/null | sort | tail -1)
+        [ -n "$latest" ] || exit 1
+        grep -q "^#EXT-X-ENDLIST$" "$latest" && exit 1
+        printf "%s\n" "$latest"
+    ' sh "$mock_root" 2>/dev/null)" || active_part=""
+    if [ -n "$active_part" ]; then
+        break
+    fi
+    sleep 2
+done
+[ -n "$active_part" ] || fail "no active Mock part playlist without ENDLIST appeared"
+growing_session="$(basename "$(dirname "$active_part")")"
+echo "Active Mock part: $active_part (session $growing_session)"
+
+echo "Stopping the Mock service mid-recording"
+started_at="$(date +%s)"
+"${compose[@]}" stop
+stopped_after=$(( $(date +%s) - started_at ))
+exit_code="$(docker inspect --format '{{.State.ExitCode}}' "$container")"
+[ "$exit_code" = "0" ] || fail "Mock container did not stop cleanly (exit $exit_code)"
+[ "$stopped_after" -le 55 ] || fail "Mock container took ${stopped_after}s to stop"
+echo "Mock service stopped cleanly in ${stopped_after}s (exit 0)"
+
+mkdir -p "$temp_dir/mock-recordings"
+docker cp "$container:$mock_root/." "$temp_dir/mock-recordings/"
+python3 - "$temp_dir/mock-recordings" <<'PY'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+parts = sorted(root.glob("*/[0-9]*/p[0-9][0-9][0-9].m3u8"))
+if not parts:
+    print("No part playlists were copied from the Mock recordings root.", file=sys.stderr)
+    sys.exit(1)
+
+failures = []
+for part in parts:
+    lines = [line.strip() for line in part.read_text().splitlines() if line.strip()]
+    endlist_count = lines.count("#EXT-X-ENDLIST")
+    if endlist_count != 1 or lines[-1] != "#EXT-X-ENDLIST":
+        failures.append(
+            f"{part.relative_to(root)}: {endlist_count} ENDLIST marker(s), "
+            f"last line {lines[-1] if lines else '<empty>'!r}"
+        )
+
+if failures:
+    print("Part playlists did not finalize:", file=sys.stderr)
+    for failure in failures:
+        print(f"  - {failure}", file=sys.stderr)
+    sys.exit(1)
+
+print(f"{len(parts)} part playlists end with exactly one ENDLIST")
+PY
+
+echo "Restarting the same Mock container"
+"${compose[@]}" start
+wait_for_url "http://127.0.0.1:$port/health/ready" "Mock /health/ready after restart" 120
+
+headers_after="$temp_dir/mock-headers-after.txt"
 assert_status "http://127.0.0.1:$port/" 200
-wait_for_media
-assert_status "http://127.0.0.1:$port/r/20261111T000000Z_12345" 200
-curl --fail --silent --show-error "http://127.0.0.1:$port/r/20261111T000000Z_12345" \
-    | grep -q 'data-selected-recording="20261111T000000Z_12345"' \
-    || fail "deep link did not render after the restart"
-keys_final="$(docker run --rm --user 1654:1654 --volume "$volume:/recordings" \
-    --entrypoint sh "$image" -c 'cd /recordings/.streamkeepr/keys && ls -1 | sort')"
-[ "$keys_before" = "$keys_final" ] || fail "Data Protection keys changed across restart"
-echo "Restart preserved the recording, deep link, and Data Protection keys"
+curl --fail --silent --show-error --cookie "$cookie_jar" \
+    --dump-header "$headers_after" "http://127.0.0.1:$port/" --output /dev/null
+if grep -Eqi '^set-cookie:[[:space:]]*sk-auth=' "$headers_after"; then
+    fail "the Mock profile issued a new sk-auth cookie after restart"
+fi
+cookie_after="$(awk '$6 == "sk-auth" { print $7 }' "$cookie_jar" | tail -1)"
+[ "$cookie_before" = "$cookie_after" ] || fail "the sk-auth cookie value changed across restart"
+echo "sk-auth cookie survived the restart unchanged"
+
+deep_link="http://127.0.0.1:$port/r/20261108T180000Z_9100001"
+assert_status "$deep_link" 200
+page="$(curl --fail --silent --show-error "$deep_link")"
+[[ "$page" == *'data-selected-recording="20261108T180000Z_9100001"'* ]] \
+    || fail "the seeded Mock deep link did not render"
+assert_status "http://127.0.0.1:$port/media/mock_nova/20261108T180000Z_9100001/index.m3u8" 200
+echo "Seeded deep link and media survived the restart"
 
 echo "Compose smoke test passed"

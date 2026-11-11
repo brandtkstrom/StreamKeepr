@@ -168,10 +168,11 @@ The image can also be run directly. A named volume inherits the image's ownershi
 docker build -t streamkeepr .
 docker run --rm -p 8080:8080 \
   -v streamkeepr-recordings:/recordings \
-  --mount type=bind,source="$PWD/secrets",target=/run/secrets,readonly \
+  --mount type=bind,source="$PWD/secrets/twitch_client_id.txt",target=/run/secrets/Twitch__ClientId,readonly \
+  --mount type=bind,source="$PWD/secrets/twitch_client_secret.txt",target=/run/secrets/Twitch__ClientSecret,readonly \
   streamkeepr
 ```
 
-The secrets directory must contain `twitch_client_id.txt` and `twitch_client_secret.txt` with the ownership and mode described above. Streamlink is pinned at 8.6.3 and can be bumped with `--build-arg STREAMLINK_VERSION=<version>`.
+The two files must have the ownership and mode described above. Streamlink is pinned at 8.6.3 and can be bumped with `--build-arg STREAMLINK_VERSION=<version>`.
 
 The old worker still builds beside the new app until the migration switch.

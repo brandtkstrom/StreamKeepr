@@ -36,6 +36,8 @@ volumes:
   recordings:
 
 secrets:
+  # These are bind mounts on Linux. The container runs as UID 1654, so chown
+  # the files to 1654:1654 and keep mode 400 or 600.
   Twitch__ClientId:
     file: ${STREAMKEEP_SECRETS_DIR:-./secrets}/twitch_client_id.txt
   Twitch__ClientSecret:

@@ -1,0 +1,12 @@
+# TEST-ONLY override for scripts/compose-smoke.sh. It runs the production image
+# with the Mock environment so the supervisor records the growing capture through
+# tests/fixtures/fake-live-streamlink. Never use this override for a real host.
+services:
+  stream-keepr:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Mock
+      Mock__Feed__Enabled: "false"
+      Mock__Seed__ResetOnStart: "false"
+      Mock__RecordingsRoot: /tmp/streamkeepr-mock/recordings
+    volumes:
+      - ${COMPOSE_SMOKE_FIXTURES:-./tests/fixtures}:/tests/fixtures:ro
