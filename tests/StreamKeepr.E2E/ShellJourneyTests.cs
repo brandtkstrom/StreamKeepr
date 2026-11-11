@@ -430,6 +430,26 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 (await details.Locator("[data-details-parts]").InnerTextAsync()).Trim());
             Assert.Equal(2, await details.Locator("[data-chapter]").CountAsync());
 
+            // A chapter seek while playing moves the playhead and keeps playback running.
+            await page.Locator("[data-sk='seek'][aria-disabled='false']").WaitForAsync(
+                new LocatorWaitForOptions { State = WaitForSelectorState.Attached, Timeout = 30_000 });
+            await page.Locator("[data-sk='center']").ClickAsync();
+            await page.WaitForFunctionAsync(
+                "() => document.querySelector('[data-sk=video]').currentTime > 0.5",
+                null,
+                new PageWaitForFunctionOptions { Timeout = 10_000 });
+
+            ILocator playingChapter = details.Locator("[data-chapter]").Nth(1);
+            double playingStart = double.Parse(
+                (await playingChapter.GetAttributeAsync("data-chapter"))!, CultureInfo.InvariantCulture);
+            await playingChapter.ClickAsync();
+            await page.WaitForFunctionAsync(
+                "expected => !document.querySelector('[data-sk=video]').paused && " +
+                "Math.abs(document.querySelector('[data-sk=video]').currentTime - expected) < 0.5",
+                playingStart,
+                new PageWaitForFunctionOptions { Timeout = 10_000 });
+            Assert.False(await page.Locator("[data-sk='video']").EvaluateAsync<bool>("v => v.paused"));
+
             await page.ScreenshotAsync(new PageScreenshotOptions
             {
                 Path = screenshotPath,

@@ -171,7 +171,7 @@ Control order, left to right, matches the design system:
       public ValueTask SeekAsync(double seconds);
   }
   ```
-- `VideoPlayer` attaches after JS init and detaches on dispose. `SeekAsync` clamps to `[0, duration]`; if the player is not ready it stores the latest request and flushes it after attach. A click on a chapter in `RecordingDetails` calls it and leaves focus on the chapter button.
+- `VideoPlayer` attaches after JS init and detaches on dispose. `SeekAsync` clamps the lower bound to `0`; the player JS clamps the upper bound to the media duration it owns, so the bridge does not carry a second duration copy. If the player is not ready it stores the latest request and flushes it after attach. A click on a chapter in `RecordingDetails` calls it and leaves focus on the chapter button.
 - Chapter ticks, hover chapter names, and the details list all use `Chapter.StartSeconds`; empty or invalid chapter data produces no ticks and no tooltip title.
 
 ## 12. Media URLs, caching, and security

@@ -54,15 +54,20 @@
                 </span>
             </div>
 
-            @if (VisibleChapters.Count > 0)
+            @{
+                IReadOnlyList<Chapter> chapters = VisibleChapters;
+            }
+            @if (chapters.Count > 0)
             {
                 <div class="sk-chapters" role="group" aria-label="Chapters">
-                    @foreach (Chapter chapter in VisibleChapters)
+                    @for (int index = 0; index < chapters.Count; index++)
                     {
+                        Chapter chapter = chapters[index];
                         <button type="button"
                                 class="sk-chapter"
-                                @key="chapter.StartSeconds"
-                                data-chapter="@chapter.StartSeconds"
+                                @key="ChapterKey(index, chapter)"
+                                data-chapter="@ChapterOffset(chapter)"
+                                data-chapter-key="@ChapterKey(index, chapter)"
                                 @onclick="() => SeekToChapterAsync(chapter)">
                             <span class="sk-visually-hidden">Seek to </span>
                             <span class="time">@Format.Timecode(chapter.StartSeconds)</span>
@@ -147,6 +152,14 @@
         string.Create(
             CultureInfo.InvariantCulture,
             $"{value:N0} {(value == 1 ? singular : singular + "s")}");
+
+    private static string ChapterOffset(Chapter chapter) =>
+        chapter.StartSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+
+    // Offsets are not unique (two metadata changes can land in one segment); the index
+    // keeps sibling keys unique while preserving the offset for stable data attributes.
+    private static string ChapterKey(int index, Chapter chapter) =>
+        $"{ChapterOffset(chapter)}:{index}";
 
     private void OnPreferencesChanged() => _ = InvokeAsync(StateHasChanged);
 

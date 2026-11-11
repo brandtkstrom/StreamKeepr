@@ -182,7 +182,19 @@
                 return;
             }
             await _module.InvokeVoidAsync("init", _root, _self, ToPayload(Recording));
+            if (_disposed)
+            {
+                // DisposeAsync ran while init was in flight; it already detached the bridge
+                // and released the module, so do not attach a callback into disposed state.
+                _module = null;
+                return;
+            }
+
             Bridge.Attach(SeekAsync);
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, so there is no browser state left to initialize.
         }
         catch (JSException ex)
         {

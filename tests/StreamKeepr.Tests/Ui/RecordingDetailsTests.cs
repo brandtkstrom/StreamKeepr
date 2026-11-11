@@ -1,3 +1,4 @@
+using System.Globalization;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
@@ -131,6 +132,38 @@ public sealed class RecordingDetailsTests
         buttons[0].Click();
 
         cut.WaitForAssertion(() => Assert.Equal([3733d], seeks));
+    }
+
+    [Fact]
+    public void Chapter_offsets_use_invariant_culture_and_duplicate_offsets_do_not_collide()
+    {
+        using BunitContext context = CreateContext(out _);
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("fr-FR");
+
+            IRenderedComponent<RecordingDetails> cut = Render(
+                context,
+                Recording(chapters:
+                [
+                    new Chapter(2.5, "First", ""),
+                    new Chapter(2.5, "Second", ""),
+                ]));
+
+            var buttons = cut.FindAll("[data-chapter]");
+            Assert.Equal(2, buttons.Count);
+            Assert.All(buttons, button => Assert.Equal("2.5", button.GetAttribute("data-chapter")));
+            Assert.Equal(
+                ["2.5:0", "2.5:1"],
+                buttons.Select(button => button.GetAttribute("data-chapter-key")));
+            Assert.Contains("First", buttons[0].TextContent);
+            Assert.Contains("Second", buttons[1].TextContent);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
     }
 
     [Fact]

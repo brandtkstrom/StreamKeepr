@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.JSInterop;
 using StreamKeepr.Components.Features.Player;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Ui;
@@ -136,6 +137,33 @@ public sealed class VideoPlayerTests
     }
 
     [Fact]
+    public async Task Disposing_during_init_never_attaches_the_bridge_or_seeks_the_module()
+    {
+        using BunitContext context = CreateContext(out _);
+        var runtime = new BlockingJsRuntime();
+        context.Services.AddSingleton<IJSRuntime>(runtime);
+        var bridge = context.Services.GetRequiredService<PlayerBridge>();
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(p =>
+            p.Add(c => c.Recording, Recording("r1", "First")));
+
+        await runtime.Module.InitStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(bridge.IsReady);
+
+        await cut.Instance.DisposeAsync();
+
+        Assert.True(runtime.Module.Disposed);
+        Assert.False(bridge.IsReady);
+
+        // Release init on the renderer so its continuation runs after disposal.
+        await cut.InvokeAsync(() => runtime.Module.ReleaseInit.TrySetResult(true));
+        await cut.InvokeAsync(() => { });
+
+        Assert.False(bridge.IsReady);
+        await bridge.SeekAsync(12);
+        Assert.Equal(0, runtime.Module.SeekCalls);
+    }
+
+    [Fact]
     public async Task Dispose_releases_the_module()
     {
         using BunitContext context = CreateContext(out BunitJSModuleInterop module);
@@ -164,4 +192,71 @@ public sealed class VideoPlayerTests
         new(id, "ann", title, "Food", Now.AddHours(-2), Now.AddHours(-1), 3600,
             RecordingState.Saved, 8, 1, 1024, $"/thumbs/{id}.jpg", $"/media/ann/{id}/index.m3u8",
             null, [new Chapter(60, "Main", "Food")]);
+
+    private sealed class BlockingJsRuntime : IJSRuntime
+    {
+        public BlockingModule Module { get; } = new();
+
+        public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
+            InvokeAsync<TValue>(identifier, CancellationToken.None, args);
+
+        public ValueTask<TValue> InvokeAsync<TValue>(
+            string identifier,
+            CancellationToken cancellationToken,
+            object?[]? args)
+        {
+            if (identifier == "import")
+                return ValueTask.FromResult((TValue)(object)Module);
+
+            throw new NotSupportedException($"Unexpected JS runtime call '{identifier}'.");
+        }
+    }
+
+    private sealed class BlockingModule : IJSObjectReference
+    {
+        public TaskCompletionSource<bool> InitStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<bool> ReleaseInit { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int SeekCalls { get; private set; }
+
+        public bool Disposed { get; private set; }
+
+        public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
+            InvokeAsync<TValue>(identifier, CancellationToken.None, args);
+
+        public ValueTask<TValue> InvokeAsync<TValue>(
+            string identifier,
+            CancellationToken cancellationToken,
+            object?[]? args)
+        {
+            switch (identifier)
+            {
+                case "init":
+                    InitStarted.TrySetResult(true);
+                    return new ValueTask<TValue>(WaitForReleaseAsync<TValue>());
+                case "dispose":
+                    return ValueTask.FromResult(default(TValue)!);
+                case "seek":
+                    SeekCalls++;
+                    return ValueTask.FromResult(default(TValue)!);
+                default:
+                    throw new NotSupportedException($"Unexpected JS module call '{identifier}'.");
+            }
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            Disposed = true;
+            return ValueTask.CompletedTask;
+        }
+
+        private async Task<TValue> WaitForReleaseAsync<TValue>()
+        {
+            await ReleaseInit.Task;
+            return default!;
+        }
+    }
 }

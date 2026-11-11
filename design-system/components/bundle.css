@@ -285,15 +285,16 @@ mark.sk-hl { background: var(--highlight); color: var(--on-highlight); border-ra
   display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 48px; padding: 0 var(--space-2) 0 var(--space-4);
   border: 0; background: transparent; color: var(--on-surface); text-align: left; border-radius: var(--radius-md);
 }
-.sk-collapse-head h2, .sk-collapse-head h3, .sk-toggle-bar h2, .sk-toggle-bar h3, .sk-toggle-bar .sk-toggle-title { margin: 0; flex: 1; font: var(--text-title-medium); }
+.sk-collapse-head :is(h2, h3), .sk-toggle-bar :is(h2, h3), .sk-toggle-bar .sk-toggle-title { margin: 0; flex: 1; font: var(--text-title-medium); }
 .sk-collapse-head .hint, .sk-toggle-bar .hint { color: var(--on-surface-variant); font: 500 12px/16px var(--font-mono); white-space: nowrap; }
 .sk-collapse-head .chev { color: var(--on-surface-variant); transition: transform 300ms cubic-bezier(0.2, 0, 0, 1); }
-.sk-collapse[aria-expanded="false"] > .sk-collapse-head .chev { transform: rotate(-90deg); }
+.sk-collapse[data-expanded="false"] > .sk-collapse-head .chev { transform: rotate(-90deg); }
 .sk-collapse-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 300ms cubic-bezier(0.2, 0, 0, 1); }
 .sk-collapse-body > div { min-height: 0; overflow: hidden; }
-.sk-collapse[aria-expanded="false"] > .sk-collapse-body { grid-template-rows: 0fr; }
+.sk-collapse[aria-expanded="false"] > .sk-collapse-body,
 /* The stats panel exposes disclosure on its switch; data-open mirrors the collapse. */
-.sk-collapse[data-open="false"] > .sk-collapse-body { grid-template-rows: 0fr; }
+.sk-collapse[data-open="false"] > .sk-collapse-body,
+.sk-collapse[data-expanded="false"] > .sk-collapse-body { grid-template-rows: 0fr; }
 
 .sk-switch { position: relative; width: 52px; height: 32px; flex: none; border-radius: var(--radius-full); background: var(--surface-container-highest); box-shadow: inset 0 0 0 2px var(--outline); transition: background 200ms; }
 .sk-switch::after { content: ""; position: absolute; top: 8px; left: 8px; width: 16px; height: 16px; border-radius: var(--radius-full); background: var(--outline); transition: all 200ms cubic-bezier(0.2, 0, 0, 1); }
@@ -331,10 +332,19 @@ mark.sk-hl { background: var(--highlight); color: var(--on-highlight); border-ra
 
 /* ---------- details ---------- */
 .sk-details-title { display: flex; align-items: flex-start; gap: var(--space-4); }
-.sk-details-title h1 { flex: 1; margin: 0; font: var(--text-headline-small); }
+.sk-details-title :is(h1, h2, h3) { flex: 1; margin: 0; font: var(--text-headline-small); }
 .sk-details-meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-top: var(--space-2); color: var(--on-surface-variant); font: var(--text-body-medium); }
 .sk-details-meta .who { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--on-surface); font-weight: 600; }
 .sk-details-meta .sep { width: 4px; height: 4px; border-radius: var(--radius-full); background: var(--outline); }
+.sk-details-body { padding: 0 var(--space-4) var(--space-4); }
+.sk-chapters { display: flex; flex-direction: column; gap: 2px; margin-top: var(--space-3); }
+.sk-chapter { display: flex; align-items: baseline; gap: var(--space-3); width: 100%; padding: 6px var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--on-surface); text-align: left; cursor: pointer; }
+.sk-chapter:hover { background: var(--surface-container-high); }
+.sk-chapter:hover .time { color: var(--on-surface); }
+.sk-chapter:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.sk-chapter .time { flex: none; color: var(--primary); font: var(--text-label-medium); font-variant-numeric: tabular-nums; }
+.sk-chapter .title { flex: 1; font: var(--text-body-medium); }
+.sk-chapter .game { color: var(--on-surface-variant); font: var(--text-body-small); }
 .sk-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 
 /* Visually hidden but available to assistive technology. */
