@@ -67,6 +67,15 @@ internal static class DomainTestData
 
     public static DvrEvent RetryElapsed(JobId job) => new DvrEvent.RetryTimerElapsed(job);
 
+    public static Resumable Resumable(
+        LiveStream? live = null,
+        int nextPart = 2,
+        bool complete = false)
+    {
+        live ??= Live();
+        return new Resumable(Session.For(live, Channel, RecordingsRoot), nextPart, complete);
+    }
+
     public static DvrState.WaitingToRetry WaitingToRetry(
         LiveStream? live = null,
         int attempt = 1,

@@ -7,9 +7,8 @@ namespace StreamKeepr.Domain;
 /// identifiers arrive in events and settings.
 /// </summary>
 /// <remarks>
-/// This slice implements the recording, retry, streak, and cooldown paths. Stop, resume, and
-/// recovery handling (#24) are intentional no-ops: the reducer stays in the current state and
-/// emits no commands instead of throwing.
+/// Implements the full domain transition table: recording, retry/streak/cooldown, stop/resume,
+/// and startup recovery. Pairs outside the table are stable no-ops, so the reducer is total.
 /// </remarks>
 public static class DvrReducer
 {
@@ -21,38 +20,130 @@ public static class DvrReducer
 
         return (state, @event) switch
         {
+            (DvrState.Idle idle, DvrEvent.SessionRecovered recovered)
+                => IdleRecovered(idle, recovered.Resume),
             (DvrState.Idle idle, DvrEvent.StreamStatusObserved observed)
                 => IdleObserved(idle, observed.Observation, settings),
+            (DvrState.Idle idle, DvrEvent.StopRequested)
+                => StopIdle(idle),
             (DvrState.Recording recording, DvrEvent.StreamStatusObserved { Observation: StreamObservation.Live live })
                 => RecordingObservedLive(recording, live.Stream, settings),
             (DvrState.Recording recording, DvrEvent.PartProducingMedia media)
                 => RecordingProducedMedia(recording, media),
             (DvrState.Recording recording, DvrEvent.RecorderExited exit)
                 => RecordingExited(recording, exit, settings),
+            (DvrState.Recording recording, DvrEvent.StopRequested)
+                => StopRecording(recording),
             (DvrState.WaitingToRetry waiting, DvrEvent.StreamStatusObserved observed)
                 => WaitingToRetryObserved(waiting, observed.Observation, settings),
             (DvrState.WaitingToRetry waiting, DvrEvent.RetryTimerElapsed timer)
                 => WaitingToRetryRetryElapsed(waiting, timer),
+            (DvrState.WaitingToRetry waiting, DvrEvent.StopRequested)
+                => StopWaitingToRetry(waiting),
             (DvrState.CoolingDown cooling, DvrEvent.StreamStatusObserved observed)
                 => CoolingDownObserved(cooling, observed.Observation, observed.At, settings),
+            (DvrState.CoolingDown cooling, DvrEvent.StopRequested)
+                => StopCoolingDown(cooling),
+            (DvrState.Paused paused, DvrEvent.ResumeRequested)
+                => ResumePaused(paused),
             _ => Stay(state),
         };
     }
 
+    private static Step IdleRecovered(DvrState.Idle idle, Resumable recovered)
+    {
+        // Recovery classifies the newest session: complete sessions reopen as Finished;
+        // unfinished ones resume. Installing it replaces any prior resumable.
+        var next = recovered.Complete
+            ? new DvrState.Idle(Streak: idle.Streak, Finished: recovered)
+            : new DvrState.Idle(Resume: recovered, Streak: idle.Streak);
+
+        return new Step(next, ImmutableArray<DvrCommand>.Empty);
+    }
+
     private static Step IdleObserved(
         DvrState.Idle idle, StreamObservation observation, DvrSettings settings) =>
-        observation is StreamObservation.Live { Stream: var live }
-            ? IdleObservedLive(idle, live, settings)
-            : Stay(idle);
+        observation switch
+        {
+            StreamObservation.Live { Stream: var live } => IdleObservedLive(idle, live, settings),
+            StreamObservation.Offline => IdleObservedOffline(idle),
+            _ => Stay(idle),
+        };
 
     private static Step IdleObservedLive(DvrState.Idle idle, LiveStream live, DvrSettings settings)
     {
-        // Reopening or resuming a recovered session belongs to the recovery path (#24).
-        if (idle.Resume is not null || idle.Finished is not null)
-            return Stay(idle);
+        // Finished wins when both resumables exist. It is already complete or finalized, so a
+        // different stream needs no FinalizeSession before opening the replacement.
+        if (idle.Finished is { } finished)
+        {
+            return finished.Session.StreamId == live.StreamId
+                ? ReopenFinished(idle.Streak, finished, live)
+                : StartNewRecording(
+                    live, settings, idle.Streak, ImmutableArray<DvrCommand>.Empty);
+        }
+
+        if (idle.Resume is { } resume)
+        {
+            return resume.Session.StreamId == live.StreamId
+                ? ResumeUnfinished(idle.Streak, resume, live)
+                : StartNewRecording(
+                    live,
+                    settings,
+                    idle.Streak,
+                    ImmutableArray.Create<DvrCommand>(
+                        new DvrCommand.FinalizeSession(resume.Session)));
+        }
 
         return StartNewRecording(
             live, settings, idle.Streak, ImmutableArray<DvrCommand>.Empty);
+    }
+
+    private static Step IdleObservedOffline(DvrState.Idle idle)
+    {
+        // Finished wins when both resumables exist; there is no open session to finalize.
+        if (idle.Finished is not null || idle.Resume is not { } resume)
+            return Stay(idle);
+
+        // A normal offline finalize ends the session and resets the failure streak.
+        return new Step(
+            new DvrState.Idle(Finished: resume),
+            ImmutableArray.Create<DvrCommand>(
+                new DvrCommand.FinalizeSession(resume.Session)));
+    }
+
+    /// <summary>
+    /// Reopens an already complete or finalized session at its next part. The manifest must be
+    /// reopened before the recorder appends to it.
+    /// </summary>
+    private static Step ReopenFinished(int streak, Resumable finished, LiveStream live)
+    {
+        var job = new JobId(finished.Session.Id, finished.NextPart);
+        var next = new DvrState.Recording(
+            finished.Session, job, live, Attempt: 0, HasMedia: false, streak);
+
+        return new Step(
+            next,
+            ImmutableArray.Create<DvrCommand>(
+                new DvrCommand.ReopenSession(finished.Session),
+                new DvrCommand.RecordMetadata(finished.Session, live),
+                new DvrCommand.StartRecorder(finished.Session, job)));
+    }
+
+    /// <summary>
+    /// Continues an unfinished session at its next part. The manifest is still open, so the
+    /// reducer never emits <see cref="DvrCommand.ReopenSession"/> or <see cref="DvrCommand.OpenSession"/>.
+    /// </summary>
+    private static Step ResumeUnfinished(int streak, Resumable resume, LiveStream live)
+    {
+        var job = new JobId(resume.Session.Id, resume.NextPart);
+        var next = new DvrState.Recording(
+            resume.Session, job, live, Attempt: 0, HasMedia: false, streak);
+
+        return new Step(
+            next,
+            ImmutableArray.Create<DvrCommand>(
+                new DvrCommand.RecordMetadata(resume.Session, live),
+                new DvrCommand.StartRecorder(resume.Session, job)));
     }
 
     private static Step RecordingObservedLive(
@@ -228,6 +319,52 @@ public static class DvrReducer
         return IdleObserved(
             new DvrState.Idle(cooling.Resume, Streak: 0), observation, settings);
     }
+
+    private static Step StopIdle(DvrState.Idle idle)
+    {
+        // Finished wins when both resumables exist; only an unfinished session is open.
+        if (idle.Finished is { } finished)
+            return new Step(new DvrState.Paused(finished), ImmutableArray<DvrCommand>.Empty);
+
+        if (idle.Resume is { } resume)
+        {
+            return new Step(
+                new DvrState.Paused(resume),
+                ImmutableArray.Create<DvrCommand>(
+                    new DvrCommand.FinalizeSession(resume.Session)));
+        }
+
+        return new Step(new DvrState.Paused(), ImmutableArray<DvrCommand>.Empty);
+    }
+
+    private static Step StopRecording(DvrState.Recording recording) =>
+        new(
+            new DvrState.Paused(new Resumable(recording.Session, recording.Job.Part + 1)),
+            ImmutableArray.Create<DvrCommand>(
+                new DvrCommand.StopRecorder(recording.Job),
+                new DvrCommand.FinalizeSession(recording.Session)));
+
+    private static Step StopWaitingToRetry(DvrState.WaitingToRetry waiting) =>
+        new(
+            new DvrState.Paused(new Resumable(waiting.Session, waiting.Next.Part)),
+            ImmutableArray.Create<DvrCommand>(
+                new DvrCommand.FinalizeSession(waiting.Session)));
+
+    private static Step StopCoolingDown(DvrState.CoolingDown cooling)
+    {
+        if (cooling.Resume is { } resume)
+        {
+            return new Step(
+                new DvrState.Paused(resume),
+                ImmutableArray.Create<DvrCommand>(
+                    new DvrCommand.FinalizeSession(resume.Session)));
+        }
+
+        return new Step(new DvrState.Paused(), ImmutableArray<DvrCommand>.Empty);
+    }
+
+    private static Step ResumePaused(DvrState.Paused paused) =>
+        new(new DvrState.Idle(Finished: paused.Finished), ImmutableArray<DvrCommand>.Empty);
 
     /// <summary>
     /// Creates a new session at part one. <paramref name="streak"/> carries the failure streak
