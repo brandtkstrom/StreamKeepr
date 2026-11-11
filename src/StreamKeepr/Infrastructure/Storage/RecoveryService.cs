@@ -21,9 +21,9 @@ public sealed class RecoveryService(
     private const string MapPrefix = "#EXT-X-MAP:URI=\"";
 
     public async Task<IReadOnlyDictionary<string, RecoveredChannel>> RecoverAsync(
-        IReadOnlyList<string> watchedChannels, CancellationToken ct)
+        IReadOnlyList<ChannelEntry> channels, CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(watchedChannels);
+        ArgumentNullException.ThrowIfNull(channels);
 
         string root = Path.GetFullPath(storage.Value.RecordingsRoot);
         var unfinished = new List<Resumable>();
@@ -49,11 +49,17 @@ public sealed class RecoveryService(
             }
         }
 
-        var watched = watchedChannels.ToHashSet(StringComparer.Ordinal);
+        var watched = channels.Select(channel => channel.Login).ToHashSet(StringComparer.Ordinal);
+        var paused = channels
+            .Where(channel => channel.Paused)
+            .Select(channel => channel.Login)
+            .ToHashSet(StringComparer.Ordinal);
 
-        // Only the newest unfinished session of a watched channel can still be live.
+        // Only the newest unfinished session of a watched, unpaused channel can still be live.
         var resumable = NewestPerChannel(
-            unfinished.Where(candidate => watched.Contains(candidate.Session.Channel)));
+            unfinished.Where(candidate =>
+                watched.Contains(candidate.Session.Channel)
+                && !paused.Contains(candidate.Session.Channel)));
 
         var resumableIds = resumable.Values
             .Select(candidate => candidate.Session.Id)
@@ -81,7 +87,8 @@ public sealed class RecoveryService(
         foreach (string skippedId in skipped)
             library.Remove(skippedId);
 
-        return watchedChannels
+        return channels
+            .Select(channel => channel.Login)
             .Distinct(StringComparer.Ordinal)
             .ToDictionary(
                 channel => channel,

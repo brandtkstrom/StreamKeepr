@@ -10,6 +10,8 @@ public sealed class RecoveryServiceTests : IDisposable
 {
     private const string Channel = "streamer";
 
+    private static readonly ChannelEntry[] Watched = [new(Channel)];
+
     private readonly SessionStoreTestContext _context = new();
     private readonly RecoveryService _recovery;
 
@@ -33,7 +35,7 @@ public sealed class RecoveryServiceTests : IDisposable
         await WriteRecordingAsync(newer, "222");
 
         IReadOnlyDictionary<string, RecoveredChannel> recovered =
-            await _recovery.RecoverAsync([Channel], CancellationToken.None);
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
 
         RecoveredChannel channel = recovered[Channel];
         Assert.NotNull(channel.Unfinished);
@@ -68,7 +70,7 @@ public sealed class RecoveryServiceTests : IDisposable
         File.Delete(Path.Combine(session.Directory, SessionStore.IndexFileName));
 
         IReadOnlyDictionary<string, RecoveredChannel> recovered =
-            await _recovery.RecoverAsync([Channel], CancellationToken.None);
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
 
         RecoveredChannel channel = recovered[Channel];
         Assert.Null(channel.Unfinished);
@@ -96,7 +98,7 @@ public sealed class RecoveryServiceTests : IDisposable
         await File.WriteAllTextAsync(temp, "stale");
 
         IReadOnlyDictionary<string, RecoveredChannel> recovered =
-            await _recovery.RecoverAsync([Channel], CancellationToken.None);
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
 
         RecoveredChannel channel = recovered[Channel];
         Assert.NotNull(channel.Unfinished);
@@ -129,7 +131,7 @@ public sealed class RecoveryServiceTests : IDisposable
         await File.WriteAllTextAsync(badTemp, "stale");
 
         IReadOnlyDictionary<string, RecoveredChannel> recovered =
-            await _recovery.RecoverAsync([Channel], CancellationToken.None);
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
 
         Assert.Null(recovered[Channel].Unfinished);
         Assert.Null(recovered[Channel].Finished);
@@ -155,7 +157,7 @@ public sealed class RecoveryServiceTests : IDisposable
         }
 
         IReadOnlyDictionary<string, RecoveredChannel> recovered =
-            await _recovery.RecoverAsync([Channel], CancellationToken.None);
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
 
         Assert.Null(recovered[Channel].Finished);
         Assert.Null(_context.Library.Find(session.Id));
@@ -170,7 +172,7 @@ public sealed class RecoveryServiceTests : IDisposable
         await _context.Store.FinalizeAsync(session, CancellationToken.None);
 
         IReadOnlyDictionary<string, RecoveredChannel> recovered =
-            await _recovery.RecoverAsync([Channel], CancellationToken.None);
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
 
         RecoveredChannel channel = recovered[Channel];
         Assert.Null(channel.Unfinished);
@@ -193,7 +195,7 @@ public sealed class RecoveryServiceTests : IDisposable
         await File.WriteAllTextAsync(indexPath, index.Replace("#EXT-X-ENDLIST", ""));
 
         IReadOnlyDictionary<string, RecoveredChannel> recovered =
-            await _recovery.RecoverAsync([Channel], CancellationToken.None);
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
 
         Assert.NotNull(recovered[Channel].Finished);
         string repaired = await File.ReadAllTextAsync(indexPath);
@@ -213,7 +215,7 @@ public sealed class RecoveryServiceTests : IDisposable
             "#EXTM3U\n#EXTINF:not-a-number,\np001_00000.m4s\n");
 
         IReadOnlyDictionary<string, RecoveredChannel> recovered =
-            await _recovery.RecoverAsync([Channel], CancellationToken.None);
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
 
         Assert.Null(recovered[Channel].Finished);
         Assert.Null(_context.Library.Find(session.Id));
@@ -233,7 +235,7 @@ public sealed class RecoveryServiceTests : IDisposable
         await WriteRecordingAsync(newer, "994");
 
         IReadOnlyDictionary<string, RecoveredChannel> recovered =
-            await _recovery.RecoverAsync([Channel], CancellationToken.None);
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
 
         RecoveredChannel channel = recovered[Channel];
         Assert.Equal(newer.Id, channel.Unfinished!.Session.Id);
@@ -253,10 +255,29 @@ public sealed class RecoveryServiceTests : IDisposable
             Path.Combine(older.Directory, SessionStore.IndexFileName + ".tmp"));
 
         Exception failure = await Assert.ThrowsAnyAsync<Exception>(
-            () => _recovery.RecoverAsync([Channel], CancellationToken.None));
+            () => _recovery.RecoverAsync(Watched, CancellationToken.None));
 
         Assert.True(failure is UnauthorizedAccessException or IOException, failure.GetType().Name);
         Assert.False(_context.Library.IsLoaded);
+    }
+
+    [Fact]
+    public async Task Paused_channel_unfinished_session_is_finalized_and_not_resumed()
+    {
+        Session session = CreateSession("996", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(session, "996");
+
+        IReadOnlyDictionary<string, RecoveredChannel> recovered =
+            await _recovery.RecoverAsync(
+                [new ChannelEntry(Channel, Paused: true)], CancellationToken.None);
+
+        Assert.Null(recovered[Channel].Unfinished);
+        Assert.NotNull(recovered[Channel].Finished);
+        Assert.True(recovered[Channel].Finished!.Complete);
+        SessionManifest? manifest = await _context.Store.TryLoadAsync(
+            session.Directory, CancellationToken.None);
+        Assert.Equal(SessionStatus.Complete, manifest!.Status);
+        Assert.False(_context.Library.Find(session.Id)!.IsRecording);
     }
 
     [Fact]
@@ -266,7 +287,7 @@ public sealed class RecoveryServiceTests : IDisposable
         await WriteRecordingAsync(session, "777");
 
         IReadOnlyDictionary<string, RecoveredChannel> recovered =
-            await _recovery.RecoverAsync([Channel], CancellationToken.None);
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
 
         Assert.Contains(Channel, recovered.Keys);
         Assert.Null(recovered[Channel].Unfinished);

@@ -1,6 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
+using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Tests.Hosting;
@@ -64,6 +67,63 @@ public sealed class StartupRecoveryHostTests
             recordingsRoot: context.Root);
 
         Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+    }
+
+    [Fact]
+    public void Corrupt_channel_list_stops_host_startup()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            Directory.CreateDirectory(AppDataPaths.AppDataDirectory(root));
+            File.WriteAllText(AppDataPaths.ChannelsFile(root), "not json");
+
+            using var factory = new StreamKeeprAppFactory(recordingsRoot: root);
+            Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Startup_starts_one_coordinator_per_stored_channel_including_paused()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var store = new ChannelStore(
+                Options.Create(new TwitchOptions()),
+                Options.Create(new StorageOptions { RecordingsRoot = root }),
+                NullLogger<ChannelStore>.Instance);
+            await store.LoadAsync(CancellationToken.None);
+            await store.AddAsync("stored", CancellationToken.None);
+            await store.AddAsync("paused", CancellationToken.None);
+            await store.SetPausedAsync("paused", paused: true, CancellationToken.None);
+
+            using var factory = new StreamKeeprAppFactory(recordingsRoot: root);
+            using var client = factory.CreateClient();
+
+            DvrStatus status = factory.Services.GetRequiredService<DvrStatus>();
+            await RuntimeTestWait.ForStatusAsync(status, "stored", _ => true);
+            DvrSnapshot paused = await RuntimeTestWait.ForStatusAsync(
+                status, "paused", _ => true);
+
+            Assert.IsType<DvrState.Paused>(paused.State);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
     }
 
     private static async Task SeedAsync(

@@ -1,6 +1,4 @@
 using System.Collections.Concurrent;
-using Microsoft.Extensions.Options;
-using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
@@ -8,13 +6,13 @@ using StreamKeepr.Infrastructure.Twitch;
 namespace StreamKeepr.Infrastructure.Runtime;
 
 /// <summary>
-/// Runtime host: recovers sessions, starts one coordinator per configured channel, and feeds
-/// it from the poller. Channel storage and channel control land in later issues.
+/// Runtime host: loads the stored channel list, recovers sessions, starts one coordinator per
+/// stored channel, and feeds it from the poller. Channel control lands in a later issue.
 /// </summary>
 public sealed class DvrSupervisor(
-    IOptions<TwitchOptions> options,
     IStreamPoller poller,
     RecoveryService recovery,
+    ChannelStore channelStore,
     ChannelCoordinatorFactory factory,
     IHostApplicationLifetime lifetime,
     TimeProvider clock,
@@ -23,7 +21,7 @@ public sealed class DvrSupervisor(
     private readonly ConcurrentDictionary<string, Running> _running =
         new(StringComparer.Ordinal);
 
-    private IReadOnlyList<string> _channels = [];
+    private IReadOnlyList<ChannelEntry> _channels = [];
     private IReadOnlyDictionary<string, RecoveredChannel> _recovered =
         new Dictionary<string, RecoveredChannel>(StringComparer.Ordinal);
 
@@ -33,15 +31,16 @@ public sealed class DvrSupervisor(
     /// </summary>
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
-        _channels = options.Value.Channels;
-
         try
         {
+            await channelStore.LoadAsync(cancellationToken);
+            _channels = channelStore.Snapshot;
             _recovered = await recovery.RecoverAsync(_channels, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogCritical(ex, "Startup recovery failed; stopping startup.");
+            logger.LogCritical(
+                ex, "Startup failed while loading channels or recovering sessions.");
             throw;
         }
 
@@ -50,10 +49,11 @@ public sealed class DvrSupervisor(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        foreach (string channel in _channels)
-            StartChannel(channel, _recovered.GetValueOrDefault(channel), stoppingToken);
+        foreach (ChannelEntry channel in _channels)
+            StartChannel(channel, _recovered.GetValueOrDefault(channel.Login), stoppingToken);
 
-        Task polling = poller.RunAsync(_channels, RouteAsync, stoppingToken);
+        string[] logins = _channels.Select(channel => channel.Login).ToArray();
+        Task polling = poller.RunAsync(logins, RouteAsync, stoppingToken);
         _ = polling.ContinueWith(
             task =>
             {
@@ -87,18 +87,21 @@ public sealed class DvrSupervisor(
     }
 
     private void StartChannel(
-        string channel, RecoveredChannel? recovered, CancellationToken stoppingToken)
+        ChannelEntry channel, RecoveredChannel? recovered, CancellationToken stoppingToken)
     {
-        ChannelCoordinator coordinator = factory.Create(
-            channel, new DvrState.Idle(Finished: recovered?.Finished));
+        bool paused = channel.Paused;
+        DvrState initial = paused
+            ? new DvrState.Paused(recovered?.Finished)
+            : new DvrState.Idle(Finished: recovered?.Finished);
+        ChannelCoordinator coordinator = factory.Create(channel.Login, initial);
 
         // Queue the recovery before the loop starts so it is the first event the reducer sees.
-        if (recovered?.Unfinished is { } unfinished)
+        if (!paused && recovered?.Unfinished is { } unfinished)
             _ = coordinator.PublishAsync(new DvrEvent.SessionRecovered(unfinished));
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         Task loop = Task.Run(() => coordinator.RunAsync(cts.Token), CancellationToken.None);
-        _running[channel] = new Running(coordinator, cts, loop);
+        _running[channel.Login] = new Running(coordinator, cts, loop);
 
         _ = loop.ContinueWith(
             task =>
@@ -106,7 +109,7 @@ public sealed class DvrSupervisor(
                 logger.LogCritical(
                     task.Exception,
                     "The channel loop for {Channel} crashed; stopping the host.",
-                    channel);
+                    channel.Login);
                 lifetime.StopApplication();
             },
             CancellationToken.None,

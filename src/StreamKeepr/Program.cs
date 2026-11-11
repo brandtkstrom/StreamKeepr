@@ -48,11 +48,12 @@ builder.Services.AddSingleton<RecordingLibrary>();
 builder.Services.AddSingleton<IDiskSpace, DriveInfoDiskSpace>();
 builder.Services.AddSingleton<DiskGuard>();
 builder.Services.AddSingleton<SessionStore>();
+builder.Services.AddSingleton<ChannelStore>();
 builder.Services.AddSingleton<RecoveryService>();
 builder.Services.AddSingleton<RecorderJob>();
 builder.Services.AddSingleton<IRecorder>(services => services.GetRequiredService<RecorderJob>());
 
-// Runtime: one coordinator per configured channel, fed by the poller. The real Helix
+// Runtime: one coordinator per stored channel, fed by the poller. The real Helix
 // poller replaces the temporary binding in #40.
 builder.Services.AddSingleton<IRetryJitter, RandomizedRetryJitter>();
 builder.Services.AddSingleton<DvrStatus>();
