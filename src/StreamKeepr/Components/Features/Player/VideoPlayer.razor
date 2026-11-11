@@ -1,0 +1,240 @@
+@using System.Globalization
+@using StreamKeepr.Ui
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject ILogger<VideoPlayer> Logger
+
+@* Rendered once. VideoPlayer.razor.js owns hls.js, every control, and all dynamic player DOM;
+   Blazor never re-renders this markup, so it cannot overwrite JS-owned attributes or text.
+   Hooks are data-sk attributes (see the HOOKS list in the module). *@
+<div class="sk-player"
+     data-sk-player
+     role="region"
+     aria-label="Video player"
+     aria-busy="true"
+     @ref="_root">
+    <video data-sk="video"
+           playsinline
+           preload="metadata"
+           poster="@Recording.ThumbnailUrl"
+           aria-label="@Recording.Title"></video>
+
+    <div class="sk-player-top">
+        <div class="t">
+            <b data-sk="title">@Recording.Title</b>
+            <span data-sk="streamer">@Recording.StreamerLogin</span>
+        </div>
+        <span data-sk="chip"></span>
+    </div>
+
+    <button type="button" class="sk-player-center" data-sk="center" aria-label="Play">
+        <span class="sk-icon" aria-hidden="true">play_arrow</span>
+    </button>
+
+    <div class="sk-player-spinner" data-sk="spinner" hidden>
+        <span class="sk-spin" aria-hidden="true"></span>
+        <span class="sk-visually-hidden" data-sk="spinner-text">Loading video</span>
+    </div>
+
+    <div class="sk-player-overlay" data-sk="overlay" role="alert" hidden>
+        <span class="sk-icon" aria-hidden="true">error</span>
+        <p data-sk="overlay-message"></p>
+        <div class="actions">
+            <button type="button" class="sk-btn" data-sk="retry">Retry</button>
+            <a class="sk-btn text" href="/">Back to library</a>
+        </div>
+    </div>
+
+    <div class="sk-player-bottom">
+        <div class="sk-seek"
+             data-sk="seek"
+             role="slider"
+             tabindex="0"
+             aria-label="Seek"
+             aria-valuemin="0"
+             aria-valuemax="@Max"
+             aria-valuenow="0"
+             aria-valuetext="0:00 of @Format.Timecode(Recording.DurationSec)"
+             aria-disabled="true">
+            <div class="track">
+                <div class="buf" data-sk="buffered"></div>
+                <div class="played" data-sk="played"></div>
+            </div>
+            <div class="ticks" data-sk="ticks" aria-hidden="true"></div>
+            <div class="knob" data-sk="knob"></div>
+            <span class="hover-time" data-sk="hover-time" aria-hidden="true">0:00</span>
+        </div>
+
+        <div class="sk-controls">
+            <button type="button" class="sk-icon-btn" data-sk="play" aria-label="Play">
+                <span class="sk-icon fill" aria-hidden="true">play_arrow</span>
+            </button>
+            <button type="button" class="sk-icon-btn" data-sk="back" data-skip="-10" aria-label="Back 10 seconds" disabled>
+                <span class="sk-icon" aria-hidden="true">replay_10</span>
+            </button>
+            <button type="button" class="sk-icon-btn" data-sk="forward" data-skip="10" aria-label="Forward 10 seconds" disabled>
+                <span class="sk-icon" aria-hidden="true">forward_10</span>
+            </button>
+            <div class="sk-vol">
+                <button type="button" class="sk-icon-btn" data-sk="mute" aria-label="Mute">
+                    <span class="sk-icon" aria-hidden="true">volume_up</span>
+                </button>
+                <div class="bar"
+                     data-sk="volume"
+                     role="slider"
+                     tabindex="0"
+                     aria-label="Volume"
+                     aria-valuemin="0"
+                     aria-valuemax="100"
+                     aria-valuenow="100"
+                     aria-valuetext="100%"><i data-sk="volume-level" style="width:100%"></i></div>
+            </div>
+            <span class="sk-time">
+                <span data-sk="current">0:00</span>
+                <span class="dim">/ <span data-sk="duration">@Format.Timecode(Recording.DurationSec)</span></span>
+            </span>
+            <span class="grow"></span>
+            <div class="sk-menu-anchor">
+                <button type="button"
+                        class="sk-pill"
+                        data-sk="speed"
+                        data-menu="m-speed"
+                        aria-haspopup="menu"
+                        aria-expanded="false"
+                        aria-controls="@SpeedMenuId"
+                        aria-label="Playback speed: 1×">1×</button>
+                <div class="sk-menu sk-player-menu" id="@SpeedMenuId" data-sk="speed-menu" role="menu" aria-label="Playback speed" hidden>
+                    @foreach (double rate in Speeds)
+                    {
+                        <button type="button"
+                                role="menuitemradio"
+                                tabindex="-1"
+                                data-rate="@rate.ToString(CultureInfo.InvariantCulture)"
+                                aria-checked="@(rate == 1 ? "true" : "false")">
+                            <span class="sk-icon" aria-hidden="true">@(rate == 1 ? "check" : "")</span>
+                            <span class="sp">@(rate == 1 ? "Normal" : $"{rate.ToString(CultureInfo.InvariantCulture)}×")</span>
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private const string ModulePath = "./Components/Features/Player/VideoPlayer.razor.js";
+    private static readonly double[] Speeds = [0.5, 1, 1.5, 2];
+
+    private readonly string SpeedMenuId = $"sk-speed-{Guid.NewGuid():N}";
+    private ElementReference _root;
+    private IJSObjectReference? _module;
+    private RecordingView? _loaded;
+    private bool _ready;
+    private bool _disposed;
+
+    [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
+
+    private string Max => Math.Max(0, Recording.DurationSec).ToString("0.###", CultureInfo.InvariantCulture);
+
+    // The skeleton renders once; afterwards only the JS module changes the player DOM.
+    protected override bool ShouldRender() => !_ready;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_module is null || _loaded is null || ReferenceEquals(_loaded, Recording))
+            return;
+
+        string identifier = string.Equals(_loaded.Id, Recording.Id, StringComparison.Ordinal)
+            ? "update"
+            : "load";
+        _loaded = Recording;
+        await InvokeAsync(identifier, _root, ToPayload(Recording));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _disposed)
+            return;
+
+        _ready = true;
+        try
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
+            _loaded = Recording;
+            if (_disposed)
+            {
+                // DisposeAsync ran during the import: release the module, never attach listeners.
+                await _module.DisposeAsync();
+                return;
+            }
+            await _module.InvokeVoidAsync("init", _root, ToPayload(Recording));
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "The video player module could not be initialized.");
+        }
+    }
+
+    private async Task InvokeAsync(string identifier, params object[] args)
+    {
+        if (_module is null)
+            return;
+
+        try
+        {
+            await _module.InvokeVoidAsync(identifier, args);
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, so there is no browser state left to update.
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Video player call {Identifier} failed.", identifier);
+        }
+    }
+
+    internal static object ToPayload(RecordingView recording) => new
+    {
+        recordingId = recording.Id,
+        playlistUrl = recording.PlaylistUrl,
+        title = recording.Title,
+        streamerLogin = recording.StreamerLogin,
+        thumbnailUrl = recording.ThumbnailUrl,
+        state = recording.State switch
+        {
+            RecordingState.Recording => "recording",
+            RecordingState.Reconnecting => "reconnecting",
+            RecordingState.Partial => "partial",
+            _ => "saved",
+        },
+        durationSec = recording.DurationSec,
+        resumeSec = recording.ResumeSec,
+        chapters = recording.Chapters.Select(chapter => new
+        {
+            startSeconds = chapter.StartSeconds,
+            title = chapter.Title,
+            game = chapter.Game,
+        }).ToArray(),
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        if (_module is null)
+            return;
+
+        await InvokeAsync("dispose", _root);
+        try
+        {
+            await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, so there is no browser state left to update.
+        }
+    }
+}

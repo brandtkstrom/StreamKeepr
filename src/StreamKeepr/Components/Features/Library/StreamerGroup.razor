@@ -1,25 +1,28 @@
 @using StreamKeepr.Ui
 
 @* One streamer group: avatar, live ring, count/state, chevron, and day-grouped rows. *@
-<section class="sk-group">
-    <button type="button"
-            class="sk-group-head"
-            aria-expanded="@(Expanded ? "true" : "false")"
-            aria-controls="@BodyId"
-            title="@Streamer.Login"
-            @onclick="OnToggle">
+<section class="sk-group" role="none">
+    @* A treeitem rather than a button: tree-nav.js gives it Enter/Space and the roving tab stop. *@
+    <div class="sk-group-head"
+         role="treeitem"
+         aria-level="1"
+         aria-expanded="@(Expanded ? "true" : "false")"
+         aria-controls="@BodyId"
+         data-tree-key="@($"g:{Streamer.Login}")"
+         title="@Streamer.Login"
+         @onclick="OnToggle">
         <Avatar Name="@Streamer.DisplayName"
                 ImageUrl="@Streamer.AvatarUrl"
                 Recording="@Streamer.IsRecording"
                 Large="true" />
         <span class="who">
-            <span class="name">@Streamer.DisplayName</span>
+            <span class="name"><Highlight Text="@Streamer.DisplayName" Search="@Search" /></span>
             <span class="meta">@Meta</span>
         </span>
         <span class="chev" aria-hidden="true"><Icon Name="expand_more" /></span>
-    </button>
+    </div>
 
-    <div id="@BodyId" class="sk-group-body" role="group">
+    <div id="@BodyId" class="sk-group-body" role="group" inert="@(!Expanded)">
         <div>
             @{
                 DateTimeOffset? previousDay = null;
@@ -36,6 +39,8 @@
                 <RecordingRow @key="recording.Id"
                               Recording="recording"
                               Selected="@string.Equals(recording.Id, SelectedId, StringComparison.Ordinal)"
+                              Search="@Search"
+                              ViewQuery="@ViewQuery"
                               TimeZone="TimeZone" />
             }
         </div>
@@ -57,12 +62,18 @@
 
     [Parameter] public EventCallback OnToggle { get; set; }
 
+    [Parameter] public string? Search { get; set; }
+
+    [Parameter] public string ViewQuery { get; set; } = "";
+
     private StreamerView? _lastStreamer;
     private IReadOnlyList<RecordingView> _lastRecordings = [];
     private bool _lastExpanded;
     private string? _lastSelectedId;
     private string? _lastTimeZoneId;
     private DateTime _lastDay;
+    private string? _lastSearch;
+    private string _lastViewQuery = "";
 
     private string BodyId => $"sk-group-{Streamer.Login}";
 
@@ -106,7 +117,9 @@
             _lastExpanded != Expanded ||
             _lastSelectedId != SelectedId ||
             _lastTimeZoneId != TimeZone.Id ||
-            _lastDay != Now.Date;
+            _lastDay != Now.Date ||
+            _lastSearch != Search ||
+            _lastViewQuery != ViewQuery;
 
         _lastStreamer = Streamer;
         _lastRecordings = Recordings;
@@ -114,6 +127,8 @@
         _lastSelectedId = SelectedId;
         _lastTimeZoneId = TimeZone.Id;
         _lastDay = Now.Date;
+        _lastSearch = Search;
+        _lastViewQuery = ViewQuery;
         return changed;
     }
 }

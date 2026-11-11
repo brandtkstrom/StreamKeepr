@@ -384,7 +384,13 @@ internal sealed class TestLibraryView : ILibraryView
 
     public event Action? Changed;
 
-    public IReadOnlyList<StreamerView> Streamers(LibraryQuery query) => StreamerItems;
+    public LibraryQuery? LastQuery { get; private set; }
+
+    public IReadOnlyList<StreamerView> Streamers(LibraryQuery query)
+    {
+        LastQuery = query;
+        return StreamerItems;
+    }
 
     public IReadOnlyList<RecordingView> Recordings(string streamerLogin, LibraryQuery query) =>
         RecordingsByLogin.GetValueOrDefault(streamerLogin) ?? [];

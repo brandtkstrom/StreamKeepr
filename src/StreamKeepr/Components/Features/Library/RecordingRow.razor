@@ -4,6 +4,9 @@
 @* One library row. It is a real link so selection and deep links work without the circuit. *@
 <a class="sk-row"
    href="@Href"
+   role="treeitem"
+   aria-level="2"
+   data-tree-key="@($"r:{Recording.Id}")"
    aria-current="@(Selected ? "true" : null)"
    data-recording-id="@Recording.Id"
    data-state="@StateName">
@@ -20,7 +23,7 @@
         }
     </span>
     <span class="sk-row-text">
-        <span class="sk-row-title">@Recording.Title</span>
+        <span class="sk-row-title"><Highlight Text="@Recording.Title" Search="@Search" /></span>
         <span class="sk-row-meta">@Meta</span>
         @if (Status is StatusChipKind status)
         {
@@ -36,11 +39,19 @@
 
     [Parameter] public TimeZoneInfo TimeZone { get; set; } = TimeZoneInfo.Utc;
 
+    [Parameter] public string? Search { get; set; }
+
+    /// <summary>The library view's query string ("" or "?q=…"), kept so selecting a row
+    /// does not reset the filter, sort, or drawer scroll.</summary>
+    [Parameter] public string ViewQuery { get; set; } = "";
+
     private RecordingView? _lastRecording;
+    private string? _lastSearch;
+    private string _lastViewQuery = "";
     private bool _lastSelected;
     private string? _lastTimeZoneId;
 
-    private string Href => $"/r/{Recording.Id}";
+    private string Href => $"/r/{Uri.EscapeDataString(Recording.Id)}{ViewQuery}";
 
     private bool IsRecording => Recording.State == RecordingState.Recording;
 
@@ -90,9 +101,13 @@
     {
         bool changed = !ReferenceEquals(_lastRecording, Recording) ||
             _lastSelected != Selected ||
-            _lastTimeZoneId != TimeZone.Id;
+            _lastTimeZoneId != TimeZone.Id ||
+            _lastSearch != Search ||
+            _lastViewQuery != ViewQuery;
 
         _lastRecording = Recording;
+        _lastSearch = Search;
+        _lastViewQuery = ViewQuery;
         _lastSelected = Selected;
         _lastTimeZoneId = TimeZone.Id;
         return changed;

@@ -17,6 +17,8 @@ if (reconnectModal) {
     ?.addEventListener("click", resume);
 }
 
+const HARD_LOSS = new Set(["failed", "paused", "resume-failed"]);
+
 function setState(state) {
   if (document.body) document.body.dataset.skReconnect = state;
 }
@@ -25,11 +27,16 @@ function handleReconnectStateChanged(event) {
   const state = event.detail?.state;
   setState(state ?? "hide");
 
-  if (state === "show" || state === "paused") {
+  // A transient reconnect ("show", "retrying") stays quiet: the drawer shows "Live updates
+  // paused" from body[data-sk-reconnect] and playback keeps going. Only a hard circuit loss
+  // raises the template modal, so the note and the modal are never both prominent.
+  if (HARD_LOSS.has(state)) {
     if (!reconnectModal.open) reconnectModal.showModal();
   } else if (state === "hide") {
     reconnectModal.close();
-  } else if (state === "failed") {
+  }
+
+  if (state === "failed") {
     document.addEventListener("visibilitychange", retryWhenDocumentBecomesVisible);
   } else if (state === "rejected") {
     location.reload();
