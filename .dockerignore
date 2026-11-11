@@ -52,7 +52,3 @@ LICENSE
 TestResults/
 **/TestResults/
 **/node_modules/
-
-# MonoLisa woff2 files are git-ignored but included when present in a private
-# working-tree build. Never publish an image built from a checkout that contains
-# them; a fresh clone has no MonoLisa binaries.

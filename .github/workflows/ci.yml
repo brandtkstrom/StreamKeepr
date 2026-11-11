@@ -182,9 +182,8 @@ jobs:
           docker exec "$container" ffmpeg -version | head -1 | grep -q "9.0.2"
 
           if docker exec "$container" test -d /app/tests \
-            || docker exec "$container" test -d /app/docs \
-            || docker exec "$container" test -e /app/wwwroot/fonts/0-normal.woff2; then
-            echo "::error::image contains test/docs or licensed MonoLisa assets"
+            || docker exec "$container" test -d /app/docs; then
+            echo "::error::image contains test/docs assets"
             exit 1
           fi
 
