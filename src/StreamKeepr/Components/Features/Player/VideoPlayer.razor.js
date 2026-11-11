@@ -119,8 +119,8 @@ export function createPlayer(
   let wasFullscreen = false;
   const stats = createStatsProbe({ video });
   const progress = createProgress({
-    save: (seconds) => invokeDotNet("SaveProgress", view?.recordingId, seconds),
-    clear: () => invokeDotNet("ClearProgress", view?.recordingId),
+    save: (recordingId, seconds) => invokeDotNet("SaveProgress", recordingId, seconds),
+    clear: (recordingId) => invokeDotNet("ClearProgress", recordingId),
     fetch,
   });
 

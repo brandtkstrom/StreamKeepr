@@ -76,6 +76,7 @@ body { margin: 0; background: var(--surface); color: var(--on-surface); font-fam
   font: var(--text-label-large);
 }
 .sk-auth-chip .sk-icon { color: var(--on-surface-variant); }
+.sk-auth-chip .login { color: var(--on-surface-variant); font: var(--text-body-small); }
 .sk-auth-dot { width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--success); flex: none; }
 mark.sk-hl { background: var(--highlight); color: var(--on-highlight); border-radius: 2px; padding: 0 1px; }
 

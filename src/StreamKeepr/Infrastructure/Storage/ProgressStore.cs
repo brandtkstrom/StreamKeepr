@@ -137,7 +137,8 @@ public sealed class ProgressStore : IProgressStore, IHostedService, IDisposable
         {
             _timer?.Dispose();
             _timer = null;
-            if (!_dirty)
+            // Shutdown flushes through StopAsync before the container disposes the store.
+            if (!_dirty || _disposed)
                 return;
             _dirty = false;
             _lastWrite = _clock.GetUtcNow();
@@ -184,6 +185,10 @@ public sealed class ProgressStore : IProgressStore, IHostedService, IDisposable
         }
 
         _library.Changed -= OnLibraryChanged;
+
+        // Wait out a write already in progress before releasing its gate.
+        _writeGate.Wait();
+        _writeGate.Dispose();
     }
 
     private Task Apply(Func<Dictionary<string, double>, bool> change)

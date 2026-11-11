@@ -117,7 +117,7 @@ Control order, left to right, matches the design system:
 - Recording/Reconnecting ignore resume entirely. Progress writes are skipped while the media is live; they begin when ENDLIST makes the duration finite. VOD→live stops writes again.
 - Save every 15 s while playing and once on pause through the component's `SaveProgress` call to `IProgressStore.SetAsync`; this keeps the library's resume bars updating through `LibraryView.Changed`.
 - Flush on route change, component dispose, `pagehide`, and `visibilitychange` → hidden with `PUT /api/recordings/{id}/progress`, `Content-Type: application/json`, `keepalive: true`. Skip a flush within 2 s of the previous write.
-- On `ended`, call `ClearProgress`. Do not write a position within 30 s of the end or when the duration is unknown; clear instead. The backend clamps and enforces the same 30 s rule.
+- On `ended`, call `ClearProgress`. Within 30 s of the end, clear instead of writing a position. While the duration is unknown (still loading, or a pause fired while switching recordings), write nothing: clearing then would wipe a stored resume position the viewer never moved past. The backend clamps and enforces the same 30 s rule.
 - No timeupdate or other high-frequency event crosses the circuit. No cross-tab progress sync; the last write wins.
 - The `RecordingView.ResumeSec` used at load is never re-applied after a parameter update.
 

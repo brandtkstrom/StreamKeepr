@@ -53,7 +53,8 @@ public sealed class AdminAuthenticationStateProvider :
     private readonly ILogger<AdminAuthenticationStateProvider> _logger;
     private readonly CancellationTokenSource _stop = new();
 
-    private Task<AuthenticationState> _state = Anonymous;
+    // Written by the circuit (SetAuthenticationState) and the revalidation loop.
+    private volatile Task<AuthenticationState> _state = Anonymous;
     private bool _looping;
 
     public AdminAuthenticationStateProvider(

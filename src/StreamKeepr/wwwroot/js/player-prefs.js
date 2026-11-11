@@ -43,7 +43,8 @@ export function defaultStorage() {
 export function readPlayerPrefs(storage = defaultStorage()) {
   try {
     return parsePlayerPrefs(storage?.getItem(PLAYER_PREFS_KEY) ?? null);
-  } catch {
+  } catch (error) {
+    console.debug("Stream Keepr: player preferences are unavailable; using defaults.", error);
     return { ...DEFAULT_PREFS };
   }
 }
@@ -51,7 +52,8 @@ export function readPlayerPrefs(storage = defaultStorage()) {
 export function writePlayerPrefs(prefs, storage = defaultStorage()) {
   try {
     storage?.setItem(PLAYER_PREFS_KEY, serializePlayerPrefs(prefs));
-  } catch {
+  } catch (error) {
     // Quota or disabled storage: the in-memory value still applies for this page.
+    console.debug("Stream Keepr: player preferences were not saved.", error);
   }
 }

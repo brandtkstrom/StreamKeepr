@@ -52,7 +52,7 @@ public sealed class TwitchAccountTests
         using BunitContext context = CreateContext(out _);
         context.AddAuthorization()
             .SetAuthorized("mock_admin")
-            .SetClaims(new Claim("display_name", "Mock Admin"));
+            .SetClaims(new Claim(StreamKeepr.Infrastructure.Twitch.AdminAuth.DisplayNameClaim, "Mock Admin"));
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
         navigation.NavigateTo("/r/abc?state=saved");
 
@@ -64,6 +64,7 @@ public sealed class TwitchAccountTests
         Assert.Equal("Twitch account: Mock Admin", chip.QuerySelector(".lbl")?.TextContent);
         Assert.Contains("Mock Admin", chip.TextContent);
         Assert.NotNull(cut.Find(".sk-auth-chip .sk-auth-dot"));
+        Assert.Equal("mock_admin", cut.Find(".sk-auth-chip .login").TextContent);
 
         var items = cut.FindAll("[role='menuitem']");
         Assert.Equal(["Manage Twitch connection", "Disconnect"], items.Select(i => i.TextContent.Trim().Replace("manage_accounts", "").Replace("logout", "").Trim()));

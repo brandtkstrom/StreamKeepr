@@ -32,6 +32,10 @@ else
                 <TriggerContent>
                     <Avatar Name="@DisplayName(context.User)" Tone="AvatarTone.Tertiary" aria-hidden="true" />
                     <span class="lbl"><span class="sk-visually-hidden">Twitch account: </span>@DisplayName(context.User)</span>
+                    @if (DistinctLogin(context.User) is { } login)
+                    {
+                        <span class="login">@login</span>
+                    }
                     <span class="sk-auth-dot" aria-hidden="true" title="Connected to Twitch"></span>
                     <span class="sk-icon sm" aria-hidden="true">expand_more</span>
                 </TriggerContent>
@@ -98,9 +102,18 @@ else
     }
 
     internal static string DisplayName(ClaimsPrincipal user) =>
-        user.FindFirst("display_name")?.Value is { Length: > 0 } display
+        user.FindFirst(AdminAuth.DisplayNameClaim)?.Value is { Length: > 0 } display
             ? display
-            : user.Identity?.Name ?? "Twitch";
+            : Login(user);
+
+    internal static string Login(ClaimsPrincipal user) => user.Identity?.Name ?? "Twitch";
+
+    // Shown beside the display name only when it adds something (contract: login, and the
+    // display name when available).
+    internal static string? DistinctLogin(ClaimsPrincipal user) =>
+        string.Equals(DisplayName(user), Login(user), StringComparison.OrdinalIgnoreCase)
+            ? null
+            : Login(user);
 
     private Task ManageAsync()
     {

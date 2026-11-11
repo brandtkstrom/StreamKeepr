@@ -7,14 +7,15 @@ export const FLUSH_SKIP_MS = 2_000;
 // Mirrors ProgressStore.EndMargin (the source of truth, which enforces the same rule).
 export const END_MARGIN_SEC = 30;
 
+// Mirrors ProgressEndpoint.Route (the source of truth): PUT /api/recordings/{id}/progress.
 export function progressUrl(recordingId) {
   return new URL(`api/recordings/${encodeURIComponent(recordingId)}/progress`, document.baseURI).href;
 }
 
 /**
  * @param {object} options
- * @param {(seconds: number) => unknown} options.save circuit save (SaveProgress)
- * @param {() => unknown} options.clear circuit clear (ClearProgress)
+ * @param {(recordingId: string, seconds: number) => unknown} options.save circuit save (SaveProgress)
+ * @param {(recordingId: string) => unknown} options.clear circuit clear (ClearProgress)
  * @param {(url: string, init: RequestInit) => unknown} [options.fetch] keepalive transport
  * @param {() => number} [options.now]
  */
@@ -28,6 +29,8 @@ export function createProgress({ save, clear, fetch = globalThis.fetch, now = ()
   function decide() {
     const position = source.position();
     const duration = source.duration();
+    // Unknown duration (still loading, or a pause fired while switching recordings): skip.
+    // Clearing here would wipe a stored resume position the viewer never moved past.
     if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0) return null;
     return position >= duration - END_MARGIN_SEC ? "clear" : Math.max(0, position);
   }
@@ -35,9 +38,10 @@ export function createProgress({ save, clear, fetch = globalThis.fetch, now = ()
   function write() {
     if (!eligible()) return;
     const decision = decide();
+    if (decision === null) return;
     lastWrite = now();
-    if (decision === null || decision === "clear") void clear();
-    else void save(decision);
+    if (decision === "clear") void clear(source.recordingId);
+    else void save(source.recordingId, decision);
   }
 
   function stopTimer() {
@@ -72,14 +76,14 @@ export function createProgress({ save, clear, fetch = globalThis.fetch, now = ()
       stopTimer();
       if (!source) return;
       lastWrite = now();
-      void clear();
+      void clear(source.recordingId);
     },
 
     /** Replay from the start drops the stored position. */
     restarted() {
       if (!eligible()) return;
       lastWrite = now();
-      void clear();
+      void clear(source.recordingId);
     },
 
     /**
@@ -99,10 +103,12 @@ export function createProgress({ save, clear, fetch = globalThis.fetch, now = ()
           body: JSON.stringify({ positionSec: Math.max(0, position) }),
           keepalive: true,
         });
-        // A deleted recording answers 404; the page may be going away. Nothing to do either way.
-        sent?.catch?.(() => {});
-      } catch {
-        // fetch can throw synchronously while the page unloads; the next save covers it.
+        // A deleted recording answers 404 and the page may be going away; the next save
+        // covers a lost flush, so a failure is only worth a debug line.
+        sent?.catch?.((error) => console.debug("Stream Keepr: progress flush failed.", error));
+      } catch (error) {
+        // fetch can throw synchronously while the page unloads.
+        console.debug("Stream Keepr: progress flush failed.", error);
       }
     },
 

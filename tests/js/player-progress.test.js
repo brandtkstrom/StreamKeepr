@@ -34,28 +34,35 @@ describe("player-progress.js", () => {
     expect(save).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(1);
-    expect(save).toHaveBeenLastCalledWith(100);
+    expect(save).toHaveBeenLastCalledWith("r 1", 100);
 
     media.position = 130;
     vi.advanceTimersByTime(15_000);
-    expect(save).toHaveBeenLastCalledWith(130);
+    expect(save).toHaveBeenLastCalledWith("r 1", 130);
 
     media.position = 140;
     progress.paused();
-    expect(save).toHaveBeenLastCalledWith(140);
+    expect(save).toHaveBeenLastCalledWith("r 1", 140);
     vi.advanceTimersByTime(60_000);
     expect(save).toHaveBeenCalledTimes(3);
   });
 
-  it("clears instead of saving near the end or without a duration", () => {
+  it("clears instead of saving near the end", () => {
     media.position = 571;
     progress.paused();
-    expect(clear).toHaveBeenCalledOnce();
 
+    expect(clear).toHaveBeenCalledExactlyOnceWith("r 1");
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing while the duration is unknown, so a pause during loading keeps the stored position", () => {
     media.duration = NaN;
     progress.paused();
-    expect(clear).toHaveBeenCalledTimes(2);
+    progress.playing();
+    vi.advanceTimersByTime(15_000);
+
     expect(save).not.toHaveBeenCalled();
+    expect(clear).not.toHaveBeenCalled();
   });
 
   it("never writes while live", () => {

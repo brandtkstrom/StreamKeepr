@@ -154,7 +154,7 @@ public static class MockAuth
             [
                 new Claim(ClaimTypes.Name, login),
                 new Claim(ClaimTypes.NameIdentifier, login),
-                new Claim("display_name", options.DisplayName),
+                new Claim(AdminAuth.DisplayNameClaim, options.DisplayName),
                 new Claim(RunClaim, RunId),
             ],
             authenticationType: AdminAuth.CookieScheme);
