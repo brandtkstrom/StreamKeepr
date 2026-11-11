@@ -43,6 +43,7 @@ builder.Services.AddSingleton<RecordingLibrary>();
 builder.Services.AddSingleton<IDiskSpace, DriveInfoDiskSpace>();
 builder.Services.AddSingleton<DiskGuard>();
 builder.Services.AddSingleton<SessionStore>();
+builder.Services.AddSingleton<RecoveryService>();
 builder.Services.AddSingleton<RecorderJob>();
 builder.Services.AddSingleton<IRecorder>(services => services.GetRequiredService<RecorderJob>());
 
