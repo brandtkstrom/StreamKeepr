@@ -53,7 +53,7 @@ public sealed class RecordingsMediaTests
         string extension, string expectedContentType, string expectedCacheControl)
     {
         using var factory = new StreamKeeprAppFactory();
-        string fileName = $"index{extension}";
+        string fileName = $"media{extension}";
         WriteFile(factory, $"channel/session/{fileName}", "0123456789");
         using var client = factory.CreateClient();
 

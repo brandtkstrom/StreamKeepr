@@ -114,4 +114,15 @@ public sealed class SessionStoreLiveStitchTests
         Assert.Null(await context.Store.StitchLiveAsync(
             context.Directory, CancellationToken.None));
     }
+
+    [Fact]
+    public async Task Live_stitch_returns_null_for_an_unreadable_manifest()
+    {
+        using var context = new SessionStoreTestContext();
+        Directory.CreateDirectory(context.Directory);
+        await File.WriteAllTextAsync(context.ManifestPath, "{ not json", CancellationToken.None);
+
+        Assert.Null(await context.Store.StitchLiveAsync(
+            context.Directory, CancellationToken.None));
+    }
 }
