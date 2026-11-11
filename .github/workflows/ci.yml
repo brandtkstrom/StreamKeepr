@@ -101,3 +101,108 @@ jobs:
 
       - name: Test
         run: npm test
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build --tag streamkeepr:ci .
+
+      - name: Smoke test image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image="streamkeepr:ci"
+          container="streamkeepr-ci-${GITHUB_RUN_ID:-local}"
+          volume="${container}-recordings"
+
+          cleanup() {
+            docker rm --force "$container" >/dev/null 2>&1 || true
+            docker volume rm --force "$volume" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker volume create "$volume" >/dev/null
+          docker run --detach --name "$container" \
+            --publish 18080:8080 \
+            --env ASPNETCORE_ENVIRONMENT=Production \
+            --env Storage__RecordingsRoot=/recordings \
+            --env Twitch__ClientId=dummy-client-id \
+            --env Twitch__ClientSecret=dummy-client-secret \
+            --mount "type=volume,source=$volume,target=/recordings" \
+            "$image"
+
+          healthy=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error \
+              http://127.0.0.1:18080/health/live >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$healthy" -ne 1 ]; then
+            echo "::error::/health/live did not become healthy after $attempt attempts"
+            docker logs "$container"
+            exit 1
+          fi
+
+          status=$(curl --silent --show-error \
+            --output /dev/null --write-out '%{http_code}' \
+            http://127.0.0.1:18080/)
+          if [ "$status" -ne 200 ]; then
+            echo "::error::/ returned HTTP $status, expected 200"
+            docker logs "$container"
+            exit 1
+          fi
+
+          uid=$(docker exec "$container" id -u)
+          if [ "$uid" -ne 1654 ]; then
+            echo "::error::container runs as UID $uid, expected 1654"
+            exit 1
+          fi
+
+          recordings_uid=$(docker exec "$container" stat -c '%u' /recordings)
+          if [ "$recordings_uid" -ne 1654 ]; then
+            echo "::error::/recordings is owned by UID $recordings_uid, expected 1654"
+            exit 1
+          fi
+
+          docker exec "$container" curl --fail --silent --show-error \
+            http://localhost:8080/health/live >/dev/null
+          docker exec "$container" streamlink --version | grep -q "8.6.3"
+          docker exec "$container" ffmpeg -version | head -1 | grep -q "9.0.2"
+
+          if docker exec "$container" test -d /app/tests \
+            || docker exec "$container" test -d /app/docs \
+            || docker exec "$container" test -e /app/wwwroot/fonts/0-normal.woff2; then
+            echo "::error::image contains test/docs or licensed MonoLisa assets"
+            exit 1
+          fi
+
+          healthcheck=$(docker inspect --format '{{json .Config.Healthcheck}}' "$container")
+          echo "Healthcheck: $healthcheck"
+          if [[ "$healthcheck" != *"/health/live"* ]]; then
+            echo "::error::image healthcheck does not probe /health/live"
+            exit 1
+          fi
+
+          echo "Container UID: $uid; /recordings UID: $recordings_uid"
+
+          docker stop --time 50 "$container" >/dev/null
+          exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$container")
+          echo "Container exit code after stop: $exit_code"
+          if [ "$exit_code" -ne 0 ]; then
+            echo "::error::container did not stop cleanly (exit $exit_code)"
+            docker logs "$container"
+            exit 1
+          fi
+
+          docker logs --tail 20 "$container"
