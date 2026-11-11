@@ -23,8 +23,10 @@ internal sealed class SessionStoreTestContext : IDisposable
         Root = Path.Combine(
             Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
         Clock = new FakeTimeProvider(Now);
+        Library = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
         Store = new SessionStore(
             Options.Create(new RecorderOptions { SegmentSeconds = segmentSeconds }),
+            Library,
             Clock,
             NullLogger<SessionStore>.Instance);
         Live = new LiveStream("123456789", "A stream", "Just Chatting", StartedAt, null);
@@ -36,6 +38,8 @@ internal sealed class SessionStoreTestContext : IDisposable
     public FakeTimeProvider Clock { get; }
 
     public SessionStore Store { get; }
+
+    public RecordingLibrary Library { get; }
 
     public LiveStream Live { get; }
 

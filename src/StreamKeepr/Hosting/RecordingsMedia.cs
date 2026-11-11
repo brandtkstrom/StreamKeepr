@@ -19,10 +19,12 @@ public static class RecordingsMedia
     private const string PlaylistCacheControl = "no-cache";
     private const string ImmutableCacheControl = "public, max-age=31536000, immutable";
 
+    public const string PlaylistContentType = "application/vnd.apple.mpegurl";
+
     private static readonly IReadOnlyDictionary<string, string> ContentTypes =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            [PlaylistExtension] = "application/vnd.apple.mpegurl",
+            [PlaylistExtension] = PlaylistContentType,
             [".m4s"] = "video/iso.segment",
             [".mp4"] = "video/mp4",
             [".jpg"] = "image/jpeg",
@@ -91,20 +93,8 @@ public static class RecordingsMedia
         if (!ContentTypes.ContainsKey(Path.GetExtension(segments[^1])))
             return false;
 
-        string rootPrefix = Path.EndsInDirectorySeparator(root)
-            ? root
-            : root + Path.DirectorySeparatorChar;
-
-        try
-        {
-            string candidate = Path.GetFullPath(Path.Combine([root, .. segments]));
-            return candidate.StartsWith(rootPrefix, StringComparison.Ordinal);
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            // Malformed paths are a 404, not a 500.
-            return false;
-        }
+        // Malformed or escaping paths are a 404, not a 500.
+        return RecordingsPath.TryResolve(root, segments, out _);
     }
 
     private static string? RawRequestPath(string? rawTarget)

@@ -35,6 +35,22 @@
 
 ---
 
+## Codebase Navigation and Editing
+
+Serena is the primary interface to this codebase for you and any subagents you delegate to. Use its memories and symbolic tools before native file tools.
+
+- **First step — memories.** At the start of every task, call Serena's `list_memories` and read `mem:core` plus any relevant domain memories with `read_memory` before reading raw source files. If Serena has not been initialized in this session, call `initial_instructions` first. If no relevant memory exists, proceed to the relevant docs and code. Use memories for orientation; code and tests remain authoritative.
+- **Code exploration — symbolic tools.** MUST use Serena's `get_symbols_overview`, `find_symbol`, and `find_referencing_symbols` to locate symbols, understand their relationships, and read only the bodies needed. Do not use native `grep` or full-file `read` calls for code that Serena can index.
+- **Code editing — symbolic tools.** MUST use Serena's `replace_symbol_body`, `insert_after_symbol`, and `insert_before_symbol` when modifying existing functions, classes, methods, or other indexed symbols. Use `replace_content` for a small edit inside a symbol where replacing the whole body would be wasteful, and `create_text_file` for a new text file. Do not use native file-write/edit tools for indexed code.
+- **Native fallback.** Use native `read` or `edit` only for:
+  - non-code files such as JSON, YAML, or Markdown;
+  - files or languages Serena's language server does not support.
+  A text search (`grep`) MAY locate a starting point when the symbol name is unknown; switch to symbolic tools once the symbol is identified. If the Serena MCP server is unavailable or a specific call fails, report the failure and the smallest native fallback used; never bypass Serena silently.
+
+**Failure signals:** starting to read or edit code without reading `mem:core`; using `grep` or full-file reads where a symbol tool would answer; using native edits for an indexed symbol; failing to report a Serena fallback.
+
+---
+
 ## Project Specifics
 
 Fill in for this repository. If a field is unfilled or a command fails, find the correct command in the README, build files (`Makefile`, `package.json`, `pyproject.toml`, etc.), or CI configuration, and state in your report which command you used.
@@ -54,7 +70,7 @@ Fill in for this repository. If a field is unfilled or a command fails, find the
 
 Apply to every task; repeat steps 2–4 per increment.
 
-1. **Inspect** — Read the relevant code, tests, docs, configuration, and recent history before editing. You MUST search for existing implementations before writing new utilities or components.
+1. **Inspect** — Start with Serena memories and symbolic exploration per “Codebase Navigation and Editing”; then read the relevant tests, docs, configuration, and recent history before editing. You MUST search for existing implementations before writing new utilities or components.
 2. **Plan** — Identify the goal, acceptance criteria, invariants, risks, and the smallest correct change. Ask on material ambiguity.
 3. **Act** — Make one small, coherent change.
 4. **Verify** — Run the relevant tests, linters, and type checks, and observe the results.
@@ -231,6 +247,7 @@ Apply to every task; repeat steps 2–4 per increment.
 - Use history (log, blame, bisect) for debugging and rollback.
 
 ### 8.2 Tooling
+- Follow “Codebase Navigation and Editing”: Serena memories and symbolic tools are the default; native file tools are the fallback.
 - Prefer project scripts (`make`, `npm run`, etc.) over ad hoc commands. Run the project's formatters, linters, and type checkers with their existing configuration.
 - If a recurring manual sequence has no script, propose automating it in your report. Do not add scripts or tooling unless asked.
 

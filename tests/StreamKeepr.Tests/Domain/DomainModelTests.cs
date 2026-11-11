@@ -28,6 +28,28 @@ public sealed class DomainModelTests
     }
 
     [Fact]
+    public void Session_for_rejects_a_stream_id_that_cannot_form_a_safe_path()
+    {
+        var live = new LiveStream(
+            StreamId: "../not-a-stream-id",
+            Title: "Title",
+            Game: "Game",
+            StartedAt: new DateTimeOffset(2026, 11, 10, 18, 30, 0, TimeSpan.Zero),
+            ThumbnailUrl: null);
+
+        Assert.Throws<ArgumentException>(() => Session.For(live, "streamer", "/recordings"));
+    }
+
+    [Fact]
+    public void Session_ids_accept_only_the_derived_shape()
+    {
+        Assert.True(Session.IsValidId("20261110T163000Z_123456789"));
+        Assert.False(Session.IsValidId("20261110T163000Z_"));
+        Assert.False(Session.IsValidId("not-a-session"));
+        Assert.False(Session.IsValidId("../20261110T163000Z_123456789"));
+    }
+
+    [Fact]
     public void Job_id_is_deterministic_for_a_session_and_zero_padded_part()
     {
         var job = new JobId("20261110T163000Z_123456789", 2);
