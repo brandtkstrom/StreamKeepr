@@ -54,4 +54,29 @@ internal static class DomainTestData
 
     public static DvrEvent Observed(StreamObservation observation, DateTimeOffset? at = null) =>
         new DvrEvent.StreamStatusObserved(observation, at ?? StartedAt);
+
+    public static DvrEvent ObservedOffline(DateTimeOffset? at = null) =>
+        Observed(new StreamObservation.Offline(), at);
+
+    public static DvrEvent RecorderExited(
+        DvrState.Recording recording,
+        DateTimeOffset at,
+        RecorderExitKind kind = RecorderExitKind.Exited,
+        string detail = "recorder stopped") =>
+        new DvrEvent.RecorderExited(recording.Job, at, kind, detail);
+
+    public static DvrEvent RetryElapsed(JobId job) => new DvrEvent.RetryTimerElapsed(job);
+
+    public static DvrState.WaitingToRetry WaitingToRetry(
+        LiveStream? live = null,
+        int attempt = 1,
+        int streak = 1,
+        int nextPart = 2,
+        int offlineCount = 0)
+    {
+        live ??= Live();
+        var session = Session.For(live, Channel, RecordingsRoot);
+        return new DvrState.WaitingToRetry(
+            session, new JobId(session.Id, nextPart), live, attempt, streak, offlineCount);
+    }
 }
