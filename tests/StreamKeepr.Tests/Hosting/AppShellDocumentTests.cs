@@ -65,6 +65,17 @@ public sealed class AppShellDocumentTests
     }
 
     [Fact]
+    public async Task Dev_component_gallery_is_not_reachable_outside_development()
+    {
+        using var factory = new StreamKeeprAppFactory();
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/dev/components");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Prerender_reads_the_drawer_mode_from_the_ui_cookie()
     {
         using var factory = new StreamKeeprAppFactory();

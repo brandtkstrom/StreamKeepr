@@ -1,0 +1,18 @@
+@* Keeps the protected control visible. Signed out, the control is inert and
+   explained by the tooltip; the service layer still enforces authorization. *@
+<AuthorizeView>
+    <Authorized>
+        @ChildContent
+    </Authorized>
+    <NotAuthorized>
+        <Tooltip Text="@Message" tabindex="0" data-requires-twitch>
+            <span class="sk-requires-twitch" inert>@ChildContent</span>
+        </Tooltip>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter] public string Message { get; set; } = "Connect Twitch to use this";
+}
