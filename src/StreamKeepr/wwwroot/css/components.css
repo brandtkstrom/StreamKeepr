@@ -310,7 +310,7 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
   display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 48px; padding: 0 var(--space-2) 0 var(--space-4);
   border: 0; background: transparent; color: var(--on-surface); text-align: left; border-radius: var(--radius-md);
 }
-.sk-collapse-head h2, .sk-collapse-head h3, .sk-toggle-bar h2, .sk-toggle-bar h3 { margin: 0; flex: 1; font: var(--text-title-medium); }
+.sk-collapse-head h2, .sk-collapse-head h3, .sk-toggle-bar h2, .sk-toggle-bar h3, .sk-toggle-bar .sk-toggle-title { margin: 0; flex: 1; font: var(--text-title-medium); }
 .sk-collapse-head .hint, .sk-toggle-bar .hint { color: var(--on-surface-variant); font: 500 12px/16px var(--font-mono); white-space: nowrap; }
 .sk-collapse-head .chev { color: var(--on-surface-variant); transition: transform 300ms cubic-bezier(0.2, 0, 0, 1); }
 .sk-collapse[aria-expanded="false"] > .sk-collapse-head .chev { transform: rotate(-90deg); }

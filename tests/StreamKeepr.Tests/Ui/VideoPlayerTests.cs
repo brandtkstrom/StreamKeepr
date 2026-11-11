@@ -59,7 +59,7 @@ public sealed class VideoPlayerTests
 
         JSRuntimeInvocation init = Assert.Single(module.Invocations, call => call.Identifier == "init");
         JsonElement payload = JsonSerializer.SerializeToElement(
-            init.Arguments[1], new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            init.Arguments[2], new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.Equal("r1", payload.GetProperty("recordingId").GetString());
         Assert.Equal("/media/ann/r1/index.m3u8", payload.GetProperty("playlistUrl").GetString());
         Assert.Equal("saved", payload.GetProperty("state").GetString());
@@ -82,6 +82,22 @@ public sealed class VideoPlayerTests
 
         Assert.Equal("true", cut.Find("[data-sk='stats']").GetAttribute("aria-pressed"));
         Assert.Equal("Stats for nerds", cut.Find("[data-sk='stats']").GetAttribute("aria-label"));
+    }
+
+    [Fact]
+    public async Task The_player_stats_button_persists_through_ui_preferences()
+    {
+        using BunitContext context = CreateContext(out _);
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(p =>
+            p.Add(c => c.Recording, Recording("r1", "First")));
+
+        await cut.InvokeAsync(() => cut.Instance.SetStatsOpen(true));
+
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
+        Assert.True(preferences.StatsOpen);
+        Assert.Contains(
+            context.JSInterop.Invocations,
+            invocation => invocation.Identifier == "skPrefs.writeUi");
     }
 
     [Fact]
@@ -123,6 +139,8 @@ public sealed class VideoPlayerTests
         module = context.JSInterop.SetupModule(Module);
         module.Mode = JSRuntimeMode.Loose;
         context.Services.AddLogging();
+        context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
+        context.Services.AddScoped<UiPreferences>();
         return context;
     }
 

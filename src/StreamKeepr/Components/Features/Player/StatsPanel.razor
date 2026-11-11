@@ -10,7 +10,9 @@
 <section class="sk-panel sk-collapse"
          data-sk-stats
          data-open="@(_open ? "true" : "false")"
+         aria-labelledby="@_titleId"
          @ref="_root">
+    <h2 id="@_titleId" class="sk-visually-hidden">Stats for nerds</h2>
     <button type="button"
             class="sk-toggle-bar"
             data-sk="stats-toggle"
@@ -19,7 +21,7 @@
             aria-checked="@(_open ? "true" : "false")"
             aria-controls="@_bodyId">
         <span class="sk-icon" aria-hidden="true">query_stats</span>
-        <h2>Stats for nerds</h2>
+        <span class="sk-toggle-title" aria-hidden="true">Stats for nerds</span>
         <span class="hint" data-sk="stats-hint">—</span>
         <span class="sk-switch" aria-hidden="true"></span>
     </button>
@@ -143,6 +145,7 @@
     private const string ModulePath = "./Components/Features/Player/StatsPanel.razor.js";
 
     private readonly string _bodyId = $"sk-stats-{Guid.NewGuid():N}";
+    private readonly string _titleId = $"sk-stats-title-{Guid.NewGuid():N}";
     private ElementReference _root;
     private IJSObjectReference? _module;
     private DotNetObjectReference<StatsPanel>? _self;

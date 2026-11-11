@@ -43,6 +43,9 @@ public sealed class StatsPanelTests
         Assert.Equal("switch", toggle.GetAttribute("role"));
         Assert.Equal("false", toggle.GetAttribute("aria-checked"));
         Assert.Contains("Stats for nerds", toggle.TextContent);
+        Assert.Empty(toggle.QuerySelectorAll("h1, h2, h3, h4, h5, h6"));
+        var heading = cut.Find("section > h2.sk-visually-hidden");
+        Assert.Equal(heading.GetAttribute("id"), panel.GetAttribute("aria-labelledby"));
 
         // Copy is a body action, never part of the switch row.
         Assert.Empty(toggle.QuerySelectorAll("[data-sk='copy-stats']"));
@@ -111,6 +114,9 @@ public sealed class StatsPanelTests
         UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
         Assert.True(preferences.StatsOpen);
         Assert.Contains(module.Invocations, call => call.Identifier == "setOpen");
+        Assert.Contains(
+            context.JSInterop.Invocations,
+            invocation => invocation.Identifier == "skPrefs.writeUi");
     }
 
     [Fact]

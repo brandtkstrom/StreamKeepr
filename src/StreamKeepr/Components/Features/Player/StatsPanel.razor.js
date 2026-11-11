@@ -55,7 +55,7 @@ function collect(root) {
   );
 }
 
-function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERVAL_MS, clock = () => performance.now() } = {}) {
+export function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERVAL_MS, clock = () => performance.now() } = {}) {
   const el = collect(root);
   const listeners = new AbortController();
   const on = (target, type, handler) =>
@@ -70,24 +70,35 @@ function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERVAL_MS, 
   let samples = createRing(SAMPLE_RING_SIZE);
   let geometry = {};
   let lastMetrics = null;
+  let frameWindowStarted = false;
+  let hover = { name: null, fraction: null };
 
   function player() {
     if (!playerRoot) playerRoot = findPlayerRoot(root);
     return playerRoot;
   }
 
-  function playerButton() {
-    return player()?.querySelector(`[data-sk="stats"]`) ?? null;
-  }
-
   function source() {
     return statsSource(player());
+  }
+
+  function beginFrameWindow() {
+    if (frameWindowStarted) return;
+    const probe = source();
+    if (!probe?.beginStatsWindow) return;
+    probe.beginStatsWindow();
+    frameWindowStarted = true;
+  }
+
+  function endFrameWindow() {
+    if (!frameWindowStarted) return;
+    source()?.endStatsWindow?.();
+    frameWindowStarted = false;
   }
 
   function syncControls() {
     root.setAttribute("data-open", open ? "true" : "false");
     el["stats-toggle"]?.setAttribute("aria-checked", open ? "true" : "false");
-    playerButton()?.setAttribute("aria-pressed", open ? "true" : "false");
 
     if (!el["stats-body"]) return;
     if (open) {
@@ -160,7 +171,15 @@ function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERVAL_MS, 
       geometry[name] = drawSparkline(svg, series, {
         color: svg?.dataset.sparkColor ?? "var(--primary)",
       });
-      if (el[`tip-${name}`]) el[`tip-${name}`].textContent = "";
+
+      // Redrawing must not blank the tooltip the pointer is currently showing. Reposition
+      // it against the new geometry; clear only the other tiles.
+      if (hover.name === name && hover.fraction !== null) {
+        showTooltip(name, hover.fraction);
+      } else {
+        if (el[`tip-${name}`]) el[`tip-${name}`].textContent = "";
+        svg?.querySelector(".xh")?.setAttribute("visibility", "hidden");
+      }
     }
   }
 
@@ -188,6 +207,7 @@ function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERVAL_MS, 
   function sample() {
     if (!open || disposed) return;
 
+    beginFrameWindow();
     const metrics = source()?.read?.() ?? null;
     const at = Math.max(0, Math.round((clock() - windowStart) / 1000));
     samples.push(sampleFrom({ at, probe: metrics }));
@@ -200,6 +220,7 @@ function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERVAL_MS, 
   function stopWindow() {
     clearInterval(timer);
     timer = 0;
+    endFrameWindow();
   }
 
   function startWindow() {
@@ -207,6 +228,8 @@ function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERVAL_MS, 
     windowStart = clock();
     samples = createRing(SAMPLE_RING_SIZE);
     lastMetrics = null;
+    hover = { name: null, fraction: null };
+    beginFrameWindow();
     // Show the current (possibly empty) window immediately, then every 2 s.
     sample();
     timer = setInterval(sample, interval);
@@ -241,6 +264,11 @@ function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERVAL_MS, 
 
     open = value;
     syncControls();
+    // The player module owns its stats button; tell it the panel's current state.
+    root.dispatchEvent(new CustomEvent("sk:stats-state", {
+      detail: { open },
+      bubbles: true,
+    }));
 
     if (changed) {
       if (open) startWindow();
@@ -266,43 +294,53 @@ function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERVAL_MS, 
     await notify(written ? "Stats copied" : "Could not copy stats");
   }
 
+  function showTooltip(name, fraction) {
+    const current = geometry[name];
+    const svg = el[`spark-${name}`];
+    const tip = el[`tip-${name}`];
+    if (!current?.points?.length || !svg || !tip) return;
+
+    const point = sparklinePointAt(current, fraction);
+    if (!point) return;
+
+    const crosshair = svg.querySelector(".xh");
+    if (crosshair) {
+      crosshair.setAttribute("x1", String(point.x));
+      crosshair.setAttribute("x2", String(point.x));
+      crosshair.setAttribute("visibility", "visible");
+    }
+
+    const values = samples.values();
+    const sampleValue = values[point.index];
+    const latest = values.at(-1);
+    const secondsAgo = sampleValue && latest
+      ? Math.max(0, latest.at - sampleValue.at)
+      : 0;
+    const tile = TILES[name];
+    tip.textContent = formatSparklineTip(
+      secondsAgo,
+      point.value,
+      svg.dataset.sparkUnit ?? "",
+      (value) => formatNumber(value, tile.digits),
+    );
+  }
+
   function bindHover(name) {
     const svg = el[`spark-${name}`];
     const tip = el[`tip-${name}`];
     if (!svg || !tip) return;
 
     on(svg, "pointermove", (event) => {
-      const current = geometry[name];
-      if (!current?.points?.length) return;
+      if (!geometry[name]?.points?.length) return;
 
       const rect = svg.getBoundingClientRect();
       const fraction = rect.width > 0 ? (event.clientX - rect.left) / rect.width : 0;
-      const point = sparklinePointAt(current, fraction);
-      if (!point) return;
-
-      const crosshair = svg.querySelector(".xh");
-      if (crosshair) {
-        crosshair.setAttribute("x1", String(point.x));
-        crosshair.setAttribute("x2", String(point.x));
-        crosshair.setAttribute("visibility", "visible");
-      }
-
-      const values = samples.values();
-      const sampleValue = values[point.index];
-      const latest = values.at(-1);
-      const secondsAgo = sampleValue && latest
-        ? Math.max(0, latest.at - sampleValue.at)
-        : 0;
-      const tile = TILES[name];
-      tip.textContent = formatSparklineTip(
-        secondsAgo,
-        point.value,
-        svg.dataset.sparkUnit ?? "",
-        (value) => formatNumber(value, tile.digits),
-      );
+      hover = { name, fraction: Math.min(1, Math.max(0, fraction)) };
+      showTooltip(name, hover.fraction);
     });
 
     on(svg, "pointerleave", () => {
+      if (hover.name === name) hover = { name: null, fraction: null };
       svg.querySelector(".xh")?.setAttribute("visibility", "hidden");
       tip.textContent = "";
     });
@@ -319,10 +357,11 @@ function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERVAL_MS, 
       samples = createRing(SAMPLE_RING_SIZE);
       windowStart = clock();
       lastMetrics = null;
+      hover = { name: null, fraction: null };
       renderValues(null);
       renderSparklines();
       renderTables();
-      if (open) sample();
+      if (open) startWindow();
       return;
     }
 
@@ -349,15 +388,11 @@ function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERVAL_MS, 
   on(el["stats-toggle"], "click", () => applyOpen(!open, { persist: true }));
   on(el["copy-stats"], "click", () => void copy());
 
-  // The stats button lives inside the player, which the player module never re-renders.
-  // Delegating from the document also survives the panel initializing before the button.
-  on(document, "click", (event) => {
-    const target = event.target instanceof Element
-      ? event.target.closest(`[data-sk="stats"]`)
-      : null;
-    if (!target || !target.closest("[data-sk-player]")) return;
-    event.preventDefault();
-    applyOpen(!open, { persist: true });
+  // The player owns its stats button. It announces the new state immediately; this
+  // listener updates the panel DOM and sampler before the .NET persistence round-trip.
+  on(document, "sk:stats-open", (event) => {
+    const next = event instanceof CustomEvent ? event.detail?.open : undefined;
+    if (typeof next === "boolean") applyOpen(next);
   });
 
   for (const name of Object.keys(TILES)) bindHover(name);

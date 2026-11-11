@@ -88,12 +88,20 @@ export function readLevel(selected, index = 0, count = 1) {
 }
 
 /**
- * Estimates the presentation frame rate from requestVideoFrameCallback metadata.
- * The level's FRAME-RATE attribute wins when present; this is the fallback.
+ * Estimates the presentation frame rate over the stats window from
+ * requestVideoFrameCallback metadata. The level's FRAME-RATE attribute wins when
+ * present; this is the fallback. The window resets when Stats opens.
  */
 export function createFrameRateEstimator() {
+  let first = null;
   let previous = null;
   let value = null;
+
+  function reset() {
+    first = null;
+    previous = null;
+    value = null;
+  }
 
   return {
     get value() {
@@ -106,22 +114,31 @@ export function createFrameRateEstimator() {
         return value;
       }
 
-      if (previous && metadata.mediaTime - previous.mediaTime > 0.001) {
-        const rate = (metadata.presentedFrames - previous.presentedFrames) /
-          (metadata.mediaTime - previous.mediaTime);
-        if (Number.isFinite(rate) && rate > 0 && rate < 241) value = rate;
-      }
-
-      previous = {
+      const current = {
         mediaTime: metadata.mediaTime,
         presentedFrames: metadata.presentedFrames,
       };
+
+      // A seek or a counter reset starts a new measurement rather than a bogus rate.
+      if (previous &&
+          (current.mediaTime < previous.mediaTime ||
+           current.presentedFrames < previous.presentedFrames)) {
+        first = null;
+      }
+
+      if (!first) first = current;
+      previous = current;
+
+      const seconds = current.mediaTime - first.mediaTime;
+      const frames = current.presentedFrames - first.presentedFrames;
+      if (seconds > 0.001 && frames > 0) {
+        const rate = frames / seconds;
+        if (Number.isFinite(rate) && rate > 0 && rate < 241) value = rate;
+      }
+
       return value;
     },
-    reset() {
-      previous = null;
-      value = null;
-    },
+    reset,
   };
 }
 
@@ -175,6 +192,7 @@ export function createStatsProbe({ video, now = () => performance.now() } = {}) 
   let disposed = false;
   let frameHandle = 0;
   let trackingFrames = false;
+  let statsWindowActive = false;
 
   const errors = createRing(ERROR_RING_SIZE);
   const frameRate = createFrameRateEstimator();
@@ -223,7 +241,8 @@ export function createStatsProbe({ video, now = () => performance.now() } = {}) 
     levelIndex = 0;
     frameRate.reset();
     stopFrameTracking();
-    startFrameTracking();
+    // A recording swap while the panel is open resets the window but keeps sampling.
+    if (statsWindowActive) startFrameTracking();
   }
 
   function errorAt() {
@@ -308,6 +327,19 @@ export function createStatsProbe({ video, now = () => performance.now() } = {}) 
   return {
     read,
     reset,
+    /** Starts the open-panel window: the rVFC estimate only runs while Stats is open. */
+    beginStatsWindow() {
+      if (disposed) return;
+      statsWindowActive = true;
+      frameRate.reset();
+      stopFrameTracking();
+      startFrameTracking();
+    },
+    /** Stops the rVFC loop when the panel collapses; counters keep accumulating. */
+    endStatsWindow() {
+      statsWindowActive = false;
+      stopFrameTracking();
+    },
     setView(next) {
       view = next ?? null;
     },
@@ -330,8 +362,6 @@ export function createStatsProbe({ video, now = () => performance.now() } = {}) 
         instance.on(events.FRAG_LOADED, (_event, data) => onFragLoaded(data));
       if (events.ERROR)
         instance.on(events.ERROR, (_event, data) => onError(data));
-
-      startFrameTracking();
     },
     detachEngine() {
       hls = null;
@@ -342,7 +372,6 @@ export function createStatsProbe({ video, now = () => performance.now() } = {}) 
       if (native) {
         hls = null;
         level = null;
-        startFrameTracking();
       }
     },
     onFragLoaded,
@@ -359,6 +388,7 @@ export function createStatsProbe({ video, now = () => performance.now() } = {}) 
     },
     dispose() {
       disposed = true;
+      statsWindowActive = false;
       stopFrameTracking();
       hls = null;
       view = null;

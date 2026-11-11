@@ -70,7 +70,7 @@ function hasMediaSource() {
   return typeof window.MediaSource === "function" || typeof window.ManagedMediaSource === "function";
 }
 
-export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
+export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } = {}) {
   const el = Object.fromEntries(HOOKS.map((name) => [name, root.querySelector(`[data-sk="${name}"]`)]));
   const video = el.video;
   const listeners = new AbortController();
@@ -240,6 +240,35 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
     // Raising the volume above 0 unmutes; lowering it leaves mute alone.
     if (video.volume > before && video.volume > 0) video.muted = false;
     renderVolume();
+  }
+
+  function setStatsPressed(open) {
+    if (el.stats)
+      el.stats.setAttribute("aria-pressed", open ? "true" : "false");
+  }
+
+  function toggleStats() {
+    if (!view || !el.stats) return;
+    // The panel switch announces its state through sk:stats-state, which keeps this
+    // button current; read the DOM so the click always toggles the shared state.
+    const open = el.stats.getAttribute("aria-pressed") !== "true";
+    setStatsPressed(open);
+    // Let the panel apply the same state immediately; SetStatsOpen persists it.
+    root.dispatchEvent(new CustomEvent("sk:stats-open", {
+      detail: { open },
+      bubbles: true,
+    }));
+    void invokeDotNet("SetStatsOpen", open);
+  }
+
+  async function invokeDotNet(identifier, ...args) {
+    if (!dotNet?.invokeMethodAsync) return;
+    try {
+      await dotNet.invokeMethodAsync(identifier, ...args);
+    } catch (error) {
+      // A closed circuit cannot persist the preference; the player control still works.
+      console.debug(`Stream Keepr: ${identifier} was not delivered.`, error);
+    }
   }
 
   // ----- engine -----
@@ -431,6 +460,11 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
     if (!view) return;
     void start(lastKnownTime);
   });
+  on(el.stats, "click", toggleStats);
+  on(document, "sk:stats-state", (event) => {
+    const next = event instanceof CustomEvent ? event.detail?.open : undefined;
+    if (typeof next === "boolean") setStatsPressed(next);
+  });
 
   on(el.volume, "keydown", (event) => {
     const steps = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 };
@@ -545,8 +579,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
       view = next;
       stats.setView(next);
       stats.reset();
-      if (el.stats)
-        el.stats.setAttribute("aria-pressed", next.statsOpen ? "true" : "false");
+      setStatsPressed(Boolean(next.statsOpen));
       renderView();
       renderSpeed();
       renderVolume();
@@ -582,11 +615,11 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
 
 const players = new WeakMap();
 
-export async function init(root, view) {
+export async function init(root, self, view) {
   if (!root) return;
   players.get(root)?.dispose();
   unregisterStatsSource(root);
-  const player = createPlayer(root);
+  const player = createPlayer(root, { dotNet: self });
   players.set(root, player);
   registerStatsSource(root, player.stats);
   await player.load(view);

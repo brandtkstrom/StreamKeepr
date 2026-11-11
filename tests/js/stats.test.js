@@ -222,23 +222,57 @@ describe("stats probe", () => {
     expect(formatHint(metrics.engine, metrics.level)).toBe("Native HLS");
   });
 
-  it("estimates frame rate from requestVideoFrameCallback metadata over the window", () => {
+  it("estimates frame rate only inside the stats window and resets on open", () => {
     const video = fakeVideo();
     let callback = null;
+    const cancelled = [];
+    let requests = 0;
     video.requestVideoFrameCallback = (handler) => {
       callback = handler;
-      return 1;
+      requests += 1;
+      return requests;
     };
-    video.cancelVideoFrameCallback = () => {};
+    video.cancelVideoFrameCallback = (handle) => cancelled.push(handle);
 
     const probe = createStatsProbe({ video, now: () => 0 });
-    probe.reset();
+    const hls = new FakeHls();
+    hls.levels[0].attrs = {};
+    hls.levels[0].bitrate = 0;
+    probe.attachHls(hls, FakeHls);
+
+    // Loading a player (and attaching hls.js) does not start the rVFC loop.
+    expect(requests).toBe(0);
+    expect(probe.read().frameRate).toBeNull();
+
+    probe.beginStatsWindow();
+    expect(requests).toBe(1);
 
     callback(0, { presentedFrames: 0, mediaTime: 0 });
     for (let frame = 1; frame <= 12; frame++)
       callback(frame * 16, { presentedFrames: frame, mediaTime: frame / 60 });
 
     expect(probe.read().frameRate).toBeCloseTo(60, 1);
+
+    probe.endStatsWindow();
+    expect(cancelled).toEqual([14]);
+    const stale = callback;
+    stale(13 * 16, { presentedFrames: 13, mediaTime: 13 / 60 });
+    expect(requests).toBe(14);
+
+    // A closed panel's reset does not restart the callback loop.
+    probe.reset();
+    expect(requests).toBe(14);
+
+    // Reopening starts a fresh window rather than reusing the old estimate.
+    probe.beginStatsWindow();
+    expect(requests).toBe(15);
+    expect(probe.read().frameRate).toBeNull();
+
+    // Resetting a recording while the window is open restarts the estimate cleanly.
+    probe.reset();
+    expect(requests).toBe(16);
+    expect(cancelled).toHaveLength(2);
+    expect(probe.read().frameRate).toBeNull();
   });
 });
 

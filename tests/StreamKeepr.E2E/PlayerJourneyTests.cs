@@ -136,6 +136,10 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.InRange(collapsedHeight, 47, 49);
 
         await playerButton.ClickAsync();
+        await page.WaitForFunctionAsync(
+            """() => document.querySelector("[data-sk-stats]").dataset.open === 'true'""",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 5_000 });
         Assert.Equal("true", await panel.GetAttributeAsync("data-open"));
         Assert.Equal("true", await playerButton.GetAttributeAsync("aria-pressed"));
         Assert.Equal("true", await toggle.GetAttributeAsync("aria-checked"));
@@ -184,6 +188,17 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             "visible",
             await bufferSpark.Locator("line.xh").GetAttributeAsync("visibility"));
 
+        // The active tooltip survives the next 2 s sparkline redraw.
+        int samplesBeforeHover = await page.Locator("[data-sk='rows-buffer'] tr").CountAsync();
+        await page.WaitForFunctionAsync(
+            """(count) => document.querySelectorAll("[data-sk='rows-buffer'] tr").length > count""",
+            samplesBeforeHover,
+            new PageWaitForFunctionOptions { Timeout = 5_000 });
+        Assert.Contains("s ago ·", await page.Locator("[data-sk='tip-buffer']").InnerTextAsync());
+        Assert.Equal(
+            "visible",
+            await bufferSpark.Locator("line.xh").GetAttributeAsync("visibility"));
+
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-stats");
 
         await page.Locator("[data-sk='copy-stats']").ClickAsync();
@@ -209,12 +224,23 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.Equal("false", await panel.GetAttributeAsync("data-open"));
         Assert.Equal("false", await playerButton.GetAttributeAsync("aria-pressed"));
         Assert.True(await body.EvaluateAsync<bool>("b => b.inert"));
-        await page.WaitForTimeoutAsync(400);
+        await page.WaitForFunctionAsync(
+            """() => document.querySelector("[data-sk-stats]").getBoundingClientRect().height <= 49""",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 2_000 });
         Assert.InRange((await panel.BoundingBoxAsync())!.Height, 47, 49);
 
+        // No new samples arrive after the panel closes.
         int rows = await page.Locator("[data-sk='rows-buffer'] tr").CountAsync();
-        await page.WaitForTimeoutAsync(2500);
-        Assert.Equal(rows, await page.Locator("[data-sk='rows-buffer'] tr").CountAsync());
+        await page.WaitForFunctionAsync(
+            """
+            async (expected) => {
+                await new Promise((resolve) => setTimeout(resolve, 2200));
+                return document.querySelectorAll("[data-sk='rows-buffer'] tr").length === expected;
+            }
+            """,
+            rows,
+            new PageWaitForFunctionOptions { Timeout = 5_000 });
 
         // Reopening persists sk-ui, and a reload restores the panel open.
         await playerButton.ClickAsync();
