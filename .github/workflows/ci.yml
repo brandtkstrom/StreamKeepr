@@ -213,9 +213,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
-    env:
-      STREAMKEEPR_E2E_ARTIFACTS: ${{ runner.temp }}/streamkeepr-e2e
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -261,6 +258,8 @@ jobs:
           install --with-deps chrome
 
       - name: Run E2E tests
+        env:
+          STREAMKEEPR_E2E_ARTIFACTS: ${{ runner.temp }}/streamkeepr-e2e
         run: >
           dotnet test tests/StreamKeepr.E2E/StreamKeepr.E2E.csproj
           --no-build
