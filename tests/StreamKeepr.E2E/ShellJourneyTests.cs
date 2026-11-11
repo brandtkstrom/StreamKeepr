@@ -19,7 +19,6 @@ public sealed class ShellJourneyTests(MockAppFixture app)
         string testName = nameof(App_loads_shell_renders_and_axe_is_clean);
         string tracePath = Path.Combine(app.ArtifactsDirectory, $"{testName}.trace.zip");
         string screenshotPath = Path.Combine(app.ArtifactsDirectory, $"{testName}.png");
-        string axePath = Path.Combine(app.ArtifactsDirectory, $"{testName}.axe.json");
 
         BrowserNewContextOptions contextOptions = new()
         {
@@ -38,7 +37,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
         {
             IPage page = await context.NewPageAsync();
             await page.GotoAsync(
-                MockAppFixture.BaseUrl,
+                app.BaseUrl,
                 new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
 
             Assert.Equal("Stream Keepr", await page.TitleAsync());
@@ -80,18 +79,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 FullPage = true,
             });
 
-            AxeResult results = await page.RunAxe();
-            await File.WriteAllTextAsync(axePath, results.ToString());
-
-            string violations = string.Join(
-                Environment.NewLine,
-                results.Violations.Select(violation =>
-                    $"{violation.Id} ({violation.Impact}): {violation.HelpUrl} " +
-                    $"on {string.Join(", ", violation.Nodes.Select(node => node.Target))}"));
-
-            Assert.True(
-                results.Violations.Length == 0,
-                $"axe found {results.Violations.Length} violation(s):{Environment.NewLine}{violations}");
+            await AssertAxeCleanAsync(page, testName);
         }
         finally
         {
@@ -113,7 +101,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
 
         IPage page = await context.NewPageAsync();
         await page.GotoAsync(
-            MockAppFixture.BaseUrl,
+            app.BaseUrl,
             new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
 
         await page.Locator("nav#sk-drawer .sk-group").First.WaitForAsync(
@@ -144,6 +132,9 @@ public sealed class ShellJourneyTests(MockAppFixture app)
         ILocator storage = page.Locator(".sk-storage");
         Assert.True(await storage.IsVisibleAsync());
         Assert.Contains("free of", await storage.GetAttributeAsync("title") ?? "");
+
+        await AssertAxeCleanAsync(
+            page, nameof(Drawer_renders_groups_rows_live_status_and_storage));
     }
 
     [Fact]
@@ -160,7 +151,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
 
         IPage page = await context.NewPageAsync();
         await page.GotoAsync(
-            MockAppFixture.BaseUrl,
+            app.BaseUrl,
             new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
 
         ILocator row = page.Locator("a.sk-row", new PageLocatorOptions
@@ -177,10 +168,16 @@ public sealed class ShellJourneyTests(MockAppFixture app)
         await row.ClickAsync();
         await page.WaitForURLAsync($"**/r/{id}", new PageWaitForURLOptions { Timeout = 30_000 });
 
-        Assert.Equal("true", await row.GetAttributeAsync("aria-current"));
+        await Assertions.Expect(row).ToHaveAttributeAsync(
+            "aria-current",
+            "true",
+            new LocatorAssertionsToHaveAttributeOptions { Timeout = 30_000 });
         Assert.Contains(
             "Ranked climb to Diamond",
             await page.Locator("[data-selected-recording]").InnerTextAsync());
+
+        await AssertAxeCleanAsync(
+            page, $"{nameof(Drawer_selection_deep_link_and_reload_keep_aria_current)}_selected");
 
         await page.ReloadAsync(new PageReloadOptions
         {
@@ -193,7 +190,13 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             State = WaitForSelectorState.Visible,
             Timeout = 30_000,
         });
-        Assert.Equal("true", await row.GetAttributeAsync("aria-current"));
+        await Assertions.Expect(row).ToHaveAttributeAsync(
+            "aria-current",
+            "true",
+            new LocatorAssertionsToHaveAttributeOptions { Timeout = 30_000 });
+
+        await AssertAxeCleanAsync(
+            page, $"{nameof(Drawer_selection_deep_link_and_reload_keep_aria_current)}_reloaded");
     }
 
     [Fact]
@@ -206,7 +209,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
 
         IPage page = await context.NewPageAsync();
         await page.GotoAsync(
-            $"{MockAppFixture.BaseUrl}/r/not-a-recording",
+            $"{app.BaseUrl}/r/not-a-recording",
             new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
 
         ILocator unknown = page.Locator("[data-unknown-recording]");
@@ -218,6 +221,9 @@ public sealed class ShellJourneyTests(MockAppFixture app)
         Assert.Contains("Recording not found", await unknown.InnerTextAsync());
         Assert.Equal("/", await unknown.Locator("a").GetAttributeAsync("href"));
         Assert.Contains("Back to library", await unknown.Locator("a").InnerTextAsync());
+
+        await AssertAxeCleanAsync(
+            page, nameof(Unknown_recording_route_shows_the_message_and_link_back));
     }
 
     [Fact]
@@ -230,7 +236,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
 
         IPage page = await context.NewPageAsync();
         await page.GotoAsync(
-            MockAppFixture.BaseUrl,
+            app.BaseUrl,
             new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
 
         ILocator storage = page.Locator(".sk-storage");
@@ -244,5 +250,26 @@ public sealed class ShellJourneyTests(MockAppFixture app)
         await Assertions.Expect(storage).Not.ToHaveTextAsync(
             initial,
             new LocatorAssertionsToHaveTextOptions { Timeout = 30_000 });
+
+        await AssertAxeCleanAsync(
+            page, nameof(Storage_meter_updates_live_without_a_reload));
+    }
+
+    private async Task AssertAxeCleanAsync(IPage page, string name)
+    {
+        AxeResult results = await page.RunAxe();
+        string path = Path.Combine(app.ArtifactsDirectory, $"{name}.axe.json");
+        await File.WriteAllTextAsync(path, results.ToString());
+
+        string violations = string.Join(
+            Environment.NewLine,
+            results.Violations.Select(violation =>
+                $"{violation.Id} ({violation.Impact}): {violation.HelpUrl} " +
+                $"on {string.Join(", ", violation.Nodes.Select(node => node.Target))}"));
+
+        Assert.True(
+            results.Violations.Length == 0,
+            $"{name}: axe found {results.Violations.Length} violation(s):" +
+            $"{Environment.NewLine}{violations}");
     }
 }

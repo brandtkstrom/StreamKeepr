@@ -1,11 +1,12 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
+using System.Net.Sockets;
 
 namespace StreamKeepr.E2E;
 
 /// <summary>
-/// Publishes the app once, starts the published host with the <c>Mock</c> environment on a fixed
+/// Publishes the app once, starts the published host with the <c>Mock</c> environment on a free
 /// loopback port, waits for <c>/health/ready</c>, and keeps its logs for a failure report. The
 /// recordings root is a unique temp directory so the suite never reads or writes a developer's or
 /// production library.
@@ -17,7 +18,7 @@ namespace StreamKeepr.E2E;
 /// </summary>
 public sealed class MockAppFixture : IAsyncLifetime
 {
-    public const string BaseUrl = "http://127.0.0.1:5187";
+    public string BaseUrl { get; } = $"http://127.0.0.1:{FindFreePort()}";
 
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(120);
     private static readonly TimeSpan PublishTimeout = TimeSpan.FromSeconds(300);
@@ -253,6 +254,13 @@ public sealed class MockAppFixture : IAsyncLifetime
             """;
 
         File.WriteAllText(reportPath, html);
+    }
+
+    private static int FindFreePort()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
 
     private static string ResolveArtifactsDirectory()

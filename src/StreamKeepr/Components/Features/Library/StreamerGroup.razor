@@ -1,11 +1,9 @@
 @using StreamKeepr.Ui
 
 @* One streamer group: avatar, live ring, count/state, chevron, and day-grouped rows. *@
-<section class="sk-group" role="group" aria-expanded="@(Expanded ? "true" : "false")">
+<section class="sk-group">
     <button type="button"
             class="sk-group-head"
-            role="treeitem"
-            aria-level="1"
             aria-expanded="@(Expanded ? "true" : "false")"
             aria-controls="@BodyId"
             title="@Streamer.Login"

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Components.Features.Library;
+using StreamKeepr.Components.Layout;
 using StreamKeepr.Components.Pages;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Ui;
@@ -45,10 +46,8 @@ public sealed class LibraryDrawerTests
         Assert.Contains("Recording now", groups[0].TextContent);
         Assert.Contains("Idle Star", groups[1].TextContent);
 
-        Assert.Equal(3, cut.FindAll("a.sk-row[role='treeitem']").Count);
+        Assert.Equal(3, cut.FindAll("a.sk-row").Count);
         Assert.Equal("/r/r1", cut.Find("a[data-recording-id='r1']").GetAttribute("href"));
-        Assert.Equal("2", cut.FindAll("a.sk-row[role='treeitem']")[0]
-            .GetAttribute("aria-level"));
     }
 
     [Fact]
@@ -179,8 +178,11 @@ public sealed class LibraryDrawerTests
 
         cut.WaitForAssertion(() =>
         {
-            Assert.Equal("false", cut.Find(".sk-group").GetAttribute("aria-expanded"));
-            Assert.Equal("false", cut.Find(".sk-group-head").GetAttribute("aria-expanded"));
+            var header = cut.Find(".sk-group-head");
+            Assert.Equal("false", header.GetAttribute("aria-expanded"));
+            Assert.Equal(
+                header.GetAttribute("aria-controls"),
+                cut.Find(".sk-group-body").GetAttribute("id"));
         });
     }
 
@@ -231,6 +233,47 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
+    public void Day_headers_use_the_viewer_time_zone()
+    {
+        var view = new TestLibraryView
+        {
+            StreamerItems = [Streamer("alpha", "Alpha", recording: false, count: 1, last: Now)],
+        };
+        view.RecordingsByLogin["alpha"] =
+        [
+            Recording("r1", "alpha", RecordingState.Saved, Now.AddHours(-14)),
+        ];
+
+        using BunitContext context = CreateContext(view, timeZoneId: "Asia/Tokyo");
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        Assert.Equal("Today", cut.Find(".sk-day").TextContent);
+    }
+
+    [Fact]
+    public void Main_layout_lights_the_recording_dot_and_warns_below_ten_percent()
+    {
+        var view = new TestLibraryView
+        {
+            Storage = new StorageView(5L * 1024 * 1024 * 1024, 100L * 1024 * 1024 * 1024),
+            StreamerItems = [Streamer("alpha", "Alpha", recording: true, count: 1, last: Now)],
+        };
+        view.RecordingsByLogin["alpha"] =
+        [
+            Recording("r1", "alpha", RecordingState.Recording, Now.AddMinutes(-1)),
+        ];
+
+        using BunitContext context = CreateContext(view);
+        IRenderedComponent<MainLayout> cut = context.Render<MainLayout>(parameters =>
+            parameters.Add(component => component.Body, fragment =>
+                fragment.AddMarkupContent(0, "<div data-test='body'>Body</div>")));
+
+        Assert.NotNull(cut.Find(".sk-wordmark .rec-dot"));
+        Assert.True(cut.Find(".sk-storage").ClassList.Contains("warning"));
+        Assert.Contains("5.0 GB free of 100.0 GB", cut.Find(".sk-storage").GetAttribute("title"));
+    }
+
+    [Fact]
     public void Unknown_recording_renders_a_message_and_link_back()
     {
         var view = new TestLibraryView { IsLoaded = true };
@@ -265,15 +308,20 @@ public sealed class LibraryDrawerTests
 
     private static BunitContext CreateContext(
         TestLibraryView view,
-        bool includePreferences = true)
+        bool includePreferences = true,
+        string? timeZoneId = null)
     {
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddLogging();
 
         var store = new TestClientStateStore();
+        if (timeZoneId is not null)
+            store.Cookies[ViewerClock.CookieName] = timeZoneId;
+
         context.Services.AddSingleton<IClientStateStore>(store);
         context.Services.AddScoped<ViewerClock>();
+        context.Services.AddScoped<SnackbarService>();
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddSingleton<ILibraryView>(view);
 

@@ -297,6 +297,8 @@ public sealed class LibraryView : ILibraryView
             summary.IsRecording ? null : summary.SizeBytes,
             summary.ThumbnailUrl,
             summary.PlaylistUrl,
+            // IProgressStore/F10-T2 is not on this branch. Wire the stored position here and
+            // subscribe to ProgressStore.Changed when that service lands.
             ResumeSec: null,
             summary.Chapters);
     }

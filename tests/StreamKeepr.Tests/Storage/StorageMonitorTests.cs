@@ -22,7 +22,7 @@ public sealed class StorageMonitorTests
     }
 
     [Fact]
-    public void Samples_every_sixty_seconds_and_ignores_moves_of_one_percent_or_less()
+    public void Samples_every_sixty_seconds_and_updates_current_for_sub_threshold_moves()
     {
         var disk = new MutableDiskSpace(freeBytes: 500, totalBytes: 1000);
         using StorageMonitor monitor = Create(disk, out FakeTimeProvider clock, out _);
@@ -35,15 +35,38 @@ public sealed class StorageMonitorTests
         disk.FreeBytes = 490; // exactly 1 % of total
         clock.Advance(TimeSpan.FromSeconds(1));
         Assert.Equal(0, changed);
-        Assert.Equal(500, monitor.Current.FreeBytes);
+        Assert.Equal(490, monitor.Current.FreeBytes);
 
-        disk.FreeBytes = 489; // just over 1 %
+        disk.FreeBytes = 489; // just over 1 % from the last notified sample
         clock.Advance(TimeSpan.FromSeconds(60));
         Assert.Equal(1, changed);
         Assert.Equal(489, monitor.Current.FreeBytes);
 
         disk.FreeBytes = 480; // under 1 % from the new sample
         clock.Advance(TimeSpan.FromSeconds(60));
+        Assert.Equal(1, changed);
+        Assert.Equal(480, monitor.Current.FreeBytes);
+    }
+
+    [Fact]
+    public async Task Concurrent_refreshes_sample_and_commit_under_the_same_lock()
+    {
+        var disk = new CoordinatedDiskSpace(freeBytes: 500, totalBytes: 1000);
+        using StorageMonitor monitor = Create(disk, out _, out _);
+        int changed = 0;
+        monitor.Changed += () => changed++;
+
+        disk.BlockNextSample();
+        Task first = Task.Run(monitor.Refresh);
+        Assert.True(disk.WaitUntilBlocked());
+
+        disk.FreeBytes = 400;
+        Task second = Task.Run(monitor.Refresh);
+        disk.Release();
+
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(400, monitor.Current.FreeBytes);
         Assert.Equal(1, changed);
     }
 
@@ -60,6 +83,12 @@ public sealed class StorageMonitorTests
 
         Assert.Equal(1, changed);
         Assert.Equal(2000, monitor.Current.TotalBytes);
+
+        disk.FreeBytes = 490; // under 1 % of the new total
+        clock.Advance(TimeSpan.FromSeconds(60));
+
+        Assert.Equal(1, changed);
+        Assert.Equal(490, monitor.Current.FreeBytes);
     }
 
     [Fact]
@@ -94,7 +123,7 @@ public sealed class StorageMonitorTests
     }
 
     private static StorageMonitor Create(
-        MutableDiskSpace disk,
+        IDiskSpace disk,
         out FakeTimeProvider clock,
         out RecordingLibrary library)
     {
@@ -139,4 +168,45 @@ internal sealed class MutableDiskSpace(long freeBytes, long totalBytes) : IDiskS
     public long AvailableFreeSpace(string path) => FreeBytes;
 
     public long TotalSize(string path) => TotalBytes;
+}
+
+internal sealed class CoordinatedDiskSpace : IDiskSpace
+{
+    private readonly ManualResetEventSlim _blocked = new(false);
+    private readonly ManualResetEventSlim _released = new(false);
+    private long _freeBytes;
+    private long _totalBytes;
+    private int _blockNext;
+
+    public CoordinatedDiskSpace(long freeBytes, long totalBytes)
+    {
+        _freeBytes = freeBytes;
+        _totalBytes = totalBytes;
+    }
+
+    public long FreeBytes
+    {
+        get => Interlocked.Read(ref _freeBytes);
+        set => Interlocked.Exchange(ref _freeBytes, value);
+    }
+
+    public void BlockNextSample() => Interlocked.Exchange(ref _blockNext, 1);
+
+    public bool WaitUntilBlocked() => _blocked.Wait(TimeSpan.FromSeconds(5));
+
+    public void Release() => _released.Set();
+
+    public long AvailableFreeSpace(string path)
+    {
+        long value = FreeBytes;
+        if (Interlocked.Exchange(ref _blockNext, 0) == 1)
+        {
+            _blocked.Set();
+            _released.Wait(TimeSpan.FromSeconds(5));
+        }
+
+        return value;
+    }
+
+    public long TotalSize(string path) => Interlocked.Read(ref _totalBytes);
 }

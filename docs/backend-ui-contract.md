@@ -34,6 +34,7 @@ public sealed record LibraryQuery(string? State = null, string? Search = null, s
 public interface ILibraryView : IDisposable
 {
     event Action? Changed;
+    bool IsLoaded { get; }
     IReadOnlyList<StreamerView> Streamers(LibraryQuery query);
     IReadOnlyList<RecordingView> Recordings(string streamerLogin, LibraryQuery query);
     RecordingView? Find(string id);
@@ -41,7 +42,8 @@ public interface ILibraryView : IDisposable
 }
 ```
 
-- Scoped: one per circuit; subscribes to `RecordingLibrary.Changed`, `DvrStatus.Changed`, `StorageMonitor.Changed`, and `ProgressStore.Changed`; throttles `Changed` to at most every 500 ms; unsubscribes on dispose.
+- Scoped: one per circuit; subscribes to `RecordingLibrary.Changed`, `ChannelStore.Changed`, `DvrStatus.Changed`, `StorageMonitor.Changed`, and `ProgressStore.Changed`; throttles `Changed` to at most every 500 ms; unsubscribes on dispose.
+- `ILibraryView` also exposes `bool IsLoaded` so the drawer can gate its skeleton rows without reading `RecordingLibrary` directly. This is additive to the view-model contract.
 - `Streamers` includes streamers with at least one recording. A watched channel with zero recordings appears in `ChannelsView`, not the library. `LastRecordedAt` is nullable for safety.
 - `RecordingView.DurationSec`: complete sessions use the manifest/index duration; recording/reconnecting sessions use elapsed time since `StartedAt` (non-negative).
 - `SizeBytes` is null while recording; otherwise media bytes.
@@ -159,11 +161,12 @@ public interface IStorageMonitor
 {
     StorageView Current { get; }
     event Action? Changed;
+    void Refresh();
 }
 ```
 
 - `DeleteAsync` requires an authenticated admin, only Complete sessions, takes `SessionStore.LockFor`, refuses while an export lease exists, removes the library entry, deletes the folder, clears progress, and releases the lease entry. Recording/Reconnecting throws `InvalidOperationException`; unknown id throws `KeyNotFoundException`.
-- `StorageMonitor` samples `DiskGuard` every 60 s and after finalize/delete/export. `StorageView` is `(FreeBytes, TotalBytes)`; add `TotalBytes` to `DiskGuard` from `DriveInfo.TotalSize`. `Changed` fires only when free space moves by more than 1% of total.
+- `StorageMonitor` samples `DiskGuard` every 60 s and after finalize/delete/export. `StorageView` is `(FreeBytes, TotalBytes)`; add `TotalBytes` to `DiskGuard` from `DriveInfo.TotalSize`. `Current` returns the latest successful sample, while `Changed` fires only when free space moves by more than 1% of total (or the total changes); sub-threshold samples still update `Current`. `IStorageMonitor.Refresh()` is an additive public method for post-finalize/delete/export sampling. Sampling and commit are serialized under one lock.
 - `ILibraryView.Storage` reads `StorageMonitor.Current`.
 
 ## 7. Authorization seams

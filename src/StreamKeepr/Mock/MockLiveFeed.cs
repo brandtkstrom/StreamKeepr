@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
+using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Storage;
 
 namespace StreamKeepr.Mock;
@@ -169,6 +170,19 @@ public sealed class MockLiveFeed(
 
     private void DeleteSeededRecording()
     {
+        string root = Path.GetFullPath(storageOptions.Value.RecordingsRoot);
+        string marker = Path.Combine(AppDataPaths.AppDataDirectory(root), "mock-seeded");
+
+        // The feed owns only the disposable Mock root that MockSeeder marked. Never delete
+        // recordings from a root that could contain a developer's own media.
+        if (!File.Exists(marker))
+        {
+            logger.LogWarning(
+                "Mock feed: refusing to delete from {Root}; the mock-seeded marker is missing.",
+                root);
+            return;
+        }
+
         MockRecording? target = MockCatalog.Recordings
             .Where(recording => recording.Complete && recording.Channel == DeleteLogin)
             .OrderBy(recording => recording.StartedAt)
@@ -177,7 +191,6 @@ public sealed class MockLiveFeed(
         if (target is null)
             return;
 
-        string root = Path.GetFullPath(storageOptions.Value.RecordingsRoot);
         var session = MockCatalog.SessionFor(target, root);
 
         library.Remove(session.Id);
