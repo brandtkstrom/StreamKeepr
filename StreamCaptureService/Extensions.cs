@@ -11,7 +11,7 @@ public static partial class Extensions
     // forbids '/' and NUL), so one set yields names that are valid everywhere.
     // Path.GetInvalidFileNameChars() is deliberately NOT used: on Linux it returns
     // only '/' and '\0', which would let ':' and friends through and break on Windows.
-    private static readonly SearchValues<char> InvalidChars = SearchValues.Create("<>:\"/\\|?*" + new string(Enumerable.Range(0, 32).Select(i => (char) i).ToArray()));
+    private static readonly SearchValues<char> InvalidChars = SearchValues.Create("<>:\"/\\|?*" + new string(Enumerable.Range(0, 32).Select(i => (char)i).ToArray()));
 
     // Reserved on Windows even with an extension ("CON.txt") and even with trailing
     // spaces in the stem ("CON .txt"). Includes COM0/LPT0 and the superscript digits
@@ -64,7 +64,7 @@ public static partial class Extensions
         {
             // Invalid filename chars (including C0 controls like \t and \n) become spaces,
             // so "a/b" -> "a b". The user's own underscores are left alone.
-            if (rune.IsBmp && InvalidChars.Contains((char) rune.Value))
+            if (rune.IsBmp && InvalidChars.Contains((char)rune.Value))
             {
                 sb.Append(' ');
                 continue;

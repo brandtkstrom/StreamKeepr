@@ -132,7 +132,7 @@ public class StreamRecorderService : BackgroundService
                     }
                     catch (Exception)
                     {
-                        recordingResult = recordingResult with {Outcome = RecordingOutcome.Failed};
+                        recordingResult = recordingResult with { Outcome = RecordingOutcome.Failed };
                     }
                     finally
                     {
