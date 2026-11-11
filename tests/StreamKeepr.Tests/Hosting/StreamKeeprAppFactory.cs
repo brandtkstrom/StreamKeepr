@@ -12,11 +12,16 @@ namespace StreamKeepr.Tests.Hosting;
 internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
 {
     private readonly string _testRoot;
+    private readonly bool _ownsTestRoot;
     private readonly Dictionary<string, string?> _settings;
 
-    public StreamKeeprAppFactory(IReadOnlyDictionary<string, string?>? overrides = null)
+    public StreamKeeprAppFactory(
+        IReadOnlyDictionary<string, string?>? overrides = null,
+        string? recordingsRoot = null)
     {
-        _testRoot = Path.Combine(Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
+        _ownsTestRoot = recordingsRoot is null;
+        _testRoot = recordingsRoot ??
+            Path.Combine(Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
         _settings = new()
         {
             [$"{TwitchOptions.SectionName}:ClientId"] = "test-client-id",
@@ -44,7 +49,7 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
     {
         base.Dispose(disposing);
 
-        if (Directory.Exists(_testRoot))
+        if (_ownsTestRoot && Directory.Exists(_testRoot))
             Directory.Delete(_testRoot, recursive: true);
     }
 }
