@@ -1,0 +1,24 @@
+#!/bin/sh
+# Emits a short MPEG-TS/AAC test stream on stdout for recorder integration tests.
+# Uses only ffmpeg and standard shell tools; no network or Twitch credentials.
+set -eu
+
+if [ "${1:-}" = "--version" ]; then
+    echo "streamlink 0.0.0-fake"
+    exit 0
+fi
+
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "fake-streamlink: ffmpeg is required for recorder integration tests" >&2
+    exit 127
+fi
+
+exec ffmpeg \
+    -hide_banner -loglevel error -nostdin \
+    -f lavfi -i "testsrc2=size=160x120:rate=15:duration=4" \
+    -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=4" \
+    -map 0:v -map 1:a \
+    -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p \
+    -g 15 -keyint_min 15 -sc_threshold 0 \
+    -c:a aac -b:a 64k \
+    -f mpegts pipe:1

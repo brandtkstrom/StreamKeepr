@@ -8,4 +8,8 @@
     <UserSecretsId>stream-keepr</UserSecretsId>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="CliWrap" Version="3.10.5" />
+  </ItemGroup>
+
 </Project>
