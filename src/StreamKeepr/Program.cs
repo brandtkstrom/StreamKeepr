@@ -37,6 +37,10 @@ builder.Services.AddHttpClient(TwitchHttpClients.Auth, client =>
     client.BaseAddress = new Uri("https://id.twitch.tv/"));
 builder.Services.AddSingleton<IAdminTokenStore, AdminTokenStore>();
 
+builder.Services.AddStreamKeeprAdminAuth();
+builder.Services.AddAuthorization();
+builder.Services.AddCascadingAuthenticationState();
+
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
@@ -55,6 +59,8 @@ app.Lifetime.ApplicationStarted.Register(() =>
 if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
 
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 
 app.UseRecordingsMedia();
@@ -62,6 +68,8 @@ app.UseRecordingsMedia();
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+app.MapGet(AdminAuth.LoginPath, (string? returnUrl) => AdminAuth.ChallengeLogin(returnUrl));
 
 await app.RunAsync();
 

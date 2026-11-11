@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using StreamKeepr.Configuration;
 
@@ -14,14 +16,17 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
     private readonly string _testRoot;
     private readonly bool _ownsTestRoot;
     private readonly Dictionary<string, string?> _settings;
+    private readonly Action<IServiceCollection>? _configureTestServices;
 
     public StreamKeeprAppFactory(
         IReadOnlyDictionary<string, string?>? overrides = null,
-        string? recordingsRoot = null)
+        string? recordingsRoot = null,
+        Action<IServiceCollection>? configureTestServices = null)
     {
         _ownsTestRoot = recordingsRoot is null;
         _testRoot = recordingsRoot ??
             Path.Combine(Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
+        _configureTestServices = configureTestServices;
         _settings = new()
         {
             [$"{TwitchOptions.SectionName}:ClientId"] = "test-client-id",
@@ -43,6 +48,9 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
         builder.ConfigureAppConfiguration((_, configuration) =>
             configuration.AddInMemoryCollection(_settings));
         builder.ConfigureLogging(logging => logging.AddProvider(Logs));
+
+        if (_configureTestServices is not null)
+            builder.ConfigureTestServices(_configureTestServices);
     }
 
     protected override void Dispose(bool disposing)
