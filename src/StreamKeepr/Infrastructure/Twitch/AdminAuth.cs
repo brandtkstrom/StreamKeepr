@@ -27,6 +27,9 @@ public static class AdminAuth
     public const string HttpsRequiredAuthError = "httpsRequired";
     public const string FailedAuthError = "failed";
 
+    /// <summary>The display-name claim the Twitch handler maps; the Mock identity uses it too.</summary>
+    public const string DisplayNameClaim = TwitchAuthenticationConstants.Claims.DisplayName;
+
     private const string HomePath = "/";
 
     private const string RejectedSignInItem = "StreamKeepr.AdminAuth.AuthError";

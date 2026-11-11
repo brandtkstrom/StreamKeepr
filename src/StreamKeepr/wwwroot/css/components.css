@@ -76,6 +76,7 @@ body { margin: 0; background: var(--surface); color: var(--on-surface); font-fam
   font: var(--text-label-large);
 }
 .sk-auth-chip .sk-icon { color: var(--on-surface-variant); }
+.sk-auth-chip .login { color: var(--on-surface-variant); font: var(--text-body-small); }
 .sk-auth-dot { width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--success); flex: none; }
 mark.sk-hl { background: var(--highlight); color: var(--on-highlight); border-radius: 2px; padding: 0 1px; }
 
@@ -230,6 +231,10 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-player-center:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .sk-player-bottom { position: absolute; left: 0; right: 0; bottom: 0; background: var(--player-scrim); padding-top: 6px; transition: opacity 200ms; }
 .sk-player.idle .sk-player-top, .sk-player.idle .sk-player-bottom { opacity: 0; }
+.sk-player.idle { cursor: none; }
+.sk-player:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.sk-player:fullscreen { border-radius: 0; width: 100%; height: 100%; aspect-ratio: auto; }
+@media (prefers-reduced-motion: reduce) { .sk-player-top, .sk-player-bottom { transition: none; } }
 
 .sk-seek { position: relative; height: 20px; margin: 0 var(--space-4); cursor: pointer; touch-action: none; }
 .sk-seek .track { position: absolute; left: 0; right: 0; top: 8px; height: 4px; border-radius: var(--radius-full); background: rgba(255, 255, 255, 0.24); transition: height 120ms, top 120ms; }
@@ -250,6 +255,8 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 
 .sk-player [hidden] { display: none !important; }
 .sk-player-spinner { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.sk-player-spinner { grid-template-rows: auto; align-content: center; gap: var(--space-3); }
+.sk-player-waiting { margin: 0; color: var(--on-player); font: var(--text-body-large); text-align: center; }
 .sk-player-spinner .sk-spin { width: 48px; height: 48px; border-radius: 50%; border: 4px solid var(--on-player); border-right-color: transparent; animation: sk-spin 800ms linear infinite; }
 .sk-player-overlay {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3);
@@ -284,8 +291,10 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 }
 .sk-golive .dot { width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--rec); }
 .sk-golive { white-space: nowrap; }
-@container (max-width: 720px) { .sk-controls [data-skip], .sk-controls [aria-label="Picture in picture"], .sk-controls [data-menu^="m-s"] { display: none; } }
-@container (max-width: 520px) { .sk-controls [data-theater], .sk-vol, .sk-golive .lbl-long { display: none; } }
+@container (max-width: 720px) { .sk-controls [data-skip], .sk-controls [data-pip], .sk-controls [data-menu^="m-s"] { display: none; } }
+@container (max-width: 520px) { .sk-controls [data-theater], .sk-vol, .sk-quality, .sk-golive .lbl-long { display: none; } }
+.sk-quality { display: inline-flex; align-items: center; cursor: default; }
+.sk-quality:hover { background: rgba(255, 255, 255, 0.12); }
 .sk-golive.at-edge { box-shadow: none; background: rgba(255, 255, 255, 0.12); }
 
 .sk-menu-anchor { position: relative; display: inline-flex; }

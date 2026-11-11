@@ -7,6 +7,9 @@ import {
   registerStatsSource,
   unregisterStatsSource,
 } from "/js/stats.js";
+import { createProgress } from "/js/player-progress.js";
+import { readPlayerPrefs, writePlayerPrefs } from "/js/player-prefs.js";
+import { playerAction } from "/js/player-keys.js";
 
 // Defaults plus the contract's overrides. The stitched playlist targets 12 s segments, so one
 // target duration behind the end is the live edge.
@@ -25,10 +28,20 @@ const SKIP_SECONDS = 10;
 const SEEK_STEP_SECONDS = 5;
 const VOLUME_STEP = 0.05;
 const SPINNER_DELAY_MS = 500;
+const IDLE_MS = 3000;
+// Following keeps the playhead within this much of the live sync position (contract §4).
+const LIVE_SLACK_SEC = 2;
+const WAITING_RETRY_MS = 3000;
+// hls.js error details that mean a live capture has no playable playlist yet.
+const WAITING_DETAILS = new Set([
+  "manifestLoadError", "manifestParsingError", "levelLoadError", "levelEmptyError",
+]);
+const LIVE_EDGE = Symbol("live edge");
 const NATIVE_HLS = "application/vnd.apple.mpegurl";
 
 const UNSUPPORTED_MESSAGE = "This browser can't play HLS video. Try a current version of Chrome, Edge, Firefox, or Safari.";
 const FAILED_MESSAGE = "The video could not be played.";
+const UNAVAILABLE_MESSAGE = "This recording is unavailable.";
 
 // Mirrors Primitives/StatusChip.razor markup for the states the player shows.
 const CHIPS = {
@@ -45,7 +58,7 @@ export const HOOKS = [
   "video", "title", "streamer", "chip", "center", "spinner", "overlay", "overlay-message",
   "retry", "seek", "buffered", "played", "ticks", "knob", "hover-time", "play", "back",
   "forward", "mute", "volume", "volume-level", "current", "duration", "speed", "speed-menu",
-  "stats",
+  "stats", "edge", "live", "waiting", "pip", "theater", "fullscreen",
 ];
 
 // JS twin of Ui/Format.Timecode (the source of truth); keep the two in step.
@@ -70,7 +83,11 @@ function hasMediaSource() {
   return typeof window.MediaSource === "function" || typeof window.ManagedMediaSource === "function";
 }
 
-export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } = {}) {
+export function createPlayer(
+  root,
+  { loadHls = defaultLoadHls, dotNet = null, fetch = globalThis.fetch, storage } = {},
+) {
+  const doc = root.ownerDocument;
   const el = Object.fromEntries(HOOKS.map((name) => [name, root.querySelector(`[data-sk="${name}"]`)]));
   const video = el.video;
   const listeners = new AbortController();
@@ -91,12 +108,45 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
   let dragging = false;
   let chapters = [];
   let hlsClass = null; // imported once per player, on the first load that needs it
+  let live = false; // Recording/Reconnecting until the playlist reports ENDLIST
+  let following = false; // live only: keep the playhead at the sync position
+  let waiting = false; // live only: no playable playlist yet
+  let waitingTimer = 0;
+  let resumePlaying = false; // VOD→live reload keeps playing if it was
+  let prefs = readPlayerPrefs(storage); // read once; applied on every load
+  let theater = false;
+  let idleTimer = 0;
+  let wasFullscreen = false;
   const stats = createStatsProbe({ video });
+  const progress = createProgress({
+    save: (recordingId, seconds) => invokeDotNet("SaveProgress", recordingId, seconds),
+    clear: (recordingId) => invokeDotNet("ClearProgress", recordingId),
+    fetch,
+  });
 
   // ----- helpers -----
 
-  const duration = () => (Number.isFinite(video.duration) && video.duration > 0 ? video.duration : NaN);
+  function seekableEnd() {
+    const ranges = video.seekable;
+    return ranges?.length ? ranges.end(ranges.length - 1) : NaN;
+  }
+
+  // The timeline length: the media duration, or the seekable end while native HLS reports a
+  // live stream as Infinity.
+  function duration() {
+    if (Number.isFinite(video.duration) && video.duration > 0) return video.duration;
+    const end = seekableEnd();
+    return Number.isFinite(end) && end > 0 ? end : NaN;
+  }
   const hasMetadata = () => video.readyState >= 1 && Number.isFinite(duration());
+
+  /** hls.js's live sync position (one target duration behind the end), or end − 1 before it has one. */
+  function liveSync() {
+    const sync = hls?.liveSyncPosition;
+    if (Number.isFinite(sync)) return sync;
+    const end = seekableEnd();
+    return Number.isFinite(end) ? Math.max(0, end - 1) : NaN;
+  }
 
   function setSpinner(visible) {
     if (el.spinner) el.spinner.hidden = !visible;
@@ -185,6 +235,47 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
     el.buffered.style.width = Number.isFinite(total) ? percent(end / total) : "0%";
   }
 
+  function renderLive() {
+    if (el.live) {
+      el.live.hidden = !live;
+      el.live.classList.toggle("at-edge", live && following);
+    }
+    if (el.edge) {
+      const end = seekableEnd();
+      const total = duration();
+      el.edge.hidden = !live || !Number.isFinite(end) || !Number.isFinite(total);
+      if (!el.edge.hidden) el.edge.style.left = percent(end / total);
+    }
+  }
+
+  function enterWaiting() {
+    if (!waiting) {
+      waiting = true;
+      clearTimeout(spinnerTimer);
+      setSpinner(true);
+      el.waiting.hidden = false;
+    }
+  }
+
+  function leaveWaiting() {
+    clearTimeout(waitingTimer);
+    waitingTimer = 0;
+    if (!waiting) return;
+    waiting = false;
+    el.waiting.hidden = true;
+  }
+
+  /** ENDLIST (or the circuit's finished state): the capture is now an ordinary recording. */
+  function becameFinished() {
+    if (!live) return;
+    live = false;
+    following = false;
+    renderLive();
+    renderTicks();
+    renderPosition();
+    if (!video.paused && !video.ended) progress.playing();
+  }
+
   function renderPlayState() {
     const playing = !video.paused && !video.ended;
     el.play.setAttribute("aria-label", playing ? "Pause" : "Play");
@@ -234,12 +325,159 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
     renderPosition();
   }
 
+  /** A seek the viewer asked for; while live it also decides whether to keep following. */
+  function userSeek(time) {
+    if (!Number.isFinite(time)) return;
+    if (live) {
+      const end = seekableEnd();
+      const sync = liveSync();
+      if (Number.isFinite(end) && time >= end - LIVE_SLACK_SEC) {
+        // The true end would stall at the last segment; the sync position starts buffered.
+        time = Number.isFinite(sync) ? sync : time;
+        following = true;
+      } else {
+        following = Number.isFinite(sync) && time >= sync - LIVE_SLACK_SEC;
+      }
+    }
+    seekTo(time);
+    renderLive();
+  }
+
+  function goLive() {
+    if (!live) return;
+    const sync = liveSync();
+    following = true;
+    if (Number.isFinite(sync)) seekTo(sync);
+    renderLive();
+  }
+
   function setVolume(value) {
     const before = video.volume;
     video.volume = clamp(Math.round(value * 100) / 100, 0, 1);
     // Raising the volume above 0 unmutes; lowering it leaves mute alone.
     if (video.volume > before && video.volume > 0) video.muted = false;
     renderVolume();
+    savePrefs();
+  }
+
+  // ----- preferences, theater, fullscreen, picture-in-picture -----
+
+  function applyPrefs() {
+    video.volume = prefs.volume;
+    video.muted = prefs.muted;
+    // A new source resets playbackRate to defaultPlaybackRate, so set both.
+    video.defaultPlaybackRate = prefs.speed;
+    video.playbackRate = prefs.speed;
+  }
+
+  function savePrefs() {
+    prefs = { volume: video.volume, muted: video.muted, speed: video.playbackRate || 1 };
+    writePlayerPrefs(prefs, storage);
+  }
+
+  function toggleMute() {
+    video.muted = !video.muted;
+    renderVolume();
+    savePrefs();
+  }
+
+  function setRate(rate) {
+    video.defaultPlaybackRate = rate;
+    video.playbackRate = rate;
+    renderSpeed();
+    savePrefs();
+  }
+
+  function renderTheater() {
+    if (!el.theater) return;
+    el.theater.setAttribute("aria-pressed", theater ? "true" : "false");
+    el.theater.classList.toggle("on", theater);
+  }
+
+  function toggleTheater() {
+    // UiPreferences is the source of truth; SetTheater persists it and Changed comes back
+    // through setTheater. The button reflects the request at once.
+    theater = !theater;
+    renderTheater();
+    void invokeDotNet("SetTheater", theater);
+  }
+
+  const fullscreenElement = () => doc.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+
+  async function toggleFullscreen() {
+    try {
+      if (fullscreenElement()) {
+        await (doc.exitFullscreen?.() ?? doc.webkitExitFullscreen?.());
+      } else if (typeof root.requestFullscreen === "function") {
+        // The container keeps the custom controls.
+        await root.requestFullscreen();
+      } else if (typeof video.requestFullscreen === "function") {
+        await video.requestFullscreen();
+      } else {
+        video.webkitEnterFullscreen?.(); // iOS Safari: native controls
+      }
+    } catch (error) {
+      console.debug("Stream Keepr: fullscreen was refused.", error);
+    }
+  }
+
+  function renderFullscreen() {
+    const active = fullscreenElement() !== null;
+    const ours = fullscreenElement() === root;
+    if (el.fullscreen) {
+      el.fullscreen.setAttribute("aria-label", ours ? "Exit full screen" : "Full screen");
+      el.fullscreen.querySelector(".sk-icon").textContent = ours ? "fullscreen_exit" : "fullscreen";
+    }
+    if (el.pip) el.pip.disabled = active;
+    if (ours && !wasFullscreen) root.focus();
+    else if (!ours && wasFullscreen) el.fullscreen?.focus();
+    wasFullscreen = ours;
+  }
+
+  const pipSupported = () =>
+    doc.pictureInPictureEnabled === true && typeof video.requestPictureInPicture === "function";
+
+  async function togglePip() {
+    try {
+      if (doc.pictureInPictureElement) await doc.exitPictureInPicture();
+      else await video.requestPictureInPicture();
+    } catch (error) {
+      console.debug("Stream Keepr: picture-in-picture was refused.", error);
+    }
+  }
+
+  function renderPip() {
+    if (!el.pip) return;
+    el.pip.hidden = !pipSupported();
+    const inPip = doc.pictureInPictureElement === video;
+    el.pip.setAttribute("aria-label", inPip ? "Exit picture in picture" : "Picture in picture");
+    el.pip.querySelector(".sk-icon").textContent = inPip ? "picture_in_picture_off" : "picture_in_picture_alt";
+  }
+
+  // ----- idle -----
+
+  function keyboardFocusInside() {
+    const active = doc.activeElement;
+    if (!active || active === doc.body || !root.contains(active)) return false;
+    try {
+      return active.matches(":focus-visible");
+    } catch {
+      return true; // no :focus-visible support: treat any focus as keyboard focus
+    }
+  }
+
+  function canIdle() {
+    return Boolean(view) && !video.paused && !video.ended && el["speed-menu"].hidden
+      && !keyboardFocusInside();
+  }
+
+  /** Reveals the overlays and restarts the 3 s idle timer. */
+  function wake() {
+    root.classList.remove("idle");
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      if (canIdle()) root.classList.add("idle");
+    }, IDLE_MS);
   }
 
   function setStatsPressed(open) {
@@ -276,6 +514,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
   function teardownEngine() {
     clearTimeout(retryTimer);
     clearTimeout(spinnerTimer);
+    leaveWaiting();
     retryTimer = 0;
     stats.detachEngine();
     hls?.destroy();
@@ -295,12 +534,26 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
     dragging = false;
     el.seek.classList.remove("drag");
     lastKnownTime = 0;
+    following = false;
     networkAttempts = 0;
     mediaAttempts = 0;
     el.buffered.style.width = "0%";
   }
 
   function onHlsError(Hls, data) {
+    // A live capture without a playable playlist is waiting, not failing: retry the manifest
+    // quietly every 3 s with no limit (contract §13).
+    if (live && WAITING_DETAILS.has(data?.details)) {
+      enterWaiting();
+      if (data.fatal) {
+        clearTimeout(waitingTimer);
+        waitingTimer = setTimeout(() => {
+          if (hls && live) hls.loadSource(view.playlistUrl);
+        }, WAITING_RETRY_MS);
+      }
+      return;
+    }
+
     if (!data?.fatal) return;
 
     if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkAttempts < NETWORK_RETRY_MS.length) {
@@ -351,6 +604,14 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
       hls.on(Hls.Events.FRAG_LOADED, () => {
         networkAttempts = 0;
         mediaAttempts = 0;
+        leaveWaiting();
+      });
+      hls.on(Hls.Events.LEVEL_LOADED, (_event, data) => {
+        const details = data?.details;
+        if (!details) return;
+        if (details.live === false) becameFinished();
+        else if (live && !details.fragments?.length) enterWaiting();
+        renderLive();
       });
       hls.attachMedia(video);
       hls.loadSource(source);
@@ -373,8 +634,10 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
     teardownEngine();
     resetUi();
     startAt = position;
-    lastKnownTime = position ?? 0;
-    renderPosition(position ?? 0);
+    const at = typeof position === "number" ? position : 0;
+    lastKnownTime = at;
+    renderPosition(at);
+    renderLive();
     spinnerTimer = setTimeout(() => setSpinner(true), SPINNER_DELAY_MS);
     await attach(view.playlistUrl, token);
   }
@@ -386,6 +649,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
   }
 
   function openSpeedMenu() {
+    root.classList.remove("idle");
     el["speed-menu"].hidden = false;
     el.speed.setAttribute("aria-expanded", "true");
     const items = speedItems();
@@ -402,26 +666,62 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
   // ----- events -----
 
   on(video, "loadedmetadata", () => {
-    if (startAt != null && Number.isFinite(duration())) {
-      seekTo(startAt);
+    if (startAt === LIVE_EDGE) {
+      goLive();
+    } else if (startAt != null && Number.isFinite(duration())) {
+      // Resume lands at least a second before the end so playback has something to play.
+      seekTo(Math.min(startAt, duration() - 1));
     }
     startAt = null;
+    if (resumePlaying) {
+      resumePlaying = false;
+      void video.play()?.catch?.(() => {});
+    }
     renderTicks();
     renderPosition();
+    renderLive();
   });
   on(video, "durationchange", () => {
+    // Native HLS has no LEVEL_LOADED: a finite duration is its ENDLIST.
+    if (native && live && Number.isFinite(video.duration)) becameFinished();
     renderTicks();
     renderPosition();
+    renderLive();
   });
   on(video, "timeupdate", () => {
+    if (live && following && !video.paused) {
+      const sync = liveSync();
+      if (Number.isFinite(sync) && sync - video.currentTime > LIVE_SLACK_SEC) seekTo(sync);
+    }
     if (!dragging) renderPosition();
     lastKnownTime = video.currentTime;
     renderBuffered();
   });
   on(video, "progress", renderBuffered);
-  on(video, "play", renderPlayState);
-  on(video, "pause", renderPlayState);
-  on(video, "ended", renderPlayState);
+  on(video, "play", () => {
+    renderPlayState();
+    wake();
+    progress.playing();
+  });
+  on(video, "pause", () => {
+    renderPlayState();
+    root.classList.remove("idle"); // never idle while paused
+    // A pause leaves the live edge; Live edge or a seek to it follows again.
+    if (live && following) {
+      following = false;
+      renderLive();
+    }
+    // A pause that ends playback is followed by "ended", which clears instead.
+    if (!video.ended) progress.paused();
+  });
+  on(video, "ended", () => {
+    renderPlayState();
+    progress.ended();
+  });
+  on(window, "pagehide", () => progress.flush());
+  on(document, "visibilitychange", () => {
+    if (document.visibilityState === "hidden") progress.flush();
+  });
   on(video, "volumechange", renderVolume);
   on(video, "ratechange", renderSpeed);
   on(video, "waiting", () => setSpinner(true));
@@ -439,7 +739,10 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
 
   function togglePlay() {
     if (!view) return;
-    if (video.ended) seekTo(0);
+    if (video.ended) {
+      seekTo(0);
+      progress.restarted();
+    }
     if (video.paused || video.ended) void video.play()?.catch?.(() => {});
     else video.pause();
     renderPlayState();
@@ -450,15 +753,51 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
     togglePlay();
     el.play.focus();
   });
-  on(el.back, "click", () => seekTo(video.currentTime - SKIP_SECONDS));
-  on(el.forward, "click", () => seekTo(video.currentTime + SKIP_SECONDS));
-  on(el.mute, "click", () => {
-    video.muted = !video.muted;
-    renderVolume();
+  on(el.back, "click", () => seekBy(-SKIP_SECONDS));
+  on(el.forward, "click", () => seekBy(SKIP_SECONDS));
+  on(el.live, "click", goLive);
+  on(el.mute, "click", toggleMute);
+  on(el.theater, "click", toggleTheater);
+  on(el.fullscreen, "click", () => void toggleFullscreen());
+  on(el.pip, "click", () => void togglePip());
+  on(doc, "fullscreenchange", renderFullscreen);
+  on(doc, "webkitfullscreenchange", renderFullscreen);
+  on(video, "enterpictureinpicture", renderPip);
+  on(video, "leavepictureinpicture", renderPip);
+
+  for (const type of ["pointermove", "pointerdown", "keydown", "focusin"]) on(root, type, wake);
+
+  // Global shortcuts while a recording is open; the decision lives in player-keys.js.
+  on(doc, "keydown", (event) => {
+    if (!view) return;
+    const action = playerAction(event, doc);
+    if (!action) return;
+    event.preventDefault();
+    runAction(action);
+    wake();
   });
+
+  function seekBy(seconds) {
+    if (!hasMetadata()) return;
+    userSeek(clamp(video.currentTime + seconds, 0, duration()));
+  }
+
+  function runAction(action) {
+    switch (action) {
+      case "toggle-play": togglePlay(); break;
+      case "back-10": seekBy(-SKIP_SECONDS); break;
+      case "forward-10": seekBy(SKIP_SECONDS); break;
+      case "back-5": seekBy(-SEEK_STEP_SECONDS); break;
+      case "forward-5": seekBy(SEEK_STEP_SECONDS); break;
+      case "mute": toggleMute(); break;
+      case "fullscreen": void toggleFullscreen(); break;
+      case "theater": toggleTheater(); break;
+      case "stats": toggleStats(); break;
+    }
+  }
   on(el.retry, "click", () => {
     if (!view) return;
-    void start(lastKnownTime);
+    void start(live ? LIVE_EDGE : lastKnownTime);
   });
   on(el.stats, "click", toggleStats);
   on(document, "sk:stats-state", (event) => {
@@ -487,8 +826,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
   on(el["speed-menu"], "click", (event) => {
     const item = event.target instanceof Element ? event.target.closest("[data-rate]") : null;
     if (!item) return;
-    video.playbackRate = Number(item.dataset.rate);
-    renderSpeed();
+    setRate(Number(item.dataset.rate));
     closeSpeedMenu(true);
   });
   on(el["speed-menu"], "keydown", (event) => {
@@ -552,7 +890,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
     if (!dragging) return;
     dragging = false;
     el.seek.classList.remove("drag");
-    if (commit) seekTo(ratioAt(event) * duration());
+    if (commit) userSeek(ratioAt(event) * duration());
     else renderPosition();
   };
   on(el.seek, "pointerup", (event) => endDrag(event, true));
@@ -561,10 +899,10 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
   on(el.seek, "keydown", (event) => {
     if (!hasMetadata()) return;
     const total = duration();
-    if (event.key === "ArrowRight") seekTo(video.currentTime + SEEK_STEP_SECONDS);
-    else if (event.key === "ArrowLeft") seekTo(video.currentTime - SEEK_STEP_SECONDS);
-    else if (event.key === "Home") seekTo(0);
-    else if (event.key === "End") seekTo(total);
+    if (event.key === "ArrowRight") userSeek(Math.min(video.currentTime + SEEK_STEP_SECONDS, total));
+    else if (event.key === "ArrowLeft") userSeek(Math.max(video.currentTime - SEEK_STEP_SECONDS, 0));
+    else if (event.key === "Home") userSeek(0);
+    else if (event.key === "End") userSeek(total);
     else return;
     // The player's global shortcuts yield to the slider.
     event.preventDefault();
@@ -576,17 +914,32 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
   return {
     async load(next) {
       if (disposed || !next) return;
+      // Route change: the previous recording's position goes out before its engine is torn down.
+      if (view && view.recordingId !== next.recordingId) progress.flush();
       view = next;
+      live = next.state === "recording" || next.state === "reconnecting";
+      progress.track({
+        recordingId: next.recordingId,
+        position: () => video.currentTime,
+        duration,
+        live: () => live,
+      });
       stats.setView(next);
       stats.reset();
       setStatsPressed(Boolean(next.statsOpen));
+      theater = Boolean(next.theater);
+      renderTheater();
+      renderPip();
+      renderFullscreen();
+      applyPrefs();
       renderView();
       renderSpeed();
       renderVolume();
       renderPlayState();
-      const finished = view.state === "saved" || view.state === "partial";
-      const resume = finished && Number.isFinite(view.resumeSec) && view.resumeSec > 0 ? view.resumeSec : null;
-      await start(resume);
+      // Finished recordings resume; live captures open at the live edge and ignore ResumeSec.
+      resumePlaying = false;
+      const resume = Number.isFinite(view.resumeSec) && view.resumeSec > 0 ? view.resumeSec : null;
+      await start(live ? LIVE_EDGE : resume);
     },
 
     update(next) {
@@ -596,6 +949,30 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
       stats.setView(view);
       renderView();
       renderPosition();
+
+      const nowLive = next.state === "recording" || next.state === "reconnecting";
+      if (nowLive && !live) {
+        // VOD→live: a finished session reopened. Reload the same playlist where the viewer
+        // is, keeping play/pause; Live edge is theirs to press.
+        live = true;
+        progress.live();
+        resumePlaying = !video.paused && !video.ended;
+        void start(video.currentTime);
+      } else if (!nowLive && live) {
+        if (waiting) {
+          // The capture finished without ever producing a segment.
+          leaveWaiting();
+          showOverlay(UNAVAILABLE_MESSAGE, true);
+        }
+        becameFinished();
+      }
+    },
+
+    /** UiPreferences.Changed: the shell's theater state, from either control. */
+    setTheater(open) {
+      if (disposed) return;
+      theater = Boolean(open);
+      renderTheater();
     },
 
     seek(time) {
@@ -605,11 +982,14 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
         startAt = Math.max(0, time);
         return;
       }
-      seekTo(time);
+      userSeek(time);
     },
 
     dispose() {
       if (disposed) return;
+      progress.flush();
+      progress.dispose();
+      clearTimeout(idleTimer);
       disposed = true;
       generation++;
       teardownEngine();
@@ -641,6 +1021,10 @@ export async function load(root, view) {
 
 export function update(root, view) {
   players.get(root)?.update(view);
+}
+
+export function setTheater(root, open) {
+  players.get(root)?.setTheater(open);
 }
 
 export function seek(root, seconds) {

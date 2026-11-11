@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Options;
@@ -29,6 +30,15 @@ public sealed class MockAuthOptions
 /// </summary>
 public static class MockAuth
 {
+    /// <summary>Set by the fake logout so the default sign-in does not undo it.</summary>
+    public const string SignedOutCookie = "sk-mock-signed-out";
+
+    private const string RunClaim = "sk_mock_run";
+
+    // Identifies cookies issued by this process, so a signed-out launch can still clear a
+    // cookie left by an earlier signed-in run while keeping one from the fake login.
+    private static readonly string RunId = Guid.NewGuid().ToString("N");
+
     public static IServiceCollection AddStreamKeeprMockAuth(this IServiceCollection services)
     {
         services.AddOptions<MockAuthOptions>()
@@ -52,8 +62,8 @@ public static class MockAuth
                 options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
                 options.ExpireTimeSpan = TimeSpan.FromDays(7);
                 options.SlidingExpiration = true;
-                options.LoginPath = "/";
-                options.LogoutPath = "/";
+                options.LoginPath = AdminAuth.LoginPath;
+                options.LogoutPath = AdminAuth.LogoutPath;
             });
 
         return services;
@@ -61,24 +71,22 @@ public static class MockAuth
 
     /// <summary>
     /// Applies the configured fake identity after authentication and before authorization.
-    /// Switching to signed-out also clears a cookie left by an earlier signed-in run.
+    /// Signed in by default, unless the fake logout marked this browser signed out. A
+    /// signed-out launch clears a cookie left by an earlier run but keeps a fake login's.
     /// </summary>
     public static IApplicationBuilder UseStreamKeeprMockAuth(this IApplicationBuilder app) =>
         app.Use(async (context, next) =>
         {
             MockAuthOptions options = context.RequestServices
                 .GetRequiredService<IOptions<MockAuthOptions>>().Value;
+            bool authenticated = context.User.Identity?.IsAuthenticated == true;
 
             if (options.SignedIn)
             {
-                if (context.User.Identity?.IsAuthenticated != true)
-                {
-                    var principal = CreatePrincipal(options);
-                    context.User = principal;
-                    await context.SignInAsync(AdminAuth.CookieScheme, principal);
-                }
+                if (!authenticated && !context.Request.Cookies.ContainsKey(SignedOutCookie))
+                    await SignInAsync(context, options);
             }
-            else if (context.User.Identity?.IsAuthenticated == true)
+            else if (authenticated && context.User.FindFirst(RunClaim)?.Value != RunId)
             {
                 await context.SignOutAsync(AdminAuth.CookieScheme);
                 context.User = new ClaimsPrincipal(new ClaimsIdentity());
@@ -87,6 +95,58 @@ public static class MockAuth
             await next(context);
         });
 
+    /// <summary>
+    /// The Mock profile's stand-ins for the Twitch OAuth endpoints, on the same paths: login
+    /// signs the fake admin in and returns to the local URL; logout is the same antiforgery
+    /// form post as production and keeps the browser signed out until the next login.
+    /// </summary>
+    public static IEndpointRouteBuilder MapStreamKeeprMockAuth(this IEndpointRouteBuilder endpoints)
+    {
+        endpoints.MapGet(AdminAuth.LoginPath, async (HttpContext context, string? returnUrl) =>
+        {
+            MockAuthOptions options = context.RequestServices
+                .GetRequiredService<IOptions<MockAuthOptions>>().Value;
+            context.Response.Cookies.Delete(SignedOutCookie);
+            await SignInAsync(context, options);
+            return Results.LocalRedirect(AdminAuth.ResolveReturnUrl(returnUrl));
+        });
+
+        endpoints.MapPost(AdminAuth.LogoutPath, async (HttpContext context, IAntiforgery antiforgery) =>
+        {
+            try
+            {
+                await antiforgery.ValidateRequestAsync(context);
+            }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.BadRequest();
+            }
+
+            string? returnUrl = context.Request.HasFormContentType
+                ? (await context.Request.ReadFormAsync(context.RequestAborted))["returnUrl"].ToString()
+                : null;
+
+            await context.SignOutAsync(AdminAuth.CookieScheme);
+            context.Response.Cookies.Append(SignedOutCookie, "1", new CookieOptions
+            {
+                HttpOnly = true,
+                SameSite = SameSiteMode.Lax,
+                Secure = context.Request.IsHttps,
+                IsEssential = true,
+            });
+            return Results.LocalRedirect(AdminAuth.ResolveReturnUrl(returnUrl));
+        });
+
+        return endpoints;
+    }
+
+    private static async Task SignInAsync(HttpContext context, MockAuthOptions options)
+    {
+        ClaimsPrincipal principal = CreatePrincipal(options);
+        context.User = principal;
+        await context.SignInAsync(AdminAuth.CookieScheme, principal);
+    }
+
     private static ClaimsPrincipal CreatePrincipal(MockAuthOptions options)
     {
         string login = TwitchLogin.Normalize(options.Login);
@@ -94,7 +154,8 @@ public static class MockAuth
             [
                 new Claim(ClaimTypes.Name, login),
                 new Claim(ClaimTypes.NameIdentifier, login),
-                new Claim("display_name", options.DisplayName),
+                new Claim(AdminAuth.DisplayNameClaim, options.DisplayName),
+                new Claim(RunClaim, RunId),
             ],
             authenticationType: AdminAuth.CookieScheme);
 

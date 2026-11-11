@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
@@ -74,6 +75,8 @@ builder.Services.AddSingleton<DiskGuard>();
 builder.Services.AddSingleton<IStorageMonitor, StorageMonitor>();
 builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddSingleton<ChannelStore>();
+builder.Services.AddSingleton<ProgressStore>();
+builder.Services.AddSingleton<IProgressStore>(services => services.GetRequiredService<ProgressStore>());
 builder.Services.AddSingleton<RecoveryService>();
 builder.Services.AddSingleton<RecorderJob>();
 builder.Services.AddSingleton<IRecorder>(services => services.GetRequiredService<RecorderJob>());
@@ -121,6 +124,9 @@ if (mock)
     builder.Services.AddHostedService<MockLiveFeed>();
 }
 
+// Loads watch positions at startup and flushes pending ones on graceful shutdown.
+builder.Services.AddHostedService(services => services.GetRequiredService<ProgressStore>());
+
 // Keys live on the recordings volume and are ready before auth or token storage runs.
 builder.Services.AddStreamKeeprDataProtection();
 
@@ -139,12 +145,23 @@ builder.Services.AddHttpClient(TwitchHttpClients.Helix, client =>
 builder.Services.AddSingleton<IAdminTokenStore, AdminTokenStore>();
 
 if (mock)
+{
     builder.Services.AddStreamKeeprMockAuth();
+    builder.Services.AddSingleton<IAdminSessionValidator, AlwaysValidAdminSessionValidator>();
+}
 else
+{
     builder.Services.AddStreamKeeprAdminAuth();
+    builder.Services.AddSingleton<IAdminSessionValidator, TwitchAdminSessionValidator>();
+}
 
 builder.Services.AddAuthorization();
 builder.Services.AddCascadingAuthenticationState();
+
+// Re-checks the admin's Twitch token every 30 minutes; on failure the circuit signs out
+// and the top bar shows the expired state while playback continues.
+builder.Services.AddScoped<AdminSessionState>();
+builder.Services.AddScoped<AuthenticationStateProvider, AdminAuthenticationStateProvider>();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IClientStateStore, ClientStateStore>();
@@ -212,8 +229,12 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// Mock uses a fake cookie identity; the Twitch OAuth endpoints do not exist there.
-if (!mock)
+// Mock uses a fake cookie identity with stand-in login/logout endpoints on the same paths.
+if (mock)
+{
+    app.MapStreamKeeprMockAuth();
+}
+else
 {
     app.MapGet(AdminAuth.LoginPath, AdminAuth.HandleLogin);
     app.MapPost(AdminAuth.LogoutPath, AdminAuth.HandleLogoutAsync);
@@ -223,6 +244,8 @@ app.MapMethods(
     LiveIndexEndpoint.Route,
     [HttpMethods.Get, HttpMethods.Head],
     LiveIndexEndpoint.HandleAsync);
+
+app.MapPut(ProgressEndpoint.Route, ProgressEndpoint.HandleAsync);
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions
 {

@@ -19,7 +19,7 @@ public sealed class VideoPlayerTests
         "video", "title", "streamer", "chip", "center", "spinner", "overlay", "overlay-message",
         "retry", "seek", "buffered", "played", "ticks", "knob", "hover-time", "play", "back",
         "forward", "mute", "volume", "volume-level", "current", "duration", "speed", "speed-menu",
-        "stats",
+        "stats", "edge", "live", "waiting", "pip", "theater", "fullscreen",
     ];
 
     [Fact]
@@ -164,6 +164,55 @@ public sealed class VideoPlayerTests
     }
 
     [Fact]
+    public async Task Theater_follows_ui_preferences_both_ways()
+    {
+        using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(
+            p => p.Add(c => c.Recording, Recording("r1", "First")));
+        Assert.Equal("false", cut.Find("[data-sk='theater']").GetAttribute("aria-pressed"));
+
+        await cut.InvokeAsync(() => cut.Instance.SetTheater(true));
+        Assert.True(preferences.Theater);
+        cut.WaitForAssertion(() => Assert.Contains(module.Invocations,
+            call => call.Identifier == "setTheater" && Equals(call.Arguments[1], true)));
+
+        await cut.InvokeAsync(() => preferences.SetTheater(false));
+        cut.WaitForAssertion(() => Assert.Contains(module.Invocations,
+            call => call.Identifier == "setTheater" && Equals(call.Arguments[1], false)));
+    }
+
+    [Fact]
+    public void The_quality_control_is_static_source_text()
+    {
+        using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(
+            p => p.Add(c => c.Recording, Recording("r1", "First")));
+
+        var quality = cut.Find(".sk-quality");
+        Assert.Equal("SPAN", quality.TagName);
+        Assert.Equal("Source", quality.TextContent);
+        Assert.Empty(cut.FindAll("[data-menu='m-quality']"));
+    }
+
+    [Fact]
+    public async Task Progress_calls_reach_the_store_for_the_recording_they_name()
+    {
+        using BunitContext context = CreateContext(out _);
+        var store = (TestProgressStore)context.Services.GetRequiredService<IProgressStore>();
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(
+            p => p.Add(c => c.Recording, Recording("r1", "First")));
+
+        await cut.InvokeAsync(() => cut.Instance.SaveProgress("r1", 42.5));
+        Assert.Equal(42.5, store.Get("r1"));
+
+        await cut.InvokeAsync(() => cut.Instance.ClearProgress("r1"));
+        Assert.Null(store.Get("r1"));
+        Assert.Equal(["r1"], store.Cleared);
+    }
+
+    [Fact]
     public async Task Dispose_releases_the_module()
     {
         using BunitContext context = CreateContext(out BunitJSModuleInterop module);
@@ -185,6 +234,7 @@ public sealed class VideoPlayerTests
         context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
         context.Services.AddScoped<UiPreferences>();
         context.Services.AddScoped<PlayerBridge>();
+        context.Services.AddSingleton<IProgressStore>(new TestProgressStore());
         return context;
     }
 

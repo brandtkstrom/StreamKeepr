@@ -4,6 +4,7 @@
 @inject IJSRuntime JS
 @inject UiPreferences Preferences
 @inject PlayerBridge Bridge
+@inject StreamKeepr.Infrastructure.Storage.IProgressStore Progress
 @inject ILogger<VideoPlayer> Logger
 
 @* Rendered once. VideoPlayer.razor.js owns hls.js, every control, and all dynamic player DOM;
@@ -13,6 +14,7 @@
      data-sk-player
      role="region"
      aria-label="Video player"
+     tabindex="0"
      aria-busy="true"
      @ref="_root">
     <video data-sk="video"
@@ -36,6 +38,7 @@
     <div class="sk-player-spinner" data-sk="spinner" hidden>
         <span class="sk-spin" aria-hidden="true"></span>
         <span class="sk-visually-hidden" data-sk="spinner-text">Loading video</span>
+        <p class="sk-player-waiting" data-sk="waiting" role="status" hidden>Waiting for the first segment…</p>
     </div>
 
     <div class="sk-player-overlay" data-sk="overlay" role="alert" hidden>
@@ -64,6 +67,7 @@
             </div>
             <div class="ticks" data-sk="ticks" aria-hidden="true"></div>
             <div class="knob" data-sk="knob"></div>
+            <span class="edge" data-sk="edge" aria-hidden="true" hidden></span>
             <span class="hover-time" data-sk="hover-time" aria-hidden="true">0:00</span>
         </div>
 
@@ -95,6 +99,9 @@
                 <span data-sk="current">0:00</span>
                 <span class="dim">/ <span data-sk="duration">@Format.Timecode(Recording.DurationSec)</span></span>
             </span>
+            <button type="button" class="sk-golive" data-sk="live" aria-label="Jump to live edge" hidden>
+                <span class="dot" aria-hidden="true"></span><span class="lbl-long">Live edge</span>
+            </button>
             <span class="grow"></span>
             <div class="sk-menu-anchor">
                 <button type="button"
@@ -119,12 +126,28 @@
                     }
                 </div>
             </div>
+            @* One captured quality, so the quality control is static text (E-20). *@
+            <span class="sk-pill sk-quality" title="Quality: source">Source</span>
             <button type="button"
                     class="sk-icon-btn"
                     data-sk="stats"
                     aria-label="Stats for nerds"
                     aria-pressed="@(StatsOpen ? "true" : "false")">
                 <span class="sk-icon" aria-hidden="true">query_stats</span>
+            </button>
+            <button type="button" class="sk-icon-btn" data-sk="pip" data-pip aria-label="Picture in picture" hidden>
+                <span class="sk-icon" aria-hidden="true">picture_in_picture_alt</span>
+            </button>
+            <button type="button"
+                    class="sk-icon-btn @(Preferences.Theater ? "on" : null)"
+                    data-sk="theater"
+                    data-theater
+                    aria-label="Theater mode"
+                    aria-pressed="@(Preferences.Theater ? "true" : "false")">
+                <span class="sk-icon" aria-hidden="true">width_wide</span>
+            </button>
+            <button type="button" class="sk-icon-btn" data-sk="fullscreen" aria-label="Full screen">
+                <span class="sk-icon" aria-hidden="true">fullscreen</span>
             </button>
         </div>
     </div>
@@ -140,6 +163,7 @@
     private DotNetObjectReference<VideoPlayer>? _self;
     private RecordingView? _loaded;
     private bool _ready;
+    private bool _theater;
     private bool _disposed;
 
     [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
@@ -151,6 +175,12 @@
 
     // The skeleton renders once; afterwards only the JS module changes the player DOM.
     protected override bool ShouldRender() => !_ready;
+
+    protected override void OnInitialized()
+    {
+        _theater = Preferences.Theater;
+        Preferences.Changed += OnPreferencesChanged;
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -238,6 +268,7 @@
         durationSec = recording.DurationSec,
         resumeSec = recording.ResumeSec,
         statsOpen = StatsOpen,
+        theater = Preferences.Theater,
         chapters = recording.Chapters.Select(chapter => new
         {
             startSeconds = chapter.StartSeconds,
@@ -252,6 +283,37 @@
     {
         Preferences.SetStatsOpen(open);
         await Preferences.PersistAsync();
+    }
+
+    /// <summary>
+    /// The player's 15 s and on-pause saves. The id travels with the call so a save that was
+    /// already in flight when the recording changed lands on the recording it belongs to.
+    /// </summary>
+    [JSInvokable]
+    public Task SaveProgress(string recordingId, double positionSec) =>
+        Progress.SetAsync(recordingId, positionSec, CancellationToken.None);
+
+    /// <summary>Ended, replay, or a position near the end: drop the stored position.</summary>
+    [JSInvokable]
+    public Task ClearProgress(string recordingId) =>
+        Progress.ClearAsync(recordingId, CancellationToken.None);
+
+    /// <summary>Persists a theater toggle made from the player button or the T shortcut.</summary>
+    [JSInvokable]
+    public async Task SetTheater(bool theater)
+    {
+        Preferences.SetTheater(theater);
+        await Preferences.PersistAsync();
+    }
+
+    // UiPreferences is the one theater state; mirror it into the JS-owned button.
+    private void OnPreferencesChanged()
+    {
+        if (_theater == Preferences.Theater)
+            return;
+
+        _theater = Preferences.Theater;
+        _ = InvokeAsync(() => InvokeAsync("setTheater", _root, _theater));
     }
 
     private async ValueTask SeekAsync(double seconds)
@@ -279,6 +341,7 @@
             return;
 
         _disposed = true;
+        Preferences.Changed -= OnPreferencesChanged;
         Bridge.Detach();
         if (_module is not null)
         {

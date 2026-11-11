@@ -1,6 +1,7 @@
 @implements IDisposable
 
-<button type="button"
+<button type="@(Form is null ? "button" : "submit")"
+        form="@Form"
         role="menuitem"
         tabindex="-1"
         class="sk-menu-item"
@@ -32,6 +33,12 @@
     [Parameter] public bool Disabled { get; set; }
 
     [Parameter] public EventCallback OnClick { get; set; }
+
+    /// <summary>
+    /// The id of a form this item submits. The item becomes a real submit button for that
+    /// form (for example the antiforgery logout post) and still closes the menu.
+    /// </summary>
+    [Parameter] public string? Form { get; set; }
 
     protected override void OnInitialized() => Context?.Register(this);
 

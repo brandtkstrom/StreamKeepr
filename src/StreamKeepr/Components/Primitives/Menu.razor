@@ -12,7 +12,7 @@
             aria-haspopup="menu"
             aria-expanded="@(_open ? "true" : "false")"
             aria-controls="@_menuId"
-            aria-label="@Label"
+            aria-label="@(NameTriggerFromContent ? null : Label)"
             @onclick="ToggleAsync"
             @onkeydown="OnTriggerKeyDownAsync">
         @if (TriggerContent is null)
@@ -67,6 +67,12 @@
     [Parameter] public string TriggerClass { get; set; } = "sk-icon-btn";
 
     [Parameter] public RenderFragment? TriggerContent { get; set; }
+
+    /// <summary>
+    /// The trigger takes its accessible name from <see cref="TriggerContent"/> instead of
+    /// <see cref="Label"/>, for triggers with visible text (label-in-name, WCAG 2.5.3).
+    /// </summary>
+    [Parameter] public bool NameTriggerFromContent { get; set; }
 
     [Parameter] public RenderFragment? ChildContent { get; set; }
 

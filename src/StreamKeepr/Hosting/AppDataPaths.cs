@@ -10,6 +10,7 @@ public static class AppDataPaths
     public const string KeysDirectoryName = "keys";
     public const string AdminTokensFileName = "admin-tokens.json";
     public const string ChannelsFileName = "channels.json";
+    public const string ProgressFileName = "progress.json";
 
     public static string AppDataDirectory(string recordingsRoot) =>
         Path.Combine(RequireRoot(recordingsRoot), AppDataDirectoryName);
@@ -22,6 +23,9 @@ public static class AppDataPaths
 
     public static string ChannelsFile(string recordingsRoot) =>
         Path.Combine(AppDataDirectory(recordingsRoot), ChannelsFileName);
+
+    public static string ProgressFile(string recordingsRoot) =>
+        Path.Combine(AppDataDirectory(recordingsRoot), ProgressFileName);
 
     private static string RequireRoot(string recordingsRoot) =>
         string.IsNullOrWhiteSpace(recordingsRoot)

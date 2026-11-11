@@ -42,6 +42,62 @@ public sealed class MockAuthTests
             cookie => cookie.StartsWith("sk-auth=", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task Fake_logout_needs_antiforgery_then_stays_signed_out_until_fake_login()
+    {
+        using var factory = new MockAppFactory(signedIn: true);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        string page = await client.GetStringAsync("/r/abc?q=chef");
+        Assert.Contains("data-auth-state=\"connected\"", page, StringComparison.Ordinal);
+
+        using (HttpResponseMessage forged = await client.PostAsync(
+            "/api/auth/logout",
+            new FormUrlEncodedContent([new("returnUrl", "/")])))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, forged.StatusCode);
+        }
+
+        string token = System.Text.RegularExpressions.Regex.Match(
+            page, "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value;
+        Assert.NotEmpty(token);
+        using (HttpResponseMessage logout = await client.PostAsync(
+            "/api/auth/logout",
+            new FormUrlEncodedContent([new("__RequestVerificationToken", token), new("returnUrl", "/r/abc?q=chef")])))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.Redirect, logout.StatusCode);
+            Assert.Equal("/r/abc?q=chef", logout.Headers.Location?.OriginalString);
+        }
+
+        string signedOut = await client.GetStringAsync("/r/abc?q=chef");
+        Assert.Contains("data-auth-state=\"disconnected\"", signedOut, StringComparison.Ordinal);
+        Assert.Contains("/api/auth/twitch/login?returnUrl=%2Fr%2Fabc%3Fq%3Dchef", signedOut, StringComparison.Ordinal);
+
+        using (HttpResponseMessage login = await client.GetAsync("/api/auth/twitch/login?returnUrl=%2Fr%2Fabc%3Fq%3Dchef"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.Redirect, login.StatusCode);
+            Assert.Equal("/r/abc?q=chef", login.Headers.Location?.OriginalString);
+        }
+
+        string signedIn = await client.GetStringAsync("/");
+        Assert.Contains("data-auth-state=\"connected\"", signedIn, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Fake_login_rejects_external_return_urls()
+    {
+        using var factory = new MockAppFactory(signedIn: false);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        using HttpResponseMessage login = await client.GetAsync(
+            "/api/auth/twitch/login?returnUrl=https%3A%2F%2Fevil.example%2F");
+
+        Assert.Equal("/", login.Headers.Location?.OriginalString);
+        Assert.Contains("data-auth-state=\"connected\"", await client.GetStringAsync("/"), StringComparison.Ordinal);
+    }
+
     private static IEnumerable<string> SetCookies(HttpResponseMessage response) =>
         response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? values)
             ? values

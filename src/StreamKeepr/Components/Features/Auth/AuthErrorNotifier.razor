@@ -1,0 +1,16 @@
+@inject NavigationManager Navigation
+@inject SnackbarService Snackbars
+
+@* Shell-level: a failed sign-in returns with one authError query key. Once interactive, show
+   its message once and drop only that key from the URL, keeping the path and q/state/sort. *@
+
+@code {
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender || AuthLinks.AuthErrorMessage(Navigation.Uri) is not { } message)
+            return;
+
+        Snackbars.Show(message);
+        Navigation.NavigateTo(AuthLinks.WithoutAuthError(Navigation.Uri), replace: true);
+    }
+}

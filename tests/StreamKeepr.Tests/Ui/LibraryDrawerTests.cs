@@ -1,3 +1,4 @@
+using Bunit.TestDoubles;
 using Bunit;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
@@ -323,9 +324,13 @@ public sealed class LibraryDrawerTests
         context.Services.AddScoped<ViewerClock>();
         context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<PlayerBridge>();
+        context.Services.AddSingleton<IProgressStore>(new TestProgressStore());
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddSingleton<ILibraryView>(view);
         context.Services.AddScoped<UiPreferences>();
+        // MainLayout hosts the top-bar Twitch control.
+        context.Services.AddScoped<AdminSessionState>();
+        context.AddAuthorization().SetNotAuthorized();
 
         return context;
     }
