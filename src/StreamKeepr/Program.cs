@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using StreamKeepr.Components;
 using StreamKeepr.Configuration;
+using StreamKeepr.Hosting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,6 +28,9 @@ builder.Services.AddOptions<AuthOptions>()
     .ValidateOnStart();
 
 builder.Services.AddSingleton(TimeProvider.System);
+
+// Keys live on the recordings volume and are ready before auth or token storage runs.
+builder.Services.AddStreamKeeprDataProtection();
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
