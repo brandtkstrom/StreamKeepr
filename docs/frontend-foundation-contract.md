@@ -142,7 +142,7 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 ## 12. CSS and design-system source
 
 - Built `tokens.css`, `components.css`, and `fonts.css` are committed under `src/StreamKeepr/wwwroot/css/`; the source is `design-system/`.
-- No Google Fonts request; `fonts.css` declares MonoLisa (local licensed files) and Material Symbols Rounded.
+- No Google Fonts request; `fonts.css` declares Material Symbols Rounded for icons, and UI text uses the system monospace stack.
 - Generated CSS is used as-is; `npm run sync:ds` is deferred until the design system actually changes. When added, it is dev-only; Node never enters the image.
 - New shared styles go into `components.css` using tokens; no raw hex, px colours, or hard-coded font sizes. Text uses `var(--text-<style>)`.
 - The design-system previews in `design-system/components/` are the visual reference; `/dev/components` mirrors them for primitives.

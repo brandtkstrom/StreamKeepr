@@ -2863,7 +2863,7 @@ The Stream Keepr frontend is the Blazor UI inside the v3 app: 11 feature areas p
 
 - **In scope:** library drawer, HLS player, stats panel, recording details and actions, Twitch sign-in UI, channel settings with stop and resume, search and filters, live updates, tests and CI, plus the small backend additions these need (F10).
 - **Out of scope:** capture, segmenting, stitching and recovery. Those are covered by Phases 1–6 in Part 1.
-- **Source of truth for the look:** the Stream Keepr design system (Dracula PRO palette, MonoLisa, Material 3 structure). Agents reuse its tokens and component CSS; they do not restyle.
+- **Source of truth for the look:** the Stream Keepr design system (Dracula PRO palette, system monospace stack, Material 3 structure). Agents reuse its tokens and component CSS; they do not restyle.
 - **Goals (unchanged):** the video is the largest thing on screen; every panel around it collapses; the library is grouped by streamer and newest first at every level; recordings still being captured play from their live edge.
 
 ### What changed from the React plan
@@ -2897,7 +2897,7 @@ One Blazor Web App, the same project as the backend, styled only by the design s
 | Playback | hls.js 1.7.4 ESM build, self-hosted; native HLS on Safari | Imported only by the player module, so it loads on recording pages only |
 | Live updates | The Blazor circuit; services raise events, components re-render through `InvokeAsync` | No `@microsoft/signalr` package and no hub |
 | Styling | Design system `tokens.css` + `components.css` (from `bundle.css`) | No CSS isolation for shared styles, no CSS-in-JS, no raw hex |
-| Fonts | MonoLisa and Material Symbols Rounded woff2, self-hosted in `wwwroot/fonts` | Vendored once; no Google Fonts or npm at runtime |
+| Fonts | Material Symbols Rounded woff2, self-hosted in `wwwroot/fonts`; UI text uses the system monospace stack | Vendored once; no Google Fonts or npm at runtime |
 | Time zone | Viewer's zone from an `sk-tz` cookie, set by script on first load | Server-rendered dates match the viewer, not the container |
 | JS modules | Plain ES modules in `wwwroot/js` and collocated `.razor.js` files | Node is a dev-only tool for ESLint and Vitest; the image has no Node |
 | Tests | xUnit + bUnit; Vitest for JS modules; Playwright for .NET with Deque axe | The Mock launch profile doubles as the test backend |
@@ -2923,7 +2923,7 @@ src/StreamKeepr/
   Mock/            MockSeeder, MockPoller (Mock launch profile only)
   wwwroot/
     css/           tokens.css, components.css, fonts.css
-    fonts/         MonoLisa and Material Symbols woff2
+    fonts/         Material Symbols woff2
     js/            prefs.js, tree-nav.js, shortcuts.js, sparkline.js
     lib/hls.js/    hls.mjs (pinned)
 tests/
@@ -3044,7 +3044,7 @@ Everything else builds on these eight tasks; T1 goes first, then the rest run in
 | ID | Task | Depends on | Done when | Status |
 | --- | --- | --- | --- | --- |
 | F0-T1 | Scaffold the Blazor UI | — | `Components/` tree as in the folder layout; `App.razor` keeps `<ImportMap />` and the reconnect UI; routes `/` and `/r/{RecordingId}` render an empty shell; bUnit in `tests/StreamKeepr.Tests`, Vitest and ESLint in `tests/js`; build, format and test commands pass | To do |
-| F0-T2 | Bring in the design system | F0-T1 | `tokens.css`, `components.css` (from `bundle.css`, Google Fonts imports removed) and `fonts.css` (MonoLisa: 23 `unicode-range` faces per style; Material Symbols Rounded vendored as woff2) served by `MapStaticAssets`; dev-only `npm run sync:ds` regenerates `tokens.css` from `tokens.json`; zero requests to fonts.googleapis.com | To do |
+| F0-T2 | Bring in the design system | F0-T1 | `tokens.css`, `components.css` (from `bundle.css`, Google Fonts imports removed) and `fonts.css` (Material Symbols Rounded vendored as woff2; UI text uses the system monospace stack) served by `MapStaticAssets`; dev-only `npm run sync:ds` regenerates `tokens.css` from `tokens.json`; zero requests to fonts.googleapis.com | To do |
 | F0-T3 | LibraryView service | F0-T1, F10-T1 | `ILibraryView` merges `RecordingLibrary`, `DvrStatus`, `ProgressStore` and `StorageMonitor` into the view models; derives `RecordingState` by the table above; throttles `Changed` to 500 ms; unit tests cover each state and a session moving from Recording to Reconnecting | To do |
 | F0-T4 | Mock launch profile | F0-T3 | `Mock` profile registers `MockSeeder` (4 streamers, 8 recordings including a finished VOD, a two-part partial and a growing EVENT capture fed by the v3 fake Streamlink) and `MockPoller` in place of Helix; runs with no Twitch credentials | To do |
 | F0-T5 | Design-system primitives | F0-T2 | `Button`, `IconButton`, `Icon`, `Chip`, `StatusChip`, `Avatar`, `Collapsible`, `Switch`, `Menu`, `Tooltip` as Razor components wrapping the `sk-` classes with correct ARIA; `/dev/components` (Development only) shows each matching its preview | To do |
@@ -3213,7 +3213,7 @@ Each column is a wave: a task sits in the first wave after all its dependencies.
 
 Three of the React plan's questions are settled by this design: the API contract is now in-process, OpenAPI isn't needed, and the UI and API always share an origin.
 
-- [ ] Does the MonoLisa licence cover self-hosting the web fonts in this app?
+- [ ] Do the bundled fonts (Material Symbols Rounded) have compatible licenses?
 - [ ] Which Twitch logins go in `Auth:AllowedTwitchLogins`, and is viewing without sign-in acceptable on your network?
 - [ ] Will Stream Keepr sit behind an HTTPS reverse proxy? Twitch sign-in needs one unless the browser is on the same machine.
 - [ ] Is Helix's live preview, saved at session start, good enough as the thumbnail, or should F10 add a frame grab from the recording?

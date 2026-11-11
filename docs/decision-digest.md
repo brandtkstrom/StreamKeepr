@@ -69,7 +69,7 @@ This is the single handoff for the full application specification. It records th
 | [#10](https://github.com/brandtkstrom/StreamKeepr/issues/10) Hosting, media security, health, and container | Forwarded-header/auth/antiforgery pipeline; allowlisted `/media` blocking metadata and dot-folders; live index endpoint; push-aware `/health/live` plus library-loaded readiness; Data Protection keys under `.streamkeepr/keys`; tool preflight; non-root image and Compose with secrets/volume/init/healthcheck/log rotation/50 s stop; HTTPS proxy external (E-15). | [Hosting](hosting-contract.md), [ADR-0002](adr/0002-media-exposure.md), [ADR-0005](adr/0005-part1-part2-buildability.md) |
 | [#11](https://github.com/brandtkstrom/StreamKeepr/issues/11) Testing strategy and fake-Twitch harness | Unit/integration/bUnit/Playwright/Vitest/container layers; `IStreamPoller`/`IEventSubClient` seams; fake Streamlink variants and Mock profile; deterministic clocks/temp roots/jitter; split CI with warnings-as-errors, format, tests, JS, E2E, Docker; coverage collected without a gate; no retries; axe/keyboard and JS budget; visual baselines unblocked by the design assets, approval still required. | [Testing](testing-contract.md) |
 | [#12](https://github.com/brandtkstrom/StreamKeepr/issues/12) Backend surface for the UI (F10) | Nullable library fields and deterministic sort/state rules; `ChannelsView` with push status; progress file/endpoint; always-one-MP4 export with ffprobe compatibility, queue/progress/lease/cleanup/download and `FindByRecording`; Complete-only delete with lock/lease; storage monitor; actor-principal auth seams; F10-T1 absorbed; F10-T7 precedes sign-in. | [Backend UI](backend-ui-contract.md) |
-| [#13](https://github.com/brandtkstrom/StreamKeepr/issues/13) Preserve planning inputs and acquire design assets | Plan committed; design system exported at `design-system/`; built `tokens.css`/`components.css`/`fonts.css`; no Google Fonts; MonoLisa local/Git-ignored under its EULA; Material Symbols 0.48.3 and hls.js 1.7.4 vendored. | [Design assets](design-assets.md), `design-system/` |
+| [#13](https://github.com/brandtkstrom/StreamKeepr/issues/13) Preserve planning inputs and acquire design assets | Plan committed; design system exported at `design-system/`; built `tokens.css`/`components.css`/`fonts.css`; no Google Fonts; system monospace stack; Material Symbols 0.48.3 and hls.js 1.7.4 vendored. | [Design assets](design-assets.md), `design-system/` |
 | [#14](https://github.com/brandtkstrom/StreamKeepr/issues/14) Frontend foundation and app shell | Global Interactive Server with prerender; static `App.razor` + `MapStaticAssets`; `/` and `/r/{id}`; `q`/`state`/`sort`; `.sk-shell` drawer 320/72/hidden, theater, 960/600; versioned `sk-ui` cookie and `sk-tz` IANA with UTC fallback; scoped `LibraryView` at 500 ms; F0 primitives; Mock; reconnect/auth states; `prefs.js`/`AppShell.razor.js`; committed design-system CSS with sync deferred. | [Frontend foundation](frontend-foundation-contract.md) |
 | [#15](https://github.com/brandtkstrom/StreamKeepr/issues/15) Library, search, and live updates | Recording-first streamer groups; newest/oldest/A-Z with deterministic ties; `q`/`state`/`sort` URL with 250 ms search and highlighting; viewer-zone day headers; selected rows as links; tree keyboard with one tab stop; all-DOM `content-visibility` instead of `<Virtualize>` (E-19); 500 ms `Changed` with targeted re-renders; F8-T3 player reactions delegated; F8-T4 paused note. | [Library](library-contract.md) |
 | [#16](https://github.com/brandtkstrom/StreamKeepr/issues/16) Player, stats, and resume | One-time player/stats skeleton with JS-owned hls.js and controls; no autoplay; live edge at `liveSyncPosition` with one target-duration safety and explicit follow; live→VOD via ENDLIST; VOD→live reopen reloads at position; 15 s/pause/pagehide progress with live skip and near-end clear; direct resume; `sk-player` volume/mute/speed; 2 s/20 stats with copy JSON and native fallback; static Source quality (E-20); Chrome-channel E2E (E-21). | [Player](player-contract.md) |
@@ -273,7 +273,7 @@ The register holds the plan-line evidence and the full finding text. This table 
 | E-03 | Retention automation/defaults. | Accept (non-goal) | ADR-0004 |
 | E-04 | Allowlist logins and viewing without sign-in. | **Resolved semantics**: empty = open admin (E-13); viewing public; exact values deployment config | `twitch-auth-contract.md` §6 |
 | E-05 | HTTPS/reverse proxy for sign-in. | **Resolved**: external TLS proxy; HTTPS/localhost only (E-15) | `hosting-contract.md` §8, `twitch-auth-contract.md` §6 |
-| E-06 | MonoLisa web-font license. | **Resolved constraint**: local licensed files, Git-ignored, not redistributed; Creator plan for commercial/product use | `design-assets.md` |
+| E-06 | Text webfont licensing. | **Resolved: no text webfont bundled**; UI uses the system monospace stack, and Material Symbols Rounded is Apache-2.0 | `design-assets.md` |
 | E-07 | Subscriber-only token handling. | **Resolved mechanism**: manual `Recorder:TwitchUserOAuthToken`; Settings entry deferred | `twitch-auth-contract.md` §8 |
 | E-08 | Hover thumbnails dropped. | Accept | — |
 | E-09 | No hardware target; defaults stand. | Accept | — |
@@ -309,7 +309,7 @@ The register holds the plan-line evidence and the full finding text. This table 
 | Stop/resume surfaces reduced | Player DOM is JS-owned; settings is the management surface | Settings + details Stop; library Paused; E-23 |
 | No global recording cap | Channel list is user-controlled | Add only under disk/bandwidth pressure; E-12 |
 | Manual subscriber token | No safe automated flow yet | Secret rotation documented; Settings entry deferred; E-07/E-14 |
-| MonoLisa redistribution | FaceType EULA; public repo/image | Local woff2 only, Git-ignored; Creator plan for commercial; E-06 |
+| Font redistribution | Bundled font assets | Material Symbols Rounded only (Apache-2.0); UI text uses system fonts; E-06 |
 | No captions | Recorder captures no subtitle track | Documented limitation; axe caption best-practice not a gate |
 | Native Safari/fullscreen/PiP manual | Not deterministic in CI | Unit tests + manual iPhone Safari checklist |
 | Export file survives recording deletion | Export is a derived artifact; 24 h cleanup | Documented; delete dialog does not promise otherwise |
@@ -330,7 +330,7 @@ The register holds the plan-line evidence and the full finding text. This table 
 | Captions | Not captured/available | Product limitation; no caption control |
 | Post-implementation review findings | Future | Produced by the review in §9; not a map decision |
 
-Resolved and not open: schedule behavior (stub + snackbar), retention (non-goal), HTTPS (external proxy), MonoLisa (local license constraint), and allowlist semantics (E-13). Deferred choices remain E-20 and E-23.
+Resolved and not open: schedule behavior (stub + snackbar), retention (non-goal), HTTPS (external proxy), font licensing (no text webfont bundled), and allowlist semantics (E-13). Deferred choices remain E-20 and E-23.
 
 ## 9. Post-implementation conformance review
 
@@ -386,7 +386,7 @@ Repeat the register's method against the built app:
 
 **Licensing and docs**
 
-- MonoLisa woff2 not committed/published in public repo/images; local setup documented; Creator plan for commercial use.
+- No text webfont is bundled; Material Symbols Rounded is Apache-2.0 and committed.
 - Material Symbols/hls.js licenses present; no Google Fonts; no CDN at runtime.
 - Contracts, ADRs, digest, and code agree; deviations recorded, not silently accepted.
 
@@ -401,7 +401,7 @@ A gate is **blocking** unless the owner explicitly accepts the risk in writing i
 - **G5 Data actions:** one MP4, incompatible failure, export lease/delete, progress/resume, download auth/range pass.
 - **G6 UI conformance:** shell/library/player/details/auth/settings behaviors match contracts; axe/keyboard/reduced motion pass; performance budget passes.
 - **G7 Container/ops:** non-root, health, volume, secrets, stop grace, deep links, Data Protection restart pass.
-- **G8 Licensing:** no MonoLisa binaries in public artifacts; licenses present; no Google Fonts.
+- **G8 Licensing:** only Apache-2.0 Material Symbols Rounded is bundled; no Google Fonts.
 - **G9 Documentation:** every binding claim is traceable; every deviation/risk has an owner and disposition.
 
 ### 9.5 Gap reporting
