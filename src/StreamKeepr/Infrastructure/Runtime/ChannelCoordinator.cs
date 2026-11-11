@@ -16,6 +16,9 @@ public sealed class ChannelCoordinator
     /// <summary>Worst-case recorder shutdown (20 s) plus the finalize cap (15 s).</summary>
     public static readonly TimeSpan JobStopBudget = TimeSpan.FromSeconds(35);
 
+    private static readonly TimeSpan MaxTimerDelay =
+        TimeSpan.FromMilliseconds(uint.MaxValue - 1);
+
     private readonly Channel<DvrEvent> _events = Channel.CreateUnbounded<DvrEvent>(
         new UnboundedChannelOptions { SingleReader = true });
 
@@ -23,6 +26,7 @@ public sealed class ChannelCoordinator
     private readonly DvrSettings _settings;
     private readonly IRecorder _recorder;
     private readonly SessionStore _store;
+    private readonly DiskGuard _disk;
     private readonly DvrStatus _status;
     private readonly IRetryJitter _jitter;
     private readonly TimeProvider _clock;
@@ -39,6 +43,7 @@ public sealed class ChannelCoordinator
         DvrState initialState,
         IRecorder recorder,
         SessionStore store,
+        DiskGuard disk,
         DvrStatus status,
         IRetryJitter jitter,
         TimeProvider clock,
@@ -49,6 +54,7 @@ public sealed class ChannelCoordinator
         ArgumentNullException.ThrowIfNull(initialState);
         ArgumentNullException.ThrowIfNull(recorder);
         ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(disk);
         ArgumentNullException.ThrowIfNull(status);
         ArgumentNullException.ThrowIfNull(jitter);
         ArgumentNullException.ThrowIfNull(clock);
@@ -59,6 +65,7 @@ public sealed class ChannelCoordinator
         _state = initialState;
         _recorder = recorder;
         _store = store;
+        _disk = disk;
         _status = status;
         _jitter = jitter;
         _clock = clock;
@@ -228,6 +235,14 @@ public sealed class ChannelCoordinator
     {
         try
         {
+            // The disk probe is inside the failure boundary: an I/O error here must still
+            // become one visible RecorderExited instead of a dead job with no event.
+            if (!_disk.HasRoomToRecord())
+            {
+                await FailPartAsync(job, "not enough free disk space");
+                return;
+            }
+
             await _recorder.RunAsync(
                 session,
                 job,
@@ -243,10 +258,15 @@ public sealed class ChannelCoordinator
         catch (Exception ex)
         {
             _logger.LogError(ex, "{Channel}: recorder {Job} failed", _channel, job);
-            _status.Failed(_channel, ex.Message);
-            await PublishAsync(new DvrEvent.RecorderExited(
-                job, _clock.GetUtcNow(), RecorderExitKind.Exited, ex.Message));
+            await FailPartAsync(job, ex.Message);
         }
+    }
+
+    private async Task FailPartAsync(JobId job, string detail)
+    {
+        _status.Failed(_channel, detail);
+        await PublishAsync(new DvrEvent.RecorderExited(
+            job, _clock.GetUtcNow(), RecorderExitKind.Exited, detail));
     }
 
     private void ReportProgress(JobId job, long bytes, TimeSpan mediaTime) =>
@@ -292,7 +312,22 @@ public sealed class ChannelCoordinator
         await StopJobAsync(fatalOnTimeout: true);
         await CancelRetryAsync();
 
-        TimeSpan delay = _jitter.Apply(baseDelay);
+        TimeSpan delay;
+        try
+        {
+            delay = _jitter.Apply(baseDelay);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new ChannelFatalException($"Could not schedule a retry for {job}.", ex);
+        }
+
+        if (delay <= TimeSpan.Zero || delay > MaxTimerDelay)
+        {
+            throw new ChannelFatalException(
+                $"Retry delay {delay} for {job} is outside the timer range.");
+        }
+
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         // Start the delay directly (not via Task.Run) so the timer is registered before this
@@ -340,6 +375,11 @@ public sealed class ChannelCoordinator
 public sealed class ChannelFatalException : Exception
 {
     public ChannelFatalException(string message) : base(message)
+    {
+    }
+
+    public ChannelFatalException(string message, Exception innerException)
+        : base(message, innerException)
     {
     }
 }

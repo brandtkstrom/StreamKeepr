@@ -60,10 +60,4 @@ public sealed class DiskGuardTests
         }
     }
 
-    private sealed class FakeDiskSpace(long freeBytes, long totalBytes) : IDiskSpace
-    {
-        public long AvailableFreeSpace(string path) => freeBytes;
-
-        public long TotalSize(string path) => totalBytes;
-    }
 }
