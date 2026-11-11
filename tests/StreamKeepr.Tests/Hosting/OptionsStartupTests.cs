@@ -6,6 +6,7 @@ public sealed class OptionsStartupTests
 {
     [Theory]
     [InlineData("Twitch:ClientId", "", "ClientId")]
+    [InlineData("Recorder:FfprobePath", "", "FfprobePath")]
     [InlineData("Recorder:SegmentSeconds", "1", "SegmentSeconds")]
     [InlineData("Recorder:FinalizeTimeoutSeconds", "16", "FinalizeTimeoutSeconds")]
     [InlineData("Storage:RecordingsRoot", "", "RecordingsRoot")]

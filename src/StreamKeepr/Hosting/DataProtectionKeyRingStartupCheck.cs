@@ -8,14 +8,17 @@ namespace StreamKeepr.Hosting;
 /// before authentication or token storage starts serving requests.
 /// </summary>
 internal sealed class DataProtectionKeyRingStartupCheck(
-    IKeyManager keyManager,
+    IServiceProvider serviceProvider,
     ILogger<DataProtectionKeyRingStartupCheck> logger) : IHostedService
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
         try
         {
-            _ = keyManager.GetAllKeys();
+            // Resolve the key manager here, not in the constructor: hosted services
+            // are all constructed before any StartAsync runs, and resolving it early
+            // would probe the key directory before ToolPreflight.
+            _ = serviceProvider.GetRequiredService<IKeyManager>().GetAllKeys();
         }
         catch (Exception ex)
         {

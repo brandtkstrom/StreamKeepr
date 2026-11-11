@@ -32,6 +32,10 @@ builder.Services.AddStreamKeeprForwardedHeaders();
 
 builder.Services.AddSingleton(TimeProvider.System);
 
+// Hosted services start in registration order, so preflight runs before Data
+// Protection, the supervisor, and any channel or recording service.
+builder.Services.AddHostedService<ToolPreflight>();
+
 // Keys live on the recordings volume and are ready before auth or token storage runs.
 builder.Services.AddStreamKeeprDataProtection();
 

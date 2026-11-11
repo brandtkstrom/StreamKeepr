@@ -13,8 +13,19 @@ namespace StreamKeepr.Tests.Hosting;
 /// </summary>
 internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
 {
+    private const string FakeStreamlinkScript = """
+        #!/bin/sh
+        if [ "${1:-}" = "--version" ]; then
+            echo "streamlink 0.0.0-fake"
+            exit 0
+        fi
+        echo "fake streamlink: only --version is supported" >&2
+        exit 1
+        """;
+
     private readonly string _testRoot;
     private readonly bool _ownsTestRoot;
+    private readonly string _toolsRoot;
     private readonly Dictionary<string, string?> _settings;
     private readonly Action<IServiceCollection>? _configureTestServices;
 
@@ -26,12 +37,28 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
         _ownsTestRoot = recordingsRoot is null;
         _testRoot = recordingsRoot ??
             Path.Combine(Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
+        _toolsRoot = Path.Combine(
+            Path.GetTempPath(), "streamkeepr-test-tools", Guid.NewGuid().ToString("N"));
         _configureTestServices = configureTestServices;
+
+        // CI installs ffmpeg but not Streamlink; preflight only needs a tool that
+        // answers --version, so every host test gets a temp stand-in.
+        Directory.CreateDirectory(_toolsRoot);
+        string streamlink = Path.Combine(_toolsRoot, "streamlink");
+        File.WriteAllText(streamlink, FakeStreamlinkScript);
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(
+                streamlink,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
         _settings = new()
         {
             [$"{TwitchOptions.SectionName}:ClientId"] = "test-client-id",
             [$"{TwitchOptions.SectionName}:ClientSecret"] = "test-client-secret",
             [$"{StorageOptions.SectionName}:RecordingsRoot"] = _testRoot,
+            [$"{RecorderOptions.SectionName}:StreamlinkPath"] = streamlink,
         };
 
         foreach (var (key, value) in overrides ?? new Dictionary<string, string?>())
@@ -59,5 +86,8 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
 
         if (_ownsTestRoot && Directory.Exists(_testRoot))
             Directory.Delete(_testRoot, recursive: true);
+
+        if (Directory.Exists(_toolsRoot))
+            Directory.Delete(_toolsRoot, recursive: true);
     }
 }

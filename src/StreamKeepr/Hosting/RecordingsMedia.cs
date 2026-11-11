@@ -31,18 +31,11 @@ public static class RecordingsMedia
 
     public static WebApplication UseRecordingsMedia(this WebApplication app)
     {
+        // The static-file provider needs the root to exist while the pipeline is
+        // built, before hosted services start, so create and probe it here too.
         string root = Path.GetFullPath(
             app.Services.GetRequiredService<IOptions<StorageOptions>>().Value.RecordingsRoot);
-        try
-        {
-            Directory.CreateDirectory(root);
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-        {
-            throw new InvalidOperationException(
-                $"{root} is not writable by the app user (UID 1654). " +
-                "Use a named volume, or chown a bind-mounted folder to 1654:1654.", ex);
-        }
+        OwnerOnlyFileSystem.EnsureWritableRecordingsRoot(root);
 
         app.Use((context, next) => GuardAsync(context, next, root));
 

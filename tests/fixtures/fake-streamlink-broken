@@ -1,0 +1,12 @@
+#!/bin/sh
+# Answers --version so startup preflight passes, then fails every other
+# invocation. Exercises recording failures without a configuration error.
+set -eu
+
+if [ "${1:-}" = "--version" ]; then
+    echo "streamlink 0.0.0-broken"
+    exit 0
+fi
+
+echo "fake-streamlink-broken: streamlink is not working" >&2
+exit 1
