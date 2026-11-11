@@ -209,8 +209,21 @@ public static class DvrReducer
         DvrSettings settings)
     {
         // Unknown is never evidence that the cooldown has ended.
-        if (observation is StreamObservation.Unknown || at < cooling.Until)
+        if (observation is StreamObservation.Unknown)
             return Stay(cooling);
+
+        if (at < cooling.Until)
+        {
+            if (observation is StreamObservation.Offline && cooling.Resume is { } resume)
+            {
+                return new Step(
+                    cooling with { Resume = null },
+                    ImmutableArray.Create<DvrCommand>(
+                        new DvrCommand.FinalizeSession(resume.Session)));
+            }
+
+            return Stay(cooling);
+        }
 
         return IdleObserved(
             new DvrState.Idle(cooling.Resume, Streak: 0), observation, settings);

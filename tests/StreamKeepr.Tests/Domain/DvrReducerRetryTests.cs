@@ -406,21 +406,64 @@ public sealed class DvrReducerRetryTests
         Assert.Equal(0, waiting.Streak);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Cooling_down_ignores_live_and_offline_before_until(bool live)
+    [Fact]
+    public void Cooling_down_ignores_live_before_until()
     {
         var liveStream = DomainTestData.Live();
         var resume = new Resumable(DomainTestData.Recording(live: liveStream).Session, 2);
         var until = DomainTestData.StartedAt.AddMinutes(15);
         var cooling = new DvrState.CoolingDown(until, resume, "too many failures");
         var before = until.AddSeconds(-1);
-        var observation = live
-            ? DomainTestData.ObservedLive(liveStream, before)
-            : DomainTestData.ObservedOffline(before);
 
-        var step = DvrReducer.Transition(cooling, observation, DomainTestData.Settings);
+        var step = DvrReducer.Transition(
+            cooling, DomainTestData.ObservedLive(liveStream, before), DomainTestData.Settings);
+
+        Assert.Same(cooling, step.Next);
+        Assert.Empty(step.Commands);
+    }
+
+    [Fact]
+    public void Cooling_down_ignores_unknown_before_until()
+    {
+        var resume = new Resumable(DomainTestData.Recording().Session, 2);
+        var until = DomainTestData.StartedAt.AddMinutes(15);
+        var cooling = new DvrState.CoolingDown(until, resume, "too many failures");
+        var unknown = DomainTestData.Observed(
+            new StreamObservation.Unknown("Helix failed"), until.AddSeconds(-1));
+
+        var step = DvrReducer.Transition(cooling, unknown, DomainTestData.Settings);
+
+        Assert.Same(cooling, step.Next);
+        Assert.Empty(step.Commands);
+    }
+
+    [Fact]
+    public void Offline_before_until_with_a_resumable_finalizes_and_stays_cooling()
+    {
+        var resume = new Resumable(DomainTestData.Recording().Session, 2);
+        var until = DomainTestData.StartedAt.AddMinutes(15);
+        var cooling = new DvrState.CoolingDown(until, resume, "too many failures");
+
+        var step = DvrReducer.Transition(
+            cooling, DomainTestData.ObservedOffline(until.AddSeconds(-1)), DomainTestData.Settings);
+
+        var next = Assert.IsType<DvrState.CoolingDown>(step.Next);
+        Assert.Equal(until, next.Until);
+        Assert.Null(next.Resume);
+        Assert.Equal("too many failures", next.LastError);
+
+        var finalize = Assert.IsType<DvrCommand.FinalizeSession>(Assert.Single(step.Commands));
+        Assert.Equal(resume.Session, finalize.Session);
+    }
+
+    [Fact]
+    public void Offline_before_until_without_a_resumable_stays_unchanged()
+    {
+        var until = DomainTestData.StartedAt.AddMinutes(15);
+        var cooling = new DvrState.CoolingDown(until, Resume: null, "too many failures");
+
+        var step = DvrReducer.Transition(
+            cooling, DomainTestData.ObservedOffline(until.AddSeconds(-1)), DomainTestData.Settings);
 
         Assert.Same(cooling, step.Next);
         Assert.Empty(step.Commands);
