@@ -20,6 +20,7 @@ namespace StreamKeepr.Infrastructure.Storage;
 /// </remarks>
 public sealed class SessionStore(
     IOptions<RecorderOptions> recorder,
+    RecordingLibrary library,
     TimeProvider clock,
     ILogger<SessionStore> logger)
 {
@@ -79,6 +80,7 @@ public sealed class SessionStore(
 
             await WriteManifestAsync(directory, manifest, ct);
             _live.TryRemove(directory, out _);
+            await UpsertLibraryAsync(directory, ct);
             logger.LogInformation("Opened session {SessionId} in {Directory}.", session.Id, directory);
         }
         finally
@@ -128,6 +130,7 @@ public sealed class SessionStore(
                     new MetadataChange(clock.GetUtcNow(), live.Title, live.Game)),
             };
             await WriteManifestAsync(directory, updated, ct);
+            await UpsertLibraryAsync(directory, ct);
         }
         finally
         {
@@ -163,6 +166,9 @@ public sealed class SessionStore(
     public async Task<string?> StitchLiveAsync(string sessionDir, CancellationToken ct)
     {
         string directory = Normalize(sessionDir);
+        if (!File.Exists(Path.Combine(directory, ManifestFileName)))
+            return null;
+
         string key = CacheKey(PartPlaylistFiles(directory));
         if (_live.TryGetValue(directory, out var cached) && cached.Key == key)
             return cached.Body;
@@ -175,10 +181,10 @@ public sealed class SessionStore(
             if (_live.TryGetValue(directory, out cached) && cached.Key == key)
                 return cached.Body;
 
-            if (!File.Exists(Path.Combine(directory, ManifestFileName)))
+            var manifest = await TryLoadAsync(directory, ct);
+            if (manifest is null)
                 return null;
 
-            var manifest = await ReadManifestCoreAsync(directory, ct);
             string? body;
             if (manifest.Status == SessionStatus.Complete)
             {
@@ -285,6 +291,7 @@ public sealed class SessionStore(
 
         await WriteManifestAsync(directory, reopened, ct);
         _live.TryRemove(directory, out _);
+        await UpsertLibraryAsync(directory, ct);
         logger.LogInformation("Reopened session {SessionId} in {Directory}.", reopened.Id, directory);
     }
 
@@ -298,6 +305,7 @@ public sealed class SessionStore(
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
 
+            library.Remove(manifest.Id);
             logger.LogInformation("Deleted empty session {SessionId}.", manifest.Id);
             return;
         }
@@ -313,7 +321,14 @@ public sealed class SessionStore(
             SizeBytes = MediaSize(directory),
         };
         await WriteManifestAsync(directory, complete, ct);
+        await UpsertLibraryAsync(directory, ct);
         logger.LogInformation("Finalized session {SessionId} in {Directory}.", complete.Id, directory);
+    }
+
+    private async Task UpsertLibraryAsync(string directory, CancellationToken ct)
+    {
+        if (await SummarizeAsync(directory, ct) is { } summary)
+            library.Upsert(summary);
     }
 
     private async Task<SessionManifest> ReadManifestCoreAsync(string directory, CancellationToken ct)

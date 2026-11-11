@@ -35,6 +35,9 @@ builder.Services.AddStreamKeeprForwardedHeaders();
 builder.Services.AddSingleton(TimeProvider.System);
 
 // The session store owns session.json, index.m3u8, and the per-session locks.
+builder.Services.AddSingleton<RecordingLibrary>();
+builder.Services.AddSingleton<IDiskSpace, DriveInfoDiskSpace>();
+builder.Services.AddSingleton<DiskGuard>();
 builder.Services.AddSingleton<SessionStore>();
 
 // Hosted services start in registration order, so preflight runs before Data
