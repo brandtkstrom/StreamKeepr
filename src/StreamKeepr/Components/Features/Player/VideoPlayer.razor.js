@@ -26,10 +26,19 @@ const SKIP_SECONDS = 10;
 const SEEK_STEP_SECONDS = 5;
 const VOLUME_STEP = 0.05;
 const SPINNER_DELAY_MS = 500;
+// Following keeps the playhead within this much of the live sync position (contract §4).
+const LIVE_SLACK_SEC = 2;
+const WAITING_RETRY_MS = 3000;
+// hls.js error details that mean a live capture has no playable playlist yet.
+const WAITING_DETAILS = new Set([
+  "manifestLoadError", "manifestParsingError", "levelLoadError", "levelEmptyError",
+]);
+const LIVE_EDGE = Symbol("live edge");
 const NATIVE_HLS = "application/vnd.apple.mpegurl";
 
 const UNSUPPORTED_MESSAGE = "This browser can't play HLS video. Try a current version of Chrome, Edge, Firefox, or Safari.";
 const FAILED_MESSAGE = "The video could not be played.";
+const UNAVAILABLE_MESSAGE = "This recording is unavailable.";
 
 // Mirrors Primitives/StatusChip.razor markup for the states the player shows.
 const CHIPS = {
@@ -46,7 +55,7 @@ export const HOOKS = [
   "video", "title", "streamer", "chip", "center", "spinner", "overlay", "overlay-message",
   "retry", "seek", "buffered", "played", "ticks", "knob", "hover-time", "play", "back",
   "forward", "mute", "volume", "volume-level", "current", "duration", "speed", "speed-menu",
-  "stats",
+  "stats", "edge", "live", "waiting",
 ];
 
 // JS twin of Ui/Format.Timecode (the source of truth); keep the two in step.
@@ -96,6 +105,10 @@ export function createPlayer(
   let chapters = [];
   let hlsClass = null; // imported once per player, on the first load that needs it
   let live = false; // Recording/Reconnecting until the playlist reports ENDLIST
+  let following = false; // live only: keep the playhead at the sync position
+  let waiting = false; // live only: no playable playlist yet
+  let waitingTimer = 0;
+  let resumePlaying = false; // VOD→live reload keeps playing if it was
   const stats = createStatsProbe({ video });
   const progress = createProgress({
     save: (seconds) => invokeDotNet("SaveProgress", view?.recordingId, seconds),
@@ -105,8 +118,27 @@ export function createPlayer(
 
   // ----- helpers -----
 
-  const duration = () => (Number.isFinite(video.duration) && video.duration > 0 ? video.duration : NaN);
+  function seekableEnd() {
+    const ranges = video.seekable;
+    return ranges?.length ? ranges.end(ranges.length - 1) : NaN;
+  }
+
+  // The timeline length: the media duration, or the seekable end while native HLS reports a
+  // live stream as Infinity.
+  function duration() {
+    if (Number.isFinite(video.duration) && video.duration > 0) return video.duration;
+    const end = seekableEnd();
+    return Number.isFinite(end) && end > 0 ? end : NaN;
+  }
   const hasMetadata = () => video.readyState >= 1 && Number.isFinite(duration());
+
+  /** hls.js's live sync position (one target duration behind the end), or end − 1 before it has one. */
+  function liveSync() {
+    const sync = hls?.liveSyncPosition;
+    if (Number.isFinite(sync)) return sync;
+    const end = seekableEnd();
+    return Number.isFinite(end) ? Math.max(0, end - 1) : NaN;
+  }
 
   function setSpinner(visible) {
     if (el.spinner) el.spinner.hidden = !visible;
@@ -195,6 +227,47 @@ export function createPlayer(
     el.buffered.style.width = Number.isFinite(total) ? percent(end / total) : "0%";
   }
 
+  function renderLive() {
+    if (el.live) {
+      el.live.hidden = !live;
+      el.live.classList.toggle("at-edge", live && following);
+    }
+    if (el.edge) {
+      const end = seekableEnd();
+      const total = duration();
+      el.edge.hidden = !live || !Number.isFinite(end) || !Number.isFinite(total);
+      if (!el.edge.hidden) el.edge.style.left = percent(end / total);
+    }
+  }
+
+  function enterWaiting() {
+    if (!waiting) {
+      waiting = true;
+      clearTimeout(spinnerTimer);
+      setSpinner(true);
+      el.waiting.hidden = false;
+    }
+  }
+
+  function leaveWaiting() {
+    clearTimeout(waitingTimer);
+    waitingTimer = 0;
+    if (!waiting) return;
+    waiting = false;
+    el.waiting.hidden = true;
+  }
+
+  /** ENDLIST (or the circuit's finished state): the capture is now an ordinary recording. */
+  function becameFinished() {
+    if (!live) return;
+    live = false;
+    following = false;
+    renderLive();
+    renderTicks();
+    renderPosition();
+    if (!video.paused && !video.ended) progress.playing();
+  }
+
   function renderPlayState() {
     const playing = !video.paused && !video.ended;
     el.play.setAttribute("aria-label", playing ? "Pause" : "Play");
@@ -244,6 +317,32 @@ export function createPlayer(
     renderPosition();
   }
 
+  /** A seek the viewer asked for; while live it also decides whether to keep following. */
+  function userSeek(time) {
+    if (!Number.isFinite(time)) return;
+    if (live) {
+      const end = seekableEnd();
+      const sync = liveSync();
+      if (Number.isFinite(end) && time >= end - LIVE_SLACK_SEC) {
+        // The true end would stall at the last segment; the sync position starts buffered.
+        time = Number.isFinite(sync) ? sync : time;
+        following = true;
+      } else {
+        following = Number.isFinite(sync) && time >= sync - LIVE_SLACK_SEC;
+      }
+    }
+    seekTo(time);
+    renderLive();
+  }
+
+  function goLive() {
+    if (!live) return;
+    const sync = liveSync();
+    following = true;
+    if (Number.isFinite(sync)) seekTo(sync);
+    renderLive();
+  }
+
   function setVolume(value) {
     const before = video.volume;
     video.volume = clamp(Math.round(value * 100) / 100, 0, 1);
@@ -286,6 +385,7 @@ export function createPlayer(
   function teardownEngine() {
     clearTimeout(retryTimer);
     clearTimeout(spinnerTimer);
+    leaveWaiting();
     retryTimer = 0;
     stats.detachEngine();
     hls?.destroy();
@@ -305,12 +405,26 @@ export function createPlayer(
     dragging = false;
     el.seek.classList.remove("drag");
     lastKnownTime = 0;
+    following = false;
     networkAttempts = 0;
     mediaAttempts = 0;
     el.buffered.style.width = "0%";
   }
 
   function onHlsError(Hls, data) {
+    // A live capture without a playable playlist is waiting, not failing: retry the manifest
+    // quietly every 3 s with no limit (contract §13).
+    if (live && WAITING_DETAILS.has(data?.details)) {
+      enterWaiting();
+      if (data.fatal) {
+        clearTimeout(waitingTimer);
+        waitingTimer = setTimeout(() => {
+          if (hls && live) hls.loadSource(view.playlistUrl);
+        }, WAITING_RETRY_MS);
+      }
+      return;
+    }
+
     if (!data?.fatal) return;
 
     if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkAttempts < NETWORK_RETRY_MS.length) {
@@ -361,6 +475,14 @@ export function createPlayer(
       hls.on(Hls.Events.FRAG_LOADED, () => {
         networkAttempts = 0;
         mediaAttempts = 0;
+        leaveWaiting();
+      });
+      hls.on(Hls.Events.LEVEL_LOADED, (_event, data) => {
+        const details = data?.details;
+        if (!details) return;
+        if (details.live === false) becameFinished();
+        else if (live && !details.fragments?.length) enterWaiting();
+        renderLive();
       });
       hls.attachMedia(video);
       hls.loadSource(source);
@@ -383,8 +505,10 @@ export function createPlayer(
     teardownEngine();
     resetUi();
     startAt = position;
-    lastKnownTime = position ?? 0;
-    renderPosition(position ?? 0);
+    const at = typeof position === "number" ? position : 0;
+    lastKnownTime = at;
+    renderPosition(at);
+    renderLive();
     spinnerTimer = setTimeout(() => setSpinner(true), SPINNER_DELAY_MS);
     await attach(view.playlistUrl, token);
   }
@@ -412,19 +536,33 @@ export function createPlayer(
   // ----- events -----
 
   on(video, "loadedmetadata", () => {
-    if (startAt != null && Number.isFinite(duration())) {
+    if (startAt === LIVE_EDGE) {
+      goLive();
+    } else if (startAt != null && Number.isFinite(duration())) {
       // Resume lands at least a second before the end so playback has something to play.
       seekTo(Math.min(startAt, duration() - 1));
     }
     startAt = null;
+    if (resumePlaying) {
+      resumePlaying = false;
+      void video.play()?.catch?.(() => {});
+    }
     renderTicks();
     renderPosition();
+    renderLive();
   });
   on(video, "durationchange", () => {
+    // Native HLS has no LEVEL_LOADED: a finite duration is its ENDLIST.
+    if (native && live && Number.isFinite(video.duration)) becameFinished();
     renderTicks();
     renderPosition();
+    renderLive();
   });
   on(video, "timeupdate", () => {
+    if (live && following && !video.paused) {
+      const sync = liveSync();
+      if (Number.isFinite(sync) && sync - video.currentTime > LIVE_SLACK_SEC) seekTo(sync);
+    }
     if (!dragging) renderPosition();
     lastKnownTime = video.currentTime;
     renderBuffered();
@@ -436,6 +574,11 @@ export function createPlayer(
   });
   on(video, "pause", () => {
     renderPlayState();
+    // A pause leaves the live edge; Live edge or a seek to it follows again.
+    if (live && following) {
+      following = false;
+      renderLive();
+    }
     // A pause that ends playback is followed by "ended", which clears instead.
     if (!video.ended) progress.paused();
   });
@@ -478,15 +621,16 @@ export function createPlayer(
     togglePlay();
     el.play.focus();
   });
-  on(el.back, "click", () => seekTo(video.currentTime - SKIP_SECONDS));
-  on(el.forward, "click", () => seekTo(video.currentTime + SKIP_SECONDS));
+  on(el.back, "click", () => userSeek(clamp(video.currentTime - SKIP_SECONDS, 0, duration())));
+  on(el.forward, "click", () => userSeek(clamp(video.currentTime + SKIP_SECONDS, 0, duration())));
+  on(el.live, "click", goLive);
   on(el.mute, "click", () => {
     video.muted = !video.muted;
     renderVolume();
   });
   on(el.retry, "click", () => {
     if (!view) return;
-    void start(lastKnownTime);
+    void start(live ? LIVE_EDGE : lastKnownTime);
   });
   on(el.stats, "click", toggleStats);
   on(document, "sk:stats-state", (event) => {
@@ -580,7 +724,7 @@ export function createPlayer(
     if (!dragging) return;
     dragging = false;
     el.seek.classList.remove("drag");
-    if (commit) seekTo(ratioAt(event) * duration());
+    if (commit) userSeek(ratioAt(event) * duration());
     else renderPosition();
   };
   on(el.seek, "pointerup", (event) => endDrag(event, true));
@@ -589,10 +733,10 @@ export function createPlayer(
   on(el.seek, "keydown", (event) => {
     if (!hasMetadata()) return;
     const total = duration();
-    if (event.key === "ArrowRight") seekTo(video.currentTime + SEEK_STEP_SECONDS);
-    else if (event.key === "ArrowLeft") seekTo(video.currentTime - SEEK_STEP_SECONDS);
-    else if (event.key === "Home") seekTo(0);
-    else if (event.key === "End") seekTo(total);
+    if (event.key === "ArrowRight") userSeek(Math.min(video.currentTime + SEEK_STEP_SECONDS, total));
+    else if (event.key === "ArrowLeft") userSeek(Math.max(video.currentTime - SEEK_STEP_SECONDS, 0));
+    else if (event.key === "Home") userSeek(0);
+    else if (event.key === "End") userSeek(total);
     else return;
     // The player's global shortcuts yield to the slider.
     event.preventDefault();
@@ -621,9 +765,10 @@ export function createPlayer(
       renderSpeed();
       renderVolume();
       renderPlayState();
-      // Finished recordings resume; live captures ignore ResumeSec.
-      const resume = !live && Number.isFinite(view.resumeSec) && view.resumeSec > 0 ? view.resumeSec : null;
-      await start(resume);
+      // Finished recordings resume; live captures open at the live edge and ignore ResumeSec.
+      resumePlaying = false;
+      const resume = Number.isFinite(view.resumeSec) && view.resumeSec > 0 ? view.resumeSec : null;
+      await start(live ? LIVE_EDGE : resume);
     },
 
     update(next) {
@@ -633,6 +778,23 @@ export function createPlayer(
       stats.setView(view);
       renderView();
       renderPosition();
+
+      const nowLive = next.state === "recording" || next.state === "reconnecting";
+      if (nowLive && !live) {
+        // VOD→live: a finished session reopened. Reload the same playlist where the viewer
+        // is, keeping play/pause; Live edge is theirs to press.
+        live = true;
+        progress.live();
+        resumePlaying = !video.paused && !video.ended;
+        void start(video.currentTime);
+      } else if (!nowLive && live) {
+        if (waiting) {
+          // The capture finished without ever producing a segment.
+          leaveWaiting();
+          showOverlay(UNAVAILABLE_MESSAGE, true);
+        }
+        becameFinished();
+      }
     },
 
     seek(time) {
@@ -642,7 +804,7 @@ export function createPlayer(
         startAt = Math.max(0, time);
         return;
       }
-      seekTo(time);
+      userSeek(time);
     },
 
     dispose() {

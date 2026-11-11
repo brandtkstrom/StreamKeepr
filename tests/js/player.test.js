@@ -11,11 +11,11 @@ const MARKUP = `
     <video data-sk="video"></video>
     <div class="sk-player-top"><div class="t"><b data-sk="title"></b><span data-sk="streamer"></span></div><span data-sk="chip"></span></div>
     <button data-sk="center" aria-label="Play"><span class="sk-icon">play_arrow</span></button>
-    <div data-sk="spinner" hidden><span data-sk="spinner-text">Loading video</span></div>
+    <div data-sk="spinner" hidden><span data-sk="spinner-text">Loading video</span><p data-sk="waiting" role="status" hidden>Waiting for the first segment…</p></div>
     <div data-sk="overlay" role="alert" hidden><p data-sk="overlay-message"></p><button data-sk="retry">Retry</button><a href="/">Back</a></div>
     <div class="sk-seek" data-sk="seek" role="slider" tabindex="0" aria-disabled="true">
       <div class="track"><div data-sk="buffered"></div><div data-sk="played"></div></div>
-      <div data-sk="ticks"></div><div data-sk="knob"></div><span data-sk="hover-time"></span>
+      <div data-sk="ticks"></div><div data-sk="knob"></div><span data-sk="edge" hidden></span><span data-sk="hover-time"></span>
     </div>
     <button data-sk="play" aria-label="Play"><span class="sk-icon">play_arrow</span></button>
     <button data-sk="back" disabled></button>
@@ -23,6 +23,7 @@ const MARKUP = `
     <button data-sk="mute" aria-label="Mute"><span class="sk-icon">volume_up</span></button>
     <div data-sk="volume" role="slider" tabindex="0" aria-valuenow="100"><i data-sk="volume-level"></i></div>
     <span data-sk="current"></span><span data-sk="duration"></span>
+    <button data-sk="live" aria-label="Jump to live edge" hidden>Live edge</button>
     <button data-sk="speed" aria-expanded="false">1×</button>
     <div data-sk="speed-menu" role="menu" hidden>
       <button role="menuitemradio" data-rate="0.5" aria-checked="false"><span class="sk-icon"></span></button>
@@ -45,6 +46,7 @@ function fakeMedia(video) {
     ranges: [],
     seeks: [],
     canPlay: "",
+    seekableEnd: NaN,
   };
 
   Object.defineProperties(video, {
@@ -59,6 +61,12 @@ function fakeMedia(video) {
         media.currentTime = value;
         media.seeks.push(value);
       },
+    },
+    seekable: {
+      configurable: true,
+      get: () => (Number.isFinite(media.seekableEnd)
+        ? { length: 1, start: () => 0, end: () => media.seekableEnd }
+        : { length: 0, start: () => 0, end: () => 0 }),
     },
     buffered: {
       configurable: true,
@@ -105,6 +113,7 @@ function fakeHlsClass() {
     static Events = {
       MANIFEST_PARSED: "hlsManifestParsed",
       FRAG_LOADED: "hlsFragLoaded",
+      LEVEL_LOADED: "hlsLevelLoaded",
       ERROR: "hlsError",
     };
     static ErrorTypes = {
@@ -124,6 +133,7 @@ function fakeHlsClass() {
       this.swapAudioCodec = vi.fn();
       this.destroy = vi.fn();
       this.levels = [{}];
+      this.liveSyncPosition = null;
       instances.push(this);
     }
 
@@ -730,6 +740,175 @@ describe("VideoPlayer.razor.js", () => {
       expect(media.seeks).not.toContain(42);
       expect(calls("SaveProgress")).toEqual([]);
       expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("live captures", () => {
+    // A growing capture: 60 s seekable, hls.js syncs one target duration behind the end.
+    async function startLive(state = "recording") {
+      await start(view({ state, resumeSec: 25 }));
+      const [instance] = hls.instances;
+      media.seekableEnd = 60;
+      instance.liveSyncPosition = 48;
+      instance.emit("hlsLevelLoaded", { details: { live: true, fragments: [{}] } });
+      media.metadata(60);
+      return instance;
+    }
+
+    const growTo = (instance, end) => {
+      media.seekableEnd = end;
+      instance.liveSyncPosition = end - 12;
+      media.metadata(end);
+    };
+
+    it("opens at the live sync position, ignores the resume position, and shows the edge", async () => {
+      await startLive();
+
+      expect(hook("video").currentTime).toBe(48);
+      expect(media.seeks).not.toContain(25);
+      expect(hook("live").hidden).toBe(false);
+      expect(hook("live").classList.contains("at-edge")).toBe(true);
+      expect(hook("edge").hidden).toBe(false);
+      expect(hook("edge").style.left).toBe("100%");
+      expect(hook("video").play).not.toHaveBeenCalled();
+    });
+
+    it("follows the sync position while playing and grows the duration", async () => {
+      const instance = await startLive();
+      hook("center").click();
+
+      growTo(instance, 90);
+      media.time(50);
+
+      expect(hook("video").currentTime).toBe(78);
+      expect(hook("duration").textContent).toBe("1:30");
+    });
+
+    it("stops following after a manual seek back or a pause, and Live edge resumes it", async () => {
+      const instance = await startLive();
+      hook("center").click();
+
+      hook("seek").focus();
+      key(hook("seek"), "Home");
+      growTo(instance, 90);
+      media.time(1);
+      expect(hook("video").currentTime).toBe(1);
+      expect(hook("live").classList.contains("at-edge")).toBe(false);
+
+      hook("live").click();
+      expect(hook("video").currentTime).toBe(78);
+      expect(hook("live").classList.contains("at-edge")).toBe(true);
+
+      hook("play").click();
+      expect(hook("live").classList.contains("at-edge")).toBe(false);
+    });
+
+    it("snaps a seek to the true end back to the sync position and follows", async () => {
+      const instance = await startLive();
+      hook("seek").focus();
+      key(hook("seek"), "Home");
+
+      growTo(instance, 90);
+      key(hook("seek"), "End");
+
+      expect(hook("video").currentTime).toBe(78);
+      expect(hook("live").classList.contains("at-edge")).toBe(true);
+    });
+
+    it("hands off to a finished recording on ENDLIST without a reload, keeping the position", async () => {
+      const instance = await startLive();
+      hook("center").click();
+      media.time(50);
+
+      media.duration = 200;
+      instance.emit("hlsLevelLoaded", { details: { live: false, fragments: [{}] } });
+
+      expect(hls.instances).toHaveLength(1);
+      expect(instance.loadSource).toHaveBeenCalledOnce();
+      expect(hook("live").hidden).toBe(true);
+      expect(hook("edge").hidden).toBe(true);
+      expect(hook("video").currentTime).toBe(50);
+
+      // Progress begins once the capture is finished.
+      vi.advanceTimersByTime(15_000);
+      expect(dotNet.invokeMethodAsync).toHaveBeenCalledWith("SaveProgress", "r1", 50);
+    });
+
+    it("reloads the same playlist at the current position when a finished session reopens", async () => {
+      await start(view({ state: "saved" }));
+      media.metadata(120);
+      hook("center").click();
+      media.time(70);
+
+      player.update(view({ state: "recording" }));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(hls.instances).toHaveLength(2);
+      expect(hls.instances[0].destroy).toHaveBeenCalled();
+      expect(hls.instances[1].loadSource).toHaveBeenCalledWith("/media/ann/r1/index.m3u8");
+      hook("video").play.mockClear();
+      media.metadata(130);
+      expect(hook("video").currentTime).toBe(70);
+      expect(hook("video").play).toHaveBeenCalledOnce();
+      expect(hook("live").hidden).toBe(false);
+      expect(hook("chip").textContent).toContain("Rec");
+    });
+
+    it("waits quietly for the first segment and retries the manifest every 3 s", async () => {
+      await start(view({ state: "recording" }));
+      const [instance] = hls.instances;
+
+      instance.emit("hlsError", { type: "networkError", details: "manifestLoadError", fatal: true });
+      expect(hook("waiting").hidden).toBe(false);
+      expect(hook("spinner").hidden).toBe(false);
+      expect(hook("overlay").hidden).toBe(true);
+
+      for (let i = 0; i < 5; i++) {
+        vi.advanceTimersByTime(3_000);
+        instance.emit("hlsError", { type: "networkError", details: "manifestLoadError", fatal: true });
+      }
+      expect(instance.loadSource).toHaveBeenCalledTimes(6);
+      expect(hook("overlay").hidden).toBe(true);
+
+      instance.emit("hlsFragLoaded", {});
+      expect(hook("waiting").hidden).toBe(true);
+    });
+
+    it("shows the waiting state for an empty live playlist", async () => {
+      await start(view({ state: "reconnecting" }));
+      hls.instances[0].emit("hlsLevelLoaded", { details: { live: true, fragments: [] } });
+
+      expect(hook("waiting").hidden).toBe(false);
+      expect(hook("chip").textContent).toContain("Reconnecting");
+    });
+
+    it("becomes an error only once the session is complete", async () => {
+      await start(view({ state: "recording" }));
+      hls.instances[0].emit("hlsError", { type: "networkError", details: "manifestLoadError", fatal: true });
+
+      player.update(view({ state: "saved" }));
+
+      expect(hook("waiting").hidden).toBe(true);
+      expect(hook("overlay").hidden).toBe(false);
+    });
+
+    it("retries a failed live capture at the live edge", async () => {
+      const instance = await startLive();
+      for (let attempt = 0; attempt < 4; attempt++) {
+        instance.emit("hlsError", { type: "networkError", details: "fragLoadError", fatal: true });
+        vi.advanceTimersByTime(4_000);
+      }
+      expect(hook("overlay").hidden).toBe(false);
+
+      hook("retry").click();
+      await Promise.resolve();
+      await Promise.resolve();
+      const next = hls.instances.at(-1);
+      media.seekableEnd = 70;
+      next.liveSyncPosition = 58;
+      media.metadata(70);
+      expect(hook("video").currentTime).toBe(58);
     });
   });
 

@@ -288,6 +288,68 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await bar.WaitForAsync();
     }
 
+    [Fact]
+    public async Task A_growing_capture_opens_near_the_live_edge_follows_and_hands_off_on_endlist()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        ILocator growing = page.Locator("nav#sk-drawer a.sk-row", new() { HasTextString = "Community day" });
+        string id = (await growing.GetAttributeAsync("data-recording-id"))!;
+
+        await growing.ClickAsync();
+        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
+
+        ILocator live = page.Locator("[data-sk='live']");
+        await live.WaitForAsync(new() { State = WaitForSelectorState.Visible });
+        Assert.True(await page.Locator("[data-sk='edge']").IsVisibleAsync(), "the red live tick shows");
+        Assert.True(await Video(page, "v => v.paused"), "no autoplay at the live edge");
+        // Opened at the sync position: well past the start, behind the seekable end.
+        Assert.True(await Video(page, """
+            v => v.seekable.length > 0
+              && v.currentTime > 1
+              && v.currentTime <= v.seekable.end(v.seekable.length - 1)
+            """), "opens near the live edge");
+
+        double before = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.duration");
+        await page.WaitForFunctionAsync(
+            "d => document.querySelector('[data-sk=video]').duration > d", before,
+            new() { Timeout = 45_000 });
+
+        ILocator seek = page.Locator("[data-sk='seek']");
+        await seek.FocusAsync();
+        await page.Keyboard.PressAsync("Home");
+        await WaitForTimeAsync(page, 0);
+        Assert.DoesNotContain("at-edge", await live.GetAttributeAsync("class") ?? "");
+
+        await live.ClickAsync();
+        await page.WaitForFunctionAsync("""
+            () => {
+              const v = document.querySelector('[data-sk=video]');
+              return v.seekable.length > 0 && v.seekable.end(v.seekable.length - 1) - v.currentTime < 15;
+            }
+            """);
+        Assert.Contains("at-edge", await live.GetAttributeAsync("class") ?? "");
+
+        // ENDLIST arrives on the next playlist refresh: live becomes finished in place.
+        double position = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
+        await page.RouteAsync($"**/media/*/{id}/index.m3u8", async route =>
+        {
+            IAPIResponse response = await route.FetchAsync();
+            string body = await response.TextAsync();
+            await route.FulfillAsync(new()
+            {
+                Response = response,
+                Body = body.Contains("#EXT-X-ENDLIST", StringComparison.Ordinal)
+                    ? body
+                    : body.TrimEnd() + "\n#EXT-X-ENDLIST\n",
+            });
+        });
+        await live.WaitForAsync(new() { State = WaitForSelectorState.Hidden, Timeout = 45_000 });
+        Assert.False(await page.Locator("[data-sk='edge']").IsVisibleAsync());
+        await WaitForTimeAsync(page, position, tolerance: 1);
+    }
+
     private static Task<bool> Video(IPage page, string expression) =>
         page.Locator("[data-sk='video']").EvaluateAsync<bool>(expression);
 

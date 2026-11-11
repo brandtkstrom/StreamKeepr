@@ -250,6 +250,8 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 
 .sk-player [hidden] { display: none !important; }
 .sk-player-spinner { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.sk-player-spinner { grid-template-rows: auto; align-content: center; gap: var(--space-3); }
+.sk-player-waiting { margin: 0; color: var(--on-player); font: var(--text-body-large); text-align: center; }
 .sk-player-spinner .sk-spin { width: 48px; height: 48px; border-radius: 50%; border: 4px solid var(--on-player); border-right-color: transparent; animation: sk-spin 800ms linear infinite; }
 .sk-player-overlay {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3);

@@ -37,6 +37,7 @@
     <div class="sk-player-spinner" data-sk="spinner" hidden>
         <span class="sk-spin" aria-hidden="true"></span>
         <span class="sk-visually-hidden" data-sk="spinner-text">Loading video</span>
+        <p class="sk-player-waiting" data-sk="waiting" role="status" hidden>Waiting for the first segment…</p>
     </div>
 
     <div class="sk-player-overlay" data-sk="overlay" role="alert" hidden>
@@ -65,6 +66,7 @@
             </div>
             <div class="ticks" data-sk="ticks" aria-hidden="true"></div>
             <div class="knob" data-sk="knob"></div>
+            <span class="edge" data-sk="edge" aria-hidden="true" hidden></span>
             <span class="hover-time" data-sk="hover-time" aria-hidden="true">0:00</span>
         </div>
 
@@ -96,6 +98,9 @@
                 <span data-sk="current">0:00</span>
                 <span class="dim">/ <span data-sk="duration">@Format.Timecode(Recording.DurationSec)</span></span>
             </span>
+            <button type="button" class="sk-golive" data-sk="live" aria-label="Jump to live edge" hidden>
+                <span class="dot" aria-hidden="true"></span><span class="lbl-long">Live edge</span>
+            </button>
             <span class="grow"></span>
             <div class="sk-menu-anchor">
                 <button type="button"

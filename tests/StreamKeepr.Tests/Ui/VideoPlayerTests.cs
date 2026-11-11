@@ -19,7 +19,7 @@ public sealed class VideoPlayerTests
         "video", "title", "streamer", "chip", "center", "spinner", "overlay", "overlay-message",
         "retry", "seek", "buffered", "played", "ticks", "knob", "hover-time", "play", "back",
         "forward", "mute", "volume", "volume-level", "current", "duration", "speed", "speed-menu",
-        "stats",
+        "stats", "edge", "live", "waiting",
     ];
 
     [Fact]
