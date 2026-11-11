@@ -17,7 +17,7 @@ public sealed class TwitchOptions
         set => field = value is null
             ? []
             : value
-                .Select(login => login?.Trim().ToLowerInvariant() ?? "")
+                .Select(TwitchLogin.Normalize)
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
     } = [];

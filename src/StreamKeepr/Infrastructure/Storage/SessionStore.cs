@@ -392,7 +392,11 @@ public sealed class SessionStore(
         return parts;
     }
 
-    private List<(int Part, string Path)> PartPlaylistFiles(string directory)
+    /// <summary>
+    /// Valid part playlists in ascending part order. Recovery uses this before it deletes
+    /// temp files or orphaned media; callers outside the store must not mutate the files.
+    /// </summary>
+    internal List<(int Part, string Path)> PartPlaylistFiles(string directory)
     {
         var parts = new List<(int Part, string Path)>();
         if (!Directory.Exists(directory))

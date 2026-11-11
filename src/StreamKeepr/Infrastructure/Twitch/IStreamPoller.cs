@@ -14,8 +14,21 @@ public delegate ValueTask StreamObservationRoute(
 /// </summary>
 public interface IStreamPoller
 {
+    /// <summary>
+    /// Polls until canceled. <paramref name="logins"/> is read for each tick so channel
+    /// add/remove changes are visible without restarting the loop.
+    /// </summary>
     Task RunAsync(
-        IReadOnlyList<string> logins,
+        Func<IReadOnlyList<string>> logins,
         StreamObservationRoute route,
         CancellationToken ct);
+
+    /// <summary>Resolves a Twitch login, or null when Twitch does not know it.</summary>
+    Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct);
+
+    /// <summary>Current title/game for a broadcaster; used after a push notification.</summary>
+    Task<ChannelInfo?> GetChannelInfoAsync(string broadcasterId, CancellationToken ct);
+
+    /// <summary>Wakes the poller for an immediate tick; coalesced by the implementation.</summary>
+    void Nudge();
 }

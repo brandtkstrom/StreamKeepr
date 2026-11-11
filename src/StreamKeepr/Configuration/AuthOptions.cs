@@ -1,12 +1,8 @@
-using System.Text.RegularExpressions;
-
 namespace StreamKeepr.Configuration;
 
 public sealed class AuthOptions
 {
     public const string SectionName = "Auth";
-
-    private static readonly Regex LoginPattern = new("^[a-z0-9_]{1,25}$");
 
     // Empty means every authenticated Twitch user is an admin; startup logs a warning.
     public List<string> AllowedTwitchLogins
@@ -14,8 +10,8 @@ public sealed class AuthOptions
         get;
         set => field = value is null
             ? []
-            : value.Select(login => login?.Trim().ToLowerInvariant() ?? "").ToList();
+            : value.Select(TwitchLogin.Normalize).ToList();
     } = [];
 
-    public static bool IsValidLogin(string login) => LoginPattern.IsMatch(login);
+    public static bool IsValidLogin(string login) => TwitchLogin.IsValid(login);
 }

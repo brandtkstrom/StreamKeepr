@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Components;
 using StreamKeepr.Configuration;
@@ -9,6 +11,11 @@ using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Ui;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// The host budget is the recorder job budget plus shutdown/cleanup headroom.
+TimeSpan shutdownTimeout = ChannelCoordinator.JobStopBudget + TimeSpan.FromSeconds(5);
+builder.Services.Configure<HostOptions>(options =>
+    options.ShutdownTimeout = shutdownTimeout);
 
 builder.Services.AddOptions<TwitchOptions>()
     .BindConfiguration(TwitchOptions.SectionName)
@@ -43,16 +50,23 @@ builder.Services.AddSingleton<RecordingLibrary>();
 builder.Services.AddSingleton<IDiskSpace, DriveInfoDiskSpace>();
 builder.Services.AddSingleton<DiskGuard>();
 builder.Services.AddSingleton<SessionStore>();
+builder.Services.AddSingleton<ChannelStore>();
+builder.Services.AddSingleton<RecoveryService>();
 builder.Services.AddSingleton<RecorderJob>();
 builder.Services.AddSingleton<IRecorder>(services => services.GetRequiredService<RecorderJob>());
 
-// Runtime: one coordinator per configured channel, fed by the poller. The real Helix
-// poller replaces the temporary binding in #40.
+// Runtime: one coordinator per stored channel, fed by the Helix poller.
 builder.Services.AddSingleton<IRetryJitter, RandomizedRetryJitter>();
 builder.Services.AddSingleton<DvrStatus>();
 builder.Services.AddSingleton<ChannelCoordinatorFactory>();
-builder.Services.AddSingleton<IStreamPoller, UnconfiguredStreamPoller>();
+builder.Services.AddSingleton<TwitchTokenProvider>();
+builder.Services.AddSingleton<PollSchedule>();
+builder.Services.AddSingleton<IStreamPoller, TwitchStreamPoller>();
+builder.Services.AddSingleton<IEventSubSocketFactory, ClientWebSocketEventSubSocketFactory>();
+builder.Services.AddSingleton<IEventSubClient, EventSubClient>();
 builder.Services.AddSingleton<DvrSupervisor>();
+builder.Services.AddSingleton<IChannelControl>(
+    services => services.GetRequiredService<DvrSupervisor>());
 
 // Hosted services start in registration order, so preflight runs before Data
 // Protection, the supervisor, and any channel or recording service.
@@ -64,8 +78,15 @@ builder.Services.AddStreamKeeprDataProtection();
 // The supervisor starts only after preflight and the key-ring check have succeeded.
 builder.Services.AddHostedService(services => services.GetRequiredService<DvrSupervisor>());
 
+builder.Services.AddHealthChecks()
+    .AddCheck<DvrHealthCheck>("dvr", tags: ["live", "ready"])
+    .AddCheck<DiskSpaceHealthCheck>("disk", tags: ["ready"])
+    .AddCheck<LibraryLoadedHealthCheck>("library", tags: ["ready"]);
+
 builder.Services.AddHttpClient(TwitchHttpClients.Auth, client =>
     client.BaseAddress = new Uri("https://id.twitch.tv/"));
+builder.Services.AddHttpClient(TwitchHttpClients.Helix, client =>
+    client.BaseAddress = new Uri("https://api.twitch.tv/"));
 builder.Services.AddSingleton<IAdminTokenStore, AdminTokenStore>();
 
 builder.Services.AddStreamKeeprAdminAuth();
@@ -132,6 +153,15 @@ app.MapMethods(
     LiveIndexEndpoint.Route,
     [HttpMethods.Get, HttpMethods.Head],
     LiveIndexEndpoint.HandleAsync);
+
+app.MapHealthChecks("/health/live", new HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("live"),
+});
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("ready"),
+});
 
 await app.RunAsync();
 

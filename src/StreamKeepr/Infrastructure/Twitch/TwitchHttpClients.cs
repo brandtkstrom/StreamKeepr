@@ -4,4 +4,5 @@ namespace StreamKeepr.Infrastructure.Twitch;
 public static class TwitchHttpClients
 {
     public const string Auth = "twitch-auth";
+    public const string Helix = "twitch-helix";
 }
