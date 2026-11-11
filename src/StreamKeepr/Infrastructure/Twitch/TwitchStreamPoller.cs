@@ -156,7 +156,7 @@ public sealed class TwitchStreamPoller(
             return null;
 
         return (payload.Data ?? [])
-            .Where(stream => stream.Type == "live" && IsNumericId(stream.Id))
+            .Where(stream => stream.Type == "live" && TwitchStreamId.IsNumeric(stream.Id))
             .ToDictionary(
                 stream => stream.UserLogin,
                 stream => new LiveStream(
@@ -225,6 +225,4 @@ public sealed class TwitchStreamPoller(
     private static bool IsTransient(HttpStatusCode status) =>
         status == HttpStatusCode.TooManyRequests || (int)status >= 500;
 
-    private static bool IsNumericId(string id) =>
-        id.Length is > 0 and <= 20 && id.All(char.IsAsciiDigit);
 }

@@ -19,6 +19,9 @@ public sealed class PollSchedule(TimeProvider clock)
 
     public bool IsPushConnected => _pushConnected;
 
+    /// <summary>Raised whenever push coverage is recomputed.</summary>
+    public event Action? Changed;
+
     public DateTimeOffset LastPollAt =>
         new(Interlocked.Read(ref _lastPollTicks), TimeSpan.Zero);
 
@@ -28,11 +31,9 @@ public sealed class PollSchedule(TimeProvider clock)
     /// </summary>
     public void SetPushCoverage(bool allCovered)
     {
-        if (_pushConnected == allCovered)
-            return;
-
         bool lostCoverage = _pushConnected && !allCovered;
         _pushConnected = allCovered;
+        Changed?.Invoke();
 
         // Losing push must shorten an in-flight 300 s wait; gaining it can wait for the
         // current tick to finish.

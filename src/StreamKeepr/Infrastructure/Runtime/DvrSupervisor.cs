@@ -72,11 +72,8 @@ public sealed class DvrSupervisor(
 
         Task events = eventSub.RunAsync(RouteAsync, stoppingToken);
         _ = events.ContinueWith(
-            task =>
-            {
-                logger.LogCritical(task.Exception, "EventSub crashed; stopping the host.");
-                lifetime.StopApplication();
-            },
+            task => logger.LogWarning(
+                task.Exception, "EventSub stopped unexpectedly; polling continues."),
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted,
             TaskScheduler.Default);
