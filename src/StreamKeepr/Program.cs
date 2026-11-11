@@ -53,12 +53,12 @@ builder.Services.AddSingleton<RecoveryService>();
 builder.Services.AddSingleton<RecorderJob>();
 builder.Services.AddSingleton<IRecorder>(services => services.GetRequiredService<RecorderJob>());
 
-// Runtime: one coordinator per stored channel, fed by the poller. The real Helix
-// poller replaces the temporary binding in #40.
+// Runtime: one coordinator per stored channel, fed by the Helix poller.
 builder.Services.AddSingleton<IRetryJitter, RandomizedRetryJitter>();
 builder.Services.AddSingleton<DvrStatus>();
 builder.Services.AddSingleton<ChannelCoordinatorFactory>();
-builder.Services.AddSingleton<IStreamPoller, UnconfiguredStreamPoller>();
+builder.Services.AddSingleton<TwitchTokenProvider>();
+builder.Services.AddSingleton<IStreamPoller, TwitchStreamPoller>();
 builder.Services.AddSingleton<DvrSupervisor>();
 builder.Services.AddSingleton<IChannelControl>(
     services => services.GetRequiredService<DvrSupervisor>());
@@ -75,6 +75,8 @@ builder.Services.AddHostedService(services => services.GetRequiredService<DvrSup
 
 builder.Services.AddHttpClient(TwitchHttpClients.Auth, client =>
     client.BaseAddress = new Uri("https://id.twitch.tv/"));
+builder.Services.AddHttpClient(TwitchHttpClients.Helix, client =>
+    client.BaseAddress = new Uri("https://api.twitch.tv/"));
 builder.Services.AddSingleton<IAdminTokenStore, AdminTokenStore>();
 
 builder.Services.AddStreamKeeprAdminAuth();

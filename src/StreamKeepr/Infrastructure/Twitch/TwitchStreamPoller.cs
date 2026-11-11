@@ -1,0 +1,259 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using Microsoft.Extensions.Options;
+using StreamKeepr.Configuration;
+using StreamKeepr.Domain;
+
+namespace StreamKeepr.Infrastructure.Twitch;
+
+/// <summary>
+/// Polls Helix <c>/streams</c> for every watched channel in batches of 100 and resolves
+/// profiles through <c>/users</c>. Any batch failure becomes Unknown; it never finalizes a
+/// recording.
+/// </summary>
+public sealed class TwitchStreamPoller(
+    IHttpClientFactory httpFactory,
+    TwitchTokenProvider tokens,
+    IOptions<TwitchOptions> options,
+    TimeProvider clock,
+    ILogger<TwitchStreamPoller> logger) : IStreamPoller, IDisposable
+{
+    private readonly SemaphoreSlim _nudge = new(0, 1);
+
+    public async Task RunAsync(
+        Func<IReadOnlyList<string>> logins,
+        StreamObservationRoute route,
+        CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                IReadOnlyList<string> channels = logins()
+                    .Where(TwitchLogin.IsValid)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+
+                if (channels.Count > 0)
+                {
+                    IReadOnlyDictionary<string, StreamObservation> observed =
+                        await ObserveAsync(channels, ct);
+
+                    foreach ((string login, StreamObservation observation) in observed)
+                        await route(login, observation, ct);
+                }
+
+                await WaitForNextPollAsync(ct);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Host shutdown.
+        }
+    }
+
+    /// <summary>One /streams request per 100 logins; a batch failure is Unknown for that batch.</summary>
+    public async Task<IReadOnlyDictionary<string, StreamObservation>> ObserveAsync(
+        IReadOnlyList<string> logins, CancellationToken ct)
+    {
+        var result = new Dictionary<string, StreamObservation>(StringComparer.Ordinal);
+
+        foreach (string[] batch in logins.Chunk(100))
+        {
+            Dictionary<string, LiveStream>? live;
+            try
+            {
+                live = await LiveStreamsAsync(batch, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Helix /streams batch failed.");
+                live = null;
+            }
+
+            foreach (string login in batch)
+            {
+                result[login] = live is null
+                    ? new StreamObservation.Unknown("Helix request failed")
+                    : live.TryGetValue(login, out LiveStream? stream)
+                        ? new StreamObservation.Live(stream)
+                        : new StreamObservation.Offline();
+            }
+        }
+
+        return result;
+    }
+
+    public async Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct)
+    {
+        login = TwitchLogin.Normalize(login);
+        HelixUsersResponse? payload = await GetHelixAsync(
+            $"helix/users?login={Uri.EscapeDataString(login)}",
+            TwitchJsonContext.Default.HelixUsersResponse,
+            ct);
+
+        HelixUser? user = payload?.Data?.FirstOrDefault();
+        return user is null
+            ? null
+            : new ChannelProfile(
+                user.Id, user.DisplayName, user.ProfileImageUrl);
+    }
+
+    /// <summary>Current title/game from Helix /channels, used after a push notification.</summary>
+    public async Task<ChannelInfo?> GetChannelInfoAsync(
+        string broadcasterId, CancellationToken ct)
+    {
+        HelixChannelsResponse? payload = await GetHelixAsync(
+            $"helix/channels?broadcaster_id={Uri.EscapeDataString(broadcasterId)}",
+            TwitchJsonContext.Default.HelixChannelsResponse,
+            ct);
+
+        HelixChannel? channel = payload?.Data?.FirstOrDefault();
+        return channel is null
+            ? null
+            : new ChannelInfo(channel.Title, channel.GameName);
+    }
+
+    public void Nudge()
+    {
+        try
+        {
+            _nudge.Release();
+        }
+        catch (SemaphoreFullException)
+        {
+            // A nudge is already pending; coalesce it.
+        }
+    }
+
+    public void Dispose() => _nudge.Dispose();
+
+    private async Task<Dictionary<string, LiveStream>?> LiveStreamsAsync(
+        IReadOnlyList<string> batch, CancellationToken ct)
+    {
+        string query = string.Join(
+            '&',
+            batch.Select(login => $"user_login={Uri.EscapeDataString(login)}"));
+
+        HelixStreamsResponse? payload;
+        try
+        {
+            payload = await GetHelixAsync(
+                $"helix/streams?first=100&{query}",
+                TwitchJsonContext.Default.HelixStreamsResponse,
+                ct);
+        }
+        catch (TwitchApiException ex)
+        {
+            logger.LogWarning(ex, "Helix /streams batch failed.");
+            return null;
+        }
+
+        if (payload is null)
+            return null;
+
+        return (payload.Data ?? [])
+            .Where(stream => stream.Type == "live" && IsNumericId(stream.Id))
+            .ToDictionary(
+                stream => stream.UserLogin,
+                stream => new LiveStream(
+                    stream.Id,
+                    stream.Title,
+                    stream.GameName,
+                    stream.StartedAt,
+                    stream.ThumbnailUrl),
+                StringComparer.Ordinal);
+    }
+
+    private async Task<T?> GetHelixAsync<T>(
+        string relativeUri,
+        System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo,
+        CancellationToken ct)
+        where T : class
+    {
+        using HttpClient http = httpFactory.CreateClient(TwitchHttpClients.Helix);
+
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                string token = await tokens.GetAsync(ct);
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, relativeUri);
+                request.Headers.Add("Client-Id", options.Value.ClientId);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                using HttpResponseMessage response = await http.SendAsync(request, ct);
+
+                if (response.StatusCode == HttpStatusCode.Unauthorized && attempt == 0)
+                {
+                    tokens.Invalidate(token);
+                    continue;
+                }
+
+                if (IsTransient(response.StatusCode) && attempt == 0)
+                    continue;
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new TwitchApiException(
+                        $"Twitch returned HTTP {(int)response.StatusCode}.");
+                }
+
+                return await response.Content.ReadFromJsonAsync(typeInfo, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TwitchApiException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new TwitchApiException("Twitch request failed.", ex);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsTransient(HttpStatusCode status) =>
+        status == HttpStatusCode.TooManyRequests || (int)status >= 500;
+
+    private async Task WaitForNextPollAsync(CancellationToken ct)
+    {
+        TimeSpan interval = TimeSpan.FromSeconds(options.Value.PollIntervalSeconds);
+
+        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var nudgeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task delay = Task.Delay(interval, clock, delayCts.Token);
+        Task nudge = _nudge.WaitAsync(nudgeCts.Token);
+
+        Task first = await Task.WhenAny(delay, nudge);
+        if (first == delay)
+        {
+            await nudgeCts.CancelAsync();
+            await delay;
+            return;
+        }
+
+        await delayCts.CancelAsync();
+        try
+        {
+            await delay;
+        }
+        catch (OperationCanceledException) when (delayCts.IsCancellationRequested)
+        {
+        }
+    }
+
+    private static bool IsNumericId(string id) =>
+        id.Length is > 0 and <= 20 && id.All(char.IsAsciiDigit);
+}

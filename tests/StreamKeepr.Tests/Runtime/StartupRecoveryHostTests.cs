@@ -6,6 +6,7 @@ using StreamKeepr.Domain;
 using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
 using StreamKeepr.Tests.Storage;
 
@@ -25,7 +26,9 @@ public sealed class StartupRecoveryHostTests
             {
                 [$"{TwitchOptions.SectionName}:Channels:0"] = "streamer",
             },
-            recordingsRoot: context.Root);
+            recordingsRoot: context.Root,
+            configureTestServices: services =>
+                services.AddSingleton<IStreamPoller>(new ScriptedStreamPoller()));
         using var client = factory.CreateClient();
 
         DvrStatus status = factory.Services.GetRequiredService<DvrStatus>();
@@ -109,7 +112,10 @@ public sealed class StartupRecoveryHostTests
             await store.AddAsync("paused", CancellationToken.None);
             await store.SetPausedAsync("paused", paused: true, CancellationToken.None);
 
-            using var factory = new StreamKeeprAppFactory(recordingsRoot: root);
+            using var factory = new StreamKeeprAppFactory(
+                recordingsRoot: root,
+                configureTestServices: services =>
+                    services.AddSingleton<IStreamPoller>(new ScriptedStreamPoller()));
             using var client = factory.CreateClient();
 
             DvrStatus status = factory.Services.GetRequiredService<DvrStatus>();

@@ -26,6 +26,9 @@ public interface IStreamPoller
     /// <summary>Resolves a Twitch login, or null when Twitch does not know it.</summary>
     Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct);
 
+    /// <summary>Current title/game for a broadcaster; used after a push notification.</summary>
+    Task<ChannelInfo?> GetChannelInfoAsync(string broadcasterId, CancellationToken ct);
+
     /// <summary>Wakes the poller for an immediate tick; coalesced by the implementation.</summary>
     void Nudge();
 }

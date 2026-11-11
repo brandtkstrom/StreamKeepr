@@ -473,7 +473,6 @@ public sealed class ChannelControlTests
             StreamObservationRoute route,
             CancellationToken ct)
         {
-            _ = logins();
             try
             {
                 await Task.Delay(Timeout.InfiniteTimeSpan, ct);
@@ -482,6 +481,10 @@ public sealed class ChannelControlTests
             {
             }
         }
+
+        public Task<ChannelInfo?> GetChannelInfoAsync(
+            string broadcasterId, CancellationToken ct) =>
+            Task.FromResult<ChannelInfo?>(null);
 
         public async Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct)
         {
