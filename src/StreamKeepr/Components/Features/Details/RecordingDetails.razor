@@ -192,7 +192,7 @@
     // Why Export MP4 is disabled with a tooltip; null when the button is live.
     private string? ExportBlockedReason =>
         IsLive ? "Available when the recording finishes"
-        : IsIncompatible ? "The parts of this recording use different video settings"
+        : IsIncompatible ? "Its parts use different video settings, so one MP4 is not possible"
         : null;
 
     private bool ShowSize =>
@@ -273,8 +273,7 @@
             _job = job;
             _jobRecordingId = Recording.Id;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or KeyNotFoundException
-            or UnauthorizedAccessException)
+        catch (Exception ex) when (IsUserSafe(ex))
         {
             // The service messages are user-safe; the disabled button is never the only guard.
             Snackbars.Show(ex.Message);
@@ -301,8 +300,7 @@
             // No confirmation: Retry is right there.
             Exports.Cancel(job.Id, (await AuthenticationState).User);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or KeyNotFoundException
-            or UnauthorizedAccessException)
+        catch (Exception ex) when (IsUserSafe(ex))
         {
             // Usually the job finished first; re-read it and only report a job still running.
             RefreshExport();
@@ -321,6 +319,10 @@
             _cancelling = false;
         }
     }
+
+    // The export service's expected failures, whose messages may be shown as they are.
+    private static bool IsUserSafe(Exception ex) =>
+        ex is InvalidOperationException or KeyNotFoundException or UnauthorizedAccessException;
 
     // Retrying an incompatible recording would fail the same way.
     private static bool CanRetry(ExportJob job) =>

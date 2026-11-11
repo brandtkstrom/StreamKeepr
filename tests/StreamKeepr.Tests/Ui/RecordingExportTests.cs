@@ -163,7 +163,8 @@ public sealed class RecordingExportTests
         cut.Find("button[data-export-cancel]").Click();
 
         cut.WaitForAssertion(() => Assert.NotNull(cut.Find("a[data-export-download]")));
-        Assert.NotEqual("The export has already finished.", snackbars.Current?.Text);
+        // The finished job announces itself; the refused cancel adds nothing.
+        Assert.Equal("Export ready", snackbars.Current?.Text);
     }
 
     [Fact]
@@ -199,7 +200,7 @@ public sealed class RecordingExportTests
         Assert.Empty(cut.FindAll("button[data-export-retry]"));
         Assert.True(cut.Find("button[data-export]").HasAttribute("disabled"));
         Assert.Equal(
-            "The parts of this recording use different video settings",
+            "Its parts use different video settings, so one MP4 is not possible",
             cut.Find("[role='tooltip']").TextContent);
     }
 

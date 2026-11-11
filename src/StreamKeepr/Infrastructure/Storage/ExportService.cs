@@ -67,6 +67,9 @@ public sealed class ExportService : BackgroundService, IExportService
     public static readonly TimeSpan MaxExportAge = TimeSpan.FromHours(24);
     public static readonly TimeSpan CleanupInterval = TimeSpan.FromHours(1);
 
+    // A hung ffprobe must not stall every later export.
+    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(30);
+
     private readonly RecordingLibrary _library;
     private readonly IExportLeaseRegistry _leases;
     private readonly IOptions<StorageOptions> _storage;
@@ -83,7 +86,8 @@ public sealed class ExportService : BackgroundService, IExportService
     private readonly Dictionary<string, IDisposable> _held = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _latestByRecording = new(StringComparer.Ordinal);
     private readonly Dictionary<string, CancellationTokenSource> _running = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _hevc = new(StringComparer.Ordinal);
+    // Probed jobs whose video is HEVC and needs the hvc1 tag when they run.
+    private readonly HashSet<string> _needsHvc1Tag = new(StringComparer.Ordinal);
 
     private DateTimeOffset _lastChanged = DateTimeOffset.MinValue;
     private ITimer? _changedTimer;
@@ -180,12 +184,15 @@ public sealed class ExportService : BackgroundService, IExportService
             if (_running.TryGetValue(exportId, out CancellationTokenSource? running))
             {
                 // The worker sees the cancellation, deletes the partial file, and ends the job.
+                // Cancelling under the lock keeps RunAsync from disposing the source meanwhile;
+                // the only callback is CliWrap's process kill, which never takes this lock.
                 running.Cancel();
                 return;
             }
 
             // Still queued (or being probed): the worker skips anything that is no longer Queued.
             _jobs[exportId] = job with { State = ExportState.Cancelled };
+            _needsHvc1Tag.Remove(exportId);
         }
 
         ReleaseLease(exportId);
@@ -248,6 +255,8 @@ public sealed class ExportService : BackgroundService, IExportService
         if (Find(id) is not { State: ExportState.Queued } job)
             return false;
 
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        timeout.CancelAfter(ProbeTimeout);
         try
         {
             if (_library.Find(job.RecordingId) is not { } summary
@@ -262,7 +271,7 @@ public sealed class ExportService : BackgroundService, IExportService
 
             var parts = new List<PartVideo>();
             foreach (string init in ExportPartProbe.InitFiles(index))
-                parts.Add(await ExportPartProbe.ProbeAsync(_recorder.Value.FfprobePath, init, stoppingToken));
+                parts.Add(await ExportPartProbe.ProbeAsync(_recorder.Value.FfprobePath, init, timeout.Token));
 
             if (parts.Distinct().Count() > 1)
             {
@@ -276,7 +285,7 @@ public sealed class ExportService : BackgroundService, IExportService
             if (parts.Any(part => part.IsHevc))
             {
                 lock (_gate)
-                    _hevc.Add(id);
+                    _needsHvc1Tag.Add(id);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
@@ -289,6 +298,19 @@ public sealed class ExportService : BackgroundService, IExportService
 
     /// <summary>Removes export files (and leftover temp files) older than <see cref="MaxExportAge"/>.</summary>
     private void SweepExports()
+    {
+        try
+        {
+            SweepExportsCore();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Cleanup is best effort and must keep running on the next tick.
+            _logger.LogWarning(ex, "Could not sweep old export files.");
+        }
+    }
+
+    private void SweepExportsCore()
     {
         if (!Directory.Exists(ExportsDirectory))
             return;
@@ -323,7 +345,7 @@ public sealed class ExportService : BackgroundService, IExportService
             job = queued with { State = ExportState.Running };
             _jobs[id] = job;
             _running[id] = cancel;
-            hevc = _hevc.Remove(id);
+            hevc = _needsHvc1Tag.Remove(id);
         }
 
         RaiseChanged(immediate: true);
@@ -397,7 +419,7 @@ public sealed class ExportService : BackgroundService, IExportService
     /// The stream-copy command line. HEVC is tagged <c>hvc1</c> so Apple players and browsers
     /// recognize the MP4 (E-10); FFmpeg's default <c>hev1</c> tag is often refused.
     /// </summary>
-    public static IReadOnlyList<string> Arguments(string index, string output, bool hevc) =>
+    private static IReadOnlyList<string> Arguments(string index, string output, bool hevc) =>
     [
         "-hide_banner", "-loglevel", "error", "-nostdin", "-nostats", "-y",
         "-i", index,
@@ -506,9 +528,9 @@ public sealed class ExportService : BackgroundService, IExportService
             if (File.Exists(path))
                 File.Delete(path);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _logger.LogWarning(ex, "Could not delete the partial export {Path}.", path);
+            _logger.LogWarning(ex, "Could not delete the export file {Path}.", path);
         }
     }
 
