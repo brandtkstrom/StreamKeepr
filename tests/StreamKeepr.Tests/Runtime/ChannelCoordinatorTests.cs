@@ -1,10 +1,12 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Tests.Hosting;
+using StreamKeepr.Tests.Storage;
 
 namespace StreamKeepr.Tests.Runtime;
 
@@ -122,6 +124,30 @@ public sealed class ChannelCoordinatorTests
     }
 
     [Fact]
+    public async Task Reopen_failure_skips_the_recorder_and_surfaces_the_failure()
+    {
+        using var context = new Context();
+        Session session = Session.For(context.Live, Channel, context.Root);
+        Directory.CreateDirectory(session.Directory);
+        await File.WriteAllTextAsync(
+            Path.Combine(session.Directory, SessionStore.ManifestFileName), "not json");
+
+        await context.Coordinator.PublishAsync(new DvrEvent.SessionRecovered(
+            new Resumable(session, 2, Complete: true)));
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
+
+        DvrSnapshot snapshot = await RuntimeTestWait.ForStatusAsync(
+            context.Status, Channel, status => status.State is DvrState.WaitingToRetry);
+
+        Assert.Equal("open failed", snapshot.LastDetail);
+        Assert.False(string.IsNullOrEmpty(snapshot.LastError));
+        Assert.False(context.Recorder.Started.TryRead(out _));
+
+        await context.StopAsync();
+    }
+
+    [Fact]
     public async Task Retry_timers_use_the_injected_jitter_and_restart_the_recorder()
     {
         using var context = new Context();
@@ -158,14 +184,18 @@ public sealed class ChannelCoordinatorTests
             context.Status, Channel, status => status.State is DvrState.WaitingToRetry);
         Assert.Equal(
             TimeSpan.FromSeconds(2),
-            await context.Jitter.Applied.WaitAsync(TimeSpan.FromSeconds(5)));
+            await context.FixedJitter.Applied.WaitAsync(TimeSpan.FromSeconds(5)));
 
-        // Advance until the timer is registered and fires; the scheduling hop is asynchronous.
-        for (int attempt = 0; attempt < 20 && !secondStarted.Task.IsCompleted; attempt++)
+        TimeSpan dueTime;
+        do
         {
-            context.Clock.Advance(TimeSpan.FromSeconds(1));
-            await Task.Delay(10);
+            dueTime = await context.Clock.CreatedTimers.ReadAsync()
+                .AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(5));
         }
+        while (dueTime != TimeSpan.FromSeconds(1));
+
+        context.Clock.Advance(dueTime);
 
         RecorderCall second = await secondStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(2, second.Job.Part);
@@ -199,6 +229,192 @@ public sealed class ChannelCoordinatorTests
             new StreamObservation.Unknown("late"), context.Clock.GetUtcNow()));
     }
 
+    [Fact]
+    public async Task A_full_disk_skips_the_recorder_and_schedules_a_retry()
+    {
+        using var context = new Context(
+            diskSpace: new FakeDiskSpace(0, DiskGuard.BytesPerGib * 4));
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
+
+        DvrSnapshot snapshot = await RuntimeTestWait.ForStatusAsync(
+            context.Status, Channel, status => status.State is DvrState.WaitingToRetry);
+
+        Assert.Contains("disk", snapshot.LastDetail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("disk", snapshot.LastError, StringComparison.OrdinalIgnoreCase);
+        Assert.False(context.Recorder.Started.TryRead(out _));
+
+        await context.StopAsync();
+    }
+
+    [Fact]
+    public async Task A_disk_probe_failure_still_publishes_one_exit()
+    {
+        using var context = new Context(diskSpace: new ThrowingDiskSpace());
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
+
+        DvrSnapshot snapshot = await RuntimeTestWait.ForStatusAsync(
+            context.Status, Channel, status => status.State is DvrState.WaitingToRetry);
+
+        Assert.Contains("disk probe failed", snapshot.LastError, StringComparison.OrdinalIgnoreCase);
+        Assert.False(context.Recorder.Started.TryRead(out _));
+
+        await context.StopAsync();
+    }
+
+    [Fact]
+    public async Task A_failed_finalize_is_surfaced_and_leaves_the_session_recoverable()
+    {
+        using var context = new Context();
+        context.Recorder.OnRun = async (call, _) =>
+        {
+            WritePart(call.Session, 1);
+            await call.PublishAsync(new DvrEvent.PartProducingMedia(
+                call.Job, context.Clock.GetUtcNow()));
+            await call.PublishAsync(new DvrEvent.RecorderExited(
+                call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Exited, "stream ended"));
+        };
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
+        await RuntimeTestWait.ForStatusAsync(
+            context.Status, Channel, status => status.State is DvrState.WaitingToRetry);
+
+        // The atomic index write uses <index>.tmp; a directory there makes it fail.
+        Directory.CreateDirectory(
+            Path.Combine(context.SessionDirectory, SessionStore.IndexFileName + ".tmp"));
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Offline(), context.Clock.GetUtcNow()));
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Offline(), context.Clock.GetUtcNow()));
+
+        DvrSnapshot snapshot = await RuntimeTestWait.ForStatusAsync(
+            context.Status, Channel, status => !string.IsNullOrEmpty(status.LastError));
+
+        Assert.IsType<DvrState.Idle>(snapshot.State);
+        SessionManifest? manifest = await context.Store.TryLoadAsync(
+            context.SessionDirectory, CancellationToken.None);
+        Assert.NotNull(manifest);
+        Assert.Equal(SessionStatus.Recording, manifest!.Status);
+        Assert.False(File.Exists(
+            Path.Combine(context.SessionDirectory, SessionStore.IndexFileName)));
+        Assert.Contains(context.Logs.Messages,
+            message => message.Contains("finalize failed", StringComparison.OrdinalIgnoreCase));
+
+        await context.StopAsync();
+    }
+
+    [Fact]
+    public async Task A_stop_request_cancels_a_pending_retry()
+    {
+        using var context = new Context();
+        int runs = 0;
+        context.Recorder.OnRun = async (call, _) =>
+        {
+            Interlocked.Increment(ref runs);
+            await call.PublishAsync(new DvrEvent.RecorderExited(
+                call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Exited, "no media"));
+        };
+
+        string sessionId = Path.GetFileName(context.SessionDirectory);
+        var sessionRemoved = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        context.Library.Changed += () =>
+        {
+            if (context.Library.Find(sessionId) is null)
+                sessionRemoved.TrySetResult();
+        };
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
+        await RuntimeTestWait.ForStatusAsync(
+            context.Status, Channel, status => status.State is DvrState.WaitingToRetry);
+        await context.FixedJitter.Applied.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StopRequested());
+
+        // Removing the empty session proves the finalize command ran, which is after the
+        // stale retry timer was canceled.
+        await sessionRemoved.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(0, context.Clock.ActiveTimers);
+        Assert.Equal(1, runs);
+
+        await context.StopAsync();
+    }
+
+    [Fact]
+    public async Task A_job_that_will_not_stop_faults_the_channel_loop()
+    {
+        using var context = new Context();
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        context.Recorder.OnRun = async (_, _) => await release.Task;
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
+        await RuntimeTestWait.ForStatusAsync(
+            context.Status, Channel, status => status.State is DvrState.Recording);
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StopRequested());
+
+        try
+        {
+            TimeSpan dueTime;
+            do
+            {
+                dueTime = await context.Clock.CreatedTimers.ReadAsync()
+                    .AsTask()
+                    .WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            while (dueTime < ChannelCoordinator.JobStopBudget);
+
+            context.Clock.Advance(dueTime);
+
+            await Assert.ThrowsAsync<ChannelFatalException>(
+                async () => await context.Loop.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+    }
+
+    [Fact]
+    public async Task A_retry_that_cannot_be_scheduled_faults_the_channel_loop()
+    {
+        using var context = new Context(jitter: new ThrowingRetryJitter());
+        context.Recorder.OnRun = async (call, _) =>
+            await call.PublishAsync(new DvrEvent.RecorderExited(
+                call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Exited, "no media"));
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
+
+        await Assert.ThrowsAsync<ChannelFatalException>(
+            async () => await context.Loop.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public async Task A_retry_with_an_invalid_delay_faults_the_channel_loop()
+    {
+        using var context = new Context(jitter: new InvalidDelayRetryJitter());
+        context.Recorder.OnRun = async (call, _) =>
+            await call.PublishAsync(new DvrEvent.RecorderExited(
+                call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Exited, "no media"));
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
+
+        await Assert.ThrowsAsync<ChannelFatalException>(
+            async () => await context.Loop.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+
     private static void WritePart(Session session, int part)
     {
         Directory.CreateDirectory(session.Directory);
@@ -218,7 +434,7 @@ public sealed class ChannelCoordinatorTests
         public static readonly DateTimeOffset StartedAt =
             new(2026, 11, 10, 16, 30, 0, TimeSpan.Zero);
 
-        public Context()
+        public Context(IRetryJitter? jitter = null, IDiskSpace? diskSpace = null)
         {
             Root = Path.Combine(
                 Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
@@ -230,6 +446,14 @@ public sealed class ChannelCoordinatorTests
                 Library,
                 Clock,
                 NullLogger<SessionStore>.Instance);
+
+            IDiskSpace disk = diskSpace
+                ?? new FakeDiskSpace(DiskGuard.BytesPerGib * 2, DiskGuard.BytesPerGib * 4);
+            var diskGuard = new DiskGuard(
+                Options.Create(new StorageOptions { RecordingsRoot = Root, MinFreeGb = 1 }),
+                disk);
+            IRetryJitter coordinatorJitter = jitter ?? FixedJitter;
+            Loggers = LoggerFactory.Create(builder => builder.AddProvider(Logs));
 
             Coordinator = new ChannelCoordinator(
                 Channel,
@@ -245,17 +469,18 @@ public sealed class ChannelCoordinatorTests
                 new DvrState.Idle(),
                 Recorder,
                 Store,
+                diskGuard,
                 Status,
-                Jitter,
+                coordinatorJitter,
                 Clock,
-                NullLogger.Instance);
+                Loggers.CreateLogger($"StreamKeepr.Channel.{Channel}"));
 
             Loop = Coordinator.RunAsync(Cts.Token);
         }
 
         public string Root { get; }
 
-        public FakeTimeProvider Clock { get; } = new(StartedAt.AddMinutes(1));
+        public TrackingTimeProvider Clock { get; } = new(StartedAt.AddMinutes(1));
 
         public RecordingLibrary Library { get; }
 
@@ -265,7 +490,11 @@ public sealed class ChannelCoordinatorTests
 
         public FakeRecorder Recorder { get; } = new();
 
-        public FixedRetryJitter Jitter { get; } = new(TimeSpan.FromSeconds(1));
+        public FixedRetryJitter FixedJitter { get; } = new(TimeSpan.FromSeconds(1));
+
+        public ListLoggerProvider Logs { get; } = new();
+
+        private ILoggerFactory Loggers { get; }
 
         public ChannelCoordinator Coordinator { get; }
 
@@ -301,6 +530,7 @@ public sealed class ChannelCoordinatorTests
             }
 
             Cts.Dispose();
+            Loggers.Dispose();
             if (Directory.Exists(Root))
                 Directory.Delete(Root, recursive: true);
         }
