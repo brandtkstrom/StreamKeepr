@@ -23,26 +23,37 @@ public sealed class DvrSupervisor(
     private readonly ConcurrentDictionary<string, Running> _running =
         new(StringComparer.Ordinal);
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    private IReadOnlyList<string> _channels = [];
+    private IReadOnlyDictionary<string, RecoveredChannel> _recovered =
+        new Dictionary<string, RecoveredChannel>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Recovery is part of host startup, not a background task: no request or coordinator may
+    /// observe a partially loaded library.
+    /// </summary>
+    public override async Task StartAsync(CancellationToken cancellationToken)
     {
-        IReadOnlyList<string> channels = options.Value.Channels;
-        IReadOnlyDictionary<string, RecoveredChannel> recovered;
+        _channels = options.Value.Channels;
 
         try
         {
-            // No coordinator may process events until every session has been classified.
-            recovered = await recovery.RecoverAsync(channels, stoppingToken);
+            _recovered = await recovery.RecoverAsync(_channels, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogCritical(ex, "Startup recovery failed; stopping the host.");
+            logger.LogCritical(ex, "Startup recovery failed; stopping startup.");
             throw;
         }
 
-        foreach (string channel in channels)
-            StartChannel(channel, recovered.GetValueOrDefault(channel), stoppingToken);
+        await base.StartAsync(cancellationToken);
+    }
 
-        Task polling = poller.RunAsync(channels, RouteAsync, stoppingToken);
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        foreach (string channel in _channels)
+            StartChannel(channel, _recovered.GetValueOrDefault(channel), stoppingToken);
+
+        Task polling = poller.RunAsync(_channels, RouteAsync, stoppingToken);
         _ = polling.ContinueWith(
             task =>
             {

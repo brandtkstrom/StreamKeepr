@@ -36,4 +36,49 @@ public sealed class StartupRecoveryHostTests
         Assert.Equal(2, idle.Resume.NextPart);
         Assert.True(factory.Services.GetRequiredService<RecordingLibrary>().IsLoaded);
     }
+
+    [Fact]
+    public async Task Recovery_failure_stops_host_startup()
+    {
+        using var context = new SessionStoreTestContext();
+        await SeedAsync(context, context.Session, context.Live);
+
+        var newerLive = new LiveStream(
+            "987654322",
+            "Newer",
+            "Just Chatting",
+            SessionStoreTestContext.StartedAt.AddHours(1),
+            ThumbnailUrl: null);
+        Session newer = Session.For(newerLive, "streamer", context.Root);
+        await SeedAsync(context, newer, newerLive);
+
+        // Make the older session's finalize fail; recovery must not start a partial host.
+        Directory.CreateDirectory(
+            Path.Combine(context.Session.Directory, SessionStore.IndexFileName + ".tmp"));
+
+        using var factory = new StreamKeeprAppFactory(
+            new Dictionary<string, string?>
+            {
+                [$"{TwitchOptions.SectionName}:Channels:0"] = "streamer",
+            },
+            recordingsRoot: context.Root);
+
+        Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+    }
+
+    private static async Task SeedAsync(
+        SessionStoreTestContext context, Session session, LiveStream live)
+    {
+        await context.Store.OpenAsync(session, live, CancellationToken.None);
+        Directory.CreateDirectory(session.Directory);
+        File.WriteAllText(
+            Path.Combine(session.Directory, "p001.m3u8"),
+            "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:6\n"
+            + "#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:EVENT\n"
+            + "#EXT-X-INDEPENDENT-SEGMENTS\n"
+            + "#EXT-X-MAP:URI=\"init_001.mp4\"\n#EXTINF:6.0,\n"
+            + "p001_00000.m4s\n");
+        File.WriteAllBytes(Path.Combine(session.Directory, "init_001.mp4"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(session.Directory, "p001_00000.m4s"), [4, 5, 6]);
+    }
 }
