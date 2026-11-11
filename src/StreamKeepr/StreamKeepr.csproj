@@ -6,6 +6,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>StreamKeepr</RootNamespace>
     <UserSecretsId>stream-keepr</UserSecretsId>
+    <!--
+      Temporary Debug-only workaround: SDK 10.0.201 emits gzip static-asset endpoints that
+      MapStaticAssets serves with an empty body in Debug builds. Release/publish compression is
+      unchanged. Remove when the SDK serves compressed build assets correctly.
+    -->
+    <DisableBuildCompression Condition="'$(Configuration)' == 'Debug'">true</DisableBuildCompression>
   </PropertyGroup>
 
   <ItemGroup>

@@ -364,11 +364,18 @@ public sealed class SessionStore(
         return manifest;
     }
 
+    /// <summary>Serializes a manifest with the store's authoritative schema options.</summary>
+    internal static string SerializeManifest(SessionManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        return JsonSerializer.Serialize(manifest, Json);
+    }
+
     private static Task WriteManifestAsync(
         string directory, SessionManifest manifest, CancellationToken ct) =>
         WriteAtomicAsync(
             Path.Combine(directory, ManifestFileName),
-            JsonSerializer.Serialize(manifest, Json),
+            SerializeManifest(manifest),
             ct);
 
     private static async Task WriteAtomicAsync(string path, string content, CancellationToken ct)

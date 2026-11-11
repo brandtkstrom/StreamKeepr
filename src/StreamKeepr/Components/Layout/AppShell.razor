@@ -124,12 +124,12 @@
         !Preferences.Theater && Preferences.Drawer == DrawerMode.Expanded;
 
     private string MenuLabel => Preferences.Theater
-        ? "Library hidden in theater mode"
+        ? "Menu: library hidden in theater mode"
         : Preferences.Drawer switch
         {
-            DrawerMode.Expanded => "Collapse library",
-            DrawerMode.Rail => "Expand library",
-            _ => "Open library",
+            DrawerMode.Expanded => "Menu: collapse library",
+            DrawerMode.Rail => "Menu: expand library",
+            _ => "Menu: open library",
         };
 
     private string DrawerClass => Preferences.Drawer switch
