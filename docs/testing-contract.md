@@ -66,6 +66,7 @@ Commit executable scripts under `tests/fixtures/`:
 - `fake-streamlink-adbreak` — writes the Streamlink ad-break log line and then continues.
 - `fake-streamlink-broken` — answers `--version` but exits 1 otherwise, so preflight passes and recording fails.
 - `fake-streamlink-slow` — writes a partial source to exercise backpressure.
+- `fake-streamlink-token-echo` — echoes its arguments to stderr so the token-redaction test can prove the subscriber header reached Streamlink without leaking it.
 
 Rules:
 
