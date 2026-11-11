@@ -12,6 +12,7 @@ namespace StreamKeepr.Infrastructure.Runtime;
 /// </summary>
 public sealed class DvrSupervisor(
     IStreamPoller poller,
+    IEventSubClient eventSub,
     RecoveryService recovery,
     ChannelStore channelStore,
     DvrStatus status,
@@ -69,6 +70,17 @@ public sealed class DvrSupervisor(
             TaskContinuationOptions.OnlyOnFaulted,
             TaskScheduler.Default);
 
+        Task events = eventSub.RunAsync(RouteAsync, stoppingToken);
+        _ = events.ContinueWith(
+            task =>
+            {
+                logger.LogCritical(task.Exception, "EventSub crashed; stopping the host.");
+                lifetime.StopApplication();
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+
         try
         {
             await Task.Delay(Timeout.Infinite, stoppingToken);
@@ -85,6 +97,7 @@ public sealed class DvrSupervisor(
             await Task.WhenAll(_running.Values.Select(running => running.Loop))
                 .ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             await polling.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            await events.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
             foreach (Running running in _running.Values)
                 running.Cts.Dispose();

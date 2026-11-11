@@ -60,6 +60,8 @@ builder.Services.AddSingleton<ChannelCoordinatorFactory>();
 builder.Services.AddSingleton<TwitchTokenProvider>();
 builder.Services.AddSingleton<PollSchedule>();
 builder.Services.AddSingleton<IStreamPoller, TwitchStreamPoller>();
+builder.Services.AddSingleton<IEventSubSocketFactory, ClientWebSocketEventSubSocketFactory>();
+builder.Services.AddSingleton<IEventSubClient, EventSubClient>();
 builder.Services.AddSingleton<DvrSupervisor>();
 builder.Services.AddSingleton<IChannelControl>(
     services => services.GetRequiredService<DvrSupervisor>());

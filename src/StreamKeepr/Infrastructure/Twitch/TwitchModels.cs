@@ -33,3 +33,16 @@ internal sealed record HelixUser(
     [property: JsonPropertyName("login")] string Login,
     [property: JsonPropertyName("display_name")] string DisplayName,
     [property: JsonPropertyName("profile_image_url")] string? ProfileImageUrl);
+
+internal sealed record EventSubSubscriptionRequest(
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("version")] string Version,
+    [property: JsonPropertyName("condition")] EventSubCondition Condition,
+    [property: JsonPropertyName("transport")] EventSubTransport Transport);
+
+internal sealed record EventSubCondition(
+    [property: JsonPropertyName("broadcaster_user_id")] string BroadcasterUserId);
+
+internal sealed record EventSubTransport(
+    [property: JsonPropertyName("method")] string Method,
+    [property: JsonPropertyName("session_id")] string SessionId);
