@@ -8,10 +8,24 @@
 @* The layout owns the drawer, so it survives navigation and keeps its scroll position. *@
 <div class="sk-drawer-head">
     <h2>Library</h2>
-    <span class="sk-sort">
-        <Icon Name="arrow_downward" Size="IconSize.Small" />
-        Newest first
+    <span class="sk-sort" data-sort="@_query.Sort">
+        @if (SortIcon is { } icon)
+        {
+            <Icon Name="@icon" Size="IconSize.Small" />
+        }
+        @SortLabel
     </span>
+    <Menu Label="Library options" TriggerClass="sk-icon-btn sm">
+        <MenuItem Selected="@(_query.Sort == "newest")" OnClick="@(() => SetSort("newest"))">Newest first</MenuItem>
+        <MenuItem Selected="@(_query.Sort == "oldest")" OnClick="@(() => SetSort("oldest"))">Oldest first</MenuItem>
+        <MenuItem Selected="@(_query.Sort == "az")" OnClick="@(() => SetSort("az"))">A–Z by streamer</MenuItem>
+    </Menu>
+</div>
+
+<div class="sk-filters" role="group" aria-label="Filter recordings">
+    <Chip data-filter="all" Selected="@(_query.State is null)" OnClick="@(() => SetState(null))">All</Chip>
+    <Chip data-filter="recording" Selected="@(_query.State == "recording")" OnClick="@(() => SetState("recording"))">Recording</Chip>
+    <Chip data-filter="saved" Selected="@(_query.State == "saved")" OnClick="@(() => SetState("saved"))">Saved</Chip>
 </div>
 
 <div class="sk-drawer-list"
@@ -34,10 +48,10 @@
     }
     else
     {
-        IReadOnlyList<StreamerView> streamers = Library.Streamers(Query);
+        IReadOnlyList<StreamerView> streamers = Library.Streamers(_query);
         if (streamers.Count == 0)
         {
-            <p class="body-medium" data-library-empty>No recordings yet</p>
+            <p class="body-medium" data-library-empty>@(Filtered ? "No recordings match" : "No recordings yet")</p>
         }
         else
         {
@@ -45,7 +59,8 @@
             {
                 <StreamerGroup @key="streamer.Login"
                                Streamer="streamer"
-                               Recordings="Library.Recordings(streamer.Login, Query)"
+                               Recordings="Library.Recordings(streamer.Login, _query)"
+                               Search="@_query.Search"
                                Expanded="@(!Preferences.IsCollapsed(streamer.Login))"
                                SelectedId="@SelectedId"
                                TimeZone="@Clock.TimeZone"
@@ -57,8 +72,7 @@
 </div>
 
 @code {
-    private static readonly LibraryQuery Query = new();
-
+    private LibraryQuery _query = new();
     private string? _selectedId;
     private bool _disposed;
 
@@ -67,6 +81,7 @@
     protected override void OnInitialized()
     {
         _selectedId = ParseSelectedId(Navigation.Uri);
+        _query = LibraryUrl.Parse(Navigation.Uri);
         Library.Changed += OnLibraryChanged;
         Clock.Changed += OnClockChanged;
         Navigation.LocationChanged += OnLocationChanged;
@@ -85,12 +100,38 @@
     private void OnLocationChanged(object? sender, LocationChangedEventArgs args)
     {
         string? selected = ParseSelectedId(args.Location);
-        if (string.Equals(selected, _selectedId, StringComparison.Ordinal))
+        LibraryQuery query = LibraryUrl.Parse(args.Location);
+        if (string.Equals(selected, _selectedId, StringComparison.Ordinal) && query == _query)
             return;
 
         _selectedId = selected;
+        _query = query;
         _ = InvokeAsync(StateHasChanged);
     }
+
+    private bool Filtered => _query.Search is not null || _query.State is not null;
+
+    private string? SortIcon => _query.Sort switch
+    {
+        "oldest" => "arrow_upward",
+        "az" => null,
+        _ => "arrow_downward",
+    };
+
+    private string SortLabel => _query.Sort switch
+    {
+        "oldest" => "Oldest first",
+        "az" => "A–Z by streamer",
+        _ => "Newest first",
+    };
+
+    private void SetState(string? state) => Navigate(_query with { State = state });
+
+    private void SetSort(string sort) => Navigate(_query with { Sort = sort });
+
+    // Filtering replaces the history entry so the back button skips view tweaks.
+    private void Navigate(LibraryQuery query) =>
+        Navigation.NavigateTo(LibraryUrl.With(Navigation.Uri, query), replace: true);
 
     private string? ParseSelectedId(string uri)
     {

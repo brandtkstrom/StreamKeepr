@@ -1,0 +1,45 @@
+@* Wraps every case-insensitive occurrence of Search in mark.sk-hl. Plain text, no regex. *@
+@foreach ((string text, bool match) in Pieces())
+{
+    if (match)
+    {
+        <mark class="sk-hl">@text</mark>
+    }
+    else
+    {
+        @text
+    }
+}
+
+@code {
+    [Parameter] public string? Text { get; set; }
+
+    [Parameter] public string? Search { get; set; }
+
+    private IEnumerable<(string Text, bool Match)> Pieces()
+    {
+        string text = Text ?? "";
+        if (string.IsNullOrEmpty(Search) || text.Length == 0)
+        {
+            yield return (text, false);
+            yield break;
+        }
+
+        int start = 0;
+        while (start < text.Length)
+        {
+            int index = text.IndexOf(Search, start, StringComparison.OrdinalIgnoreCase);
+            if (index < 0)
+                break;
+
+            if (index > start)
+                yield return (text[start..index], false);
+
+            yield return (text.Substring(index, Search.Length), true);
+            start = index + Search.Length;
+        }
+
+        if (start < text.Length)
+            yield return (text[start..], false);
+    }
+}

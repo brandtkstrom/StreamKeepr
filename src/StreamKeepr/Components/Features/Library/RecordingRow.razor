@@ -20,7 +20,7 @@
         }
     </span>
     <span class="sk-row-text">
-        <span class="sk-row-title">@Recording.Title</span>
+        <span class="sk-row-title"><Highlight Text="@Recording.Title" Search="@Search" /></span>
         <span class="sk-row-meta">@Meta</span>
         @if (Status is StatusChipKind status)
         {
@@ -36,7 +36,10 @@
 
     [Parameter] public TimeZoneInfo TimeZone { get; set; } = TimeZoneInfo.Utc;
 
+    [Parameter] public string? Search { get; set; }
+
     private RecordingView? _lastRecording;
+    private string? _lastSearch;
     private bool _lastSelected;
     private string? _lastTimeZoneId;
 
@@ -90,9 +93,11 @@
     {
         bool changed = !ReferenceEquals(_lastRecording, Recording) ||
             _lastSelected != Selected ||
-            _lastTimeZoneId != TimeZone.Id;
+            _lastTimeZoneId != TimeZone.Id ||
+            _lastSearch != Search;
 
         _lastRecording = Recording;
+        _lastSearch = Search;
         _lastSelected = Selected;
         _lastTimeZoneId = TimeZone.Id;
         return changed;

@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Dev-only ESLint and Vitest checks for StreamKeepr browser modules.",
   "scripts": {
-    "lint": "cd ../.. && eslint --config eslint.config.mjs tests/js src/StreamKeepr/wwwroot/js src/StreamKeepr/Components/Layout/AppShell.razor.js src/StreamKeepr/Components/Primitives/Dialog.razor.js src/StreamKeepr/Components/Primitives/Menu.razor.js",
+    "lint": "cd ../.. && eslint --config eslint.config.mjs tests/js src/StreamKeepr/wwwroot/js src/StreamKeepr/Components/Layout/AppShell.razor.js src/StreamKeepr/Components/Primitives/Dialog.razor.js src/StreamKeepr/Components/Primitives/Menu.razor.js src/StreamKeepr/Components/Features/Library",
     "test": "vitest run"
   },
   "devDependencies": {

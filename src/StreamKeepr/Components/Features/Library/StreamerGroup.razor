@@ -13,7 +13,7 @@
                 Recording="@Streamer.IsRecording"
                 Large="true" />
         <span class="who">
-            <span class="name">@Streamer.DisplayName</span>
+            <span class="name"><Highlight Text="@Streamer.DisplayName" Search="@Search" /></span>
             <span class="meta">@Meta</span>
         </span>
         <span class="chev" aria-hidden="true"><Icon Name="expand_more" /></span>
@@ -36,6 +36,7 @@
                 <RecordingRow @key="recording.Id"
                               Recording="recording"
                               Selected="@string.Equals(recording.Id, SelectedId, StringComparison.Ordinal)"
+                              Search="@Search"
                               TimeZone="TimeZone" />
             }
         </div>
@@ -57,12 +58,15 @@
 
     [Parameter] public EventCallback OnToggle { get; set; }
 
+    [Parameter] public string? Search { get; set; }
+
     private StreamerView? _lastStreamer;
     private IReadOnlyList<RecordingView> _lastRecordings = [];
     private bool _lastExpanded;
     private string? _lastSelectedId;
     private string? _lastTimeZoneId;
     private DateTime _lastDay;
+    private string? _lastSearch;
 
     private string BodyId => $"sk-group-{Streamer.Login}";
 
@@ -106,7 +110,8 @@
             _lastExpanded != Expanded ||
             _lastSelectedId != SelectedId ||
             _lastTimeZoneId != TimeZone.Id ||
-            _lastDay != Now.Date;
+            _lastDay != Now.Date ||
+            _lastSearch != Search;
 
         _lastStreamer = Streamer;
         _lastRecordings = Recordings;
@@ -114,6 +119,7 @@
         _lastSelectedId = SelectedId;
         _lastTimeZoneId = TimeZone.Id;
         _lastDay = Now.Date;
+        _lastSearch = Search;
         return changed;
     }
 }
