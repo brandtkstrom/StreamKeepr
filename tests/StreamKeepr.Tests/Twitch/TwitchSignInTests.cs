@@ -6,7 +6,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Twitch;
 
 namespace StreamKeepr.Tests.Twitch;
@@ -64,7 +63,7 @@ public sealed class TwitchSignInTests
     {
         using var harness = new AdminAuthHarness(
             login: "allowed_login",
-            overrides: Allowlist("allowed_login"));
+            overrides: AdminAuthTestSettings.Allowlist("allowed_login"));
 
         var result = await harness.SignInAsync();
 
@@ -119,12 +118,14 @@ public sealed class TwitchSignInTests
     {
         using var harness = new AdminAuthHarness(
             login: "intruder",
-            overrides: Allowlist("allowed_login"));
+            overrides: AdminAuthTestSettings.Allowlist("allowed_login"));
 
         var result = await harness.SignInAsync();
 
-        Assert.Equal(HttpStatusCode.Forbidden, result.CallbackStatus);
-        Assert.Null(result.CallbackLocation);
+        Assert.Equal(HttpStatusCode.Redirect, result.CallbackStatus);
+        Assert.Equal(
+            $"/?{AdminAuth.AuthErrorQueryKey}={AdminAuth.NotAllowedAuthError}",
+            result.CallbackLocation);
         Assert.Null(result.AuthCookie);
         Assert.DoesNotContain(result.SetCookies,
             cookie => cookie.StartsWith($"{AdminAuth.CookieScheme}=", StringComparison.Ordinal));
@@ -153,7 +154,10 @@ public sealed class TwitchSignInTests
 
         var result = await harness.SignInAsync();
 
-        Assert.Equal(HttpStatusCode.Forbidden, result.CallbackStatus);
+        Assert.Equal(HttpStatusCode.Redirect, result.CallbackStatus);
+        Assert.Equal(
+            $"/?{AdminAuth.AuthErrorQueryKey}={AdminAuth.FailedAuthError}",
+            result.CallbackLocation);
         Assert.Null(result.AuthCookie);
         Assert.Empty(harness.Store.SavedTokens);
     }
@@ -161,7 +165,7 @@ public sealed class TwitchSignInTests
     [Fact]
     public async Task Auth_cookie_slides_after_half_its_lifetime()
     {
-        using var harness = new AdminAuthHarness(overrides: Allowlist("allowed_login"));
+        using var harness = new AdminAuthHarness(overrides: AdminAuthTestSettings.Allowlist("allowed_login"));
         var result = await harness.SignInAsync();
         Assert.NotNull(result.AuthCookieValue);
 
@@ -178,14 +182,6 @@ public sealed class TwitchSignInTests
         var renewedValue = renewedCookie[(AdminAuth.CookieScheme.Length + 1)..].Split(';')[0];
         var ticket = DecryptTicket(harness, renewedValue);
         Assert.Equal(AdminAuthHarness.Start.AddDays(4).AddDays(7), ticket.Properties.ExpiresUtc);
-    }
-
-    private static Dictionary<string, string?> Allowlist(params string[] logins)
-    {
-        var settings = new Dictionary<string, string?>();
-        for (var index = 0; index < logins.Length; index++)
-            settings[$"{AuthOptions.SectionName}:AllowedTwitchLogins:{index}"] = logins[index];
-        return settings;
     }
 
     private static TwitchAuthenticationOptions GetTwitchOptions(AdminAuthHarness harness) =>

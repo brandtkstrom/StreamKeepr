@@ -1,11 +1,17 @@
 using System.Net;
 using System.Net.Http.Json;
 using AspNet.Security.OAuth.Twitch;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
+using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
 
@@ -19,11 +25,18 @@ internal sealed class RecordingAdminTokenStore : IAdminTokenStore
 
     public List<AdminToken> SavedTokens { get; } = [];
 
+    public Exception? SaveFailure { get; set; }
+
+    public int ClearCount { get; private set; }
+
     public ValueTask<string?> GetAsync(CancellationToken ct) =>
         ValueTask.FromResult(Token?.AccessToken);
 
     public Task SaveAsync(AdminToken token, CancellationToken ct)
     {
+        if (SaveFailure is not null)
+            throw SaveFailure;
+
         SavedTokens.Add(token);
         Token = token;
         Changed?.Invoke();
@@ -32,6 +45,7 @@ internal sealed class RecordingAdminTokenStore : IAdminTokenStore
 
     public Task ClearAsync(CancellationToken ct)
     {
+        ClearCount++;
         Token = null;
         Changed?.Invoke();
         return Task.CompletedTask;
@@ -55,6 +69,8 @@ internal sealed class TwitchOAuthStub : HttpMessageHandler
 
     public int ExpiresInSeconds { get; init; } = 3600;
 
+    public bool FailTokenExchange { get; init; }
+
     public List<Uri> Requests { get; } = [];
 
     protected override async Task<HttpResponseMessage> SendAsync(
@@ -70,6 +86,12 @@ internal sealed class TwitchOAuthStub : HttpMessageHandler
             Assert.Equal("test-client-id", form["client_id"].ToString());
             Assert.Equal("test-code", form["code"].ToString());
             Assert.EndsWith(AdminAuth.CallbackPath, form["redirect_uri"].ToString(), StringComparison.Ordinal);
+
+            if (FailTokenExchange)
+                return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                {
+                    Content = JsonContent.Create(new { error = "invalid_grant" }),
+                };
 
             return Json(new
             {
@@ -136,9 +158,17 @@ internal sealed class AdminAuthHarness : IDisposable
     public AdminAuthHarness(
         string login = "allowed_login",
         IReadOnlyDictionary<string, string?>? overrides = null,
-        bool includeLogin = true)
+        bool includeLogin = true,
+        string baseAddress = "https://localhost",
+        IPAddress? remoteIpAddress = null,
+        bool failTokenExchange = false)
     {
-        Stub = new TwitchOAuthStub { Login = login, IncludeLogin = includeLogin };
+        Stub = new TwitchOAuthStub
+        {
+            Login = login,
+            IncludeLogin = includeLogin,
+            FailTokenExchange = failTokenExchange,
+        };
         Store = new RecordingAdminTokenStore();
         Clock = new ManualTimeProvider(Start);
         _twitchBackchannel = new HttpClient(Stub, disposeHandler: false)
@@ -158,12 +188,15 @@ internal sealed class AdminAuthHarness : IDisposable
             services.AddSingleton<TimeProvider>(Clock);
             services.RemoveAll<IAdminTokenStore>();
             services.AddSingleton<IAdminTokenStore>(Store);
+
+            if (remoteIpAddress is not null)
+                services.AddSingleton<IStartupFilter>(new RemoteIpStartupFilter(remoteIpAddress));
         });
 
         _client = Factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             AllowAutoRedirect = false,
-            BaseAddress = new Uri("https://localhost"),
+            BaseAddress = new Uri(baseAddress),
         });
     }
 
@@ -175,7 +208,71 @@ internal sealed class AdminAuthHarness : IDisposable
 
     public ManualTimeProvider Clock { get; }
 
+    public HttpClient Client => _client;
+
     public async Task<SignInResponse> SignInAsync(string? returnUrl = null)
+    {
+        var (challengeStatus, authorizeUrl, state) = await StartChallengeAsync(returnUrl);
+
+        using var callback = await _client.GetAsync(
+            $"{AdminAuth.CallbackPath}?code=test-code&state={Uri.EscapeDataString(state)}");
+        return BuildResponse(challengeStatus, authorizeUrl, callback);
+    }
+
+    public async Task<SignInResponse> AccessDeniedAsync(string? returnUrl = null)
+    {
+        var (challengeStatus, authorizeUrl, state) = await StartChallengeAsync(returnUrl);
+
+        using var callback = await _client.GetAsync(
+            $"{AdminAuth.CallbackPath}?error=access_denied&state={Uri.EscapeDataString(state)}");
+        return BuildResponse(challengeStatus, authorizeUrl, callback);
+    }
+
+    public Task<HttpResponseMessage> GetAsync(string path) => _client.GetAsync(path);
+
+    /// <summary>
+    /// Creates an antiforgery token bound to the signed-in principal and returns
+    /// the cookie and form field needed by a real logout form post.
+    /// </summary>
+    public AntiforgeryRequestToken GetAntiforgeryToken(string authCookieValue)
+    {
+        var ticket = GetCookieOptions(this).TicketDataFormat.Unprotect(authCookieValue)
+            ?? throw new InvalidOperationException("The admin cookie could not be decrypted.");
+
+        using var scope = Factory.Services.CreateScope();
+        var context = new DefaultHttpContext
+        {
+            RequestServices = scope.ServiceProvider,
+            User = ticket.Principal,
+        };
+        context.Request.Scheme = "https";
+        context.Request.Host = new HostString("localhost");
+
+        var tokens = scope.ServiceProvider.GetRequiredService<IAntiforgery>()
+            .GetAndStoreTokens(context);
+        var setCookie = context.Response.Headers.SetCookie.ToString();
+        var cookie = setCookie.Split(';', 2)[0];
+
+        return new AntiforgeryRequestToken(tokens.FormFieldName, tokens.RequestToken!, cookie);
+    }
+
+    public HttpClient CreateRequestClient(string baseAddress = "https://localhost") =>
+        Factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+            HandleCookies = false,
+            BaseAddress = new Uri(baseAddress),
+        });
+
+    public void Dispose()
+    {
+        _client.Dispose();
+        _twitchBackchannel.Dispose();
+        Factory.Dispose();
+    }
+
+    private async Task<(HttpStatusCode Status, string AuthorizeUrl, string State)> StartChallengeAsync(
+        string? returnUrl)
     {
         var loginPath = returnUrl is null
             ? AdminAuth.LoginPath
@@ -186,8 +283,12 @@ internal sealed class AdminAuthHarness : IDisposable
             ?? throw new InvalidOperationException("The login endpoint did not challenge.");
         var state = QueryHelpers.ParseQuery(new Uri(authorizeUrl).Query)["state"].ToString();
 
-        using var callback = await _client.GetAsync(
-            $"{AdminAuth.CallbackPath}?code=test-code&state={Uri.EscapeDataString(state)}");
+        return (challenge.StatusCode, authorizeUrl, state);
+    }
+
+    private static SignInResponse BuildResponse(
+        HttpStatusCode challengeStatus, string authorizeUrl, HttpResponseMessage callback)
+    {
         var setCookies = callback.Headers.TryGetValues("Set-Cookie", out var values)
             ? values.ToArray()
             : [];
@@ -195,7 +296,7 @@ internal sealed class AdminAuthHarness : IDisposable
             cookie => cookie.StartsWith($"{AdminAuth.CookieScheme}=", StringComparison.Ordinal));
 
         return new SignInResponse(
-            challenge.StatusCode,
+            challengeStatus,
             authorizeUrl,
             callback.StatusCode,
             callback.Headers.Location?.ToString(),
@@ -203,12 +304,66 @@ internal sealed class AdminAuthHarness : IDisposable
             authCookie);
     }
 
-    public Task<HttpResponseMessage> GetAsync(string path) => _client.GetAsync(path);
+    private static CookieAuthenticationOptions GetCookieOptions(AdminAuthHarness harness) =>
+        harness.Factory.Services
+            .GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>()
+            .Get(AdminAuth.CookieScheme);
+}
 
-    public void Dispose()
+internal sealed record AntiforgeryRequestToken(
+    string FormFieldName, string RequestToken, string Cookie);
+
+internal static class AdminAuthTestSettings
+{
+    public static Dictionary<string, string?> Allowlist(params string[] logins)
     {
-        _client.Dispose();
-        _twitchBackchannel.Dispose();
-        Factory.Dispose();
+        var settings = new Dictionary<string, string?>();
+        for (var index = 0; index < logins.Length; index++)
+            settings[$"{AuthOptions.SectionName}:AllowedTwitchLogins:{index}"] = logins[index];
+        return settings;
     }
+
+    public static Dictionary<string, string?> TrustedProxies(params string[] proxies)
+    {
+        var settings = new Dictionary<string, string?>();
+        for (var index = 0; index < proxies.Length; index++)
+        {
+            settings[
+                $"{ForwardedHeadersSettings.SectionName}:{nameof(ForwardedHeadersSettings.KnownProxies)}:{index}"] =
+                proxies[index];
+        }
+
+        return settings;
+    }
+
+    public static Dictionary<string, string?> TrustedNetworks(params string[] networks)
+    {
+        var settings = new Dictionary<string, string?>();
+        for (var index = 0; index < networks.Length; index++)
+        {
+            settings[
+                $"{ForwardedHeadersSettings.SectionName}:{nameof(ForwardedHeadersSettings.KnownNetworks)}:{index}"] =
+                networks[index];
+        }
+
+        return settings;
+    }
+}
+
+/// <summary>
+/// Makes the test connection look like it came from a specific address so the
+/// forwarded-header trust rules can be exercised without changing the app.
+/// </summary>
+internal sealed class RemoteIpStartupFilter(IPAddress address) : IStartupFilter
+{
+    public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) =>
+        app =>
+        {
+            app.Use((context, nextMiddleware) =>
+            {
+                context.Connection.RemoteIpAddress = address;
+                return nextMiddleware(context);
+            });
+            next(app);
+        };
 }

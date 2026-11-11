@@ -28,6 +28,8 @@ builder.Services.AddOptions<AuthOptions>()
         $"{AuthOptions.SectionName}:{nameof(AuthOptions.AllowedTwitchLogins)} contains an invalid Twitch login.")
     .ValidateOnStart();
 
+builder.Services.AddStreamKeeprForwardedHeaders();
+
 builder.Services.AddSingleton(TimeProvider.System);
 
 // Keys live on the recordings volume and are ready before auth or token storage runs.
@@ -56,6 +58,10 @@ app.Lifetime.ApplicationStarted.Register(() =>
     }
 });
 
+// Must precede authentication and antiforgery so the callback and cookies use
+// the public origin. No trusted proxy configured means no forwarded headers.
+app.UseStreamKeeprForwardedHeaders();
+
 if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
 
@@ -69,7 +75,8 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-app.MapGet(AdminAuth.LoginPath, (string? returnUrl) => AdminAuth.ChallengeLogin(returnUrl));
+app.MapGet(AdminAuth.LoginPath, AdminAuth.HandleLogin);
+app.MapPost(AdminAuth.LogoutPath, AdminAuth.HandleLogoutAsync);
 
 await app.RunAsync();
 
