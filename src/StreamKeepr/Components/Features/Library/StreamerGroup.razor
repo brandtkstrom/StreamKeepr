@@ -1,0 +1,121 @@
+@using StreamKeepr.Ui
+
+@* One streamer group: avatar, live ring, count/state, chevron, and day-grouped rows. *@
+<section class="sk-group" role="group" aria-expanded="@(Expanded ? "true" : "false")">
+    <button type="button"
+            class="sk-group-head"
+            role="treeitem"
+            aria-level="1"
+            aria-expanded="@(Expanded ? "true" : "false")"
+            aria-controls="@BodyId"
+            title="@Streamer.Login"
+            @onclick="OnToggle">
+        <Avatar Name="@Streamer.DisplayName"
+                ImageUrl="@Streamer.AvatarUrl"
+                Recording="@Streamer.IsRecording"
+                Large="true" />
+        <span class="who">
+            <span class="name">@Streamer.DisplayName</span>
+            <span class="meta">@Meta</span>
+        </span>
+        <span class="chev" aria-hidden="true"><Icon Name="expand_more" /></span>
+    </button>
+
+    <div id="@BodyId" class="sk-group-body" role="group">
+        <div>
+            @{
+                DateTimeOffset? previousDay = null;
+            }
+            @foreach (RecordingView recording in Recordings)
+            {
+                DateTimeOffset local = TimeZoneInfo.ConvertTime(recording.StartedAt, TimeZone);
+                if (previousDay?.Date != local.Date)
+                {
+                    previousDay = local;
+                    <div class="sk-day" role="none">@Format.DayHeader(recording.StartedAt, Now, TimeZone)</div>
+                }
+
+                <RecordingRow @key="recording.Id"
+                              Recording="recording"
+                              Selected="@string.Equals(recording.Id, SelectedId, StringComparison.Ordinal)"
+                              TimeZone="TimeZone" />
+            }
+        </div>
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public StreamerView Streamer { get; set; } = null!;
+
+    [Parameter] public IReadOnlyList<RecordingView> Recordings { get; set; } = [];
+
+    [Parameter] public bool Expanded { get; set; }
+
+    [Parameter] public string? SelectedId { get; set; }
+
+    [Parameter] public TimeZoneInfo TimeZone { get; set; } = TimeZoneInfo.Utc;
+
+    [Parameter] public DateTimeOffset Now { get; set; }
+
+    [Parameter] public EventCallback OnToggle { get; set; }
+
+    private StreamerView? _lastStreamer;
+    private IReadOnlyList<RecordingView> _lastRecordings = [];
+    private bool _lastExpanded;
+    private string? _lastSelectedId;
+    private string? _lastTimeZoneId;
+    private DateTime _lastDay;
+
+    private string BodyId => $"sk-group-{Streamer.Login}";
+
+    private string Meta =>
+        $"{Streamer.RecordingCount} recordings · {StateText}";
+
+    private string StateText
+    {
+        get
+        {
+            if (Streamer.IsRecording)
+                return "Recording now";
+
+            foreach (RecordingView recording in Recordings)
+            {
+                if (recording.State == RecordingState.Reconnecting)
+                    return "Reconnecting";
+            }
+
+            return "last capture";
+        }
+    }
+
+    protected override bool ShouldRender()
+    {
+        bool sameRecordings = _lastRecordings.Count == Recordings.Count;
+        if (sameRecordings)
+        {
+            for (int index = 0; index < Recordings.Count; index++)
+            {
+                if (!ReferenceEquals(_lastRecordings[index], Recordings[index]))
+                {
+                    sameRecordings = false;
+                    break;
+                }
+            }
+        }
+
+        bool changed = !ReferenceEquals(_lastStreamer, Streamer) ||
+            !sameRecordings ||
+            _lastExpanded != Expanded ||
+            _lastSelectedId != SelectedId ||
+            _lastTimeZoneId != TimeZone.Id ||
+            _lastDay != Now.Date;
+
+        _lastStreamer = Streamer;
+        _lastRecordings = Recordings;
+        _lastExpanded = Expanded;
+        _lastSelectedId = SelectedId;
+        _lastTimeZoneId = TimeZone.Id;
+        _lastDay = Now.Date;
+        return changed;
+    }
+}

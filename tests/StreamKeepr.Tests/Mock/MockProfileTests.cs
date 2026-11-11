@@ -135,6 +135,28 @@ public sealed class MockTwitchTests
     }
 }
 
+public sealed class MockDiskSpaceTests
+{
+    [Fact]
+    public void Advances_by_two_percent_and_stops_at_five_percent_free()
+    {
+        var disk = new MockDiskSpace();
+
+        Assert.Equal(MockDiskSpace.TotalBytes, disk.AvailableFreeSpace(Path.GetTempPath()));
+
+        disk.Advance();
+        Assert.Equal(
+            MockDiskSpace.TotalBytes - MockDiskSpace.TotalBytes / 50,
+            disk.AvailableFreeSpace(Path.GetTempPath()));
+
+        for (int index = 0; index < 100; index++)
+            disk.Advance();
+
+        Assert.Equal(MockDiskSpace.TotalBytes / 20, disk.AvailableFreeSpace(Path.GetTempPath()));
+        Assert.Equal(MockDiskSpace.TotalBytes, disk.TotalSize(Path.GetTempPath()));
+    }
+}
+
 public sealed class MockEventSubClientTests
 {
     [Fact]
@@ -168,6 +190,107 @@ public sealed class MockEventSubClientTests
 
         await cts.CancelAsync();
         await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+}
+
+public sealed class MockLiveFeedTests : IDisposable
+{
+    private readonly string _root = Path.Combine(
+        Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
+
+    [Fact]
+    public async Task Produces_start_end_delete_and_storage_changes()
+    {
+        var clock = new FakeTimeProvider(MockCatalog.T0);
+        var storageOptions = Options.Create(new StorageOptions
+        {
+            RecordingsRoot = _root,
+            MinFreeGb = 1,
+        });
+        var recorder = Options.Create(new RecorderOptions { SegmentSeconds = 2 });
+        var library = new RecordingLibrary(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<RecordingLibrary>.Instance);
+        var sessions = new SessionStore(
+            recorder,
+            library,
+            clock,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<SessionStore>.Instance);
+        var twitch = new MockTwitch();
+        var disk = new MockDiskSpace();
+        using var storage = new StorageMonitor(
+            new DiskGuard(storageOptions, disk),
+            library,
+            clock,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<StorageMonitor>.Instance);
+        var options = Options.Create(new MockLiveFeedOptions
+        {
+            TickSeconds = 1,
+            StartSeconds = 1,
+            EndSeconds = 2,
+            DeleteSeconds = 3,
+        });
+
+        MockRecording deleted = MockCatalog.Recordings
+            .Where(recording => recording.Complete && recording.Channel == "mock_echo")
+            .OrderBy(recording => recording.StartedAt)
+            .First();
+        string deletedDirectory = MockCatalog.SessionFor(deleted, _root).Directory;
+        Directory.CreateDirectory(deletedDirectory);
+        await File.WriteAllTextAsync(Path.Combine(deletedDirectory, "keep.txt"), "x");
+
+        int storageChanges = 0;
+        storage.Changed += () => storageChanges++;
+
+        using var feed = new MockLiveFeed(
+            twitch,
+            disk,
+            library,
+            sessions,
+            storage,
+            storageOptions,
+            options,
+            clock,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<MockLiveFeed>.Instance);
+
+        using var cts = new CancellationTokenSource();
+        await feed.StartAsync(cts.Token);
+
+        // Let the background loop reach its first fake-clock delay before advancing it.
+        await Task.Delay(TimeSpan.FromMilliseconds(50));
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await WaitUntilAsync(() => twitch.Observe("mock_echo") is StreamObservation.Live);
+        Assert.True(disk.AvailableFreeSpace(_root) < MockDiskSpace.TotalBytes);
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await WaitUntilAsync(() => twitch.Observe("mock_echo") is StreamObservation.Offline);
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await WaitUntilAsync(() => !Directory.Exists(deletedDirectory));
+
+        Assert.True(storageChanges > 0);
+        Assert.Null(library.Find(MockCatalog.SessionFor(deleted, _root).Id));
+
+        await feed.StopAsync(CancellationToken.None);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+
+        while (!condition())
+        {
+            if (DateTimeOffset.UtcNow > deadline)
+                throw new TimeoutException("The Mock live feed did not reach the expected state.");
+
+            await Task.Delay(TimeSpan.FromMilliseconds(20));
+        }
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_root))
+            Directory.Delete(_root, recursive: true);
     }
 }
 

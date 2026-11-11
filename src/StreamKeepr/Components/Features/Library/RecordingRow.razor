@@ -1,0 +1,102 @@
+@using System.Globalization
+@using StreamKeepr.Ui
+
+@* One library row. It is a real link so selection and deep links work without the circuit. *@
+<a class="sk-row"
+   href="@Href"
+   role="treeitem"
+   aria-level="2"
+   aria-current="@(Selected ? "true" : null)"
+   data-recording-id="@Recording.Id"
+   data-state="@StateName">
+    <span class="sk-thumb @(IsRecording ? "live" : null)">
+        <Icon Name="movie" />
+        <span class="dur">@Format.Timecode(Recording.DurationSec)</span>
+        @if (Recording.ResumeSec is double resume)
+        {
+            <span class="prog" aria-hidden="true"><i style="width:@Progress(resume)"></i></span>
+        }
+        else if (IsRecording)
+        {
+            <span class="prog" aria-hidden="true"><i style="width:100%"></i></span>
+        }
+    </span>
+    <span class="sk-row-text">
+        <span class="sk-row-title">@Recording.Title</span>
+        <span class="sk-row-meta">@Meta</span>
+        @if (Status is StatusChipKind status)
+        {
+            <StatusChip Status="status" />
+        }
+    </span>
+</a>
+
+@code {
+    [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
+
+    [Parameter] public bool Selected { get; set; }
+
+    [Parameter] public TimeZoneInfo TimeZone { get; set; } = TimeZoneInfo.Utc;
+
+    private RecordingView? _lastRecording;
+    private bool _lastSelected;
+    private string? _lastTimeZoneId;
+
+    private string Href => $"/r/{Recording.Id}";
+
+    private bool IsRecording => Recording.State == RecordingState.Recording;
+
+    private StatusChipKind? Status => Recording.State switch
+    {
+        RecordingState.Recording => StatusChipKind.Rec,
+        RecordingState.Reconnecting => StatusChipKind.Reconnecting,
+        RecordingState.Partial => StatusChipKind.Partial,
+        _ => null,
+    };
+
+    private string StateName => Recording.State switch
+    {
+        RecordingState.Recording => "rec",
+        RecordingState.Reconnecting => "reconnecting",
+        RecordingState.Partial => "partial",
+        _ => "saved",
+    };
+
+    private string Meta
+    {
+        get
+        {
+            string time = TimeZoneInfo.ConvertTime(Recording.StartedAt, TimeZone)
+                .ToString("h:mm tt", CultureInfo.InvariantCulture);
+            string duration = Format.Duration(Recording.DurationSec);
+
+            return Recording.State switch
+            {
+                RecordingState.Recording => $"Started {time} · {duration} so far",
+                RecordingState.Partial => $"{time} · {duration} · gaps in capture",
+                _ => $"{time} · {duration}",
+            };
+        }
+    }
+
+    private string Progress(double resumeSec)
+    {
+        double percent = Recording.DurationSec > 0
+            ? Math.Clamp(resumeSec / Recording.DurationSec * 100, 0, 100)
+            : 0;
+
+        return percent.ToString("0.#", CultureInfo.InvariantCulture) + "%";
+    }
+
+    protected override bool ShouldRender()
+    {
+        bool changed = !ReferenceEquals(_lastRecording, Recording) ||
+            _lastSelected != Selected ||
+            _lastTimeZoneId != TimeZone.Id;
+
+        _lastRecording = Recording;
+        _lastSelected = Selected;
+        _lastTimeZoneId = TimeZone.Id;
+        return changed;
+    }
+}

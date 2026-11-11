@@ -1,7 +1,16 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject ILibraryView Library
 
-<AppShell>
-    @Body
+<AppShell RecordingActive="@_recordingActive"
+          FreeBytes="@_storage.FreeBytes"
+          TotalBytes="@_storage.TotalBytes">
+    <Drawer>
+        <LibraryDrawer />
+    </Drawer>
+    <ChildContent>
+        @Body
+    </ChildContent>
 </AppShell>
 
 <div id="blazor-error-ui" role="alert" aria-label="Application error" data-nosnippet>
@@ -9,3 +18,29 @@
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+@code {
+    private bool _recordingActive;
+    private StorageView _storage = new(0, 0);
+
+    protected override void OnInitialized()
+    {
+        Library.Changed += OnLibraryChanged;
+        Refresh();
+    }
+
+    private void Refresh()
+    {
+        _storage = Library.Storage;
+        _recordingActive = Library.Streamers(new LibraryQuery())
+            .Any(streamer => streamer.IsRecording);
+    }
+
+    private void OnLibraryChanged() => _ = InvokeAsync(() =>
+    {
+        Refresh();
+        StateHasChanged();
+    });
+
+    public void Dispose() => Library.Changed -= OnLibraryChanged;
+}

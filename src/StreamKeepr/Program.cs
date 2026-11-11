@@ -63,6 +63,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<RecordingLibrary>();
 builder.Services.AddSingleton<IDiskSpace, DriveInfoDiskSpace>();
 builder.Services.AddSingleton<DiskGuard>();
+builder.Services.AddSingleton<IStorageMonitor, StorageMonitor>();
 builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddSingleton<ChannelStore>();
 builder.Services.AddSingleton<RecoveryService>();
@@ -81,6 +82,14 @@ if (mock)
     builder.Services.AddSingleton<MockTwitch>();
     builder.Services.AddSingleton<IStreamPoller, MockStreamPoller>();
     builder.Services.AddSingleton<IEventSubClient, MockEventSubClient>();
+
+    // The mock volume makes the 1 % storage threshold observable in local/E2E runs.
+    builder.Services.AddSingleton<MockDiskSpace>();
+    builder.Services.AddSingleton<IDiskSpace>(services =>
+        services.GetRequiredService<MockDiskSpace>());
+    builder.Services.AddOptions<MockLiveFeedOptions>()
+        .BindConfiguration(MockLiveFeedOptions.SectionName)
+        .ValidateOnStart();
 }
 else
 {
@@ -99,7 +108,10 @@ builder.Services.AddSingleton<IChannelControl>(
 builder.Services.AddHostedService<ToolPreflight>();
 
 if (mock)
+{
     builder.Services.AddHostedService<MockSeeder>();
+    builder.Services.AddHostedService<MockLiveFeed>();
+}
 
 // Keys live on the recordings volume and are ready before auth or token storage runs.
 builder.Services.AddStreamKeeprDataProtection();
@@ -130,6 +142,8 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IClientStateStore, ClientStateStore>();
 builder.Services.AddScoped<UiPreferences>();
 builder.Services.AddScoped<ViewerClock>();
+builder.Services.AddScoped<LibraryView>();
+builder.Services.AddScoped<ILibraryView>(services => services.GetRequiredService<LibraryView>());
 builder.Services.AddScoped<SnackbarService>();
 
 builder.Services.AddRazorComponents()
