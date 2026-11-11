@@ -10,6 +10,8 @@ public sealed class RecorderOptions
 
     [Required] public string FfmpegPath { get; set; } = "ffmpeg";
 
+    [Required] public string FfprobePath { get; set; } = "ffprobe";
+
     [Required] public string Quality { get; set; } = "best";
 
     // Optional: subscriber-only streams.

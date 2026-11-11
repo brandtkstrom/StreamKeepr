@@ -6,10 +6,33 @@ namespace StreamKeepr.Hosting;
 /// </summary>
 internal static class OwnerOnlyFileSystem
 {
+    private const string WriteProbeFileName = ".write-probe";
+
     private const UnixFileMode DirectoryMode =
         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
 
     private const UnixFileMode OwnerOnlyFileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
+    /// <summary>
+    /// Creates the recordings root and proves it accepts writes. Throws an
+    /// actionable error when the volume is not writable by the app user.
+    /// </summary>
+    public static void EnsureWritableRecordingsRoot(string recordingsRoot)
+    {
+        try
+        {
+            Directory.CreateDirectory(recordingsRoot);
+            WriteProbe(recordingsRoot, ownerOnly: false);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            throw new InvalidOperationException(
+                $"The recordings root '{recordingsRoot}' is not writable. " +
+                "Ensure the recordings volume is owned by the app user (UID 1654 in the container; " +
+                "chown -R 1654:1654 <recordings>) or use a Docker named volume.",
+                ex);
+        }
+    }
 
     /// <summary>
     /// Creates the key directory (and its parent app-data directory), proves it is
@@ -24,26 +47,7 @@ internal static class OwnerOnlyFileSystem
             SetOwnerOnlyDirectory(Path.GetDirectoryName(keyDirectory)!);
             SetOwnerOnlyDirectory(keyDirectory);
             EnforceOwnerOnlyKeyFiles(keyDirectory);
-
-            var probePath = Path.Combine(keyDirectory, $".write-probe-{Guid.NewGuid():N}");
-            var options = new FileStreamOptions
-            {
-                Mode = FileMode.CreateNew,
-                Access = FileAccess.Write,
-                Share = FileShare.None,
-            };
-            if (!OperatingSystem.IsWindows())
-                options.UnixCreateMode = OwnerOnlyFileMode;
-
-            try
-            {
-                using var probe = new FileStream(probePath, options);
-                probe.WriteByte(0);
-            }
-            finally
-            {
-                File.Delete(probePath);
-            }
+            WriteProbe(keyDirectory, ownerOnly: true);
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
@@ -122,6 +126,29 @@ internal static class OwnerOnlyFileSystem
             {
                 // Another actor removed the key between enumeration and the mode change.
             }
+        }
+    }
+
+    private static void WriteProbe(string directory, bool ownerOnly)
+    {
+        string probePath = Path.Combine(directory, $"{WriteProbeFileName}-{Guid.NewGuid():N}");
+        var options = new FileStreamOptions
+        {
+            Mode = FileMode.CreateNew,
+            Access = FileAccess.Write,
+            Share = FileShare.None,
+        };
+        if (ownerOnly && !OperatingSystem.IsWindows())
+            options.UnixCreateMode = OwnerOnlyFileMode;
+
+        try
+        {
+            using var probe = new FileStream(probePath, options);
+            probe.WriteByte(0);
+        }
+        finally
+        {
+            File.Delete(probePath);
         }
     }
 

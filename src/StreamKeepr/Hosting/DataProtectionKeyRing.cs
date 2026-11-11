@@ -31,15 +31,22 @@ public static class DataProtectionKeyRing
             var recordingsRoot = serviceProvider.GetRequiredService<IOptions<StorageOptions>>()
                 .Value.RecordingsRoot;
             var keyDirectory = AppDataPaths.KeysDirectory(recordingsRoot);
-            OwnerOnlyFileSystem.EnsureWritableKeyDirectory(keyDirectory);
-
             var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
-            var repository = new FileSystemXmlRepository(new DirectoryInfo(keyDirectory), loggerFactory);
-            return new ConfigureOptions<KeyManagementOptions>(options =>
-                options.XmlRepository = new OwnerOnlyXmlRepository(
-                    repository,
+
+            // Data Protection is resolved while the request pipeline is built, which
+            // happens before hosted services start. Defer the directory probe so
+            // ToolPreflight always reports an unwritable volume first.
+            var repository = new Lazy<IDeletableXmlRepository>(() =>
+            {
+                OwnerOnlyFileSystem.EnsureWritableKeyDirectory(keyDirectory);
+                return new OwnerOnlyXmlRepository(
+                    new FileSystemXmlRepository(new DirectoryInfo(keyDirectory), loggerFactory),
                     keyDirectory,
-                    loggerFactory.CreateLogger<OwnerOnlyXmlRepository>()));
+                    loggerFactory.CreateLogger<OwnerOnlyXmlRepository>());
+            });
+
+            return new ConfigureOptions<KeyManagementOptions>(options =>
+                options.XmlRepository = new LazyXmlRepository(repository));
         });
 
         services.AddHostedService<DataProtectionKeyRingStartupCheck>();

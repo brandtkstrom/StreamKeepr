@@ -1,10 +1,10 @@
 #!/bin/sh
-# Answers --version so a tool preflight passes, then fails every recording with a clear message.
-# Recorder tests use it to prove that a broken Streamlink surfaces in RecorderExited.Detail.
+# Answers --version so startup preflight passes, then fails every recording with a clear error.
+# Recorder tests use it to prove a broken Streamlink surfaces in RecorderExited.Detail.
 set -eu
 
 if [ "${1:-}" = "--version" ]; then
-    echo "streamlink 0.0.0-fake"
+    echo "streamlink 0.0.0-broken"
     exit 0
 fi
 
