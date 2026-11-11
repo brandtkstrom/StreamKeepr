@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Components;
 using StreamKeepr.Configuration;
@@ -76,6 +78,11 @@ builder.Services.AddStreamKeeprDataProtection();
 // The supervisor starts only after preflight and the key-ring check have succeeded.
 builder.Services.AddHostedService(services => services.GetRequiredService<DvrSupervisor>());
 
+builder.Services.AddHealthChecks()
+    .AddCheck<DvrHealthCheck>("dvr", tags: ["live", "ready"])
+    .AddCheck<DiskSpaceHealthCheck>("disk", tags: ["ready"])
+    .AddCheck<LibraryLoadedHealthCheck>("library", tags: ["ready"]);
+
 builder.Services.AddHttpClient(TwitchHttpClients.Auth, client =>
     client.BaseAddress = new Uri("https://id.twitch.tv/"));
 builder.Services.AddHttpClient(TwitchHttpClients.Helix, client =>
@@ -146,6 +153,15 @@ app.MapMethods(
     LiveIndexEndpoint.Route,
     [HttpMethods.Get, HttpMethods.Head],
     LiveIndexEndpoint.HandleAsync);
+
+app.MapHealthChecks("/health/live", new HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("live"),
+});
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("ready"),
+});
 
 await app.RunAsync();
 

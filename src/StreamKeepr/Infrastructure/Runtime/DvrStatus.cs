@@ -24,6 +24,8 @@ public sealed class DvrStatus
 {
     private readonly object _gate = new();
     private readonly Dictionary<string, DvrSnapshot> _channels = new(StringComparer.Ordinal);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset>
+        _jobStarted = new(StringComparer.Ordinal);
 
     /// <summary>Raised on every apply, progress update, failure, and removal.</summary>
     public event Action? Changed;
@@ -56,6 +58,13 @@ public sealed class DvrStatus
 
             JobId? active = next is DvrState.Recording recording ? recording.Job : null;
             bool jobChanged = active != current.ActiveJob;
+            if (jobChanged)
+            {
+                if (active is not null)
+                    _jobStarted[channel] = at;
+                else
+                    _jobStarted.TryRemove(channel, out _);
+            }
             string? lastDetail = current.LastDetail;
             string? lastError = current.LastError;
 
@@ -128,6 +137,10 @@ public sealed class DvrStatus
         Changed?.Invoke();
     }
 
+    /// <summary>When the active recorder part started, used for stall detection.</summary>
+    public DateTimeOffset? JobStartedAt(string channel) =>
+        _jobStarted.TryGetValue(channel, out DateTimeOffset started) ? started : null;
+
     /// <summary>Drops a removed channel's snapshot and raises <see cref="Changed"/>.</summary>
     public void Remove(string channel)
     {
@@ -136,6 +149,7 @@ public sealed class DvrStatus
         bool removed;
         lock (_gate)
             removed = _channels.Remove(channel);
+        _jobStarted.TryRemove(channel, out _);
 
         if (removed)
             Changed?.Invoke();
