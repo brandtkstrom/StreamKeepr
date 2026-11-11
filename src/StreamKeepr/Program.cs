@@ -52,6 +52,8 @@ if (!app.Environment.IsDevelopment())
 
 app.UseAntiforgery();
 
+app.UseRecordingsMedia();
+
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
