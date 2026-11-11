@@ -94,7 +94,8 @@ public sealed class SettingsPageTests
     [Theory]
     [InlineData("unknown", "No Twitch channel is named “mock_wren”.")]
     [InlineData("invalid", "That is not a valid Twitch login.")]
-    [InlineData("duplicate", "“mock_wren” is already watched.")]
+    [InlineData("duplicate", "Channel 'mock_wren' is already watched.")]
+    [InlineData("unexpected", "Could not reach Twitch. Try again.")]
     [InlineData("network", "Could not reach Twitch. Try again.")]
     [InlineData("session", "Your Twitch session ended. Reconnect to manage channels.")]
     public void Add_failures_show_an_inline_error_and_keep_the_input(string failure, string message)
@@ -104,7 +105,8 @@ public sealed class SettingsPageTests
         {
             "unknown" => new UnknownChannelException(login),
             "invalid" => new ArgumentException("bad"),
-            "duplicate" => new InvalidOperationException("dup"),
+            "duplicate" => new InvalidOperationException($"Channel '{login}' is already watched."),
+            "unexpected" => new FormatException("odd"),
             "network" => new HttpRequestException("down"),
             _ => new UnauthorizedAccessException(),
         });

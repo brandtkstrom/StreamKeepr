@@ -147,6 +147,20 @@ public sealed class ExportServiceTests : IAsyncLifetime
         Assert.False(_leases.IsLeased("gone"));
     }
 
+    [Fact]
+    public async Task A_failed_job_does_not_block_the_next_one()
+    {
+        // A channel that resolves outside the recordings root fails before FFmpeg runs.
+        _library.Upsert(Summary("..") with { Channel = ".." });
+        await SeedAsync("r2", "Next");
+
+        ExportJob broken = _service.Start("..", Admin, CancellationToken.None);
+        ExportJob next = _service.Start("r2", Admin, CancellationToken.None);
+
+        await WaitForAsync(broken.Id, ExportState.Failed);
+        await WaitForAsync(next.Id, ExportState.Succeeded);
+    }
+
     private async Task<ExportJob> WaitForAsync(string id, ExportState state)
     {
         for (int attempt = 0; attempt < 1_200; attempt++)

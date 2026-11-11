@@ -246,6 +246,11 @@
             // The service messages are user-safe; the disabled button is never the only guard.
             Snackbars.Show(ex.Message);
         }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Starting an export for {RecordingId} failed.", Recording.Id);
+            Snackbars.Show("Could not start the export. Try again.");
+        }
         finally
         {
             _starting = false;
@@ -257,7 +262,6 @@
         ExportState.Queued => "Queued — waiting for another export",
         ExportState.Running => "Exporting…",
         ExportState.Succeeded => job.FileName is { } name ? $"MP4 ready · {name}" : "MP4 ready",
-        ExportState.Cancelled => "Export cancelled",
         _ => job.Error ?? "Export failed",
     };
 

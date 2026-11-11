@@ -78,10 +78,10 @@ public sealed class ExportDownloadEndpointTests : IDisposable
             if (signedIn)
             {
                 // Authenticate every request as the admin; the cookie scheme still handles challenges.
-                services.AddAuthentication().AddScheme<AuthenticationSchemeOptions, AdminHandler>(AdminHandler.Scheme, null);
+                services.AddAuthentication().AddScheme<AuthenticationSchemeOptions, AdminHandler>(AdminHandler.SchemeName, null);
                 services.PostConfigure<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions>(
                     StreamKeepr.Infrastructure.Twitch.AdminAuth.CookieScheme,
-                    options => options.ForwardAuthenticate = AdminHandler.Scheme);
+                    options => options.ForwardAuthenticate = AdminHandler.SchemeName);
             }
         });
 
@@ -89,12 +89,12 @@ public sealed class ExportDownloadEndpointTests : IDisposable
         IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
         : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
     {
-        public const string Scheme = "TestAdmin";
+        public const string SchemeName = "TestAdmin";
 
         protected override Task<AuthenticateResult> HandleAuthenticateAsync() =>
             Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(
-                new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "mock_admin")], Scheme)),
-                Scheme)));
+                new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "mock_admin")], SchemeName)),
+                SchemeName)));
     }
 
     private sealed class FakeExports : IExportService

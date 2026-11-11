@@ -101,8 +101,7 @@
 </Dialog>
 
 @code {
-    // Remove waits for an open capture to finalize; the recorder's stop budget is about 30 s.
-    private static readonly TimeSpan RemoveTimeout = TimeSpan.FromSeconds(40);
+    private const string SessionEnded = "Your Twitch session ended. Reconnect to manage channels.";
 
     private readonly HashSet<string> _removing = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _rowErrors = new(StringComparer.Ordinal);
@@ -152,9 +151,10 @@
         {
             _channels = Channels.All;
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
             // The session ended under the page; the shell re-renders the signed-out branch.
+            Logger.LogDebug(ex, "Channel list hidden: the circuit is no longer signed in.");
             _channels = [];
         }
     }
@@ -180,9 +180,9 @@
             Snackbars.Show("Channel added");
             Refresh();
         }
-        catch (Exception ex) when (AddErrorMessage(ex, login) is { } message)
+        catch (Exception ex)
         {
-            _addError = message;
+            _addError = AddErrorMessage(ex, login);
         }
         finally
         {
@@ -192,8 +192,8 @@
         await _input.FocusAsync();
     }
 
-    /// <summary>User-safe text for an add failure; null rethrows anything unexpected.</summary>
-    internal string? AddErrorMessage(Exception ex, string login)
+    /// <summary>User-safe text for an add failure. The control surface's messages are user-safe.</summary>
+    internal string AddErrorMessage(Exception ex, string login)
     {
         switch (ex)
         {
@@ -202,14 +202,12 @@
             case ArgumentException:
                 return "That is not a valid Twitch login.";
             case InvalidOperationException:
-                return $"“{login}” is already watched.";
+                return ex.Message;
             case UnauthorizedAccessException:
-                return "Your Twitch session ended. Reconnect to manage channels.";
-            case HttpRequestException or TaskCanceledException or Infrastructure.Twitch.TwitchApiException:
+                return SessionEnded;
+            default:
                 Logger.LogWarning(ex, "Adding channel {Login} failed.", login);
                 return "Could not reach Twitch. Try again.";
-            default:
-                return null;
         }
     }
 
@@ -237,16 +235,16 @@
         StateHasChanged();
         try
         {
-            using var timeout = new CancellationTokenSource(RemoveTimeout);
-            await Channels.RemoveAsync(channel.Login, timeout.Token);
+            // No client timeout: the recorder's stop budget bounds how long finalizing takes,
+            // and abandoning the wait would report a failure for a removal that still lands.
+            await Channels.RemoveAsync(channel.Login, CancellationToken.None);
             Snackbars.Show("Channel removed");
         }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or OperationCanceledException
-            or InvalidOperationException or IOException)
+        catch (Exception ex)
         {
             Logger.LogWarning(ex, "Removing channel {Login} failed.", channel.Login);
             _rowErrors[channel.Login] = ex is UnauthorizedAccessException
-                ? "Your Twitch session ended. Reconnect to manage channels."
+                ? SessionEnded
                 : $"Could not remove {channel.DisplayName}. Try again.";
         }
         finally

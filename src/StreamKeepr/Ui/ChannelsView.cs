@@ -31,7 +31,7 @@ public interface IChannelsView : IDisposable
     /// <summary>Validates the login through Helix and starts watching it.</summary>
     Task AddAsync(string login, CancellationToken ct);
 
-    /// <summary>Finalizes any open capture and stops watching; recordings are kept.</summary>
+    /// <summary>Finalizes any open session and stops watching; recordings are kept.</summary>
     Task RemoveAsync(string login, CancellationToken ct);
 }
 

@@ -40,58 +40,6 @@ public interface IExportService
     string? FilePath(string exportId);
 }
 
-/// <summary>Leases that keep a recording from being deleted while an export reads it.</summary>
-public interface IExportLeaseRegistry
-{
-    IDisposable Acquire(string recordingId);
-
-    bool IsLeased(string recordingId);
-}
-
-public sealed class ExportLeaseRegistry : IExportLeaseRegistry
-{
-    private readonly Dictionary<string, int> _leases = new(StringComparer.Ordinal);
-    private readonly object _gate = new();
-
-    public IDisposable Acquire(string recordingId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(recordingId);
-        lock (_gate)
-            _leases[recordingId] = _leases.GetValueOrDefault(recordingId) + 1;
-        return new Lease(this, recordingId);
-    }
-
-    public bool IsLeased(string recordingId)
-    {
-        lock (_gate)
-            return _leases.ContainsKey(recordingId);
-    }
-
-    private void Release(string recordingId)
-    {
-        lock (_gate)
-        {
-            if (!_leases.TryGetValue(recordingId, out int count))
-                return;
-            if (count <= 1)
-                _leases.Remove(recordingId);
-            else
-                _leases[recordingId] = count - 1;
-        }
-    }
-
-    private sealed class Lease(ExportLeaseRegistry owner, string recordingId) : IDisposable
-    {
-        private int _released;
-
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _released, 1) == 0)
-                owner.Release(recordingId);
-        }
-    }
-}
-
 /// <summary>
 /// Singleton export queue: one FFmpeg stream copy at a time, FIFO, independent of any circuit.
 /// Each job writes <c>.streamkeepr/exports/{id}.mp4</c> through a temp file and rename, reports
@@ -154,7 +102,7 @@ public sealed class ExportService : BackgroundService, IExportService
         ExportJob job;
         lock (_gate)
         {
-            if (FindByRecordingLocked(recordingId) is { IsActive: true } active)
+            if (LatestLocked(recordingId) is { IsActive: true } active)
                 return active;
 
             job = new ExportJob(Guid.NewGuid().ToString("N"), recordingId, ExportState.Queued, 0, null, null);
@@ -177,8 +125,12 @@ public sealed class ExportService : BackgroundService, IExportService
 
     public ExportJob? FindByRecording(string recordingId)
     {
+        ExportJob? job;
         lock (_gate)
-            return FindByRecordingLocked(recordingId);
+            job = LatestLocked(recordingId);
+
+        // The file check stays outside the lock; a cleaned-up export is no longer current.
+        return job is { State: ExportState.Succeeded } && !File.Exists(FinalPath(job.Id)) ? null : job;
     }
 
     public string? FilePath(string exportId)
@@ -190,13 +142,8 @@ public sealed class ExportService : BackgroundService, IExportService
         return File.Exists(path) ? path : null;
     }
 
-    private ExportJob? FindByRecordingLocked(string recordingId)
-    {
-        if (!_latestByRecording.TryGetValue(recordingId, out string? id) || !_jobs.TryGetValue(id, out ExportJob? job))
-            return null;
-
-        return job.State == ExportState.Succeeded && !File.Exists(FinalPath(job.Id)) ? null : job;
-    }
+    private ExportJob? LatestLocked(string recordingId) =>
+        _latestByRecording.TryGetValue(recordingId, out string? id) ? _jobs.GetValueOrDefault(id) : null;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -269,10 +216,9 @@ public sealed class ExportService : BackgroundService, IExportService
             TryDelete(temp);
             throw;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-            or CliWrap.Exceptions.CommandExecutionException or InvalidOperationException
-            or System.ComponentModel.Win32Exception)
+        catch (Exception ex)
         {
+            // Any failure ends this job, never the worker: the next queued job still runs.
             _logger.LogWarning(ex, "Export {ExportId} failed.", id);
             TryDelete(temp);
             Update(id, current => current with { State = ExportState.Failed, Error = FailedMessage }, immediate: true);
