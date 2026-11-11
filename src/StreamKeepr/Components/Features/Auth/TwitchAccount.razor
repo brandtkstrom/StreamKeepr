@@ -1,0 +1,137 @@
+@using StreamKeepr.Infrastructure.Twitch
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Components.Forms
+@implements IAsyncDisposable
+@inject NavigationManager Navigation
+@inject AdminSessionState Session
+@inject IJSRuntime JS
+@inject ILogger<TwitchAccount> Logger
+
+@* Top-bar Twitch control (details/auth/settings contract §7). Every state is plain markup that
+   works without the circuit: the login link is a full-page navigation and Disconnect posts a
+   real antiforgery form. TwitchAccount.razor.js only adds the brief connecting state. *@
+@if (Session.Expired)
+{
+    <span class="sk-auth-expired" data-auth-state="expired">
+        <span class="sk-status failed" role="status">
+            <span class="sk-icon" aria-hidden="true">warning</span>Twitch session expired
+        </span>
+        <a class="sk-btn text" href="@LoginHref" data-enhance-nav="false">
+            <span class="sk-icon" aria-hidden="true">refresh</span>Reconnect
+        </a>
+    </span>
+}
+else
+{
+    <AuthorizeView>
+        <Authorized>
+            <Menu Label="@($"Twitch account: {DisplayName(context.User)}")"
+                  TriggerClass="sk-auth-chip"
+                  NameTriggerFromContent="true"
+                  data-auth-state="connected">
+                <TriggerContent>
+                    <Avatar Name="@DisplayName(context.User)" Tone="AvatarTone.Tertiary" aria-hidden="true" />
+                    <span class="lbl"><span class="sk-visually-hidden">Twitch account: </span>@DisplayName(context.User)</span>
+                    <span class="sk-auth-dot" aria-hidden="true" title="Connected to Twitch"></span>
+                    <span class="sk-icon sm" aria-hidden="true">expand_more</span>
+                </TriggerContent>
+                <ChildContent>
+                    <MenuItem Icon="manage_accounts" OnClick="ManageAsync">Manage Twitch connection</MenuItem>
+                    <MenuItem Icon="logout" Form="@LogoutFormId">Disconnect</MenuItem>
+                </ChildContent>
+            </Menu>
+            <form id="@LogoutFormId" method="post" action="@AdminAuth.LogoutPath" hidden>
+                <AntiforgeryToken />
+                <input type="hidden" name="returnUrl" value="@ReturnUrl" />
+            </form>
+        </Authorized>
+        <NotAuthorized>
+            <a class="sk-twitch"
+               href="@LoginHref"
+               data-enhance-nav="false"
+               data-twitch-connect
+               data-auth-state="disconnected">
+                <span class="sk-icon" aria-hidden="true">link</span>
+                <span class="lbl">Connect with Twitch</span>
+            </a>
+        </NotAuthorized>
+    </AuthorizeView>
+}
+
+@code {
+    public const string LogoutFormId = "sk-logout";
+
+    private IJSObjectReference? _module;
+    private bool _disposed;
+
+    private string ReturnUrl => AuthLinks.ReturnUrl(Navigation.Uri);
+
+    private string LoginHref => AuthLinks.LoginHref(Navigation.Uri);
+
+    protected override void OnInitialized()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        Session.Changed += OnSessionChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _disposed)
+            return;
+
+        try
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./Components/Features/Auth/TwitchAccount.razor.js");
+            if (_disposed)
+            {
+                await _module.DisposeAsync();
+                return;
+            }
+            await _module.InvokeVoidAsync("init");
+        }
+        catch (JSException ex)
+        {
+            // The link still signs in; only the connecting feedback is lost.
+            Logger.LogDebug(ex, "The Twitch account module could not be initialized.");
+        }
+    }
+
+    internal static string DisplayName(ClaimsPrincipal user) =>
+        user.FindFirst("display_name")?.Value is { Length: > 0 } display
+            ? display
+            : user.Identity?.Name ?? "Twitch";
+
+    private Task ManageAsync()
+    {
+        Navigation.NavigateTo("/settings#twitch");
+        return Task.CompletedTask;
+    }
+
+    // The return URLs follow the current page and query.
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args) =>
+        _ = InvokeAsync(StateHasChanged);
+
+    private void OnSessionChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        Navigation.LocationChanged -= OnLocationChanged;
+        Session.Changed -= OnSessionChanged;
+        if (_module is not null)
+        {
+            try
+            {
+                await _module.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit is gone, so there is no module left to release.
+            }
+        }
+    }
+}

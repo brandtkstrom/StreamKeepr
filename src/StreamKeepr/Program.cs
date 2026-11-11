@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
@@ -144,12 +145,23 @@ builder.Services.AddHttpClient(TwitchHttpClients.Helix, client =>
 builder.Services.AddSingleton<IAdminTokenStore, AdminTokenStore>();
 
 if (mock)
+{
     builder.Services.AddStreamKeeprMockAuth();
+    builder.Services.AddSingleton<IAdminSessionValidator, AlwaysValidAdminSessionValidator>();
+}
 else
+{
     builder.Services.AddStreamKeeprAdminAuth();
+    builder.Services.AddSingleton<IAdminSessionValidator, TwitchAdminSessionValidator>();
+}
 
 builder.Services.AddAuthorization();
 builder.Services.AddCascadingAuthenticationState();
+
+// Re-checks the admin's Twitch token every 30 minutes; on failure the circuit signs out
+// and the top bar shows the expired state while playback continues.
+builder.Services.AddScoped<AdminSessionState>();
+builder.Services.AddScoped<AuthenticationStateProvider, AdminAuthenticationStateProvider>();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IClientStateStore, ClientStateStore>();
@@ -217,8 +229,12 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// Mock uses a fake cookie identity; the Twitch OAuth endpoints do not exist there.
-if (!mock)
+// Mock uses a fake cookie identity with stand-in login/logout endpoints on the same paths.
+if (mock)
+{
+    app.MapStreamKeeprMockAuth();
+}
+else
 {
     app.MapGet(AdminAuth.LoginPath, AdminAuth.HandleLogin);
     app.MapPost(AdminAuth.LogoutPath, AdminAuth.HandleLogoutAsync);
