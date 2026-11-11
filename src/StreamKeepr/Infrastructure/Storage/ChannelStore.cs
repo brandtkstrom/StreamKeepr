@@ -88,19 +88,26 @@ public sealed class ChannelStore(
     }
 
     /// <summary>Adds a channel if absent; adding an existing login is a no-op.</summary>
-    public async Task<ChannelEntry> AddAsync(string login, CancellationToken ct)
+    public Task<ChannelEntry> AddAsync(string login, CancellationToken ct) =>
+        AddAsync(new ChannelEntry(Normalize(login)), ct);
+
+    /// <summary>Adds a channel with its resolved profile if absent.</summary>
+    public async Task<ChannelEntry> AddAsync(ChannelEntry entry, CancellationToken ct)
     {
-        login = Normalize(login);
+        string login = Normalize(entry.Login);
         if (!IsValid(login))
             throw new ArgumentException($"'{login}' is not a valid Twitch login.", nameof(login));
+        if (!IsValidUserId(entry.UserId))
+            throw new ArgumentException("A Twitch user ID must be numeric.", nameof(entry));
 
+        entry = entry with { Login = login };
         IReadOnlyList<ChannelEntry> snapshot = await UpdateAsync(
             list => list.Any(existing => existing.Login == login)
                 ? list
-                : [.. list, new ChannelEntry(login)],
+                : [.. list, entry],
             ct);
 
-        return snapshot.First(entry => entry.Login == login);
+        return snapshot.First(existing => existing.Login == login);
     }
 
     public Task RemoveAsync(string login, CancellationToken ct)

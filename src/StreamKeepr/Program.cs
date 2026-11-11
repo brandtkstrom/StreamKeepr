@@ -60,6 +60,8 @@ builder.Services.AddSingleton<DvrStatus>();
 builder.Services.AddSingleton<ChannelCoordinatorFactory>();
 builder.Services.AddSingleton<IStreamPoller, UnconfiguredStreamPoller>();
 builder.Services.AddSingleton<DvrSupervisor>();
+builder.Services.AddSingleton<IChannelControl>(
+    services => services.GetRequiredService<DvrSupervisor>());
 
 // Hosted services start in registration order, so preflight runs before Data
 // Protection, the supervisor, and any channel or recording service.

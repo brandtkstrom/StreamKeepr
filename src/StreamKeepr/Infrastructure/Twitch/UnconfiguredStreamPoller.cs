@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using StreamKeepr.Domain;
 
 namespace StreamKeepr.Infrastructure.Twitch;
 
@@ -12,7 +13,7 @@ public sealed class UnconfiguredStreamPoller(ILogger<UnconfiguredStreamPoller> l
     private int _warned;
 
     public async Task RunAsync(
-        IReadOnlyList<string> logins,
+        Func<IReadOnlyList<string>> logins,
         StreamObservationRoute route,
         CancellationToken ct)
     {
@@ -27,5 +28,12 @@ public sealed class UnconfiguredStreamPoller(ILogger<UnconfiguredStreamPoller> l
         }
 
         await Task.Delay(Timeout.Infinite, ct);
+    }
+
+    public Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct) =>
+        Task.FromResult<ChannelProfile?>(null);
+
+    public void Nudge()
+    {
     }
 }

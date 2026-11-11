@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
@@ -7,19 +8,21 @@ namespace StreamKeepr.Infrastructure.Runtime;
 
 /// <summary>
 /// Runtime host: loads the stored channel list, recovers sessions, starts one coordinator per
-/// stored channel, and feeds it from the poller. Channel control lands in a later issue.
+/// stored channel, feeds it from the poller, and serializes channel-control operations.
 /// </summary>
 public sealed class DvrSupervisor(
     IStreamPoller poller,
     RecoveryService recovery,
     ChannelStore channelStore,
+    DvrStatus status,
     ChannelCoordinatorFactory factory,
     IHostApplicationLifetime lifetime,
     TimeProvider clock,
-    ILogger<DvrSupervisor> logger) : BackgroundService
+    ILogger<DvrSupervisor> logger) : BackgroundService, IChannelControl
 {
     private readonly ConcurrentDictionary<string, Running> _running =
         new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _controlGate = new(1, 1);
 
     private IReadOnlyList<ChannelEntry> _channels = [];
     private IReadOnlyDictionary<string, RecoveredChannel> _recovered =
@@ -52,8 +55,10 @@ public sealed class DvrSupervisor(
         foreach (ChannelEntry channel in _channels)
             StartChannel(channel, _recovered.GetValueOrDefault(channel.Login), stoppingToken);
 
-        string[] logins = _channels.Select(channel => channel.Login).ToArray();
-        Task polling = poller.RunAsync(logins, RouteAsync, stoppingToken);
+        Task polling = poller.RunAsync(
+            () => channelStore.Snapshot.Select(channel => channel.Login).ToArray(),
+            RouteAsync,
+            stoppingToken);
         _ = polling.ContinueWith(
             task =>
             {
@@ -84,6 +89,123 @@ public sealed class DvrSupervisor(
             foreach (Running running in _running.Values)
                 running.Cts.Dispose();
         }
+    }
+
+    public async Task AddChannelAsync(string login, CancellationToken ct)
+    {
+        login = NormalizeLogin(login);
+
+        await _controlGate.WaitAsync(ct);
+        try
+        {
+            if (channelStore.Snapshot.Any(channel => channel.Login == login))
+                throw new InvalidOperationException($"Channel '{login}' is already watched.");
+
+            ChannelProfile? profile = await poller.GetUserAsync(login, ct);
+            if (profile is null)
+                throw new UnknownChannelException(login);
+
+            ChannelEntry entry = await channelStore.AddAsync(
+                new ChannelEntry(
+                    login,
+                    UserId: profile.UserId,
+                    DisplayName: profile.DisplayName,
+                    AvatarUrl: profile.AvatarUrl),
+                ct);
+
+            if (!_running.ContainsKey(login))
+                StartChannel(entry, recovered: null, lifetime.ApplicationStopping);
+
+            poller.Nudge();
+        }
+        finally
+        {
+            _controlGate.Release();
+        }
+    }
+
+    public async Task RemoveChannelAsync(string login, CancellationToken ct)
+    {
+        login = NormalizeLogin(login);
+
+        await _controlGate.WaitAsync(ct);
+        try
+        {
+            GetWatched(login);
+            if (_running.TryRemove(login, out Running? running))
+            {
+                await running.Coordinator.PublishAsync(
+                    new DvrEvent.StopRequested(), CancellationToken.None);
+                running.Coordinator.Complete();
+                await running.Loop.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                running.Cts.Dispose();
+            }
+
+            await channelStore.RemoveAsync(login, ct);
+            status.Remove(login);
+            poller.Nudge();
+        }
+        finally
+        {
+            _controlGate.Release();
+        }
+    }
+
+    public async Task StopRecordingAsync(string login, CancellationToken ct)
+    {
+        login = NormalizeLogin(login);
+
+        await _controlGate.WaitAsync(ct);
+        try
+        {
+            GetWatched(login);
+            await channelStore.SetPausedAsync(login, paused: true, ct);
+            if (_running.TryGetValue(login, out Running? running))
+            {
+                await running.Coordinator.PublishAsync(
+                    new DvrEvent.StopRequested(), CancellationToken.None);
+            }
+        }
+        finally
+        {
+            _controlGate.Release();
+        }
+    }
+
+    public async Task ResumeRecordingAsync(string login, CancellationToken ct)
+    {
+        login = NormalizeLogin(login);
+
+        await _controlGate.WaitAsync(ct);
+        try
+        {
+            GetWatched(login);
+            await channelStore.SetPausedAsync(login, paused: false, ct);
+            if (_running.TryGetValue(login, out Running? running))
+            {
+                await running.Coordinator.PublishAsync(
+                    new DvrEvent.ResumeRequested(), CancellationToken.None);
+            }
+
+            poller.Nudge();
+        }
+        finally
+        {
+            _controlGate.Release();
+        }
+    }
+
+    private ChannelEntry GetWatched(string login) =>
+        channelStore.Snapshot.FirstOrDefault(entry => entry.Login == login)
+        ?? throw new KeyNotFoundException($"Channel '{login}' is not watched.");
+
+    private static string NormalizeLogin(string login)
+    {
+        login = TwitchLogin.Normalize(login);
+        if (!TwitchLogin.IsValid(login))
+            throw new ArgumentException($"'{login}' is not a valid Twitch login.", nameof(login));
+
+        return login;
     }
 
     private void StartChannel(
