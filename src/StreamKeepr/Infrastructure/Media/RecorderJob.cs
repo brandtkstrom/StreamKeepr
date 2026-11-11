@@ -27,11 +27,14 @@ public sealed class RecorderJob(
     /// <summary>
     /// Records the job's part into <see cref="Session.Directory"/>. A part that already has any
     /// file is never overwritten; the job reports an exit without starting either process.
+    /// A requested <paramref name="stopRequested"/> runs the bounded shutdown and reports
+    /// <see cref="RecorderExitKind.Stopped"/> unless a force path was needed.
     /// </summary>
     public async Task RunAsync(
         Session session,
         JobId job,
-        Func<DvrEvent, CancellationToken, ValueTask> publish)
+        Func<DvrEvent, CancellationToken, ValueTask> publish,
+        CancellationToken stopRequested = default)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(publish);
@@ -47,6 +50,18 @@ public sealed class RecorderJob(
                     clock.GetUtcNow(),
                     RecorderExitKind.Exited,
                     $"part {job.Part:D3} already exists; refusing to overwrite"),
+                CancellationToken.None);
+            return;
+        }
+
+        if (stopRequested.IsCancellationRequested)
+        {
+            await publish(
+                new DvrEvent.RecorderExited(
+                    job,
+                    clock.GetUtcNow(),
+                    RecorderExitKind.Stopped,
+                    "stop requested before start"),
                 CancellationToken.None);
             return;
         }
@@ -120,36 +135,61 @@ public sealed class RecorderJob(
         Task<ProcessOutcome> streamlinkTask = RunProcessAsync(
             streamlinkCommand, streamlinkForce.Token, streamlinkGraceful.Token);
 
+        var stopSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using CancellationTokenRegistration stopRegistration = stopRequested.Register(
+            static state => ((TaskCompletionSource)state!).TrySetResult(),
+            stopSignal);
+
         string reason;
+        bool forcedKill = false;
+        bool finalizeTimedOut = false;
         try
         {
-            Task first = await Task.WhenAny(streamlinkTask, ffmpegTask);
+            Task first = await Task.WhenAny(streamlinkTask, ffmpegTask, stopSignal.Task);
 
-            if (first == ffmpegTask)
+            reason = first == streamlinkTask ? "streamlink exited"
+                : first == ffmpegTask ? "ffmpeg exited first"
+                : "stop requested";
+
+            // Contract order: release the reader before stopping Streamlink when FFmpeg is
+            // already gone, so Streamlink cannot block forever on a full pipe.
+            bool readerCompleted = false;
+            if (ffmpegTask.IsCompleted)
             {
-                // Release the reader first so Streamlink cannot block on a full pipe while
-                // it waits for a graceful stop.
-                reason = "ffmpeg exited first";
                 await pipe.Reader.CompleteAsync();
-                if (!await StopAsync(streamlinkTask, streamlinkGraceful, streamlinkForce))
-                    throw new TimeoutException("streamlink did not stop after a force kill");
-                await pipe.Writer.CompleteAsync();
+                readerCompleted = true;
             }
-            else
+
+            // Stop Streamlink with one graceful signal, then force-kill. Never signal the
+            // process group and never use stdin EOF to stop it.
+            if (!streamlinkTask.IsCompleted)
             {
-                // Stream end: close stdin so FFmpeg flushes the last segment and writes ENDLIST.
-                reason = "streamlink exited";
-                await pipe.Writer.CompleteAsync();
+                ProcessStop stop = await StopAsync(
+                    streamlinkTask, streamlinkGraceful, streamlinkForce);
+                if (stop == ProcessStop.TimedOut)
+                    throw new TimeoutException("streamlink did not stop after a force kill");
+                forcedKill |= stop == ProcessStop.Forced;
+            }
+
+            // Only now deliver EOF: it is FFmpeg's graceful finish.
+            await pipe.Writer.CompleteAsync();
+
+            if (!ffmpegTask.IsCompleted)
+            {
                 if (!await CompletesWithinAsync(
                         ffmpegTask, TimeSpan.FromSeconds(recorder.FinalizeTimeoutSeconds)))
                 {
-                    reason = "ffmpeg did not finalize after stream end";
-                    if (!await StopAsync(ffmpegTask, ffmpegGraceful, ffmpegForce))
+                    reason = $"{reason}; ffmpeg did not finalize";
+                    finalizeTimedOut = true;
+                    ProcessStop stop = await StopAsync(ffmpegTask, ffmpegGraceful, ffmpegForce);
+                    if (stop == ProcessStop.TimedOut)
                         throw new TimeoutException("ffmpeg did not stop after a force kill");
+                    forcedKill |= stop == ProcessStop.Forced;
                 }
-
-                await pipe.Reader.CompleteAsync();
             }
+
+            if (!readerCompleted)
+                await pipe.Reader.CompleteAsync();
         }
         catch
         {
@@ -171,17 +211,25 @@ public sealed class RecorderJob(
         if (Volatile.Read(ref producing) == 0)
             PartFiles.Delete(session.Directory, job.Part);
 
+        // Force kill and watchdog paths beat a requested stop; an escalated finalize did not
+        // end on its own, so it is reported as killed rather than as a self exit.
+        RecorderExitKind kind = forcedKill || finalizeTimedOut
+            ? RecorderExitKind.Killed
+            : stopRequested.IsCancellationRequested
+                ? RecorderExitKind.Stopped
+                : RecorderExitKind.Exited;
+
         string detail = $"{reason}; streamlink {Describe(streamlinkTask)}, ffmpeg {Describe(ffmpegTask)}";
         string stderr = tail.ToString();
         if (stderr.Length > 0)
             detail = $"{detail}; {stderr}";
 
-        logger.LogInformation("Recorder {Job} finished: {Detail}", job, detail);
+        logger.LogInformation("Recorder {Job} finished ({Kind}): {Detail}", job, kind, detail);
         await publish(
             new DvrEvent.RecorderExited(
                 job,
                 clock.GetUtcNow(),
-                RecorderExitKind.Exited,
+                kind,
                 detail),
             CancellationToken.None);
     }
@@ -209,29 +257,34 @@ public sealed class RecorderJob(
         }
     }
 
-    /// <summary>Stops one process within the bounded graceful then force-kill budget.</summary>
-    private static async Task<bool> StopAsync(
+    /// <summary>
+    /// Stops one process within the bounded graceful then force-kill budget. CliWrap's
+    /// graceful token signals the single child PID; it never signals the process group.
+    /// </summary>
+    private async Task<ProcessStop> StopAsync(
         Task process,
         CancellationTokenSource gracefulStop,
         CancellationTokenSource forceKill)
     {
         if (process.IsCompleted)
-            return true;
+            return ProcessStop.AlreadyStopped;
 
         await gracefulStop.CancelAsync();
         if (await CompletesWithinAsync(process, GracefulStopTimeout))
-            return true;
+            return ProcessStop.Graceful;
 
         await forceKill.CancelAsync();
-        return await CompletesWithinAsync(process, ForceStopTimeout);
+        return await CompletesWithinAsync(process, ForceStopTimeout)
+            ? ProcessStop.Forced
+            : ProcessStop.TimedOut;
     }
 
-    private static async Task<bool> CompletesWithinAsync(Task task, TimeSpan timeout)
+    private async Task<bool> CompletesWithinAsync(Task task, TimeSpan timeout)
     {
         if (task.IsCompleted)
             return true;
 
-        return await Task.WhenAny(task, Task.Delay(timeout)).ConfigureAwait(false) == task;
+        return await Task.WhenAny(task, Task.Delay(timeout, clock)).ConfigureAwait(false) == task;
     }
 
     private static string Describe(Task<ProcessOutcome> process)
@@ -248,4 +301,12 @@ public sealed class RecorderJob(
     }
 
     private readonly record struct ProcessOutcome(int? ExitCode, Exception? Error, bool Cancelled);
+
+    private enum ProcessStop
+    {
+        AlreadyStopped,
+        Graceful,
+        Forced,
+        TimedOut,
+    }
 }

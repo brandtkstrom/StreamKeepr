@@ -37,6 +37,7 @@ public sealed class WebAppSmokeTests
         var recorder = factory.Services.GetRequiredService<IOptions<RecorderOptions>>().Value;
         Assert.Equal("best", recorder.Quality);
         Assert.Equal(6, recorder.SegmentSeconds);
+        Assert.Equal(10, recorder.FinalizeTimeoutSeconds);
 
         var storage = factory.Services.GetRequiredService<IOptions<StorageOptions>>().Value;
         Assert.Equal(factory.RecordingsRoot, storage.RecordingsRoot);

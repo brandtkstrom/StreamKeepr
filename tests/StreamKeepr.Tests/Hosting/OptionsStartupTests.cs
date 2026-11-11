@@ -7,6 +7,7 @@ public sealed class OptionsStartupTests
     [Theory]
     [InlineData("Twitch:ClientId", "", "ClientId")]
     [InlineData("Recorder:SegmentSeconds", "1", "SegmentSeconds")]
+    [InlineData("Recorder:FinalizeTimeoutSeconds", "16", "FinalizeTimeoutSeconds")]
     [InlineData("Storage:RecordingsRoot", "", "RecordingsRoot")]
     [InlineData("Auth:AllowedTwitchLogins:0", "not a login", "AllowedTwitchLogins")]
     public void Invalid_options_stop_startup_with_the_offending_setting(
