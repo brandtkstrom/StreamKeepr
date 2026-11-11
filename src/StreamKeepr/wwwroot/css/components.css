@@ -612,3 +612,12 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 .sk-channel-add .sk-btn .sk-spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: sk-spin 800ms linear infinite; }
 .sk-field-error { margin: 0; color: var(--error); font: var(--text-body-small); }
 @media (prefers-reduced-motion: reduce) { .sk-channel-add .sk-btn .sk-spin { animation-duration: 2400ms; } }
+
+/* ---------- export row (details/auth/settings contract §5) ---------- */
+.sk-export-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--surface-container-high); font: var(--text-body-medium); }
+.sk-export-row .text { min-width: 0; overflow-wrap: anywhere; }
+.sk-export-row .pct { font: var(--text-timecode); font-variant-numeric: tabular-nums; }
+.sk-export-progress { flex: 1 1 160px; height: 4px; border-radius: var(--radius-full); background: var(--surface-container-highest); overflow: hidden; }
+.sk-export-progress i { display: block; height: 100%; background: var(--primary); transition: width 200ms linear; }
+.sk-export-row .sk-btn { margin-left: auto; }
+@media (prefers-reduced-motion: reduce) { .sk-export-progress i { transition: none; } }

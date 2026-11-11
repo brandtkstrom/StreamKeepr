@@ -76,6 +76,9 @@ builder.Services.AddSingleton<IStorageMonitor, StorageMonitor>();
 builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddSingleton<ChannelStore>();
 builder.Services.AddSingleton<ProgressStore>();
+builder.Services.AddSingleton<IExportLeaseRegistry, ExportLeaseRegistry>();
+builder.Services.AddSingleton<ExportService>();
+builder.Services.AddSingleton<IExportService>(services => services.GetRequiredService<ExportService>());
 builder.Services.AddSingleton<IProgressStore>(services => services.GetRequiredService<ProgressStore>());
 builder.Services.AddSingleton<RecoveryService>();
 builder.Services.AddSingleton<RecorderJob>();
@@ -126,6 +129,8 @@ if (mock)
 
 // Loads watch positions at startup and flushes pending ones on graceful shutdown.
 builder.Services.AddHostedService(services => services.GetRequiredService<ProgressStore>());
+// One FFmpeg export at a time, independent of any circuit.
+builder.Services.AddHostedService(services => services.GetRequiredService<ExportService>());
 
 // Keys live on the recordings volume and are ready before auth or token storage runs.
 builder.Services.AddStreamKeeprDataProtection();
@@ -247,6 +252,12 @@ app.MapMethods(
     LiveIndexEndpoint.HandleAsync);
 
 app.MapPut(ProgressEndpoint.Route, ProgressEndpoint.HandleAsync);
+// The cookie scheme answers an API challenge with 401; the default challenge is Twitch OAuth.
+app.MapGet(ExportDownloadEndpoint.Route, ExportDownloadEndpoint.Handle)
+    .RequireAuthorization(new Microsoft.AspNetCore.Authorization.AuthorizeAttribute
+    {
+        AuthenticationSchemes = AdminAuth.CookieScheme,
+    });
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions
 {

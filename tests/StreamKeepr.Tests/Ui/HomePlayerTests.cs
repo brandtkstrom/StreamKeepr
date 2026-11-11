@@ -1,3 +1,4 @@
+using Bunit.TestDoubles;
 using StreamKeepr.Infrastructure.Storage;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
@@ -104,6 +105,8 @@ public sealed class HomePlayerTests
         context.Services.AddScoped<UiPreferences>();
         context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<PlayerBridge>();
+        context.Services.AddSingleton<IExportService>(new TestExportService());
+        context.AddAuthorization().SetNotAuthorized();
         context.Services.AddSingleton<IProgressStore>(new TestProgressStore());
         context.Services.AddSingleton<ILibraryView>(view);
         return context;

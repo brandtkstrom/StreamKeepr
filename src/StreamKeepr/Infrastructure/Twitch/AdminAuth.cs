@@ -52,6 +52,8 @@ public static class AdminAuth
                 options.SlidingExpiration = true;
                 options.LoginPath = LoginPath;
                 options.LogoutPath = LogoutPath;
+                options.Events.OnRedirectToLogin = ChallengeApiWithStatus(StatusCodes.Status401Unauthorized);
+                options.Events.OnRedirectToAccessDenied = ChallengeApiWithStatus(StatusCodes.Status403Forbidden);
             })
             .AddTwitch();
 
@@ -75,6 +77,20 @@ public static class AdminAuth
 
         return services;
     }
+
+    /// <summary>
+    /// API endpoints answer a missing or insufficient sign-in with a status code; pages keep
+    /// the cookie handler's redirect to the login endpoint.
+    /// </summary>
+    public static Func<RedirectContext<CookieAuthenticationOptions>, Task> ChallengeApiWithStatus(int status) =>
+        context =>
+        {
+            if (context.Request.Path.StartsWithSegments("/api"))
+                context.Response.StatusCode = status;
+            else
+                context.Response.Redirect(context.RedirectUri);
+            return Task.CompletedTask;
+        };
 
     /// <summary>
     /// Starts sign-in. Plain HTTP is accepted only on localhost/loopback; other

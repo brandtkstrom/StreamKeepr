@@ -1,5 +1,6 @@
 @using System.Globalization
 @using StreamKeepr.Infrastructure.Storage
+@using System.Security.Claims
 @implements IAsyncDisposable
 @inject UiPreferences Preferences
 @inject ViewerClock Clock
@@ -8,6 +9,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject ILogger<RecordingDetails> Logger
+@inject IExportService Exports
 
 @* Spec: docs/details-auth-settings-contract.md §§2–4; player contract §11. The same
    component instance survives recording swaps because Home keeps it in one slot. *@
@@ -29,6 +31,27 @@
                         <Icon Name="content_copy" Size="IconSize.Small" />
                         Copy playlist URL
                     </Button>
+                    <RequiresTwitch>
+                        @if (IsLive)
+                        {
+                            <Tooltip Text="Available when the recording finishes" tabindex="0">
+                                <Button Variant="ButtonVariant.Tonal" Disabled="true" data-export="true">
+                                    <Icon Name="movie" Size="IconSize.Small" />
+                                    Export MP4
+                                </Button>
+                            </Tooltip>
+                        }
+                        else
+                        {
+                            <Button Variant="ButtonVariant.Tonal"
+                                    Disabled="@(_job?.IsActive == true || _starting)"
+                                    OnClick="StartExportAsync"
+                                    data-export="true">
+                                <Icon Name="movie" Size="IconSize.Small" />
+                                Export MP4
+                            </Button>
+                        }
+                    </RequiresTwitch>
                 </div>
             </div>
 
@@ -53,6 +76,42 @@
                     }
                 </span>
             </div>
+
+            @if (_job is { } job)
+            {
+                int percent = (int)Math.Round(Math.Clamp(job.Progress, 0, 1) * 100);
+                <div class="sk-export-row" data-export-row="@job.State">
+                    <Icon Name="@ExportIcon(job.State)" Size="IconSize.Small" />
+                    @* State changes are announced; per-percent changes are not. *@
+                    <span class="text" role="status">@ExportText(job)</span>
+                    @if (job.State == ExportState.Running)
+                    {
+                        <span class="pct" aria-hidden="true">@percent%</span>
+                        <div class="sk-export-progress"
+                             role="progressbar"
+                             aria-label="Export progress"
+                             aria-valuemin="0"
+                             aria-valuemax="100"
+                             aria-valuenow="@percent"
+                             aria-valuetext="@($"{percent}%")">
+                            <i style="width:@(percent)%"></i>
+                        </div>
+                    }
+                    @if (job.State == ExportState.Succeeded)
+                    {
+                        <RequiresTwitch>
+                            <a class="sk-btn tonal"
+                               href="@StreamKeepr.Hosting.ExportDownloadEndpoint.For(job.Id)"
+                               download="@(job.FileName ?? "")"
+                               data-enhance-nav="false"
+                               data-export-download="true">
+                                <Icon Name="download" Size="IconSize.Small" />
+                                Download
+                            </a>
+                        </RequiresTwitch>
+                    }
+                </div>
+            }
 
             @{
                 IReadOnlyList<Chapter> chapters = VisibleChapters;
@@ -91,6 +150,18 @@
 
     [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
 
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    // Jobs this card started or saw active; each finished one raises one snackbar, even after
+    // the card has moved on to another recording.
+    private readonly HashSet<string> _watching = new(StringComparer.Ordinal);
+    private ExportJob? _job;
+    private string? _jobRecordingId;
+    private bool _starting;
+
+    private bool IsLive =>
+        Recording.State is RecordingState.Recording or RecordingState.Reconnecting;
+
     private bool ShowSize =>
         Recording.State is RecordingState.Partial or RecordingState.Saved;
 
@@ -116,7 +187,94 @@
     {
         Preferences.Changed += OnPreferencesChanged;
         Clock.Changed += OnClockChanged;
+        Exports.Changed += OnExportsChanged;
     }
+
+    protected override void OnParametersSet()
+    {
+        // A different recording never shows the previous recording's job.
+        if (_jobRecordingId != Recording.Id)
+            RefreshExport();
+    }
+
+    private void RefreshExport()
+    {
+        _jobRecordingId = Recording.Id;
+        _job = Exports.FindByRecording(Recording.Id);
+        if (_job is { IsActive: true })
+            _watching.Add(_job.Id);
+    }
+
+    private void AnnounceFinishedExports()
+    {
+        foreach (string id in _watching.ToArray())
+        {
+            if (Exports.Find(id) is not { } job)
+            {
+                _watching.Remove(id);
+                continue;
+            }
+
+            if (job.IsActive)
+                continue;
+
+            _watching.Remove(id);
+            if (job.State == ExportState.Succeeded)
+                Snackbars.Show("Export ready");
+            else if (job.State == ExportState.Failed)
+                Snackbars.Show("Export failed");
+        }
+    }
+
+    private async Task StartExportAsync()
+    {
+        if (_starting || AuthenticationState is null)
+            return;
+
+        _starting = true;
+        try
+        {
+            ClaimsPrincipal user = (await AuthenticationState).User;
+            ExportJob job = Exports.Start(Recording.Id, user, CancellationToken.None);
+            _watching.Add(job.Id);
+            _job = job;
+            _jobRecordingId = Recording.Id;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or KeyNotFoundException
+            or UnauthorizedAccessException)
+        {
+            // The service messages are user-safe; the disabled button is never the only guard.
+            Snackbars.Show(ex.Message);
+        }
+        finally
+        {
+            _starting = false;
+        }
+    }
+
+    private static string ExportText(ExportJob job) => job.State switch
+    {
+        ExportState.Queued => "Queued — waiting for another export",
+        ExportState.Running => "Exporting…",
+        ExportState.Succeeded => job.FileName is { } name ? $"MP4 ready · {name}" : "MP4 ready",
+        ExportState.Cancelled => "Export cancelled",
+        _ => job.Error ?? "Export failed",
+    };
+
+    private static string ExportIcon(ExportState state) => state switch
+    {
+        ExportState.Queued => "schedule",
+        ExportState.Running => "hourglass_top",
+        ExportState.Succeeded => "check_circle",
+        _ => "error",
+    };
+
+    private void OnExportsChanged() => _ = InvokeAsync(() =>
+    {
+        AnnounceFinishedExports();
+        RefreshExport();
+        StateHasChanged();
+    });
 
     private async Task ToggleAsync(bool open)
     {
@@ -169,6 +327,7 @@
     {
         Preferences.Changed -= OnPreferencesChanged;
         Clock.Changed -= OnClockChanged;
+        Exports.Changed -= OnExportsChanged;
 
         if (_module is null)
             return;
