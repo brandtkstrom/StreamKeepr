@@ -1,7 +1,20 @@
 @page "/"
+@page "/r/{RecordingId}"
 
-<PageTitle>Stream Keepr</PageTitle>
+<PageTitle>@(RecordingId is null ? "Stream Keepr" : $"{RecordingId} · Stream Keepr")</PageTitle>
 
-<main>
-    <h1>Stream Keepr</h1>
-</main>
+@if (RecordingId is not null)
+{
+    <p class="body-medium" data-selected-recording="@RecordingId">
+        The recording view will be connected in the library ticket.
+        <a href="/">Back to library</a>
+    </p>
+}
+
+<div data-slot="player"></div>
+<div data-slot="stats"></div>
+<div data-slot="details"></div>
+
+@code {
+    [Parameter] public string? RecordingId { get; set; }
+}

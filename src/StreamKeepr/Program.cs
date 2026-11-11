@@ -3,6 +3,7 @@ using StreamKeepr.Components;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Twitch;
+using StreamKeepr.Ui;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -46,6 +47,11 @@ builder.Services.AddSingleton<IAdminTokenStore, AdminTokenStore>();
 builder.Services.AddStreamKeeprAdminAuth();
 builder.Services.AddAuthorization();
 builder.Services.AddCascadingAuthenticationState();
+
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IClientStateStore, ClientStateStore>();
+builder.Services.AddScoped<UiPreferences>();
+builder.Services.AddScoped<ViewerClock>();
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
