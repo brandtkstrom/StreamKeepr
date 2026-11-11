@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using StreamKeepr.Components;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
+using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Ui;
 
@@ -32,6 +33,9 @@ builder.Services.AddOptions<AuthOptions>()
 builder.Services.AddStreamKeeprForwardedHeaders();
 
 builder.Services.AddSingleton(TimeProvider.System);
+
+// The session store owns session.json, index.m3u8, and the per-session locks.
+builder.Services.AddSingleton<SessionStore>();
 
 // Hosted services start in registration order, so preflight runs before Data
 // Protection, the supervisor, and any channel or recording service.
