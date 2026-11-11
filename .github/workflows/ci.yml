@@ -177,8 +177,18 @@ jobs:
 
           docker exec "$container" curl --fail --silent --show-error \
             http://localhost:8080/health/live >/dev/null
-          docker exec "$container" streamlink --version | grep -q "8.6.3"
-          docker exec "$container" ffmpeg -version | head -1 | grep -q "9.0.2"
+
+          streamlink_version=$(docker exec "$container" streamlink --version)
+          if [[ "$streamlink_version" != *"8.6.3"* ]]; then
+            echo "::error::Streamlink version is '$streamlink_version', expected 8.6.3"
+            exit 1
+          fi
+
+          ffmpeg_version=$(docker exec "$container" ffmpeg -version)
+          if [[ "$ffmpeg_version" != *"9.0.2"* ]]; then
+            echo "::error::FFmpeg version is '${ffmpeg_version%%$'\n'*}', expected 9.0.2"
+            exit 1
+          fi
 
           if docker exec "$container" test -d /app/tests \
             || docker exec "$container" test -d /app/docs; then
