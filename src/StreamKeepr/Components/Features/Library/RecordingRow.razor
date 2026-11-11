@@ -4,6 +4,9 @@
 @* One library row. It is a real link so selection and deep links work without the circuit. *@
 <a class="sk-row"
    href="@Href"
+   role="treeitem"
+   aria-level="2"
+   data-tree-key="@($"r:{Recording.Id}")"
    aria-current="@(Selected ? "true" : null)"
    data-recording-id="@Recording.Id"
    data-state="@StateName">

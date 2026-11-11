@@ -58,6 +58,101 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         Assert.Equal(0, await page.Locator(".sk-group").CountAsync());
     }
 
+    [Fact]
+    public async Task Keyboard_users_browse_the_library_as_one_tree()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        ILocator tree = page.Locator("[role='tree']");
+
+        await page.Locator(".sk-filters [data-filter='saved']").FocusAsync();
+        await page.Keyboard.PressAsync("Tab");
+        Assert.True(await IsFocusedInsideAsync(tree));
+        Assert.Equal(1, await tree.Locator("[role='treeitem'][tabindex='0']").CountAsync());
+
+        await page.Keyboard.PressAsync("Home");
+        ILocator firstHead = tree.Locator("[aria-level='1']").First;
+        Assert.True(await firstHead.EvaluateAsync<bool>("el => el === document.activeElement"));
+
+        await page.Keyboard.PressAsync("ArrowLeft");
+        await Expect(async () => await firstHead.GetAttributeAsync("aria-expanded") == "false" ? 1 : 0, 1);
+        await page.Keyboard.PressAsync("ArrowRight");
+        await Expect(async () => await firstHead.GetAttributeAsync("aria-expanded") == "true" ? 1 : 0, 1);
+
+        await page.Keyboard.PressAsync("ArrowDown");
+        string? id = await page.EvaluateAsync<string?>("document.activeElement.dataset.recordingId");
+        Assert.False(string.IsNullOrEmpty(id));
+        await page.Keyboard.PressAsync("Enter");
+        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await page.Locator($"a.sk-row[data-recording-id='{id}'][aria-current='true']").WaitForAsync();
+
+        // The whole list is a single tab stop.
+        await tree.Locator($"[data-recording-id='{id}']").FocusAsync();
+        await page.Keyboard.PressAsync("Tab");
+        Assert.False(await IsFocusedInsideAsync(tree));
+
+        await AssertAxeCleanAsync(page, "library-tree");
+    }
+
+    [Fact]
+    public async Task Rail_avatar_expands_the_drawer_at_its_group()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        ILocator drawer = page.Locator("nav#sk-drawer");
+
+        await page.Locator("[data-drawer-toggle]").ClickAsync();
+        await Expect(async () => await drawer.GetAttributeAsync("class") is { } c && c.Contains("rail") ? 1 : 0, 1);
+        await AssertAxeCleanAsync(page, "library-rail");
+
+        ILocator lastHead = drawer.Locator("[role='treeitem'][aria-level='1']").Last;
+        string? key = await lastHead.GetAttributeAsync("data-tree-key");
+        await lastHead.ClickAsync();
+
+        await Expect(async () => await drawer.GetAttributeAsync("class") is { } c && !c.Contains("rail") ? 1 : 0, 1);
+        await Expect(async () => await lastHead.GetAttributeAsync("aria-expanded") == "true" ? 1 : 0, 1);
+        Assert.Equal(key, await drawer.Locator("[role='treeitem'][tabindex='0']").GetAttributeAsync("data-tree-key"));
+    }
+
+    [Fact]
+    public async Task A_dropped_connection_shows_the_quiet_note_not_the_modal()
+    {
+        // Offline emulation does not close a socket that is already open, so record the
+        // circuit's sockets, go offline so reconnects fail, then drop them.
+        const string recordSockets = """
+            window.__skSockets = [];
+            const Native = window.WebSocket;
+            window.WebSocket = class extends Native {
+              constructor(...args) { super(...args); window.__skSockets.push(this); }
+            };
+            """;
+        await using Session session = await OpenAsync(app.BaseUrl, initScript: recordSockets);
+        IPage page = session.Page;
+        ILocator note = page.Locator("[data-updates-paused]");
+        Assert.False(await note.IsVisibleAsync());
+
+        await session.Context.SetOfflineAsync(true);
+        await page.EvaluateAsync("window.__skSockets.forEach(socket => socket.close())");
+        await page.WaitForFunctionAsync(
+            "['show','retrying'].includes(document.body.dataset.skReconnect)",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 20_000 });
+
+        Assert.True(await note.IsVisibleAsync());
+        Assert.False(await page.Locator("#components-reconnect-modal").EvaluateAsync<bool>("d => d.open"));
+
+        await session.Context.SetOfflineAsync(false);
+        await page.WaitForFunctionAsync(
+            "document.body.dataset.skReconnect === 'hide'",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 30_000 });
+        Assert.False(await note.IsVisibleAsync());
+        await page.Locator("nav#sk-drawer .sk-group").First.WaitForAsync();
+    }
+
+    private static Task<bool> IsFocusedInsideAsync(ILocator locator) =>
+        locator.EvaluateAsync<bool>("el => el.contains(document.activeElement)");
+
     internal static ILocator Rows(IPage page) => page.Locator("nav#sk-drawer a.sk-row");
 
     internal static async Task Expect(Func<Task<int>> actual, int expected)
@@ -70,7 +165,8 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         Assert.Equal(expected, value);
     }
 
-    internal static async Task<Session> OpenAsync(string url, ViewportSize? viewport = null)
+    internal static async Task<Session> OpenAsync(
+        string url, ViewportSize? viewport = null, string? initScript = null)
     {
         IPlaywright playwright = await Playwright.CreateAsync();
         IBrowser browser = await playwright.Chromium.LaunchAsync(
@@ -79,6 +175,9 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         {
             ViewportSize = viewport ?? new ViewportSize { Width = 1280, Height = 820 },
         });
+        if (initScript is not null)
+            await context.AddInitScriptAsync(initScript);
+
         IPage page = await context.NewPageAsync();
         await page.GotoAsync(url, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
         await page.Locator($"{Search}[data-sk-ready]").WaitForAsync();

@@ -1,13 +1,16 @@
 @using StreamKeepr.Ui
 
 @* One streamer group: avatar, live ring, count/state, chevron, and day-grouped rows. *@
-<section class="sk-group">
-    <button type="button"
-            class="sk-group-head"
-            aria-expanded="@(Expanded ? "true" : "false")"
-            aria-controls="@BodyId"
-            title="@Streamer.Login"
-            @onclick="OnToggle">
+<section class="sk-group" role="none">
+    @* A treeitem rather than a button: tree-nav.js gives it Enter/Space and the roving tab stop. *@
+    <div class="sk-group-head"
+         role="treeitem"
+         aria-level="1"
+         aria-expanded="@(Expanded ? "true" : "false")"
+         aria-controls="@BodyId"
+         data-tree-key="@($"g:{Streamer.Login}")"
+         title="@Streamer.Login"
+         @onclick="OnToggle">
         <Avatar Name="@Streamer.DisplayName"
                 ImageUrl="@Streamer.AvatarUrl"
                 Recording="@Streamer.IsRecording"
@@ -17,9 +20,9 @@
             <span class="meta">@Meta</span>
         </span>
         <span class="chev" aria-hidden="true"><Icon Name="expand_more" /></span>
-    </button>
+    </div>
 
-    <div id="@BodyId" class="sk-group-body" role="group">
+    <div id="@BodyId" class="sk-group-body" role="group" inert="@(!Expanded)">
         <div>
             @{
                 DateTimeOffset? previousDay = null;

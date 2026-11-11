@@ -95,11 +95,10 @@ function onMediaChange() {
 
 function onReconnectState(event) {
   const state = event.detail?.state;
+  // Mirrors reconnect.js: only a hard circuit loss opens the template modal.
   const modalVisible =
-    state === "show" ||
     state === "paused" ||
     state === "failed" ||
-    state === "retrying" ||
     state === "rejected" ||
     state === "resume-failed";
   void dotNetRef

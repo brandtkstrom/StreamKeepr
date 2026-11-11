@@ -1,6 +1,8 @@
 @using StreamKeepr.Ui
-@implements IDisposable
+@implements IAsyncDisposable
 @inject ILibraryView Library
+@inject IJSRuntime JS
+@inject ILogger<LibraryDrawer> Logger
 @inject UiPreferences Preferences
 @inject ViewerClock Clock
 @inject NavigationManager Navigation
@@ -22,6 +24,13 @@
     </Menu>
 </div>
 
+@* Shown by CSS from body[data-sk-reconnect] while the circuit reconnects, because the
+   circuit cannot render anything while it is down. *@
+<p class="sk-drawer-note" role="status" data-updates-paused>
+    <Icon Name="cloud_off" Size="IconSize.Small" />
+    <span class="msg">Live updates paused</span>
+</p>
+
 <div class="sk-filters" role="group" aria-label="Filter recordings">
     <Chip data-filter="all" Selected="@(_query.State is null)" OnClick="@(() => SetState(null))">All</Chip>
     <Chip data-filter="recording" Selected="@(_query.State == "recording")" OnClick="@(() => SetState("recording"))">Recording</Chip>
@@ -29,6 +38,7 @@
 </div>
 
 <div class="sk-drawer-list"
+     @ref="_list"
      aria-busy="@(Library.IsLoaded ? null : "true")">
     @if (!Library.IsLoaded)
     {
@@ -55,6 +65,7 @@
         }
         else
         {
+            <div role="tree" aria-label="Recordings">
             @foreach (StreamerView streamer in streamers)
             {
                 <StreamerGroup @key="streamer.Login"
@@ -67,11 +78,18 @@
                                Now="@Clock.Now"
                                OnToggle="@(() => ToggleGroupAsync(streamer.Login))" />
             }
+            </div>
         }
     }
 </div>
 
 @code {
+    private const string TreeModule = "./js/tree-nav.js";
+
+    private ElementReference _list;
+    private IJSObjectReference? _tree;
+    private bool _resetScroll;
+    private string? _scrollToKey;
     private LibraryQuery _query = new();
     private string? _selectedId;
     private bool _disposed;
@@ -87,10 +105,90 @@
         Navigation.LocationChanged += OnLocationChanged;
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_disposed)
+            return;
+
+        if (firstRender)
+        {
+            try
+            {
+                _tree = await JS.InvokeAsync<IJSObjectReference>("import", TreeModule);
+                await _tree.InvokeVoidAsync("init", _list);
+                await _tree.InvokeVoidAsync("revealCurrent", _list);
+            }
+            catch (JSException ex)
+            {
+                // Without the module the drawer is still usable through its links and heads.
+                Logger.LogDebug(ex, "The library tree module could not be initialized.");
+            }
+
+            return;
+        }
+
+        if (_resetScroll)
+        {
+            _resetScroll = false;
+            await InvokeTreeAsync("scrollToTop", _list);
+        }
+
+        if (_scrollToKey is { } key)
+        {
+            _scrollToKey = null;
+            await InvokeTreeAsync("scrollToKey", _list, key);
+        }
+    }
+
     private async Task ToggleGroupAsync(string login)
     {
-        Preferences.SetCollapsed(login, !Preferences.IsCollapsed(login));
+        if (Preferences.Drawer == DrawerMode.Rail && await IsRailAsync())
+        {
+            // In the rail an avatar is a jump: open the drawer at that streamer's recordings.
+            Preferences.SetDrawer(DrawerMode.Expanded);
+            Preferences.SetCollapsed(login, false);
+            _scrollToKey = $"g:{login}";
+        }
+        else
+        {
+            Preferences.SetCollapsed(login, !Preferences.IsCollapsed(login));
+        }
+
         await Preferences.PersistAsync();
+    }
+
+    private async Task<bool> IsRailAsync()
+    {
+        if (_tree is null)
+            return true;
+
+        try
+        {
+            return await _tree.InvokeAsync<bool>("isRail", _list);
+        }
+        catch (JSException ex)
+        {
+            Logger.LogDebug(ex, "Could not read the drawer mode.");
+            return true;
+        }
+    }
+
+    private async Task InvokeTreeAsync(string identifier, params object[] args)
+    {
+        if (_tree is null)
+            return;
+
+        try
+        {
+            await _tree.InvokeVoidAsync(identifier, args);
+        }
+        catch (JSException ex)
+        {
+            Logger.LogDebug(ex, "Library tree call {Identifier} failed.", identifier);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
     }
 
     private void OnLibraryChanged() => _ = InvokeAsync(StateHasChanged);
@@ -104,6 +202,7 @@
         if (string.Equals(selected, _selectedId, StringComparison.Ordinal) && query == _query)
             return;
 
+        _resetScroll |= query != _query;
         _selectedId = selected;
         _query = query;
         _ = InvokeAsync(StateHasChanged);
@@ -147,7 +246,7 @@
         return id.Length == 0 ? null : Uri.UnescapeDataString(id);
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         if (_disposed)
             return;
@@ -156,5 +255,21 @@
         Library.Changed -= OnLibraryChanged;
         Clock.Changed -= OnClockChanged;
         Navigation.LocationChanged -= OnLocationChanged;
+
+        if (_tree is not null)
+        {
+            try
+            {
+                await _tree.InvokeVoidAsync("dispose", _list);
+                await _tree.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+            catch (JSException ex)
+            {
+                Logger.LogDebug(ex, "Could not dispose the library tree module.");
+            }
+        }
     }
 }
