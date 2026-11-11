@@ -1,0 +1,301 @@
+@implements IAsyncDisposable
+@inject UiPreferences Preferences
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject ILogger<AppShell> Logger
+
+<div class="sk-shell @(Preferences.Theater ? "theater" : null)">
+    <header class="sk-appbar">
+        <button type="button"
+                class="sk-icon-btn"
+                data-drawer-toggle
+                aria-label="@MenuLabel"
+                aria-controls="sk-drawer"
+                aria-expanded="@(MenuExpanded ? "true" : "false")"
+                disabled="@(Preferences.Theater)"
+                @onclick="OnMenuClickedAsync">
+            <span class="sk-icon" aria-hidden="true">menu</span>
+        </button>
+
+        <div class="sk-wordmark">
+            @if (RecordingActive)
+            {
+                <span class="rec-dot" aria-hidden="true"></span>
+            }
+            <span>Stream<b>Keepr</b></span>
+        </div>
+
+        <label class="sk-search">
+            <span class="sk-icon" aria-hidden="true">search</span>
+            @if (SearchSlot is null)
+            {
+                <input type="search"
+                       placeholder="Search recordings, streamers, categories"
+                       aria-label="Search recordings" />
+            }
+            else
+            {
+                @SearchSlot
+            }
+        </label>
+
+        <div class="sk-appbar-actions">
+            <StorageMeter FreeBytes="@FreeBytes" TotalBytes="@TotalBytes" />
+
+            <button type="button" class="sk-icon-btn" aria-label="Capture schedule" @onclick="OnSchedule">
+                <span class="sk-icon" aria-hidden="true">schedule</span>
+            </button>
+
+            <a class="sk-icon-btn" href="/settings" aria-label="Settings">
+                <span class="sk-icon" aria-hidden="true">settings</span>
+            </a>
+
+            @if (AuthSlot is null)
+            {
+                <span class="sk-twitch sk-auth-placeholder" aria-disabled="true">
+                    <span class="sk-icon" aria-hidden="true">link</span>
+                    <span class="lbl">Connect with Twitch</span>
+                </span>
+            }
+            else
+            {
+                @AuthSlot
+            }
+        </div>
+    </header>
+
+    <ReconnectNotice Visible="@_updatesPaused"
+                     ModalVisible="@_reconnectModalVisible"
+                     OnRetry="RetryAsync" />
+
+    <div class="sk-shell-body">
+        <nav id="sk-drawer" class="sk-drawer @DrawerClass" aria-label="Library">
+            @if (Drawer is null)
+            {
+                <div class="sk-drawer-head">
+                    <h2>Library</h2>
+                </div>
+                <div class="sk-drawer-list"></div>
+            }
+            else
+            {
+                @Drawer
+            }
+        </nav>
+
+        <div class="sk-scrim" @onclick="CloseMobileDrawerAsync" aria-hidden="true"></div>
+
+        <main class="sk-main">
+            <div class="sk-main-inner">
+                @ChildContent
+            </div>
+        </main>
+    </div>
+
+    <ViewerClockSync />
+</div>
+
+@code {
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<AppShell>? _self;
+    private bool _updatesPaused;
+    private bool _reconnectModalVisible;
+    private bool _disposed;
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter] public RenderFragment? Drawer { get; set; }
+
+    [Parameter] public RenderFragment? SearchSlot { get; set; }
+
+    [Parameter] public RenderFragment? AuthSlot { get; set; }
+
+    [Parameter] public bool RecordingActive { get; set; }
+
+    [Parameter] public long? FreeBytes { get; set; }
+
+    [Parameter] public long? TotalBytes { get; set; }
+
+    [Parameter] public EventCallback OnSchedule { get; set; }
+
+    private bool MenuExpanded =>
+        !Preferences.Theater && Preferences.Drawer == DrawerMode.Expanded;
+
+    private string MenuLabel => Preferences.Theater
+        ? "Library hidden in theater mode"
+        : Preferences.Drawer switch
+        {
+            DrawerMode.Expanded => "Collapse library",
+            DrawerMode.Rail => "Expand library",
+            _ => "Open library",
+        };
+
+    private string DrawerClass => Preferences.Drawer switch
+    {
+        DrawerMode.Rail => "rail",
+        DrawerMode.Hidden => "hidden",
+        _ => "",
+    };
+
+    protected override void OnInitialized()
+    {
+        Preferences.Changed += OnPreferencesChanged;
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _disposed)
+            return;
+
+        _self = DotNetObjectReference.Create(this);
+
+        try
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./Components/Layout/AppShell.razor.js");
+            await _module.InvokeVoidAsync("init", _self);
+        }
+        catch (JSException ex)
+        {
+            // The shell still works without the observer: the drawer falls back
+            // to its server-rendered modes and the app bar simply never scrolls.
+            Logger.LogDebug(ex, "The app shell JavaScript module could not be initialized.");
+        }
+    }
+
+    private async Task OnMenuClickedAsync()
+    {
+        if (Preferences.Theater)
+            return;
+
+        if (await IsMobileAsync())
+        {
+            await ToggleMobileDrawerAsync();
+            return;
+        }
+
+        Preferences.ToggleDrawer();
+        await Preferences.PersistAsync();
+    }
+
+    private async Task<bool> IsMobileAsync()
+    {
+        if (_module is null)
+            return false;
+
+        try
+        {
+            return await _module.InvokeAsync<bool>("isMobile");
+        }
+        catch (JSException ex)
+        {
+            Logger.LogDebug(ex, "Could not read the responsive drawer state.");
+            return false;
+        }
+    }
+
+    private async Task ToggleMobileDrawerAsync()
+    {
+        if (_module is null)
+            return;
+
+        try
+        {
+            await _module.InvokeVoidAsync("toggleMobileDrawer");
+        }
+        catch (JSException ex)
+        {
+            Logger.LogDebug(ex, "Could not open the modal library drawer.");
+        }
+    }
+
+    private async Task CloseMobileDrawerAsync()
+    {
+        if (_module is null)
+            return;
+
+        try
+        {
+            await _module.InvokeVoidAsync("closeMobileDrawer");
+        }
+        catch (JSException ex)
+        {
+            Logger.LogDebug(ex, "Could not close the modal library drawer.");
+        }
+    }
+
+    [JSInvokable]
+    public Task SetUpdatesPaused(bool paused)
+    {
+        if (_updatesPaused == paused)
+            return Task.CompletedTask;
+
+        _updatesPaused = paused;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task SetReconnectModalVisible(bool visible)
+    {
+        if (_reconnectModalVisible == visible)
+            return Task.CompletedTask;
+
+        _reconnectModalVisible = visible;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task RetryAsync()
+    {
+        if (_module is null)
+            return;
+
+        try
+        {
+            await _module.InvokeVoidAsync("retryConnection");
+        }
+        catch (JSException ex)
+        {
+            Logger.LogDebug(ex, "Could not retry the connection.");
+        }
+    }
+
+    private void OnPreferencesChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) =>
+        _ = CloseMobileDrawerAsync();
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        Preferences.Changed -= OnPreferencesChanged;
+        Navigation.LocationChanged -= OnLocationChanged;
+
+        if (_module is not null)
+        {
+            try
+            {
+                await _module.InvokeVoidAsync("dispose");
+            }
+            catch (JSException ex)
+            {
+                Logger.LogDebug(ex, "Could not dispose the app shell JavaScript module.");
+            }
+
+            try
+            {
+                await _module.DisposeAsync();
+            }
+            catch (JSException ex)
+            {
+                Logger.LogDebug(ex, "The app shell JavaScript module was already disconnected.");
+            }
+        }
+
+        _self?.Dispose();
+    }
+}

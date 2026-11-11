@@ -1,0 +1,43 @@
+@inject ViewerClock Clock
+@inject IJSRuntime JS
+@inject ILogger<ViewerClockSync> Logger
+
+@code {
+    private bool _synced;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _synced)
+            return;
+
+        _synced = true;
+
+        // The module script can still be in flight when the circuit starts, so
+        // give it one short retry before leaving the UTC fallback in place.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                var timeZone = await JS.InvokeAsync<string?>("skPrefs.getTimeZone");
+                if (string.IsNullOrWhiteSpace(timeZone))
+                    return;
+
+                await JS.InvokeVoidAsync("skPrefs.setTimeZone", timeZone);
+                Clock.TrySetTimeZone(timeZone);
+                return;
+            }
+            catch (JSException ex)
+            {
+                if (attempt == 1)
+                    Logger.LogDebug(ex, "Could not read the browser time zone.");
+                else
+                    await Task.Delay(250);
+            }
+            catch (InvalidOperationException ex)
+            {
+                Logger.LogDebug(ex, "JavaScript interop was unavailable for the viewer clock.");
+                return;
+            }
+        }
+    }
+}

@@ -1,0 +1,21 @@
+@if (FreeBytes is long free && TotalBytes is long total && total > 0)
+{
+    var clampedFree = Math.Clamp(free, 0, total);
+    var usedPercent = Math.Clamp((total - clampedFree) * 100d / total, 0, 100);
+    var warning = clampedFree < total / 10d;
+
+    <span class="sk-storage @(warning ? "warning" : null)"
+          title="Recording disk: @Format.Bytes(clampedFree) free of @Format.Bytes(total)">
+        <span class="sk-icon sm" aria-hidden="true">hard_drive</span>
+        @Format.Bytes(clampedFree) free
+        <span class="meter" aria-hidden="true">
+            <i style="width:@(usedPercent.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></i>
+        </span>
+    </span>
+}
+
+@code {
+    [Parameter] public long? FreeBytes { get; set; }
+
+    [Parameter] public long? TotalBytes { get; set; }
+}
