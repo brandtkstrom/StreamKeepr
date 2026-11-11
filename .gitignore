@@ -44,6 +44,9 @@ ScaffoldingReadMe.txt
 *~
 CodeCoverage/
 
+# Local recordings
+recordings/
+
 # MSBuild Binary and Structured Log
 *.binlog
 

@@ -1,0 +1,50 @@
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using StreamKeepr.Configuration;
+
+namespace StreamKeepr.Tests.Hosting;
+
+/// <summary>
+/// Hosts the real app with test-only configuration and a temp recordings root.
+/// </summary>
+internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
+{
+    private readonly string _testRoot;
+    private readonly Dictionary<string, string?> _settings;
+
+    public StreamKeeprAppFactory(IReadOnlyDictionary<string, string?>? overrides = null)
+    {
+        _testRoot = Path.Combine(Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
+        _settings = new()
+        {
+            [$"{TwitchOptions.SectionName}:ClientId"] = "test-client-id",
+            [$"{TwitchOptions.SectionName}:ClientSecret"] = "test-client-secret",
+            [$"{StorageOptions.SectionName}:RecordingsRoot"] = _testRoot,
+        };
+
+        foreach (var (key, value) in overrides ?? new Dictionary<string, string?>())
+            _settings[key] = value;
+    }
+
+    public string RecordingsRoot => _settings[$"{StorageOptions.SectionName}:RecordingsRoot"]!;
+
+    public ListLoggerProvider Logs { get; } = new();
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
+        builder.ConfigureAppConfiguration((_, configuration) =>
+            configuration.AddInMemoryCollection(_settings));
+        builder.ConfigureLogging(logging => logging.AddProvider(Logs));
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+
+        if (Directory.Exists(_testRoot))
+            Directory.Delete(_testRoot, recursive: true);
+    }
+}
