@@ -101,8 +101,17 @@ public static class RecordingsMedia
         string rootPrefix = Path.EndsInDirectorySeparator(root)
             ? root
             : root + Path.DirectorySeparatorChar;
-        string candidate = Path.GetFullPath(Path.Combine([root, .. segments]));
-        return candidate.StartsWith(rootPrefix, StringComparison.Ordinal);
+
+        try
+        {
+            string candidate = Path.GetFullPath(Path.Combine([root, .. segments]));
+            return candidate.StartsWith(rootPrefix, StringComparison.Ordinal);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            // Malformed paths are a 404, not a 500.
+            return false;
+        }
     }
 
     private static string? RawRequestPath(string? rawTarget)
