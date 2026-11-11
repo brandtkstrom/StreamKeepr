@@ -350,6 +350,68 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await WaitForTimeAsync(page, position, tolerance: 1);
     }
 
+    [Fact]
+    public async Task Chrome_idles_takes_shortcuts_toggles_theater_and_remembers_preferences()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        ILocator row = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").First;
+        string id = (await row.GetAttributeAsync("data-recording-id"))!;
+        await row.ClickAsync();
+        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        await page.EvaluateAsync("() => document.activeElement?.blur()");
+
+        // K plays from anywhere outside a field; overlays fade after 3 s without input.
+        await page.Keyboard.PressAsync("k");
+        await page.WaitForFunctionAsync("!document.querySelector('[data-sk=video]').paused");
+        ILocator player = page.Locator(".sk-player");
+        await page.Mouse.MoveAsync(5, 5);
+        await page.Locator(".sk-player.idle").WaitForAsync(new() { Timeout = 6_000 });
+        LocatorBoundingBoxResult box = (await player.BoundingBoxAsync())!;
+        await page.Mouse.MoveAsync(box.X + box.Width / 2, box.Y + box.Height / 3);
+        await page.Locator(".sk-player:not(.idle)").WaitForAsync();
+
+        await page.Keyboard.PressAsync("k");
+        Assert.True(await Video(page, "v => v.paused"));
+        await page.WaitForTimeoutAsync(3_500);
+        Assert.False(await player.EvaluateAsync<bool>("p => p.classList.contains('idle')"), "never idle while paused");
+
+        // Typing in search is never a shortcut.
+        await page.Locator("[data-search-input]").FillAsync("m");
+        Assert.False(await Video(page, "v => v.muted"));
+        await page.Locator("[data-search-input]").FillAsync("");
+        await page.EvaluateAsync("() => document.activeElement?.blur()");
+
+        await page.Keyboard.PressAsync("m");
+        Assert.True(await Video(page, "v => v.muted"));
+        await page.Locator("[data-sk='speed']").ClickAsync();
+        await page.Locator("[data-sk='speed-menu'] [data-rate='1.5']").ClickAsync();
+        await page.EvaluateAsync("() => document.activeElement?.blur()");
+
+        await page.Keyboard.PressAsync("t");
+        await page.Locator(".sk-shell.theater").WaitForAsync();
+        Assert.False(await page.Locator("nav#sk-drawer").IsVisibleAsync());
+        Assert.Equal("true", await page.Locator("[data-sk='theater']").GetAttributeAsync("aria-pressed"));
+        await page.Locator("[data-sk='theater']").ClickAsync();
+        await page.Locator(".sk-shell:not(.theater)").WaitForAsync();
+
+        Assert.True(await page.Locator("[data-sk='fullscreen']").IsVisibleAsync());
+        bool pipEnabled = await page.EvaluateAsync<bool>("() => document.pictureInPictureEnabled === true");
+        Assert.Equal(pipEnabled, await page.Locator("[data-sk='pip']").IsVisibleAsync());
+        Assert.Equal("Source", (await page.Locator(".sk-quality").InnerTextAsync()).Trim());
+
+        await page.ReloadAsync();
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        Assert.True(await Video(page, "v => v.muted"), "mute survives a reload");
+        Assert.Equal(1.5, await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.playbackRate"));
+        Assert.Equal("1.5×", await page.Locator("[data-sk='speed']").InnerTextAsync());
+
+        await page.EmulateMediaAsync(new() { ReducedMotion = ReducedMotion.Reduce });
+        Assert.Equal("0s", await page.Locator(".sk-player-bottom").EvaluateAsync<string>(
+            "e => getComputedStyle(e).transitionDuration"));
+    }
+
     private static Task<bool> Video(IPage page, string expression) =>
         page.Locator("[data-sk='video']").EvaluateAsync<bool>(expression);
 

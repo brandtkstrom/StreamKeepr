@@ -19,7 +19,7 @@ public sealed class VideoPlayerTests
         "video", "title", "streamer", "chip", "center", "spinner", "overlay", "overlay-message",
         "retry", "seek", "buffered", "played", "ticks", "knob", "hover-time", "play", "back",
         "forward", "mute", "volume", "volume-level", "current", "duration", "speed", "speed-menu",
-        "stats", "edge", "live", "waiting",
+        "stats", "edge", "live", "waiting", "pip", "theater", "fullscreen",
     ];
 
     [Fact]
@@ -161,6 +161,39 @@ public sealed class VideoPlayerTests
         Assert.False(bridge.IsReady);
         await bridge.SeekAsync(12);
         Assert.Equal(0, runtime.Module.SeekCalls);
+    }
+
+    [Fact]
+    public async Task Theater_follows_ui_preferences_both_ways()
+    {
+        using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(
+            p => p.Add(c => c.Recording, Recording("r1", "First")));
+        Assert.Equal("false", cut.Find("[data-sk='theater']").GetAttribute("aria-pressed"));
+
+        await cut.InvokeAsync(() => cut.Instance.SetTheater(true));
+        Assert.True(preferences.Theater);
+        cut.WaitForAssertion(() => Assert.Contains(module.Invocations,
+            call => call.Identifier == "setTheater" && Equals(call.Arguments[1], true)));
+
+        await cut.InvokeAsync(() => preferences.SetTheater(false));
+        cut.WaitForAssertion(() => Assert.Contains(module.Invocations,
+            call => call.Identifier == "setTheater" && Equals(call.Arguments[1], false)));
+    }
+
+    [Fact]
+    public void The_quality_control_is_static_source_text()
+    {
+        using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(
+            p => p.Add(c => c.Recording, Recording("r1", "First")));
+
+        var quality = cut.Find(".sk-quality");
+        Assert.Equal("SPAN", quality.TagName);
+        Assert.Equal("Source", quality.TextContent);
+        Assert.Empty(cut.FindAll("[data-menu='m-quality']"));
     }
 
     [Fact]

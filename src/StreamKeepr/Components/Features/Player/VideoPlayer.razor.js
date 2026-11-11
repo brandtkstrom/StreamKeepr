@@ -8,6 +8,8 @@ import {
   unregisterStatsSource,
 } from "/js/stats.js";
 import { createProgress } from "/js/player-progress.js";
+import { readPlayerPrefs, writePlayerPrefs } from "/js/player-prefs.js";
+import { playerAction } from "/js/player-keys.js";
 
 // Defaults plus the contract's overrides. The stitched playlist targets 12 s segments, so one
 // target duration behind the end is the live edge.
@@ -26,6 +28,7 @@ const SKIP_SECONDS = 10;
 const SEEK_STEP_SECONDS = 5;
 const VOLUME_STEP = 0.05;
 const SPINNER_DELAY_MS = 500;
+const IDLE_MS = 3000;
 // Following keeps the playhead within this much of the live sync position (contract §4).
 const LIVE_SLACK_SEC = 2;
 const WAITING_RETRY_MS = 3000;
@@ -55,7 +58,7 @@ export const HOOKS = [
   "video", "title", "streamer", "chip", "center", "spinner", "overlay", "overlay-message",
   "retry", "seek", "buffered", "played", "ticks", "knob", "hover-time", "play", "back",
   "forward", "mute", "volume", "volume-level", "current", "duration", "speed", "speed-menu",
-  "stats", "edge", "live", "waiting",
+  "stats", "edge", "live", "waiting", "pip", "theater", "fullscreen",
 ];
 
 // JS twin of Ui/Format.Timecode (the source of truth); keep the two in step.
@@ -82,8 +85,9 @@ function hasMediaSource() {
 
 export function createPlayer(
   root,
-  { loadHls = defaultLoadHls, dotNet = null, fetch = globalThis.fetch } = {},
+  { loadHls = defaultLoadHls, dotNet = null, fetch = globalThis.fetch, storage } = {},
 ) {
+  const doc = root.ownerDocument;
   const el = Object.fromEntries(HOOKS.map((name) => [name, root.querySelector(`[data-sk="${name}"]`)]));
   const video = el.video;
   const listeners = new AbortController();
@@ -109,6 +113,10 @@ export function createPlayer(
   let waiting = false; // live only: no playable playlist yet
   let waitingTimer = 0;
   let resumePlaying = false; // VOD→live reload keeps playing if it was
+  let prefs = readPlayerPrefs(storage); // read once; applied on every load
+  let theater = false;
+  let idleTimer = 0;
+  let wasFullscreen = false;
   const stats = createStatsProbe({ video });
   const progress = createProgress({
     save: (seconds) => invokeDotNet("SaveProgress", view?.recordingId, seconds),
@@ -349,6 +357,127 @@ export function createPlayer(
     // Raising the volume above 0 unmutes; lowering it leaves mute alone.
     if (video.volume > before && video.volume > 0) video.muted = false;
     renderVolume();
+    savePrefs();
+  }
+
+  // ----- preferences, theater, fullscreen, picture-in-picture -----
+
+  function applyPrefs() {
+    video.volume = prefs.volume;
+    video.muted = prefs.muted;
+    // A new source resets playbackRate to defaultPlaybackRate, so set both.
+    video.defaultPlaybackRate = prefs.speed;
+    video.playbackRate = prefs.speed;
+  }
+
+  function savePrefs() {
+    prefs = { volume: video.volume, muted: video.muted, speed: video.playbackRate || 1 };
+    writePlayerPrefs(prefs, storage);
+  }
+
+  function toggleMute() {
+    video.muted = !video.muted;
+    renderVolume();
+    savePrefs();
+  }
+
+  function setRate(rate) {
+    video.defaultPlaybackRate = rate;
+    video.playbackRate = rate;
+    renderSpeed();
+    savePrefs();
+  }
+
+  function renderTheater() {
+    if (!el.theater) return;
+    el.theater.setAttribute("aria-pressed", theater ? "true" : "false");
+    el.theater.classList.toggle("on", theater);
+  }
+
+  function toggleTheater() {
+    // UiPreferences is the source of truth; SetTheater persists it and Changed comes back
+    // through setTheater. The button reflects the request at once.
+    theater = !theater;
+    renderTheater();
+    void invokeDotNet("SetTheater", theater);
+  }
+
+  const fullscreenElement = () => doc.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+
+  async function toggleFullscreen() {
+    try {
+      if (fullscreenElement()) {
+        await (doc.exitFullscreen?.() ?? doc.webkitExitFullscreen?.());
+      } else if (typeof root.requestFullscreen === "function") {
+        // The container keeps the custom controls.
+        await root.requestFullscreen();
+      } else if (typeof video.requestFullscreen === "function") {
+        await video.requestFullscreen();
+      } else {
+        video.webkitEnterFullscreen?.(); // iOS Safari: native controls
+      }
+    } catch (error) {
+      console.debug("Stream Keepr: fullscreen was refused.", error);
+    }
+  }
+
+  function renderFullscreen() {
+    const active = fullscreenElement() !== null;
+    const ours = fullscreenElement() === root;
+    if (el.fullscreen) {
+      el.fullscreen.setAttribute("aria-label", ours ? "Exit full screen" : "Full screen");
+      el.fullscreen.querySelector(".sk-icon").textContent = ours ? "fullscreen_exit" : "fullscreen";
+    }
+    if (el.pip) el.pip.disabled = active;
+    if (ours && !wasFullscreen) root.focus();
+    else if (!ours && wasFullscreen) el.fullscreen?.focus();
+    wasFullscreen = ours;
+  }
+
+  const pipSupported = () =>
+    doc.pictureInPictureEnabled === true && typeof video.requestPictureInPicture === "function";
+
+  async function togglePip() {
+    try {
+      if (doc.pictureInPictureElement) await doc.exitPictureInPicture();
+      else await video.requestPictureInPicture();
+    } catch (error) {
+      console.debug("Stream Keepr: picture-in-picture was refused.", error);
+    }
+  }
+
+  function renderPip() {
+    if (!el.pip) return;
+    el.pip.hidden = !pipSupported();
+    const inPip = doc.pictureInPictureElement === video;
+    el.pip.setAttribute("aria-label", inPip ? "Exit picture in picture" : "Picture in picture");
+    el.pip.querySelector(".sk-icon").textContent = inPip ? "picture_in_picture_off" : "picture_in_picture_alt";
+  }
+
+  // ----- idle -----
+
+  function keyboardFocusInside() {
+    const active = doc.activeElement;
+    if (!active || active === doc.body || !root.contains(active)) return false;
+    try {
+      return active.matches(":focus-visible");
+    } catch {
+      return true; // no :focus-visible support: treat any focus as keyboard focus
+    }
+  }
+
+  function canIdle() {
+    return Boolean(view) && !video.paused && !video.ended && el["speed-menu"].hidden
+      && !keyboardFocusInside();
+  }
+
+  /** Reveals the overlays and restarts the 3 s idle timer. */
+  function wake() {
+    root.classList.remove("idle");
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      if (canIdle()) root.classList.add("idle");
+    }, IDLE_MS);
   }
 
   function setStatsPressed(open) {
@@ -520,6 +649,7 @@ export function createPlayer(
   }
 
   function openSpeedMenu() {
+    root.classList.remove("idle");
     el["speed-menu"].hidden = false;
     el.speed.setAttribute("aria-expanded", "true");
     const items = speedItems();
@@ -570,10 +700,12 @@ export function createPlayer(
   on(video, "progress", renderBuffered);
   on(video, "play", () => {
     renderPlayState();
+    wake();
     progress.playing();
   });
   on(video, "pause", () => {
     renderPlayState();
+    root.classList.remove("idle"); // never idle while paused
     // A pause leaves the live edge; Live edge or a seek to it follows again.
     if (live && following) {
       following = false;
@@ -621,13 +753,48 @@ export function createPlayer(
     togglePlay();
     el.play.focus();
   });
-  on(el.back, "click", () => userSeek(clamp(video.currentTime - SKIP_SECONDS, 0, duration())));
-  on(el.forward, "click", () => userSeek(clamp(video.currentTime + SKIP_SECONDS, 0, duration())));
+  on(el.back, "click", () => seekBy(-SKIP_SECONDS));
+  on(el.forward, "click", () => seekBy(SKIP_SECONDS));
   on(el.live, "click", goLive);
-  on(el.mute, "click", () => {
-    video.muted = !video.muted;
-    renderVolume();
+  on(el.mute, "click", toggleMute);
+  on(el.theater, "click", toggleTheater);
+  on(el.fullscreen, "click", () => void toggleFullscreen());
+  on(el.pip, "click", () => void togglePip());
+  on(doc, "fullscreenchange", renderFullscreen);
+  on(doc, "webkitfullscreenchange", renderFullscreen);
+  on(video, "enterpictureinpicture", renderPip);
+  on(video, "leavepictureinpicture", renderPip);
+
+  for (const type of ["pointermove", "pointerdown", "keydown", "focusin"]) on(root, type, wake);
+
+  // Global shortcuts while a recording is open; the decision lives in player-keys.js.
+  on(doc, "keydown", (event) => {
+    if (!view) return;
+    const action = playerAction(event, doc);
+    if (!action) return;
+    event.preventDefault();
+    runAction(action);
+    wake();
   });
+
+  function seekBy(seconds) {
+    if (!hasMetadata()) return;
+    userSeek(clamp(video.currentTime + seconds, 0, duration()));
+  }
+
+  function runAction(action) {
+    switch (action) {
+      case "toggle-play": togglePlay(); break;
+      case "back-10": seekBy(-SKIP_SECONDS); break;
+      case "forward-10": seekBy(SKIP_SECONDS); break;
+      case "back-5": seekBy(-SEEK_STEP_SECONDS); break;
+      case "forward-5": seekBy(SEEK_STEP_SECONDS); break;
+      case "mute": toggleMute(); break;
+      case "fullscreen": void toggleFullscreen(); break;
+      case "theater": toggleTheater(); break;
+      case "stats": toggleStats(); break;
+    }
+  }
   on(el.retry, "click", () => {
     if (!view) return;
     void start(live ? LIVE_EDGE : lastKnownTime);
@@ -659,8 +826,7 @@ export function createPlayer(
   on(el["speed-menu"], "click", (event) => {
     const item = event.target instanceof Element ? event.target.closest("[data-rate]") : null;
     if (!item) return;
-    video.playbackRate = Number(item.dataset.rate);
-    renderSpeed();
+    setRate(Number(item.dataset.rate));
     closeSpeedMenu(true);
   });
   on(el["speed-menu"], "keydown", (event) => {
@@ -761,6 +927,11 @@ export function createPlayer(
       stats.setView(next);
       stats.reset();
       setStatsPressed(Boolean(next.statsOpen));
+      theater = Boolean(next.theater);
+      renderTheater();
+      renderPip();
+      renderFullscreen();
+      applyPrefs();
       renderView();
       renderSpeed();
       renderVolume();
@@ -797,6 +968,13 @@ export function createPlayer(
       }
     },
 
+    /** UiPreferences.Changed: the shell's theater state, from either control. */
+    setTheater(open) {
+      if (disposed) return;
+      theater = Boolean(open);
+      renderTheater();
+    },
+
     seek(time) {
       if (disposed || !Number.isFinite(time)) return;
       if (!Number.isFinite(duration())) {
@@ -811,6 +989,7 @@ export function createPlayer(
       if (disposed) return;
       progress.flush();
       progress.dispose();
+      clearTimeout(idleTimer);
       disposed = true;
       generation++;
       teardownEngine();
@@ -842,6 +1021,10 @@ export async function load(root, view) {
 
 export function update(root, view) {
   players.get(root)?.update(view);
+}
+
+export function setTheater(root, open) {
+  players.get(root)?.setTheater(open);
 }
 
 export function seek(root, seconds) {

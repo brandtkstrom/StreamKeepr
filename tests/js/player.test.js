@@ -7,7 +7,7 @@ import {
 
 // Mirrors the data-sk hooks VideoPlayer.razor renders (VideoPlayerTests guards the markup side).
 const MARKUP = `
-  <div class="sk-player" data-sk-player aria-busy="true">
+  <div class="sk-player" data-sk-player aria-busy="true" tabindex="0">
     <video data-sk="video"></video>
     <div class="sk-player-top"><div class="t"><b data-sk="title"></b><span data-sk="streamer"></span></div><span data-sk="chip"></span></div>
     <button data-sk="center" aria-label="Play"><span class="sk-icon">play_arrow</span></button>
@@ -32,6 +32,9 @@ const MARKUP = `
       <button role="menuitemradio" data-rate="2" aria-checked="false"><span class="sk-icon"></span></button>
     </div>
     <button data-sk="stats" aria-label="Stats for nerds" aria-pressed="false"><span class="sk-icon">query_stats</span></button>
+    <button data-sk="pip" aria-label="Picture in picture" hidden><span class="sk-icon">picture_in_picture_alt</span></button>
+    <button data-sk="theater" aria-label="Theater mode" aria-pressed="false"><span class="sk-icon">width_wide</span></button>
+    <button data-sk="fullscreen" aria-label="Full screen"><span class="sk-icon">fullscreen</span></button>
   </div>`;
 
 const hook = (name) => document.querySelector(`[data-sk="${name}"]`);
@@ -173,6 +176,15 @@ function view(overrides = {}) {
   };
 }
 
+function memoryStorage(initial = {}) {
+  const values = new Map(Object.entries(initial));
+  return {
+    getItem: (k) => (values.has(k) ? values.get(k) : null),
+    setItem: (k, v) => values.set(k, String(v)),
+    values,
+  };
+}
+
 function pointer(target, type, clientX) {
   target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX, button: 0 }));
 }
@@ -202,6 +214,7 @@ describe("VideoPlayer.razor.js", () => {
   afterEach(() => {
     player?.dispose();
     player = null;
+    storage = null;
     vi.useRealTimers();
     vi.unstubAllGlobals();
     document.body.replaceChildren();
@@ -209,11 +222,13 @@ describe("VideoPlayer.razor.js", () => {
 
   let dotNet;
   let fetch;
+  let storage;
 
   async function start(initial = view()) {
     dotNet = { invokeMethodAsync: vi.fn(() => Promise.resolve()) };
     fetch = vi.fn(() => Promise.resolve({ status: 204 }));
-    player = createPlayer(document.querySelector("[data-sk-player]"), { loadHls, dotNet, fetch });
+    storage ??= memoryStorage();
+    player = createPlayer(document.querySelector("[data-sk-player]"), { loadHls, dotNet, fetch, storage });
     await player.load(initial);
     return player;
   }
@@ -909,6 +924,144 @@ describe("VideoPlayer.razor.js", () => {
       next.liveSyncPosition = 58;
       media.metadata(70);
       expect(hook("video").currentTime).toBe(58);
+    });
+  });
+
+  describe("chrome", () => {
+    const root = () => document.querySelector("[data-sk-player]");
+    const press = (k, target = document.body, init = {}) => {
+      const event = new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init });
+      target.dispatchEvent(event);
+      return event;
+    };
+
+    it("goes idle after 3 s of no input while playing, never while paused or with a menu open", async () => {
+      await start();
+      media.metadata(600);
+      hook("center").click();
+      hook("play").blur();
+
+      vi.advanceTimersByTime(2_999);
+      expect(root().classList.contains("idle")).toBe(false);
+      vi.advanceTimersByTime(1);
+      expect(root().classList.contains("idle")).toBe(true);
+
+      root().dispatchEvent(new Event("pointermove"));
+      expect(root().classList.contains("idle")).toBe(false);
+
+      hook("speed").click();
+      vi.advanceTimersByTime(5_000);
+      expect(root().classList.contains("idle")).toBe(false);
+      hook("speed").click();
+
+      hook("play").click();
+      vi.advanceTimersByTime(5_000);
+      expect(root().classList.contains("idle")).toBe(false);
+    });
+
+    it("runs the global shortcuts and leaves typing alone", async () => {
+      await start();
+      media.metadata(600);
+      media.time(100);
+
+      press("k");
+      expect(hook("video").play).toHaveBeenCalledOnce();
+      press(" ");
+      expect(hook("video").pause).toHaveBeenCalledOnce();
+
+      press("l");
+      expect(hook("video").currentTime).toBe(110);
+      press("j");
+      press("ArrowLeft");
+      expect(hook("video").currentTime).toBe(95);
+
+      press("m");
+      expect(hook("video").muted).toBe(true);
+      press("i");
+      expect(hook("stats").getAttribute("aria-pressed")).toBe("true");
+      press("t");
+      expect(dotNet.invokeMethodAsync).toHaveBeenCalledWith("SetTheater", true);
+
+      const input = document.createElement("input");
+      document.body.append(input);
+      expect(press("m", input).defaultPrevented).toBe(false);
+      expect(hook("video").muted).toBe(true);
+      expect(press("/").defaultPrevented).toBe(false);
+    });
+
+    it("restores volume, mute, and speed from sk-player and saves changes", async () => {
+      storage = memoryStorage({ "sk-player": '{"v":1,"volume":0.3,"muted":true,"speed":1.5}' });
+      await start();
+
+      expect(hook("video").volume).toBe(0.3);
+      expect(hook("video").muted).toBe(true);
+      expect(hook("video").playbackRate).toBe(1.5);
+
+      hook("speed").click();
+      document.querySelector('[data-rate="2"]').click();
+      hook("mute").click();
+      key(hook("volume"), "ArrowUp");
+
+      expect(JSON.parse(storage.values.get("sk-player")))
+        .toEqual({ v: 1, volume: 0.35, muted: false, speed: 2 });
+
+      // A new recording applies the saved preferences again.
+      hook("video").playbackRate = 1;
+      await player.load(view({ recordingId: "r2", playlistUrl: "/media/ann/r2/index.m3u8" }));
+      expect(hook("video").playbackRate).toBe(2);
+    });
+
+    it("toggles theater through .NET and reflects the shared state", async () => {
+      await start(view({ theater: true }));
+      expect(hook("theater").getAttribute("aria-pressed")).toBe("true");
+
+      hook("theater").click();
+      expect(dotNet.invokeMethodAsync).toHaveBeenCalledWith("SetTheater", false);
+      expect(hook("theater").getAttribute("aria-pressed")).toBe("false");
+
+      player.setTheater(true);
+      expect(hook("theater").getAttribute("aria-pressed")).toBe("true");
+    });
+
+    it("puts the player container in fullscreen and returns focus on exit", async () => {
+      await start();
+      let current = null;
+      Object.defineProperty(document, "fullscreenElement", { configurable: true, get: () => current });
+      root().requestFullscreen = vi.fn(async () => {
+        current = root();
+        document.dispatchEvent(new Event("fullscreenchange"));
+      });
+      document.exitFullscreen = vi.fn(async () => {
+        current = null;
+        document.dispatchEvent(new Event("fullscreenchange"));
+      });
+
+      hook("fullscreen").click();
+      await Promise.resolve();
+      expect(root().requestFullscreen).toHaveBeenCalledOnce();
+      expect(document.activeElement).toBe(root());
+      expect(hook("fullscreen").getAttribute("aria-label")).toBe("Exit full screen");
+
+      press("f");
+      await Promise.resolve();
+      expect(document.exitFullscreen).toHaveBeenCalledOnce();
+      expect(document.activeElement).toBe(hook("fullscreen"));
+      delete document.fullscreenElement;
+      delete document.exitFullscreen;
+    });
+
+    it("shows picture-in-picture only when supported", async () => {
+      await start();
+      expect(hook("pip").hidden).toBe(true);
+      player.dispose();
+
+      Object.defineProperty(document, "pictureInPictureEnabled", { configurable: true, value: true });
+      hook("video").requestPictureInPicture = vi.fn(async () => {});
+      await start();
+      expect(hook("pip").hidden).toBe(false);
+      hook("pip").click();
+      expect(hook("video").requestPictureInPicture).toHaveBeenCalledOnce();
+      delete document.pictureInPictureEnabled;
     });
   });
 
