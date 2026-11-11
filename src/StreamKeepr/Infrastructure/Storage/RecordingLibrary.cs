@@ -74,15 +74,12 @@ public sealed class RecordingLibrary(ILogger<RecordingLibrary> logger)
 
     public void MarkLoaded()
     {
+        bool changed;
         lock (_gate)
-        {
-            if (_isLoaded)
-                return;
+            changed = SetLoaded();
 
-            _isLoaded = true;
-        }
-
-        Changed?.Invoke();
+        if (changed)
+            Changed?.Invoke();
     }
 
     /// <summary>
@@ -148,10 +145,19 @@ public sealed class RecordingLibrary(ILogger<RecordingLibrary> logger)
                 _byId[summary.Id] = summary;
 
             Refresh();
-            _isLoaded = true;
+            SetLoaded();
         }
 
         Changed?.Invoke();
+    }
+
+    private bool SetLoaded()
+    {
+        if (_isLoaded)
+            return false;
+
+        _isLoaded = true;
+        return true;
     }
 
     private void Refresh()

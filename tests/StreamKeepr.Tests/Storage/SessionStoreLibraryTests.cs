@@ -52,4 +52,24 @@ public sealed class SessionStoreLibraryTests
         Assert.Null(context.Library.Find(other.Id));
         Assert.Equal(5, changed);
     }
+
+    [Fact]
+    public async Task A_projection_failure_does_not_fail_a_manifest_mutation()
+    {
+        using var context = new SessionStoreTestContext();
+        await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
+        await File.WriteAllTextAsync(
+            context.PartPath(1),
+            "#EXTM3U\n#EXTINF:oops,\np001_00001.m4s\n",
+            CancellationToken.None);
+
+        context.Clock.Advance(TimeSpan.FromMinutes(1));
+        await context.Store.AppendMetadataAsync(
+            context.Session, context.Metadata("Changed", "New game"), CancellationToken.None);
+
+        var manifest = await context.Store.TryLoadAsync(context.Directory, CancellationToken.None);
+        Assert.NotNull(manifest);
+        Assert.Equal(2, manifest.Metadata.Count);
+        Assert.Equal("Changed", manifest.Metadata[^1].Title);
+    }
 }

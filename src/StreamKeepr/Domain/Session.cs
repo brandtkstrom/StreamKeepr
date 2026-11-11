@@ -22,6 +22,12 @@ public sealed record Session(
     public static Session For(LiveStream live, string channel, string recordingsRoot)
     {
         string id = $"{live.StartedAt.UtcDateTime:yyyyMMdd'T'HHmmss'Z'}_{live.StreamId}";
+        if (!IsValidId(id))
+        {
+            throw new ArgumentException(
+                "The stream id cannot form a safe session id.", nameof(live));
+        }
+
         return new(id, channel, live.StreamId, live.StartedAt, Path.Combine(recordingsRoot, channel, id));
     }
 }

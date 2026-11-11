@@ -1,6 +1,4 @@
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
-using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Storage;
 
@@ -94,13 +92,8 @@ public sealed class RecordingLibraryLoadTests
         var target = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
         int changed = 0;
         target.Changed += () => changed++;
-        var loader = new SessionStore(
-            Options.Create(new RecorderOptions { SegmentSeconds = 6 }),
-            target,
-            context.Clock,
-            NullLogger<SessionStore>.Instance);
 
-        await target.LoadAsync(context.Root, loader, CancellationToken.None);
+        await target.LoadAsync(context.Root, context.Store, CancellationToken.None);
 
         Assert.True(target.IsLoaded);
         Assert.Equal(1, changed);

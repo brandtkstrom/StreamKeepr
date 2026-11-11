@@ -327,8 +327,20 @@ public sealed class SessionStore(
 
     private async Task UpsertLibraryAsync(string directory, CancellationToken ct)
     {
-        if (await SummarizeAsync(directory, ct) is { } summary)
-            library.Upsert(summary);
+        try
+        {
+            if (await SummarizeAsync(directory, ct) is { } summary)
+                library.Upsert(summary);
+        }
+        catch (Exception ex) when (ex is FormatException or IOException
+            or InvalidDataException or UnauthorizedAccessException or NotSupportedException)
+        {
+            // The manifest mutation already succeeded. A projection failure must not
+            // turn a recording command into a failure; recovery or the next update
+            // will rebuild the summary once the media is readable.
+            logger.LogWarning(
+                ex, "Could not update the recording library for {Directory}.", directory);
+        }
     }
 
     private async Task<SessionManifest> ReadManifestCoreAsync(string directory, CancellationToken ct)

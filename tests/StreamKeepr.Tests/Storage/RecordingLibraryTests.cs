@@ -68,6 +68,22 @@ public sealed class RecordingLibraryTests
     }
 
     [Fact]
+    public void Concurrent_upserts_notify_subscribers_and_keep_every_entry()
+    {
+        var library = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
+        int changed = 0;
+        library.Changed += () => Interlocked.Increment(ref changed);
+        var summaries = Enumerable.Range(0, 50)
+            .Select(index => Summary($"r{index}", StartedAt.AddSeconds(index)))
+            .ToArray();
+
+        Parallel.ForEach(summaries, library.Upsert);
+
+        Assert.Equal(summaries.Length, Volatile.Read(ref changed));
+        Assert.Equal(summaries.Length, library.All.Count);
+    }
+
+    [Fact]
     public void All_is_a_snapshot_that_later_upserts_do_not_mutate()
     {
         var library = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);

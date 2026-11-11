@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using Microsoft.Extensions.DependencyInjection;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Storage;
@@ -55,6 +56,73 @@ public sealed class LiveIndexEndpointTests
         string body = await response.Content.ReadAsStringAsync();
         Assert.Contains("p001_00001.m4s", body, StringComparison.Ordinal);
         Assert.Equal(1, SessionStoreTestContext.Occurrences(body, "#EXT-X-ENDLIST"));
+    }
+
+    [Fact]
+    public async Task Complete_session_supports_head_and_range_requests()
+    {
+        using var factory = new StreamKeeprAppFactory();
+        using var client = factory.CreateClient();
+        Session session = await OpenSessionAsync(factory, "623456789");
+        await WritePartAsync(session, "p001_00001.m4s");
+        await factory.Services.GetRequiredService<SessionStore>()
+            .FinalizeAsync(session, CancellationToken.None);
+        string url = $"/media/{session.Channel}/{session.Id}/index.m3u8";
+
+        using var headRequest = new HttpRequestMessage(HttpMethod.Head, url);
+        using var head = await client.SendAsync(headRequest);
+        Assert.Equal(HttpStatusCode.OK, head.StatusCode);
+        Assert.True(head.Content.Headers.ContentLength > 0);
+        Assert.Equal("no-cache", head.Headers.CacheControl?.ToString());
+        Assert.Empty(await head.Content.ReadAsByteArrayAsync());
+
+        using var rangeRequest = new HttpRequestMessage(HttpMethod.Get, url);
+        rangeRequest.Headers.Range = new RangeHeaderValue(0, 9);
+        using var range = await client.SendAsync(rangeRequest);
+        Assert.Equal(HttpStatusCode.PartialContent, range.StatusCode);
+        Assert.Equal(10, (await range.Content.ReadAsByteArrayAsync()).Length);
+        Assert.Equal("no-cache", range.Headers.CacheControl?.ToString());
+    }
+
+    [Fact]
+    public async Task Recording_session_supports_head_requests()
+    {
+        using var factory = new StreamKeeprAppFactory();
+        using var client = factory.CreateClient();
+        Session session = await OpenSessionAsync(factory, "723456789");
+        await WritePartAsync(session, "p001_00001.m4s");
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Head, $"/media/{session.Channel}/{session.Id}/index.m3u8");
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Content.Headers.ContentLength > 0);
+        Assert.Equal("no-cache", response.Headers.CacheControl?.ToString());
+        Assert.Empty(await response.Content.ReadAsByteArrayAsync());
+    }
+
+    [Fact]
+    public async Task Loaded_library_refuses_a_session_removed_from_it()
+    {
+        using var factory = new StreamKeeprAppFactory();
+        using var client = factory.CreateClient();
+        Session session = await OpenSessionAsync(factory, "823456789");
+        await WritePartAsync(session, "p001_00001.m4s");
+
+        var library = factory.Services.GetRequiredService<RecordingLibrary>();
+        var store = factory.Services.GetRequiredService<SessionStore>();
+        await library.LoadAsync(factory.RecordingsRoot, store, CancellationToken.None);
+        Assert.True(library.IsLoaded);
+        Assert.NotNull(library.Find(session.Id));
+
+        library.Remove(session.Id);
+
+        using var response = await client.GetAsync(
+            $"/media/{session.Channel}/{session.Id}/index.m3u8");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("no-cache", response.Headers.CacheControl?.ToString());
     }
 
     [Fact]
