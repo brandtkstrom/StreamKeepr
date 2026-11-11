@@ -14,10 +14,9 @@ else if (!Library.IsLoaded)
     <h1 class="sk-visually-hidden">Recording</h1>
     <p class="body-medium" data-recording-loading>Loading recording…</p>
 }
-else if (Library.Find(RecordingId) is { } recording)
+else if (Selected is { } recording)
 {
     <h1 class="sk-visually-hidden">@recording.Title</h1>
-    <p class="body-medium" data-selected-recording="@RecordingId">@recording.Title</p>
 }
 else
 {
@@ -30,12 +29,22 @@ else
     </section>
 }
 
-<div data-slot="player"></div>
+@* The player column keeps its fixed order. The same VideoPlayer instance survives recording
+   changes and swaps the source in JS. *@
+<div data-slot="player" data-selected-recording="@Selected?.Id">
+    @if (Selected is { } playing)
+    {
+        <VideoPlayer Recording="playing" />
+    }
+</div>
 <div data-slot="stats"></div>
 <div data-slot="details"></div>
 
 @code {
     [Parameter] public string? RecordingId { get; set; }
+
+    private RecordingView? Selected =>
+        RecordingId is not null && Library.IsLoaded ? Library.Find(RecordingId) : null;
 
     protected override void OnInitialized() => Library.Changed += OnLibraryChanged;
 
