@@ -1,0 +1,177 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject ILogger<Dialog> Logger
+
+@* Modal dialog backed by <dialog>.showModal(), which provides the native focus
+   trap. Esc is routed through .NET so the parent can update Open; focus returns
+   to the invoker when the dialog closes. *@
+<dialog class="sk-dialog"
+        @ref="_dialog"
+        aria-labelledby="@_titleId"
+        @onclose="OnNativeCloseAsync"
+        @attributes="AdditionalAttributes">
+    <div class="sk-dialog-inner">
+        <h2 id="@_titleId">@Title</h2>
+        <div class="sk-dialog-content">
+            @ChildContent
+        </div>
+        @if (Actions is not null)
+        {
+            <div class="sk-dialog-actions">
+                @Actions
+            </div>
+        }
+    </div>
+</dialog>
+
+@code {
+    private readonly string _titleId = $"sk-dialog-{Guid.NewGuid():N}";
+
+    private ElementReference _dialog;
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<Dialog>? _self;
+    private bool _appliedOpen;
+    private bool _moduleUnavailable;
+    private bool _disposed;
+
+    [Parameter] public bool Open { get; set; }
+
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter] public RenderFragment? Actions { get; set; }
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_appliedOpen == Open)
+            return;
+
+        if (Open)
+        {
+            if (!await EnsureModuleAsync())
+                return;
+
+            _self ??= DotNetObjectReference.Create(this);
+            await _module!.InvokeVoidAsync("open", _dialog, _self);
+            _appliedOpen = true;
+            return;
+        }
+
+        _appliedOpen = false;
+
+        if (_module is null)
+            return;
+
+        try
+        {
+            await _module.InvokeVoidAsync("close", _dialog);
+        }
+        catch (JSException ex)
+        {
+            Logger.LogDebug(ex, "The dialog could not be closed.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Logger.LogDebug(ex, "Dialog JavaScript interop is unavailable.");
+        }
+    }
+
+    private async Task<bool> EnsureModuleAsync()
+    {
+        if (_module is not null)
+            return true;
+
+        if (_moduleUnavailable)
+            return false;
+
+        try
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./Components/Primitives/Dialog.razor.js");
+            return _module is not null;
+        }
+        catch (JSException ex)
+        {
+            _moduleUnavailable = true;
+            Logger.LogDebug(ex, "The dialog JavaScript module could not be initialized.");
+            return false;
+        }
+        catch (InvalidOperationException ex)
+        {
+            _moduleUnavailable = true;
+            Logger.LogDebug(ex, "Dialog JavaScript interop is unavailable.");
+            return false;
+        }
+    }
+
+    [JSInvokable]
+    public Task OnDialogCancel() => InvokeAsync(RequestCloseAsync);
+
+    private async Task RequestCloseAsync()
+    {
+        if (!Open)
+            return;
+
+        if (OpenChanged.HasDelegate)
+            await OpenChanged.InvokeAsync(false);
+
+        await OnClose.InvokeAsync();
+    }
+
+    /// <summary>A form with <c>method="dialog"</c> can close the native element directly.</summary>
+    private async Task OnNativeCloseAsync()
+    {
+        if (!_appliedOpen || !Open)
+            return;
+
+        _appliedOpen = false;
+
+        if (OpenChanged.HasDelegate)
+            await OpenChanged.InvokeAsync(false);
+
+        await OnClose.InvokeAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+
+        if (_module is not null)
+        {
+            try
+            {
+                await _module.InvokeVoidAsync("dispose", _dialog);
+            }
+            catch (JSException ex)
+            {
+                Logger.LogDebug(ex, "The dialog JavaScript module could not be disposed.");
+            }
+            catch (InvalidOperationException ex)
+            {
+                Logger.LogDebug(ex, "Dialog JavaScript interop is unavailable while disposing.");
+            }
+
+            try
+            {
+                await _module.DisposeAsync();
+            }
+            catch (JSException ex)
+            {
+                Logger.LogDebug(ex, "The dialog JavaScript module was already disconnected.");
+            }
+        }
+
+        _self?.Dispose();
+    }
+}

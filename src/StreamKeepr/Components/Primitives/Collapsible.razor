@@ -1,0 +1,35 @@
+@* Controlled disclosure. The parent owns <see cref="Open"/> and updates it from OnToggle. *@
+<section class="sk-panel sk-collapse"
+         aria-expanded="@(Open ? "true" : "false")"
+         @attributes="AdditionalAttributes">
+    <button type="button"
+            class="sk-collapse-head"
+            aria-expanded="@(Open ? "true" : "false")"
+            aria-controls="@_bodyId"
+            @onclick="OnHeaderClicked">
+        @Header
+        <span class="sk-icon chev" aria-hidden="true">expand_more</span>
+    </button>
+    <div id="@_bodyId" class="sk-collapse-body" inert="@(!Open)">
+        <div>
+            @ChildContent
+        </div>
+    </div>
+</section>
+
+@code {
+    [Parameter] public bool Open { get; set; }
+
+    [Parameter] public RenderFragment? Header { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter] public EventCallback<bool> OnToggle { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private readonly string _bodyId = $"sk-collapse-{Guid.NewGuid():N}";
+
+    private Task OnHeaderClicked() => OnToggle.InvokeAsync(!Open);
+}

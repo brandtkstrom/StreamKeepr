@@ -1,5 +1,6 @@
 @implements IAsyncDisposable
 @inject UiPreferences Preferences
+@inject SnackbarService Snackbars
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject ILogger<AppShell> Logger
@@ -42,7 +43,7 @@
         <div class="sk-appbar-actions">
             <StorageMeter FreeBytes="@FreeBytes" TotalBytes="@TotalBytes" />
 
-            <button type="button" class="sk-icon-btn" aria-label="Capture schedule" @onclick="OnSchedule">
+            <button type="button" class="sk-icon-btn" aria-label="Capture schedule" @onclick="OnScheduleClickedAsync">
                 <span class="sk-icon" aria-hidden="true">schedule</span>
             </button>
 
@@ -93,6 +94,7 @@
     </div>
 
     <ViewerClockSync />
+    <SnackbarHost />
 </div>
 
 @code {
@@ -162,6 +164,15 @@
             // to its server-rendered modes and the app bar simply never scrolls.
             Logger.LogDebug(ex, "The app shell JavaScript module could not be initialized.");
         }
+    }
+
+    private Task OnScheduleClickedAsync()
+    {
+        if (OnSchedule.HasDelegate)
+            return OnSchedule.InvokeAsync();
+
+        Snackbars.Show("Capture schedule is not available yet");
+        return Task.CompletedTask;
     }
 
     private async Task OnMenuClickedAsync()

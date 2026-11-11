@@ -1,0 +1,34 @@
+@implements IDisposable
+@inject SnackbarService Snackbars
+
+@if (_message is not null)
+{
+    <div class="sk-snackbar-host">
+        <Snackbar Text="@_message.Text"
+                  ActionLabel="@_message.ActionLabel"
+                  OnAction="InvokeActionAsync"
+                  OnDismiss="Dismiss" />
+    </div>
+}
+
+@code {
+    private SnackbarMessage? _message;
+
+    protected override void OnInitialized()
+    {
+        Snackbars.Changed += OnChanged;
+        _message = Snackbars.Current;
+    }
+
+    private void OnChanged() => _ = InvokeAsync(() =>
+    {
+        _message = Snackbars.Current;
+        StateHasChanged();
+    });
+
+    private Task InvokeActionAsync() => Snackbars.InvokeActionAsync();
+
+    private void Dismiss() => Snackbars.Dismiss();
+
+    public void Dispose() => Snackbars.Changed -= OnChanged;
+}

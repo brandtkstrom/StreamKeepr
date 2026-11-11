@@ -125,6 +125,21 @@ public sealed class AppShellTests
     }
 
     [Fact]
+    public void Schedule_button_shows_the_stub_snackbar_without_a_handler()
+    {
+        using var context = CreateContext();
+        var cut = RenderShell(context);
+
+        cut.Find("[aria-label='Capture schedule']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Capture schedule is not available yet", cut.Markup);
+            Assert.Single(cut.FindAll(".sk-snackbar"));
+        });
+    }
+
+    [Fact]
     public async Task Reconnect_notice_is_hidden_when_the_template_modal_is_visible()
     {
         using var context = CreateContext();
@@ -161,6 +176,7 @@ public sealed class AppShellTests
         context.Services.AddSingleton<IClientStateStore>(store);
         context.Services.AddScoped<UiPreferences>();
         context.Services.AddScoped<ViewerClock>();
+        context.Services.AddScoped<SnackbarService>();
         context.Services.AddSingleton(TimeProvider.System);
         return context;
     }

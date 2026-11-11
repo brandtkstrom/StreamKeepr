@@ -1,0 +1,312 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject ILogger<Menu> Logger
+
+@* Anchored menu. Arrow keys move between items, Esc and outside clicks close it,
+   and focus returns to the trigger when the menu closes by keyboard or selection. *@
+<div class="sk-menu-anchor" @ref="_root" @attributes="AdditionalAttributes">
+    <button type="button"
+            class="@TriggerClass"
+            data-menu-trigger
+            @ref="_trigger"
+            aria-haspopup="menu"
+            aria-expanded="@(_open ? "true" : "false")"
+            aria-controls="@_menuId"
+            aria-label="@Label"
+            @onclick="ToggleAsync"
+            @onkeydown="OnTriggerKeyDownAsync">
+        @if (TriggerContent is null)
+        {
+            <Icon Name="@Icon" />
+        }
+        else
+        {
+            @TriggerContent
+        }
+    </button>
+
+    <div id="@_menuId"
+         class="sk-menu @AlignClass"
+         role="menu"
+         aria-label="@Label"
+         hidden="@(!_open)"
+         @onkeydown="HandleMenuKeyDownAsync">
+        <CascadingValue Value="_context" IsFixed="true">
+            @ChildContent
+        </CascadingValue>
+    </div>
+</div>
+
+@code {
+    private readonly List<MenuItem> _items = [];
+    private readonly MenuContext _context;
+    private readonly string _menuId = $"sk-menu-{Guid.NewGuid():N}";
+
+    private ElementReference _root;
+    private ElementReference _trigger;
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<Menu>? _self;
+    private bool _open;
+    private int _activeIndex;
+    private int _focusIndex;
+    private bool _focusItemPending;
+    private bool _focusTriggerPending;
+    private bool _disposed;
+
+    public Menu()
+    {
+        _context = new MenuContext(this);
+    }
+
+    /// <summary>Accessible name for the trigger and the menu.</summary>
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+
+    /// <summary>Icon shown when no custom trigger content is supplied.</summary>
+    [Parameter] public string Icon { get; set; } = "more_vert";
+
+    [Parameter] public string TriggerClass { get; set; } = "sk-icon-btn";
+
+    [Parameter] public RenderFragment? TriggerContent { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter] public MenuAlignment Align { get; set; } = MenuAlignment.End;
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string AlignClass => Align == MenuAlignment.End ? "align-end" : "align-start";
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender || _disposed)
+            return;
+
+        _self = DotNetObjectReference.Create(this);
+        _ = InitializeJavaScriptAsync();
+    }
+
+    internal void Register(MenuItem item)
+    {
+        if (!_items.Contains(item))
+            _items.Add(item);
+    }
+
+    internal void Unregister(MenuItem item) => _items.Remove(item);
+
+    private async Task InitializeJavaScriptAsync()
+    {
+        try
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./Components/Primitives/Menu.razor.js");
+            if (_module is not null)
+                await _module.InvokeVoidAsync("init", _root, _self);
+        }
+        catch (JSException ex)
+        {
+            // The menu remains fully keyboard-operable in Blazor; only the
+            // outside-click and key default suppression enhancements are lost.
+            Logger.LogDebug(ex, "The menu JavaScript module could not be initialized.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Logger.LogDebug(ex, "Menu JavaScript interop is unavailable.");
+        }
+    }
+
+    private async Task ToggleAsync()
+    {
+        if (_open)
+            await CloseAsync(returnFocus: true);
+        else
+            await OpenAsync(0);
+    }
+
+    private Task OnTriggerKeyDownAsync(KeyboardEventArgs args)
+    {
+        return args.Key switch
+        {
+            "ArrowDown" => OpenAsync(0),
+            "ArrowUp" => OpenAsync(-1),
+            _ => Task.CompletedTask,
+        };
+    }
+
+    private Task OpenAsync(int focusIndex)
+    {
+        if (_open)
+            return Task.CompletedTask;
+
+        _open = true;
+        _focusIndex = focusIndex < 0
+            ? FindEnabledFrom(0, -1)
+            : FindEnabledFrom(-1, 1);
+        _activeIndex = Math.Max(_focusIndex, 0);
+        _focusItemPending = true;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    internal Task CloseAsync(bool returnFocus)
+    {
+        if (!_open)
+            return Task.CompletedTask;
+
+        _open = false;
+        _focusTriggerPending = returnFocus;
+        // The close can be requested by a child MenuItem event, which does not
+        // otherwise re-render the owning menu.
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task CloseFromJs(bool returnFocus) =>
+        InvokeAsync(() => CloseAsync(returnFocus));
+
+    private async Task HandleMenuKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (!_open)
+            return;
+
+        switch (args.Key)
+        {
+            case "ArrowDown":
+                await MoveFocusAsync(1);
+                break;
+            case "ArrowUp":
+                await MoveFocusAsync(-1);
+                break;
+            case "Home":
+                await FocusItemAsync(FindEnabledFrom(-1, 1));
+                break;
+            case "End":
+                await FocusItemAsync(FindEnabledFrom(0, -1));
+                break;
+            case "Escape":
+                await CloseAsync(returnFocus: true);
+                break;
+            case "Tab":
+                await CloseAsync(returnFocus: false);
+                break;
+        }
+    }
+
+    private async Task MoveFocusAsync(int delta)
+    {
+        var index = FindEnabledFrom(_activeIndex, delta);
+        if (index >= 0)
+            await FocusItemAsync(index);
+    }
+
+    private async Task FocusItemAsync(int index)
+    {
+        if (index < 0 || index >= _items.Count || _items[index].Disabled)
+            return;
+
+        _activeIndex = index;
+
+        try
+        {
+            await _items[index].FocusAsync();
+        }
+        catch (JSException ex)
+        {
+            Logger.LogDebug(ex, "A menu item could not receive focus.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Logger.LogDebug(ex, "Menu JavaScript interop is unavailable.");
+        }
+    }
+
+    /// <summary>Finds the next enabled item, skipping disabled menu entries.</summary>
+    private int FindEnabledFrom(int start, int delta)
+    {
+        if (_items.Count == 0)
+            return -1;
+
+        var index = start;
+        for (var step = 0; step < _items.Count; step++)
+        {
+            index = ((index + delta) % _items.Count + _items.Count) % _items.Count;
+            if (!_items[index].Disabled)
+                return index;
+        }
+
+        return -1;
+    }
+
+    private async Task FocusTriggerAsync()
+    {
+        try
+        {
+            await _trigger.FocusAsync();
+        }
+        catch (JSException ex)
+        {
+            Logger.LogDebug(ex, "The menu trigger could not regain focus.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Logger.LogDebug(ex, "Menu JavaScript interop is unavailable.");
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            await CompletePendingFocusAsync();
+    }
+
+    private async Task CompletePendingFocusAsync()
+    {
+        if (_focusItemPending)
+        {
+            _focusItemPending = false;
+            await FocusItemAsync(_focusIndex);
+        }
+
+        if (_focusTriggerPending)
+        {
+            _focusTriggerPending = false;
+            await FocusTriggerAsync();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+
+        if (_module is not null)
+        {
+            try
+            {
+                await _module.InvokeVoidAsync("dispose", _root);
+            }
+            catch (JSException ex)
+            {
+                Logger.LogDebug(ex, "The menu JavaScript module could not be disposed.");
+            }
+            catch (InvalidOperationException ex)
+            {
+                Logger.LogDebug(ex, "Menu JavaScript interop is unavailable while disposing.");
+            }
+
+            try
+            {
+                await _module.DisposeAsync();
+            }
+            catch (JSException ex)
+            {
+                Logger.LogDebug(ex, "The menu JavaScript module was already disconnected.");
+            }
+        }
+
+        _self?.Dispose();
+    }
+}

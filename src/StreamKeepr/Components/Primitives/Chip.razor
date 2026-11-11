@@ -1,0 +1,23 @@
+@* Filter chip. Selection is exposed with aria-pressed rather than colour alone. *@
+<button type="button"
+        class="sk-chip"
+        aria-pressed="@(Selected ? "true" : "false")"
+        @onclick="OnClick"
+        @attributes="AdditionalAttributes">
+    @if (Selected)
+    {
+        <Icon Name="check" Size="IconSize.Small" />
+    }
+    @ChildContent
+</button>
+
+@code {
+    [Parameter] public bool Selected { get; set; }
+
+    [Parameter] public EventCallback OnClick { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+}
