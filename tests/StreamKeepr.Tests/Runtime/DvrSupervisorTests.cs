@@ -27,6 +27,8 @@ public sealed class DvrSupervisorTests
         {
             var clock = new FakeTimeProvider(
                 new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
+            IOptions<StorageOptions> storageOptions = Options.Create(
+                new StorageOptions { RecordingsRoot = root, MinFreeGb = 1 });
             var library = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
             var store = new SessionStore(
                 Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
@@ -34,7 +36,7 @@ public sealed class DvrSupervisorTests
                 clock,
                 NullLogger<SessionStore>.Instance);
             var disk = new DiskGuard(
-                Options.Create(new StorageOptions { RecordingsRoot = root, MinFreeGb = 1 }),
+                storageOptions,
                 new FakeDiskSpace(DiskGuard.BytesPerGib * 2, DiskGuard.BytesPerGib * 4));
             var status = new DvrStatus();
             var recorder = new FakeRecorder
@@ -45,7 +47,7 @@ public sealed class DvrSupervisorTests
             };
             var factory = new ChannelCoordinatorFactory(
                 Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
-                Options.Create(new StorageOptions { RecordingsRoot = root, MinFreeGb = 1 }),
+                storageOptions,
                 recorder,
                 store,
                 disk,
@@ -53,13 +55,22 @@ public sealed class DvrSupervisorTests
                 new ThrowingRetryJitter(),
                 clock,
                 NullLoggerFactory.Instance);
+            var channelStore = new ChannelStore(
+                Options.Create(new TwitchOptions { Channels = [Channel] }),
+                storageOptions,
+                NullLogger<ChannelStore>.Instance);
+            var recovery = new RecoveryService(
+                store, library, storageOptions, NullLogger<RecoveryService>.Instance);
             var poller = new ScriptedStreamPoller();
             var lifetime = new FakeHostApplicationLifetime();
             var logs = new ListLoggerProvider();
             using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(logs));
             using var supervisor = new DvrSupervisor(
-                Options.Create(new TwitchOptions { Channels = [Channel] }),
                 poller,
+                new NoopEventSubClient(),
+                recovery,
+                channelStore,
+                status,
                 factory,
                 lifetime,
                 clock,
@@ -86,6 +97,20 @@ public sealed class DvrSupervisorTests
         {
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private sealed class NoopEventSubClient : IEventSubClient
+    {
+        public async Task RunAsync(StreamObservationRoute route, CancellationToken ct)
+        {
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+            }
         }
     }
 }
