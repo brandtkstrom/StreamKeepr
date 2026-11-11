@@ -1,0 +1,18 @@
+#!/bin/sh
+# Writes a large partial source to stdout as fast as the consumer allows. Paired with the
+# recorder's bounded pipe and an undrained reader, it must block near four MiB instead of
+# buffering the whole payload without limit.
+set -eu
+
+if [ "${1:-}" = "--version" ]; then
+    echo "streamlink 0.0.0-fake"
+    exit 0
+fi
+
+if ! command -v dd >/dev/null 2>&1; then
+    echo "fake-streamlink-slow: dd is required for the backpressure test" >&2
+    exit 127
+fi
+
+# 32 MiB: comfortably more than the four MiB pause threshold, small enough for a fast test.
+dd if=/dev/zero bs=65536 count=512 2>/dev/null

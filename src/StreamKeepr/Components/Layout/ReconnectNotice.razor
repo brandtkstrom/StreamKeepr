@@ -1,0 +1,19 @@
+@if (Visible && !ModalVisible)
+{
+    <div class="sk-reconnect-notice" role="status" data-reconnect-notice>
+        <span class="sk-icon sm" aria-hidden="true">cloud_off</span>
+        <span class="msg">@Message</span>
+        <button type="button" class="sk-btn text" @onclick="OnRetry">Retry</button>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+
+    /// <summary>The template reconnect modal owns the hard-disconnect state.</summary>
+    [Parameter] public bool ModalVisible { get; set; }
+
+    [Parameter] public string Message { get; set; } = "Live updates paused.";
+
+    [Parameter] public EventCallback OnRetry { get; set; }
+}

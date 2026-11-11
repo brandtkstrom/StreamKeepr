@@ -44,6 +44,12 @@ ScaffoldingReadMe.txt
 *~
 CodeCoverage/
 
+# Local recordings
+recordings/
+
+# Local app data (Data Protection keys, admin tokens)
+.streamkeepr/
+
 # MSBuild Binary and Structured Log
 *.binlog
 
@@ -55,3 +61,11 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Development
+*/**/*.Development.json
+
+# Local IDE and agent tool state
+.idea/
+.serena/
+*.DotSettings.user

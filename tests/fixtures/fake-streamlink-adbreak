@@ -1,0 +1,27 @@
+#!/bin/sh
+# Announces an ad break on stderr and pauses like Streamlink does while it skips the ads, then
+# streams a short clip. Recorder tests prove the stall watchdog respects the grace window.
+set -eu
+
+if [ "${1:-}" = "--version" ]; then
+    echo "streamlink 0.0.0-fake"
+    exit 0
+fi
+
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "fake-streamlink-adbreak: ffmpeg is required for recorder integration tests" >&2
+    exit 127
+fi
+
+echo "Detected advertisement break of 10 seconds" >&2
+sleep 1
+
+exec ffmpeg \
+    -hide_banner -loglevel error -nostdin \
+    -f lavfi -i "testsrc2=size=160x120:rate=15:duration=4" \
+    -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=4" \
+    -map 0:v -map 1:a \
+    -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p \
+    -g 15 -keyint_min 15 -sc_threshold 0 \
+    -c:a aac -b:a 64k \
+    -f mpegts pipe:1

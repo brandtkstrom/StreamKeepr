@@ -1,0 +1,35 @@
+@* Material Symbols Rounded glyph. Decorative unless a label makes it meaningful. *@
+<span class="@CssClass"
+      role="@(Label is null ? null : "img")"
+      aria-hidden="@(Label is null ? "true" : null)"
+      aria-label="@Label"
+      @attributes="AdditionalAttributes">@Name</span>
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+
+    [Parameter] public IconSize Size { get; set; } = IconSize.Large;
+
+    [Parameter] public bool Fill { get; set; }
+
+    /// <summary>Accessible label. Leave null for a decorative glyph.</summary>
+    [Parameter] public string? Label { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string CssClass
+    {
+        get
+        {
+            var size = Size switch
+            {
+                IconSize.Small => " xs",
+                IconSize.Medium => " sm",
+                _ => "",
+            };
+
+            return Fill ? $"sk-icon fill{size}" : $"sk-icon{size}";
+        }
+    }
+}

@@ -17,7 +17,7 @@ public class AuthenticationHandler : DelegatingHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancelToken)
     {
         // Set request message auth header
-        if (request.Headers.Authorization is not {Scheme: "Bearer", Parameter: not null})
+        if (request.Headers.Authorization is not { Scheme: "Bearer", Parameter: not null })
         {
             _logger.LogDebug("Setting http request Authorization header");
             try

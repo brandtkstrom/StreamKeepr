@@ -1,0 +1,31 @@
+@* Snackbar surface. Queueing and auto-dismiss belong to SnackbarService. *@
+<div class="sk-snackbar"
+     role="status"
+     aria-live="polite"
+     aria-atomic="true"
+     @attributes="AdditionalAttributes">
+    <span class="sk-snackbar-text">@Text</span>
+    @if (ActionLabel is not null)
+    {
+        <button type="button" class="sk-btn text sk-snackbar-action" @onclick="OnAction">@ActionLabel</button>
+    }
+    <button type="button"
+            class="sk-icon-btn sm sk-snackbar-dismiss"
+            aria-label="Dismiss notification"
+            @onclick="OnDismiss">
+        <Icon Name="close" Size="IconSize.Medium" />
+    </button>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Text { get; set; } = "";
+
+    [Parameter] public string? ActionLabel { get; set; }
+
+    [Parameter] public EventCallback OnAction { get; set; }
+
+    [Parameter] public EventCallback OnDismiss { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+}

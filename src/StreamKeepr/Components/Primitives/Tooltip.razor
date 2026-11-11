@@ -1,0 +1,17 @@
+@* Non-interactive hover/focus tooltip. Additional attributes apply to the wrapper,
+   which is also the element described by the tooltip. *@
+<span class="sk-tooltip-wrap" aria-describedby="@_tooltipId" @attributes="AdditionalAttributes">
+    @ChildContent
+    <span id="@_tooltipId" class="sk-tooltip-bubble" role="tooltip">@Text</span>
+</span>
+
+@code {
+    [Parameter, EditorRequired] public string Text { get; set; } = "";
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private readonly string _tooltipId = $"sk-tooltip-{Guid.NewGuid():N}";
+}

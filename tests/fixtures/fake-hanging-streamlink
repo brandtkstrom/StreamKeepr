@@ -1,0 +1,10 @@
+#!/bin/sh
+# Hangs until force-killed and ignores SIGINT, exercising the recorder's bounded
+# Streamlink shutdown. Run from the recorder's working directory.
+set -eu
+
+: > streamlink.started
+trap '' INT
+while :; do
+    sleep 0.05
+done

@@ -22,12 +22,12 @@ public static class RecorderStateMachine
                 TransitionResult.Create(new RecorderState.Recording(),
                                         new RecorderCommand.Log(LogLevel.Information, "Stream is live: starting capture"),
                                         new RecorderCommand.StartCapture(o.StreamInfo)),
-            (RecorderState.Recording, RecorderEvent.CaptureError {AttemptCount: < 5} err) =>
+            (RecorderState.Recording, RecorderEvent.CaptureError { AttemptCount: < 5 } err) =>
                 TransitionResult.Create(new RecorderState.Recording(),
                                         new RecorderCommand.Log(LogLevel.Information, $"Stream capture error: retry capture attempt {err.AttemptCount + 1}"),
                                         new RecorderCommand.Sleep(TimeSpan.FromSeconds(2)),
                                         new RecorderCommand.StartCapture(err.StreamInfo, err.AttemptCount + 1)),
-            (RecorderState.Recording, RecorderEvent.CaptureError {AttemptCount: >= 5} err) =>
+            (RecorderState.Recording, RecorderEvent.CaptureError { AttemptCount: >= 5 } err) =>
                 TransitionResult.Create(new RecorderState.Cooldown(),
                                         new RecorderCommand.Log(LogLevel.Information, $"Stream capture failed after {err.AttemptCount} attempts: starting cooldown"),
                                         new RecorderCommand.StartCooldown()),

@@ -112,7 +112,7 @@ public sealed class StreamCapturePipeline : IStreamCapturePipeline
                 .Add("--twitch-supported-codecs").Add("h264,h265,av1")
                 .Add("--ringbuffer-size").Add("256M");
 
-            if (_appConfig.TwitchOptions.UserAuthToken is {Length: >= 20 and <= 64} authToken)
+            if (_appConfig.TwitchOptions.UserAuthToken is { Length: >= 20 and <= 64 } authToken)
             {
                 args.Add("--twitch-api-header").Add($"Authorization=OAuth {authToken}");
             }
@@ -255,7 +255,7 @@ public sealed class StreamCapturePipeline : IStreamCapturePipeline
     {
         switch (result)
         {
-            case ProcessResult.Faulted {Error: not null} faulted:
+            case ProcessResult.Faulted { Error: not null } faulted:
                 _logger.LogError(faulted.Error, "{Process} failed", name);
                 break;
             case ProcessResult.Cancelled:

@@ -1,0 +1,192 @@
+@page "/dev/components"
+@inject IWebHostEnvironment Environment
+@inject SnackbarService Snackbars
+
+<PageTitle>Design-system primitives</PageTitle>
+
+@if (!Environment.IsDevelopment())
+{
+    <h1>Page not found</h1>
+    <p><a href="/">Back to the library</a></p>
+}
+else
+{
+    <h1>Design-system primitives</h1>
+    <p class="sk-dev-note">
+        Development-only gallery. It mirrors the design-system previews and is
+        blocked outside Development.
+    </p>
+
+    <section class="sk-dev-section" aria-labelledby="dev-buttons">
+        <h2 id="dev-buttons">Buttons</h2>
+        <div class="sk-dev-row">
+            <Button Variant="ButtonVariant.Filled">
+                <Icon Name="fiber_manual_record" Fill="true" Size="IconSize.Small" />
+                Record now
+            </Button>
+            <Button Variant="ButtonVariant.Tonal">
+                <Icon Name="download" Size="IconSize.Small" />
+                Export MP4
+            </Button>
+            <Button Variant="ButtonVariant.Outlined">Copy playlist URL</Button>
+            <Button Variant="ButtonVariant.Text">Cancel</Button>
+            <Button Variant="ButtonVariant.Danger">
+                <Icon Name="delete" Size="IconSize.Small" />
+                Delete
+            </Button>
+            <Button Variant="ButtonVariant.Filled" Disabled="true">Disabled</Button>
+        </div>
+        <div class="sk-dev-row">
+            <IconButton Icon="settings" Label="Settings" />
+            <IconButton Icon="query_stats" Label="Stats" Active="true" Toggle="true" />
+            <IconButton Icon="more_vert" Label="More" Disabled="true" />
+        </div>
+    </section>
+
+    <section class="sk-dev-section" aria-labelledby="dev-icons">
+        <h2 id="dev-icons">Icons</h2>
+        <div class="sk-dev-row">
+            <Icon Name="hard_drive" Size="IconSize.Small" />
+            <Icon Name="hard_drive" Size="IconSize.Medium" />
+            <Icon Name="hard_drive" Size="IconSize.Large" />
+            <Icon Name="fiber_manual_record" Fill="true" Label="Recording" />
+        </div>
+    </section>
+
+    <section class="sk-dev-section" aria-labelledby="dev-chips">
+        <h2 id="dev-chips">Chips</h2>
+        <div class="sk-dev-row">
+            <Chip Selected="@(_filter == "all")" OnClick="@(() => _filter = "all")">All</Chip>
+            <Chip Selected="@(_filter == "recording")" OnClick="@(() => _filter = "recording")">Recording</Chip>
+            <Chip Selected="@(_filter == "saved")" OnClick="@(() => _filter = "saved")">Saved</Chip>
+        </div>
+    </section>
+
+    <section class="sk-dev-section" aria-labelledby="dev-status">
+        <h2 id="dev-status">Status chips</h2>
+        <div class="sk-dev-row">
+            <StatusChip Status="StatusChipKind.Rec" />
+            <StatusChip Status="StatusChipKind.Reconnecting" />
+            <StatusChip Status="StatusChipKind.Processing" />
+            <StatusChip Status="StatusChipKind.Partial" />
+            <StatusChip Status="StatusChipKind.Saved" />
+            <StatusChip Status="StatusChipKind.Error" Label="Twitch session expired" />
+        </div>
+    </section>
+
+    <section class="sk-dev-section" aria-labelledby="dev-avatars">
+        <h2 id="dev-avatars">Avatars</h2>
+        <div class="sk-dev-row">
+            <Avatar Name="pixelwren" Tone="AvatarTone.Primary" />
+            <Avatar Name="lofi streams" Tone="AvatarTone.Tertiary" Recording="true" />
+            <Avatar Name="brandt_k" Tone="AvatarTone.Secondary" Large="true" />
+        </div>
+    </section>
+
+    <section class="sk-dev-section" aria-labelledby="dev-collapsible">
+        <h2 id="dev-collapsible">Collapsible</h2>
+        <Collapsible Open="_collapsibleOpen" OnToggle="@(open => _collapsibleOpen = open)">
+            <Header>
+                <h3>Recording details</h3>
+                <span class="hint">Fri, Nov 6, 2026</span>
+            </Header>
+            <ChildContent>
+                <p>The disclosure body stays in the DOM and becomes inert when closed.</p>
+            </ChildContent>
+        </Collapsible>
+    </section>
+
+    <section class="sk-dev-section" aria-labelledby="dev-switch">
+        <h2 id="dev-switch">Switch</h2>
+        <Switch Checked="_switchChecked" Label="Stats for nerds" OnChange="@(value => _switchChecked = value)" />
+    </section>
+
+    <section class="sk-dev-section" aria-labelledby="dev-menu">
+        <h2 id="dev-menu">Menu</h2>
+        <div class="sk-dev-row">
+            <span>Sort: @_sort</span>
+            <Menu Label="Library options">
+                <MenuItem Selected="@(_sort == "Newest first")"
+                          Icon="arrow_downward"
+                          OnClick="@(() => _sort = "Newest first")">
+                    Newest first
+                </MenuItem>
+                <MenuItem Selected="@(_sort == "Oldest first")"
+                          Icon="arrow_upward"
+                          OnClick="@(() => _sort = "Oldest first")">
+                    Oldest first
+                </MenuItem>
+                <MenuItem Selected="@(_sort == "A–Z by streamer")"
+                          Icon="sort_by_alpha"
+                          OnClick="@(() => _sort = "A–Z by streamer")">
+                    A–Z by streamer
+                </MenuItem>
+                <MenuItem Icon="block" Disabled="true">Unavailable option</MenuItem>
+            </Menu>
+        </div>
+    </section>
+
+    <section class="sk-dev-section" aria-labelledby="dev-tooltip">
+        <h2 id="dev-tooltip">Tooltip</h2>
+        <div class="sk-dev-row">
+            <Tooltip Text="Connect Twitch to use this">
+                <Button Variant="ButtonVariant.Outlined">Hover or focus me</Button>
+            </Tooltip>
+        </div>
+    </section>
+
+    <section class="sk-dev-section" aria-labelledby="dev-dialog">
+        <h2 id="dev-dialog">Dialog</h2>
+        <Button Variant="ButtonVariant.Outlined" OnClick="@(() => _dialogOpen = true)">
+            Open dialog
+        </Button>
+        <Dialog Title="Delete recording?"
+                Open="_dialogOpen"
+                OpenChanged="@(open => _dialogOpen = open)"
+                OnClose="@(() => _dialogOpen = false)">
+            <ChildContent>
+                <p>This is the dialog body. Focus stays inside the modal until it closes.</p>
+            </ChildContent>
+            <Actions>
+                <Button Variant="ButtonVariant.Text" autofocus OnClick="@(() => _dialogOpen = false)">Cancel</Button>
+                <Button Variant="ButtonVariant.Filled" OnClick="@(() => _dialogOpen = false)">Close</Button>
+            </Actions>
+        </Dialog>
+    </section>
+
+    <section class="sk-dev-section" aria-labelledby="dev-snackbar">
+        <h2 id="dev-snackbar">Snackbar</h2>
+        <div class="sk-dev-row">
+            <Button Variant="ButtonVariant.Tonal" OnClick="ShowSnackbar">Show snackbar</Button>
+            <Button Variant="ButtonVariant.Text" OnClick="ShowActionSnackbar">Show action snackbar</Button>
+        </div>
+    </section>
+
+    <section class="sk-dev-section" aria-labelledby="dev-requires-twitch">
+        <h2 id="dev-requires-twitch">RequiresTwitch</h2>
+        <RequiresTwitch>
+            <Button Variant="ButtonVariant.Outlined">Export MP4</Button>
+        </RequiresTwitch>
+    </section>
+}
+
+@code {
+    private string _filter = "all";
+    private string _sort = "Newest first";
+    private bool _collapsibleOpen = true;
+    private bool _switchChecked;
+    private bool _dialogOpen;
+
+    private void ShowSnackbar() =>
+        Snackbars.Show("Capture schedule is not available yet");
+
+    private void ShowActionSnackbar() =>
+        Snackbars.Show(
+            "Recording deleted",
+            "Undo",
+            () =>
+            {
+                Snackbars.Show("Delete undone");
+                return Task.CompletedTask;
+            });
+}

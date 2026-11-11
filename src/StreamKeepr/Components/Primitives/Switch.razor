@@ -1,0 +1,26 @@
+@* Two-state control exposed as role="switch"; the parent owns Checked. *@
+<div class="sk-switch-field" @attributes="AdditionalAttributes">
+    <span id="@_labelId" class="sk-switch-label">@Label</span>
+    <button type="button"
+            class="sk-switch"
+            role="switch"
+            aria-checked="@(Checked ? "true" : "false")"
+            aria-labelledby="@_labelId"
+            @onclick="Toggle">
+    </button>
+</div>
+
+@code {
+    [Parameter] public bool Checked { get; set; }
+
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+
+    [Parameter] public EventCallback<bool> OnChange { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private readonly string _labelId = $"sk-switch-{Guid.NewGuid():N}";
+
+    private Task Toggle() => OnChange.InvokeAsync(!Checked);
+}

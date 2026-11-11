@@ -1,0 +1,15 @@
+#!/bin/sh
+# Echoes every argument, including the Twitch authorization header, to stderr. Recorder tests
+# use it to prove the configured subscriber token never reaches the detail or the logs.
+set -eu
+
+if [ "${1:-}" = "--version" ]; then
+    echo "streamlink 0.0.0-fake"
+    exit 0
+fi
+
+for arg in "$@"; do
+    echo "fake-streamlink-token-echo: arg=$arg" >&2
+done
+
+exit 1

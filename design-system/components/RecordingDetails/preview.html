@@ -1,0 +1,209 @@
+<!-- @dsCard group="Playback" height=180 width=1040 subtitle="Collapsible details card under the player" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Recording details</title>
+<style></style></head>
+<body>
+<div style="padding:16px"><section class="sk-panel sk-collapse" data-collapse aria-expanded="true"><button class="sk-collapse-head" data-collapse-head aria-expanded="true"><h3>Recording details</h3><span class="hint" data-bind="date">Fri, Nov 6, 2026 · 9:12 AM</span><span class="sk-icon chev">expand_more</span></button><div class="sk-collapse-body"><div><div style="padding:0 16px 16px"><div class="sk-details-title"><h1 data-bind="title">Morning lofi &amp; sketching — ink studies</h1><div class="sk-actions"><button class="sk-btn tonal"><span class="sk-icon">download</span>Export MP4</button><button class="sk-btn outlined"><span class="sk-icon">content_copy</span>Copy playlist URL</button><button class="sk-icon-btn" aria-label="Delete recording"><span class="sk-icon">delete</span></button></div></div><div class="sk-details-meta"><span class="who"><span class="sk-avatar c2" data-bind-initial>lo</span><span data-bind="streamer">lowtidelofi</span></span><span class="sep"></span><span data-bind="cat">Art</span><span class="sep"></span><span>1,342 segments · 9.8 GB</span></div></div></div></div></section></div>
+<script>
+(function () {
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  var fmt = function (s) {
+    s = Math.max(0, Math.floor(s));
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+    return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
+  };
+
+  /* collapsibles: [data-collapse] holds aria-expanded; its [data-collapse-head] toggles it */
+  $$('[data-collapse-head]').forEach(function (head) {
+    head.addEventListener('click', function (e) {
+      if (e.target.closest('[data-stop]')) return;
+      var box = head.closest('[data-collapse]');
+      var open = box.getAttribute('aria-expanded') !== 'false';
+      box.setAttribute('aria-expanded', open ? 'false' : 'true');
+      head.setAttribute('aria-expanded', open ? 'false' : 'true');
+    });
+  });
+
+  /* drawer: menu button expands / collapses to a rail; theater hides it */
+  var drawer = $('#sk-drawer');
+  $$('[data-drawer-toggle]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (!drawer) return;
+      drawer.classList.remove('hidden');
+      drawer.classList.toggle('rail');
+      b.setAttribute('aria-expanded', drawer.classList.contains('rail') ? 'false' : 'true');
+    });
+  });
+  if (drawer) {
+    drawer.addEventListener('click', function (e) {
+      if (drawer.classList.contains('rail') && e.target.closest('.sk-group-head')) { drawer.classList.remove('rail'); e.stopPropagation(); }
+    }, true);
+  }
+  $$('[data-theater]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var on = b.classList.toggle('on');
+      if (drawer) drawer.classList.toggle('hidden', on);
+      var shell = $('.sk-shell'); if (shell) shell.classList.toggle('theater', on);
+      $('.sk-icon', b).textContent = on ? 'fit_screen' : 'width_wide';
+    });
+  });
+
+  /* stats toggle: switch row + player button share one state */
+  var stats = $('#sk-stats');
+  function setStats(on) {
+    if (!stats) return;
+    stats.setAttribute('aria-expanded', on ? 'true' : 'false');
+    $$('[data-stats-toggle]').forEach(function (t) {
+      if (t.hasAttribute('aria-checked')) t.setAttribute('aria-checked', on ? 'true' : 'false');
+      else t.classList.toggle('on', on);
+    });
+  }
+  $$('[data-stats-toggle]').forEach(function (t) {
+    t.addEventListener('click', function () { if (!stats) return; setStats(stats.getAttribute('aria-expanded') === 'false'); });
+  });
+
+  /* player */
+  $$('.sk-player').forEach(function (p) {
+    var dur = +p.dataset.duration || 8047, t = +p.dataset.time || 3733, buf = 28, live = p.dataset.live === 'true', playing = false, timer;
+    var seek = $('.sk-seek', p), played = $('.played', p), knob = $('.knob', p), bufEl = $('.buf', p), ht = $('.hover-time', p);
+    var cur = $('[data-cur]', p), tot = $('[data-dur]', p), center = $('.sk-player-center', p), playBtn = $('[data-play]', p);
+    var golive = $('.sk-golive', p), edge = $('.edge', p);
+    function draw() {
+      var f = Math.min(1, t / dur), b = Math.min(1, (t + buf) / dur);
+      if (played) played.style.width = f * 100 + '%';
+      if (knob) knob.style.left = f * 100 + '%';
+      if (bufEl) bufEl.style.width = b * 100 + '%';
+      if (cur) cur.textContent = fmt(t);
+      if (tot) tot.textContent = fmt(dur);
+      if (seek) seek.setAttribute('aria-valuenow', Math.round(t));
+      if (golive) golive.classList.toggle('at-edge', dur - t < 6);
+      if (edge) edge.style.display = live ? '' : 'none';
+    }
+    function setPlaying(v) {
+      playing = v;
+      p.classList.toggle('playing', v);
+      if (center) center.style.display = v ? 'none' : '';
+      if (playBtn) { $('.sk-icon', playBtn).textContent = v ? 'pause' : 'play_arrow'; playBtn.setAttribute('aria-label', v ? 'Pause' : 'Play'); }
+      clearInterval(timer);
+      if (v) timer = setInterval(function () { t = Math.min(dur, t + 1); if (live) dur += 1; draw(); }, 1000);
+    }
+    p.skLoad = function (o) { dur = o.duration; t = o.time || 0; live = !!o.live; p.dataset.live = live; if (golive) golive.style.display = live ? '' : 'none'; draw(); };
+    if (center) center.addEventListener('click', function () { setPlaying(true); });
+    if (playBtn) playBtn.addEventListener('click', function () { setPlaying(!playing); });
+    $$('[data-skip]', p).forEach(function (b) { b.addEventListener('click', function () { t = Math.max(0, Math.min(dur, t + +b.dataset.skip)); draw(); }); });
+    if (golive) golive.addEventListener('click', function () { t = dur - 2; draw(); setPlaying(true); });
+    if (seek) {
+      var at = function (e) { var r = seek.getBoundingClientRect(); return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)); };
+      var drag = false;
+      seek.addEventListener('pointerdown', function (e) { drag = true; seek.classList.add('drag'); seek.setPointerCapture(e.pointerId); t = at(e) * dur; draw(); });
+      seek.addEventListener('pointermove', function (e) {
+        var f = at(e); if (ht) { ht.style.left = f * 100 + '%'; ht.textContent = fmt(f * dur); }
+        if (drag) { t = f * dur; draw(); }
+      });
+      seek.addEventListener('pointerup', function () { drag = false; seek.classList.remove('drag'); });
+      seek.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') { t = Math.min(dur, t + 5); draw(); e.preventDefault(); }
+        if (e.key === 'ArrowLeft') { t = Math.max(0, t - 5); draw(); e.preventDefault(); }
+      });
+    }
+    var idleT;
+    p.addEventListener('pointermove', function () { p.classList.remove('idle'); clearTimeout(idleT); idleT = setTimeout(function () { if (playing) p.classList.add('idle'); }, 3000); });
+    p.addEventListener('keydown', function (e) { if (e.key === ' ' && e.target === p) { setPlaying(!playing); e.preventDefault(); } });
+    /* pill menus */
+    $$('[data-menu]', p).forEach(function (pill) {
+      var menu = $('#' + pill.dataset.menu);
+      pill.addEventListener('click', function (e) { e.stopPropagation(); var open = menu.hidden; $$('.sk-menu', p).forEach(function (m) { m.hidden = true; }); menu.hidden = !open; pill.setAttribute('aria-expanded', open); });
+      $$('button', menu).forEach(function (opt) {
+        opt.addEventListener('click', function (e) {
+          e.stopPropagation();
+          $$('button .sk-icon', menu).forEach(function (i) { i.textContent = ''; });
+          $('.sk-icon', opt).textContent = 'check';
+          pill.textContent = opt.dataset.label; menu.hidden = true;
+        });
+      });
+    });
+    document.addEventListener('click', function () { $$('.sk-menu', p).forEach(function (m) { m.hidden = true; }); });
+    if (golive) golive.style.display = live ? '' : 'none';
+    draw();
+  });
+
+  /* library rows: select a recording */
+  $$('.sk-row').forEach(function (row) {
+    row.addEventListener('click', function () {
+      $$('.sk-row').forEach(function (r) { r.removeAttribute('aria-current'); });
+      row.setAttribute('aria-current', 'true');
+      var d = row.dataset, p = $('.sk-player');
+      $$('[data-bind]').forEach(function (el) { var k = el.dataset.bind; if (d[k] != null) el.textContent = d[k]; });
+      $$('[data-bind-initial]').forEach(function (el) { el.textContent = (d.streamer || '?').slice(0, 2); });
+      var rec = $('[data-bind-rec]'); if (rec) rec.style.display = d.live === 'true' ? '' : 'none';
+      if (p && p.skLoad) p.skLoad({ duration: +d.duration, time: d.live === 'true' ? +d.duration - 4 : +d.resume || 0, live: d.live === 'true' });
+    });
+  });
+
+  /* filter chips */
+  $$('[data-chips]').forEach(function (g) {
+    $$('.sk-chip', g).forEach(function (c) {
+      c.addEventListener('click', function () {
+        $$('.sk-chip', g).forEach(function (x) { x.setAttribute('aria-pressed', 'false'); });
+        c.setAttribute('aria-pressed', 'true');
+        var f = c.dataset.filter;
+        $$('.sk-row').forEach(function (r) { r.style.display = (f === 'all' || r.dataset.state === f) ? '' : 'none'; });
+        $$('.sk-day').forEach(function (day) {
+          var n = day.nextElementSibling, any = false;
+          while (n && !n.classList.contains('sk-day')) { if (n.style.display !== 'none') any = true; n = n.nextElementSibling; }
+          day.style.display = any ? '' : 'none';
+        });
+      });
+    });
+  });
+
+  /* sparklines: one series per tile, crosshair + value on hover */
+  $$('[data-spark]').forEach(function (svg) {
+    var pts = svg.dataset.spark.split(',').map(Number), unit = svg.dataset.unit || '', W = 200, H = 36, pad = 3;
+    var max = Math.max.apply(null, pts) * 1.1, min = 0;
+    var x = function (i) { return (i / (pts.length - 1)) * W; };
+    var y = function (v) { return H - pad - ((v - min) / (max - min)) * (H - pad * 2); };
+    var ns = 'http://www.w3.org/2000/svg', mk = function (n, a) { var e = document.createElementNS(ns, n); for (var k in a) e.setAttribute(k, a[k]); return e; };
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H); svg.setAttribute('preserveAspectRatio', 'none');
+    svg.appendChild(mk('line', { class: 'base', x1: 0, x2: W, y1: H - 0.5, y2: H - 0.5 }));
+    var line = mk('polyline', { class: 'line', points: pts.map(function (v, i) { return x(i) + ',' + y(v); }).join(' '), stroke: svg.dataset.color, 'vector-effect': 'non-scaling-stroke' });
+    svg.appendChild(line);
+    var xh = mk('line', { class: 'xh', y1: 0, y2: H, 'vector-effect': 'non-scaling-stroke', visibility: 'hidden' });
+    svg.appendChild(xh);
+    var tile = svg.closest('.sk-tile'), tip = tile && $('.tip', tile);
+    tile.addEventListener('pointermove', function (e) {
+      var r = svg.getBoundingClientRect(), f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), i = Math.round(f * (pts.length - 1));
+      xh.setAttribute('x1', x(i)); xh.setAttribute('x2', x(i)); xh.setAttribute('visibility', 'visible');
+      if (tip) tip.textContent = (pts.length - 1 - i) * 2 + 's ago · ' + pts[i] + ' ' + unit;
+    });
+    tile.addEventListener('pointerleave', function () { xh.setAttribute('visibility', 'hidden'); });
+  });
+
+  /* live stat jitter */
+  $$('[data-live-num]').forEach(function (el) {
+    var base = +el.dataset.liveNum, dec = +(el.dataset.dec || 1), span = +(el.dataset.span || 0.05);
+    setInterval(function () { el.textContent = (base * (1 + (Math.random() - 0.5) * span)).toFixed(dec); }, 1500);
+  });
+
+  /* Twitch auth */
+  $$('[data-twitch]').forEach(function (b) {
+    var demoState = b.dataset.twitch;
+    if (demoState === 'static') return;
+    b.addEventListener('click', function () {
+      if (b.getAttribute('aria-busy') === 'true') return;
+      var label = $('.lbl', b), icon = $('.sk-icon', b);
+      b.setAttribute('aria-busy', 'true'); icon.outerHTML = '<span class="sk-spin" aria-hidden="true"></span>'; label.textContent = 'Waiting for Twitch…';
+      setTimeout(function () {
+        var chip = document.createElement('button');
+        chip.className = 'sk-auth-chip'; chip.setAttribute('aria-label', 'Twitch account: brandt_k');
+        chip.innerHTML = '<span class="sk-avatar c2" style="width:32px;height:32px">bk</span><span>brandt_k</span><span class="sk-auth-dot" title="Connected to Twitch"></span><span class="sk-icon sm">expand_more</span>';
+        b.replaceWith(chip);
+      }, 1400);
+    });
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - fullstack-refactor
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dotnet:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', 'StreamKeepr.sln') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+
+      - name: Restore
+        run: dotnet restore StreamKeepr.sln
+
+      - name: Build with warnings as errors
+        run: dotnet build StreamKeepr.sln --no-restore -warnaserror
+
+      - name: Verify formatting
+        run: dotnet format StreamKeepr.sln --verify-no-changes --no-restore
+
+      - name: Test with coverage
+        run: >
+          dotnet test StreamKeepr.sln
+          --no-build
+          --collect:"XPlat Code Coverage"
+          --results-directory TestResults
+          --logger trx
+
+      - name: Upload coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: TestResults/**/coverage.cobertura.xml
+          if-no-files-found: error
+
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/**/*.trx
+          if-no-files-found: warn
+
+  js:
+    name: JS lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: tests/js
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: tests/js/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test

@@ -14,10 +14,10 @@ public static partial class Extensions
     {
         ShouldHandle = args => ValueTask.FromResult(args.Outcome switch
         {
-            {Result.StatusCode: HttpStatusCode.TooManyRequests} => false,
-            {Result.StatusCode: HttpStatusCode.Unauthorized} => false,
-            {Result.StatusCode: >= HttpStatusCode.InternalServerError} => true,
-            {Exception: HttpRequestException or TimeoutRejectedException} => true,
+            { Result.StatusCode: HttpStatusCode.TooManyRequests } => false,
+            { Result.StatusCode: HttpStatusCode.Unauthorized } => false,
+            { Result.StatusCode: >= HttpStatusCode.InternalServerError } => true,
+            { Exception: HttpRequestException or TimeoutRejectedException } => true,
             _ => false,
         }),
         MaxRetryAttempts = 3,
