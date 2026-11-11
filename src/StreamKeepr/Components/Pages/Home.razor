@@ -5,10 +5,15 @@
 
 @if (RecordingId is not null)
 {
+    <h1 class="sk-visually-hidden">Recording</h1>
     <p class="body-medium" data-selected-recording="@RecordingId">
         The recording view will be connected in the library ticket.
         <a href="/">Back to library</a>
     </p>
+}
+else
+{
+    <h1 class="sk-visually-hidden">Stream Keepr library</h1>
 }
 
 <div data-slot="player"></div>

@@ -9,6 +9,15 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
+    },
+    "Mock": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5187",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Mock"
+      }
     }
   }
 }

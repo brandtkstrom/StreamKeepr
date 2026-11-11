@@ -53,6 +53,7 @@ jobs:
         run: >
           dotnet test StreamKeepr.sln
           --no-build
+          --filter "Category!=E2E"
           --collect:"XPlat Code Coverage"
           --results-directory TestResults
           --logger trx
@@ -206,3 +207,78 @@ jobs:
           fi
 
           docker logs --tail 20 "$container"
+
+  e2e:
+    name: E2E (Mock profile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      STREAMKEEPR_E2E_ARTIFACTS: ${{ runner.temp }}/streamkeepr-e2e
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', 'StreamKeepr.sln') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('tests/StreamKeepr.E2E/StreamKeepr.E2E.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+
+      - name: Restore
+        run: dotnet restore StreamKeepr.sln
+
+      - name: Build with warnings as errors
+        run: dotnet build StreamKeepr.sln --no-restore -warnaserror
+
+      - name: Install branded Chrome and Playwright dependencies
+        run: >
+          pwsh tests/StreamKeepr.E2E/bin/Debug/net10.0/playwright.ps1
+          install --with-deps chrome
+
+      - name: Run E2E tests
+        run: >
+          dotnet test tests/StreamKeepr.E2E/StreamKeepr.E2E.csproj
+          --no-build
+          --results-directory ${{ runner.temp }}/streamkeepr-e2e/trx
+          --logger trx
+
+      - name: Upload Playwright report, traces, and screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: ${{ runner.temp }}/streamkeepr-e2e
+          if-no-files-found: error
+
+      - name: Upload E2E test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: ${{ runner.temp }}/streamkeepr-e2e/trx/**/*.trx
+          if-no-files-found: warn
