@@ -55,6 +55,11 @@ public sealed class RecorderJob(
         var parser = new FfmpegProgressParser();
         int producing = 0;
 
+        string Redact(string line) =>
+            string.IsNullOrEmpty(recorder.TwitchUserOAuthToken)
+                ? line
+                : line.Replace(recorder.TwitchUserOAuthToken, "***", StringComparison.Ordinal);
+
         // The bounded pipe is the backpressure boundary between the two tools: Streamlink
         // pauses at 4 MiB and resumes when FFmpeg has consumed back down to 2 MiB.
         var pipe = new Pipe(new PipeOptions(
@@ -93,8 +98,9 @@ public sealed class RecorderJob(
             }))
             .WithStandardErrorPipe(PipeTarget.ToDelegate(line =>
             {
-                tail.Add("ffmpeg", line);
-                logger.LogDebug("[ffmpeg {Job}] {Line}", job, line);
+                string safe = Redact(line);
+                tail.Add("ffmpeg", safe);
+                logger.LogDebug("[ffmpeg {Job}] {Line}", job, safe);
             }));
 
         Command streamlinkCommand = Cli.Wrap(recorder.StreamlinkPath)
@@ -104,8 +110,9 @@ public sealed class RecorderJob(
             .WithStandardOutputPipe(PipeTarget.ToStream(pipe.Writer.AsStream()))
             .WithStandardErrorPipe(PipeTarget.ToDelegate(line =>
             {
-                tail.Add("streamlink", line);
-                logger.LogDebug("[streamlink {Job}] {Line}", job, line);
+                string safe = Redact(line);
+                tail.Add("streamlink", safe);
+                logger.LogDebug("[streamlink {Job}] {Line}", job, safe);
             }));
 
         Task<ProcessOutcome> ffmpegTask = RunProcessAsync(

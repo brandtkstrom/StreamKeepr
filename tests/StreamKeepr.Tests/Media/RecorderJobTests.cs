@@ -9,6 +9,9 @@ namespace StreamKeepr.Tests.Media;
 
 public sealed class RecorderJobTests : IDisposable
 {
+    private static readonly DateTimeOffset StartedAt =
+        new(2026, 11, 10, 16, 30, 0, TimeSpan.Zero);
+
     private readonly string _root = Path.Combine(
         Path.GetTempPath(),
         "streamkeepr-tests",
@@ -149,7 +152,7 @@ public sealed class RecorderJobTests : IDisposable
             "123456789",
             "A test stream",
             "Just Chatting",
-            DateTimeOffset.UtcNow,
+            StartedAt,
             ThumbnailUrl: null);
         Session session = Session.For(live, "streamer", _root);
         Directory.CreateDirectory(session.Directory);

@@ -8,7 +8,8 @@ public static class FfmpegArgs
     public static IReadOnlyList<string> ForPart(string directory, int part, int segmentSeconds)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
-        ArgumentOutOfRangeException.ThrowIfNegative(part);
+        ArgumentOutOfRangeException.ThrowIfLessThan(part, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(part, 999);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(segmentSeconds);
 
         return
