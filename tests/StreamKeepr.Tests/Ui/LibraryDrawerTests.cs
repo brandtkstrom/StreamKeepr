@@ -323,6 +323,7 @@ public sealed class LibraryDrawerTests
         context.Services.AddScoped<ViewerClock>();
         context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<PlayerBridge>();
+        context.Services.AddSingleton<IProgressStore>(new TestProgressStore());
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddSingleton<ILibraryView>(view);
         context.Services.AddScoped<UiPreferences>();

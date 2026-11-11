@@ -197,8 +197,13 @@ describe("VideoPlayer.razor.js", () => {
     document.body.replaceChildren();
   });
 
+  let dotNet;
+  let fetch;
+
   async function start(initial = view()) {
-    player = createPlayer(document.querySelector("[data-sk-player]"), { loadHls });
+    dotNet = { invokeMethodAsync: vi.fn(() => Promise.resolve()) };
+    fetch = vi.fn(() => Promise.resolve({ status: 204 }));
+    player = createPlayer(document.querySelector("[data-sk-player]"), { loadHls, dotNet, fetch });
     await player.load(initial);
     return player;
   }
@@ -648,6 +653,83 @@ describe("VideoPlayer.razor.js", () => {
       expect(hook("spinner").hidden).toBe(true);
       hook("video").dispatchEvent(new Event("waiting"));
       expect(hook("spinner").hidden).toBe(false);
+    });
+  });
+
+  describe("progress", () => {
+    const calls = (name) => dotNet.invokeMethodAsync.mock.calls.filter(([id]) => id === name);
+
+    it("starts a finished recording at its resume position without playing", async () => {
+      await start(view({ resumeSec: 42 }));
+      media.metadata(600);
+
+      expect(hook("video").currentTime).toBe(42);
+      expect(hook("video").play).not.toHaveBeenCalled();
+    });
+
+    it("saves on pause and every 15 s while playing, tagged with the recording", async () => {
+      await start();
+      media.metadata(600);
+      hook("center").click();
+      media.time(30);
+      vi.advanceTimersByTime(15_000);
+      expect(calls("SaveProgress")).toEqual([["SaveProgress", "r1", 30]]);
+
+      media.time(44);
+      hook("play").click();
+      expect(calls("SaveProgress").at(-1)).toEqual(["SaveProgress", "r1", 44]);
+    });
+
+    it("clears on ended and when replaying from the start", async () => {
+      await start();
+      media.metadata(600);
+      media.ended = true;
+      hook("video").dispatchEvent(new Event("ended"));
+      expect(calls("ClearProgress")).toEqual([["ClearProgress", "r1"]]);
+
+      hook("center").click();
+      expect(calls("ClearProgress")).toHaveLength(2);
+    });
+
+    it("flushes with keepalive on page hide, hidden visibility, another recording, and dispose", async () => {
+      await start();
+      media.metadata(600);
+      media.time(50);
+
+      window.dispatchEvent(new Event("pagehide"));
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch.mock.calls[0][1]).toMatchObject({ method: "PUT", keepalive: true });
+
+      vi.advanceTimersByTime(2_000);
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      delete document.visibilityState;
+      expect(fetch).toHaveBeenCalledTimes(2);
+
+      vi.advanceTimersByTime(2_000);
+      await player.load(view({ recordingId: "r2", playlistUrl: "/media/ann/r2/index.m3u8" }));
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(fetch.mock.calls[2][0]).toMatch(/\/api\/recordings\/r1\/progress$/);
+
+      media.metadata(300);
+      media.time(20);
+      player.dispose();
+      expect(fetch).toHaveBeenCalledTimes(4);
+      expect(fetch.mock.calls[3][0]).toMatch(/\/api\/recordings\/r2\/progress$/);
+      player = null;
+    });
+
+    it("ignores the resume position and never saves while live", async () => {
+      await start(view({ state: "recording", resumeSec: 42 }));
+      media.metadata(600);
+      hook("center").click();
+      vi.advanceTimersByTime(60_000);
+      hook("play").click();
+      window.dispatchEvent(new Event("pagehide"));
+
+      expect(media.seeks).not.toContain(42);
+      expect(calls("SaveProgress")).toEqual([]);
+      expect(fetch).not.toHaveBeenCalled();
     });
   });
 

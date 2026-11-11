@@ -7,6 +7,7 @@ import {
   registerStatsSource,
   unregisterStatsSource,
 } from "/js/stats.js";
+import { createProgress } from "/js/player-progress.js";
 
 // Defaults plus the contract's overrides. The stitched playlist targets 12 s segments, so one
 // target duration behind the end is the live edge.
@@ -70,7 +71,10 @@ function hasMediaSource() {
   return typeof window.MediaSource === "function" || typeof window.ManagedMediaSource === "function";
 }
 
-export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } = {}) {
+export function createPlayer(
+  root,
+  { loadHls = defaultLoadHls, dotNet = null, fetch = globalThis.fetch } = {},
+) {
   const el = Object.fromEntries(HOOKS.map((name) => [name, root.querySelector(`[data-sk="${name}"]`)]));
   const video = el.video;
   const listeners = new AbortController();
@@ -91,7 +95,13 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
   let dragging = false;
   let chapters = [];
   let hlsClass = null; // imported once per player, on the first load that needs it
+  let live = false; // Recording/Reconnecting until the playlist reports ENDLIST
   const stats = createStatsProbe({ video });
+  const progress = createProgress({
+    save: (seconds) => invokeDotNet("SaveProgress", view?.recordingId, seconds),
+    clear: () => invokeDotNet("ClearProgress", view?.recordingId),
+    fetch,
+  });
 
   // ----- helpers -----
 
@@ -403,7 +413,8 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
 
   on(video, "loadedmetadata", () => {
     if (startAt != null && Number.isFinite(duration())) {
-      seekTo(startAt);
+      // Resume lands at least a second before the end so playback has something to play.
+      seekTo(Math.min(startAt, duration() - 1));
     }
     startAt = null;
     renderTicks();
@@ -419,9 +430,23 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
     renderBuffered();
   });
   on(video, "progress", renderBuffered);
-  on(video, "play", renderPlayState);
-  on(video, "pause", renderPlayState);
-  on(video, "ended", renderPlayState);
+  on(video, "play", () => {
+    renderPlayState();
+    progress.playing();
+  });
+  on(video, "pause", () => {
+    renderPlayState();
+    // A pause that ends playback is followed by "ended", which clears instead.
+    if (!video.ended) progress.paused();
+  });
+  on(video, "ended", () => {
+    renderPlayState();
+    progress.ended();
+  });
+  on(window, "pagehide", () => progress.flush());
+  on(document, "visibilitychange", () => {
+    if (document.visibilityState === "hidden") progress.flush();
+  });
   on(video, "volumechange", renderVolume);
   on(video, "ratechange", renderSpeed);
   on(video, "waiting", () => setSpinner(true));
@@ -439,7 +464,10 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
 
   function togglePlay() {
     if (!view) return;
-    if (video.ended) seekTo(0);
+    if (video.ended) {
+      seekTo(0);
+      progress.restarted();
+    }
     if (video.paused || video.ended) void video.play()?.catch?.(() => {});
     else video.pause();
     renderPlayState();
@@ -576,7 +604,16 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
   return {
     async load(next) {
       if (disposed || !next) return;
+      // Route change: the previous recording's position goes out before its engine is torn down.
+      if (view && view.recordingId !== next.recordingId) progress.flush();
       view = next;
+      live = next.state === "recording" || next.state === "reconnecting";
+      progress.track({
+        recordingId: next.recordingId,
+        position: () => video.currentTime,
+        duration,
+        live: () => live,
+      });
       stats.setView(next);
       stats.reset();
       setStatsPressed(Boolean(next.statsOpen));
@@ -584,8 +621,8 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
       renderSpeed();
       renderVolume();
       renderPlayState();
-      const finished = view.state === "saved" || view.state === "partial";
-      const resume = finished && Number.isFinite(view.resumeSec) && view.resumeSec > 0 ? view.resumeSec : null;
+      // Finished recordings resume; live captures ignore ResumeSec.
+      const resume = !live && Number.isFinite(view.resumeSec) && view.resumeSec > 0 ? view.resumeSec : null;
       await start(resume);
     },
 
@@ -610,6 +647,8 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
 
     dispose() {
       if (disposed) return;
+      progress.flush();
+      progress.dispose();
       disposed = true;
       generation++;
       teardownEngine();

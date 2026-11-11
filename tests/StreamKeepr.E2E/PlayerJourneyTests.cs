@@ -255,6 +255,39 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.False(await body.EvaluateAsync<bool>("b => b.inert"));
     }
 
+    [Fact]
+    public async Task A_paused_position_resumes_after_reload_and_shows_a_resume_bar()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        ILocator row = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").First;
+        string id = (await row.GetAttributeAsync("data-recording-id"))!;
+
+        await row.ClickAsync();
+        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+
+        ILocator seek = page.Locator("[data-sk='seek']");
+        await seek.FocusAsync();
+        await page.Keyboard.PressAsync("Home");
+        await page.Keyboard.PressAsync("ArrowRight");
+        await page.Keyboard.PressAsync("ArrowRight");
+        await WaitForTimeAsync(page, 10);
+        await page.Locator("[data-sk='center']").ClickAsync();
+        await page.WaitForFunctionAsync("document.querySelector('[data-sk=video]').currentTime > 10.2");
+        await page.Locator("[data-sk='play']").ClickAsync();
+        double paused = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
+
+        ILocator bar = page.Locator($"nav#sk-drawer a.sk-row[data-recording-id='{id}'] .prog i");
+        await bar.WaitForAsync(new() { Timeout = 10_000 });
+
+        await page.ReloadAsync();
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        await WaitForTimeAsync(page, paused, tolerance: 1);
+        Assert.True(await Video(page, "v => v.paused"), "resume never autoplays");
+        await bar.WaitForAsync();
+    }
+
     private static Task<bool> Video(IPage page, string expression) =>
         page.Locator("[data-sk='video']").EvaluateAsync<bool>(expression);
 

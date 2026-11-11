@@ -1,3 +1,4 @@
+using StreamKeepr.Infrastructure.Storage;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
@@ -103,6 +104,7 @@ public sealed class HomePlayerTests
         context.Services.AddScoped<UiPreferences>();
         context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<PlayerBridge>();
+        context.Services.AddSingleton<IProgressStore>(new TestProgressStore());
         context.Services.AddSingleton<ILibraryView>(view);
         return context;
     }

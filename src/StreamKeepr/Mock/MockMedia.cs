@@ -15,7 +15,9 @@ internal static class MockMedia
     public const string TemplateInit = "init_001.mp4";
     public const string Thumbnail = "thumb.jpg";
 
-    private const int ClipSeconds = 6;
+    // Longer than the 30 s resume end margin (ProgressStore.EndMargin) so a mock recording can
+    // keep a watch position; at 320x180 and 15 fps the clip stays small and quick to generate.
+    private const int ClipSeconds = 60;
 
     /// <summary>Length of one generated part; every seeded part has this many seconds.</summary>
     public static readonly TimeSpan PartDuration = TimeSpan.FromSeconds(ClipSeconds);

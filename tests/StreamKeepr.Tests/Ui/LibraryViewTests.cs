@@ -198,6 +198,30 @@ public sealed class LibraryViewTests
     }
 
     [Fact]
+    public async Task Resume_positions_come_from_the_progress_store_for_finished_recordings_only()
+    {
+        using Harness harness = await Harness.CreateAsync("alpha");
+        harness.Add(Summary("done", "alpha", Now.AddHours(-3)));
+        harness.Add(Summary("live", "alpha", Now.AddMinutes(-5), recording: true));
+        int changed = 0;
+        harness.View.Changed += () => changed++;
+
+        await harness.Progress.SetAsync("done", 120, CancellationToken.None);
+        Assert.Equal(120, harness.View.Find("done")!.ResumeSec);
+
+        harness.Clock.Advance(TimeSpan.FromMilliseconds(500));
+        Assert.Equal(1, changed);
+        Assert.Equal(120, Assert.Single(
+            harness.View.Recordings("alpha", new LibraryQuery()), item => item.Id == "done").ResumeSec);
+        Assert.Null(harness.View.Find("live")!.ResumeSec);
+
+        await harness.Progress.ClearAsync("done", CancellationToken.None);
+        harness.Clock.Advance(TimeSpan.FromMilliseconds(500));
+        Assert.Equal(2, changed);
+        Assert.Null(harness.View.Find("done")!.ResumeSec);
+    }
+
+    [Fact]
     public async Task Changed_is_throttled_to_one_event_per_window_and_stops_on_dispose()
     {
         using Harness harness = await Harness.CreateAsync("alpha");
@@ -344,8 +368,10 @@ public sealed class LibraryViewTests
             DvrStatus status,
             MutableDiskSpace disk,
             StorageMonitor storage,
+            ProgressStore progress,
             LibraryView view)
         {
+            Progress = progress;
             _root = root;
             Clock = clock;
             Library = library;
@@ -369,6 +395,8 @@ public sealed class LibraryViewTests
         public StorageMonitor Storage { get; }
 
         public LibraryView View { get; }
+
+        public ProgressStore Progress { get; }
 
         public static async Task<Harness> CreateAsync(params string[] logins)
         {
@@ -402,9 +430,11 @@ public sealed class LibraryViewTests
                 library,
                 clock,
                 NullLogger<StorageMonitor>.Instance);
-            var view = new LibraryView(library, channels, status, storage, clock);
+            var progress = new ProgressStore(
+                library, storageOptions, clock, NullLogger<ProgressStore>.Instance);
+            var view = new LibraryView(library, channels, status, storage, progress, clock);
 
-            return new Harness(root, clock, library, channels, status, disk, storage, view);
+            return new Harness(root, clock, library, channels, status, disk, storage, progress, view);
         }
 
         public void Add(RecordingSummary summary)
@@ -454,6 +484,7 @@ public sealed class LibraryViewTests
         public void Dispose()
         {
             View.Dispose();
+            Progress.Dispose();
             Storage.Dispose();
 
             if (Directory.Exists(_root))

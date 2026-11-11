@@ -17,6 +17,7 @@ public sealed class LibraryView : ILibraryView
     private readonly ChannelStore _channels;
     private readonly DvrStatus _dvrStatus;
     private readonly IStorageMonitor _storage;
+    private readonly IProgressStore _progress;
     private readonly TimeProvider _clock;
     private readonly object _gate = new();
 
@@ -34,18 +35,21 @@ public sealed class LibraryView : ILibraryView
         ChannelStore channels,
         DvrStatus dvrStatus,
         IStorageMonitor storage,
+        IProgressStore progress,
         TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(library);
         ArgumentNullException.ThrowIfNull(channels);
         ArgumentNullException.ThrowIfNull(dvrStatus);
         ArgumentNullException.ThrowIfNull(storage);
+        ArgumentNullException.ThrowIfNull(progress);
         ArgumentNullException.ThrowIfNull(clock);
 
         _library = library;
         _channels = channels;
         _dvrStatus = dvrStatus;
         _storage = storage;
+        _progress = progress;
         _clock = clock;
 
         lock (_gate)
@@ -55,6 +59,7 @@ public sealed class LibraryView : ILibraryView
         _channels.Changed += OnSourceChanged;
         _dvrStatus.Changed += OnSourceChanged;
         _storage.Changed += OnSourceChanged;
+        _progress.Changed += OnSourceChanged;
     }
 
     public event Action? Changed;
@@ -117,7 +122,7 @@ public sealed class LibraryView : ILibraryView
         lock (_gate)
         {
             RecordingView candidate = BuildRecording(
-                summary, _clock.GetUtcNow(), _dvrStatus.Current);
+                summary, _clock.GetUtcNow(), _dvrStatus.Current, _progress);
 
             if (_recordingsById.TryGetValue(id, out RecordingView? existing) &&
                 Equivalent(existing, candidate))
@@ -152,6 +157,7 @@ public sealed class LibraryView : ILibraryView
         _channels.Changed -= OnSourceChanged;
         _dvrStatus.Changed -= OnSourceChanged;
         _storage.Changed -= OnSourceChanged;
+        _progress.Changed -= OnSourceChanged;
         timer?.Dispose();
     }
 
@@ -212,7 +218,7 @@ public sealed class LibraryView : ILibraryView
 
         foreach (RecordingSummary summary in _library.All)
         {
-            RecordingView candidate = BuildRecording(summary, now, status);
+            RecordingView candidate = BuildRecording(summary, now, status, _progress);
             if (_recordingsById.TryGetValue(summary.Id, out RecordingView? existing) &&
                 Equivalent(existing, candidate))
             {
@@ -268,7 +274,8 @@ public sealed class LibraryView : ILibraryView
     private static RecordingView BuildRecording(
         RecordingSummary summary,
         DateTimeOffset now,
-        IReadOnlyDictionary<string, DvrSnapshot> status)
+        IReadOnlyDictionary<string, DvrSnapshot> status,
+        IProgressStore progress)
     {
         bool hasActiveJob = summary.IsRecording &&
             status.TryGetValue(summary.Channel, out DvrSnapshot? snapshot) &&
@@ -297,9 +304,8 @@ public sealed class LibraryView : ILibraryView
             summary.IsRecording ? null : summary.SizeBytes,
             summary.ThumbnailUrl,
             summary.PlaylistUrl,
-            // IProgressStore/F10-T2 is not on this branch. Wire the stored position here and
-            // subscribe to ProgressStore.Changed when that service lands.
-            ResumeSec: null,
+            // Live captures open at the live edge, so only finished recordings resume.
+            ResumeSec: summary.IsRecording ? null : progress.Get(summary.Id),
             summary.Chapters);
     }
 

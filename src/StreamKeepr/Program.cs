@@ -74,6 +74,8 @@ builder.Services.AddSingleton<DiskGuard>();
 builder.Services.AddSingleton<IStorageMonitor, StorageMonitor>();
 builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddSingleton<ChannelStore>();
+builder.Services.AddSingleton<ProgressStore>();
+builder.Services.AddSingleton<IProgressStore>(services => services.GetRequiredService<ProgressStore>());
 builder.Services.AddSingleton<RecoveryService>();
 builder.Services.AddSingleton<RecorderJob>();
 builder.Services.AddSingleton<IRecorder>(services => services.GetRequiredService<RecorderJob>());
@@ -120,6 +122,9 @@ if (mock)
     builder.Services.AddHostedService<MockSeeder>();
     builder.Services.AddHostedService<MockLiveFeed>();
 }
+
+// Loads watch positions at startup and flushes pending ones on graceful shutdown.
+builder.Services.AddHostedService(services => services.GetRequiredService<ProgressStore>());
 
 // Keys live on the recordings volume and are ready before auth or token storage runs.
 builder.Services.AddStreamKeeprDataProtection();
@@ -223,6 +228,8 @@ app.MapMethods(
     LiveIndexEndpoint.Route,
     [HttpMethods.Get, HttpMethods.Head],
     LiveIndexEndpoint.HandleAsync);
+
+app.MapPut(ProgressEndpoint.Route, ProgressEndpoint.HandleAsync);
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions
 {

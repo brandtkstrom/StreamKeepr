@@ -164,6 +164,22 @@ public sealed class VideoPlayerTests
     }
 
     [Fact]
+    public async Task Progress_calls_reach_the_store_for_the_recording_they_name()
+    {
+        using BunitContext context = CreateContext(out _);
+        var store = (TestProgressStore)context.Services.GetRequiredService<IProgressStore>();
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(
+            p => p.Add(c => c.Recording, Recording("r1", "First")));
+
+        await cut.InvokeAsync(() => cut.Instance.SaveProgress("r1", 42.5));
+        Assert.Equal(42.5, store.Get("r1"));
+
+        await cut.InvokeAsync(() => cut.Instance.ClearProgress("r1"));
+        Assert.Null(store.Get("r1"));
+        Assert.Equal(["r1"], store.Cleared);
+    }
+
+    [Fact]
     public async Task Dispose_releases_the_module()
     {
         using BunitContext context = CreateContext(out BunitJSModuleInterop module);
@@ -185,6 +201,7 @@ public sealed class VideoPlayerTests
         context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
         context.Services.AddScoped<UiPreferences>();
         context.Services.AddScoped<PlayerBridge>();
+        context.Services.AddSingleton<IProgressStore>(new TestProgressStore());
         return context;
     }
 

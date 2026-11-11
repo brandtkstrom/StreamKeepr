@@ -38,7 +38,7 @@ The stitched `index.m3u8` is a **single media playlist**, not a multi-variant ma
   - `durationSec`, `resumeSec`, `chapters[]`, `statsOpen`, `theater`
   - `chapters[]` is `{ startSeconds, title, game }` from `RecordingView.Chapters`.
 - `dispose()` flushes progress, destroys hls/native media, clears timers and listeners, and releases the module reference. The `DotNetObjectReference` is disposed by the component.
-- The .NET reference exposes `SaveProgress(double)`, `ClearProgress()`, `SetStatsOpen(bool)`, `SetTheater(bool)`, and `Notify(string)`. `Notify` raises a `SnackbarService` message; it is used only for copy-stats confirmation/failure.
+- The .NET reference exposes `SaveProgress(string recordingId, double)`, `ClearProgress(string recordingId)`, `SetStatsOpen(bool)`, `SetTheater(bool)`, and `Notify(string)`. The progress calls carry the recording id so a save in flight across a recording change lands on the recording it belongs to. `Notify` raises a `SnackbarService` message; it is used only for copy-stats confirmation/failure.
 - `UiPreferences` is the single source for stats/theater state. JS applies `setStatsOpen(bool)`/`setTheater(bool)` when `UiPreferences.Changed` fires; the player's own buttons call .NET to persist.
 
 ## 4. Playback model

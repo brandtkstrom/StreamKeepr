@@ -4,6 +4,7 @@
 @inject IJSRuntime JS
 @inject UiPreferences Preferences
 @inject PlayerBridge Bridge
+@inject StreamKeepr.Infrastructure.Storage.IProgressStore Progress
 @inject ILogger<VideoPlayer> Logger
 
 @* Rendered once. VideoPlayer.razor.js owns hls.js, every control, and all dynamic player DOM;
@@ -253,6 +254,19 @@
         Preferences.SetStatsOpen(open);
         await Preferences.PersistAsync();
     }
+
+    /// <summary>
+    /// The player's 15 s and on-pause saves. The id travels with the call so a save that was
+    /// already in flight when the recording changed lands on the recording it belongs to.
+    /// </summary>
+    [JSInvokable]
+    public Task SaveProgress(string recordingId, double positionSec) =>
+        Progress.SetAsync(recordingId, positionSec, CancellationToken.None);
+
+    /// <summary>Ended, replay, or a position near the end: drop the stored position.</summary>
+    [JSInvokable]
+    public Task ClearProgress(string recordingId) =>
+        Progress.ClearAsync(recordingId, CancellationToken.None);
 
     private async ValueTask SeekAsync(double seconds)
     {

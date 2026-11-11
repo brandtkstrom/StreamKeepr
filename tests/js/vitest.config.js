@@ -5,12 +5,12 @@ export default defineConfig({
   resolve: {
     // Browser modules import shared helpers from the app's static root, /js/*. Map that
     // root onto the source wwwroot so Vitest resolves the same imports without a bundler.
-    alias: {
-      "/js/stats.js": fileURLToPath(
-        new URL("../../src/StreamKeepr/wwwroot/js/stats.js", import.meta.url)),
-      "/js/sparkline.js": fileURLToPath(
-        new URL("../../src/StreamKeepr/wwwroot/js/sparkline.js", import.meta.url)),
-    },
+    alias: [
+      {
+        find: /^\/js\/(.*)$/,
+        replacement: `${fileURLToPath(new URL("../../src/StreamKeepr/wwwroot/js/", import.meta.url))}$1`,
+      },
+    ],
   },
   server: {
     fs: {
