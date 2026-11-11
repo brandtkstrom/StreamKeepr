@@ -140,19 +140,19 @@ public static class DvrReducer
         switch (observation)
         {
             case StreamObservation.Live { Stream: var live } when live.StreamId == waiting.Session.StreamId:
-            {
-                bool metadataChanged = MetadataChanged(waiting.Latest, live);
-                if (!metadataChanged && waiting.OfflineCount == 0)
-                    return Stay(waiting);
+                {
+                    bool metadataChanged = MetadataChanged(waiting.Latest, live);
+                    if (!metadataChanged && waiting.OfflineCount == 0)
+                        return Stay(waiting);
 
-                var next = waiting with { Latest = live, OfflineCount = 0 };
-                return metadataChanged
-                    ? new Step(
-                        next,
-                        ImmutableArray.Create<DvrCommand>(
-                            new DvrCommand.RecordMetadata(waiting.Session, live)))
-                    : new Step(next, ImmutableArray<DvrCommand>.Empty);
-            }
+                    var next = waiting with { Latest = live, OfflineCount = 0 };
+                    return metadataChanged
+                        ? new Step(
+                            next,
+                            ImmutableArray.Create<DvrCommand>(
+                                new DvrCommand.RecordMetadata(waiting.Session, live)))
+                        : new Step(next, ImmutableArray<DvrCommand>.Empty);
+                }
 
             case StreamObservation.Live { Stream: var live }:
                 return StartNewRecording(
