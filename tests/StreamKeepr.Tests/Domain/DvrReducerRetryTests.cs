@@ -485,18 +485,88 @@ public sealed class DvrReducerRetryTests
     }
 
     [Fact]
-    public void Cooling_down_expiry_delegates_to_idle_and_keeps_a_resumable()
+    public void Cooling_down_expiry_delegates_to_idle_and_resumes_the_matching_stream()
     {
         var live = DomainTestData.Live();
-        var resume = new Resumable(DomainTestData.Recording(live: live).Session, 2);
+        var resume = DomainTestData.Resumable(live, nextPart: 2);
         var until = DomainTestData.StartedAt.AddMinutes(15);
         var cooling = new DvrState.CoolingDown(until, resume, "too many failures");
 
         var step = DvrReducer.Transition(
             cooling, DomainTestData.ObservedLive(live, until), DomainTestData.Settings);
 
+        var recording = Assert.IsType<DvrState.Recording>(step.Next);
+        Assert.Equal(resume.Session, recording.Session);
+        Assert.Equal(new JobId(resume.Session.Id, 2), recording.Job);
+        Assert.Equal(live, recording.Latest);
+        Assert.Equal(0, recording.Attempt);
+        Assert.Equal(0, recording.Streak);
+        Assert.False(recording.HasMedia);
+        Assert.Null(recording.FirstMediaAt);
+
+        Assert.Collection(
+            step.Commands,
+            command => Assert.Equal(
+                new DvrCommand.RecordMetadata(resume.Session, live), command),
+            command => Assert.Equal(
+                new DvrCommand.StartRecorder(resume.Session, recording.Job), command));
+    }
+
+    [Fact]
+    public void Cooling_down_expiry_with_a_different_stream_replaces_the_resumable()
+    {
+        var resume = DomainTestData.Resumable(nextPart: 3);
+        var until = DomainTestData.StartedAt.AddMinutes(15);
+        var cooling = new DvrState.CoolingDown(until, resume, "too many failures");
+        var replacement = DomainTestData.Live(
+            streamId: "987654321",
+            title: "Second stream",
+            startedAt: DomainTestData.StartedAt.AddMinutes(20));
+
+        var step = DvrReducer.Transition(
+            cooling, DomainTestData.ObservedLive(replacement, until), DomainTestData.Settings);
+
+        var recording = Assert.IsType<DvrState.Recording>(step.Next);
+        Assert.Equal(replacement, recording.Latest);
+        Assert.Equal(new JobId(recording.Session.Id, 1), recording.Job);
+        Assert.Collection(
+            step.Commands,
+            command => Assert.Equal(new DvrCommand.FinalizeSession(resume.Session), command),
+            command => Assert.Equal(
+                new DvrCommand.OpenSession(recording.Session, replacement), command),
+            command => Assert.Equal(
+                new DvrCommand.StartRecorder(recording.Session, recording.Job), command));
+    }
+
+    [Fact]
+    public void Cooling_down_expiry_offline_finalizes_the_resumable()
+    {
+        var resume = DomainTestData.Resumable(nextPart: 4);
+        var until = DomainTestData.StartedAt.AddMinutes(15);
+        var cooling = new DvrState.CoolingDown(until, resume, "too many failures");
+
+        var step = DvrReducer.Transition(
+            cooling, DomainTestData.ObservedOffline(until), DomainTestData.Settings);
+
         var idle = Assert.IsType<DvrState.Idle>(step.Next);
-        Assert.Equal(resume, idle.Resume);
+        Assert.Null(idle.Resume);
+        Assert.Equal(resume, idle.Finished);
+        Assert.Equal(0, idle.Streak);
+        var finalize = Assert.IsType<DvrCommand.FinalizeSession>(Assert.Single(step.Commands));
+        Assert.Equal(resume.Session, finalize.Session);
+    }
+
+    [Fact]
+    public void Cooling_down_expiry_offline_without_a_resumable_returns_empty_idle()
+    {
+        var until = DomainTestData.StartedAt.AddMinutes(15);
+        var cooling = new DvrState.CoolingDown(until, Resume: null, "too many failures");
+
+        var step = DvrReducer.Transition(
+            cooling, DomainTestData.ObservedOffline(until), DomainTestData.Settings);
+
+        var idle = Assert.IsType<DvrState.Idle>(step.Next);
+        Assert.Null(idle.Resume);
         Assert.Null(idle.Finished);
         Assert.Equal(0, idle.Streak);
         Assert.Empty(step.Commands);
