@@ -1,7 +1,9 @@
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
+using StreamKeepr.Infrastructure.Runtime;
 
 namespace StreamKeepr.Tests.Hosting;
 
@@ -47,10 +49,32 @@ public sealed class WebAppSmokeTests
     }
 
     [Fact]
-    public void Empty_allowlist_logs_the_open_admin_warning()
+    public void Host_shutdown_timeout_is_40_seconds()
+    {
+        using var factory = new StreamKeeprAppFactory();
+
+        HostOptions options = factory.Services.GetRequiredService<IOptions<HostOptions>>().Value;
+
+        Assert.True(options.ShutdownTimeout > ChannelCoordinator.JobStopBudget);
+        Assert.Equal(
+            ChannelCoordinator.JobStopBudget + TimeSpan.FromSeconds(5),
+            options.ShutdownTimeout);
+    }
+
+    [Fact]
+    public async Task Empty_allowlist_logs_the_open_admin_warning()
     {
         using var factory = new StreamKeeprAppFactory();
         using var client = factory.CreateClient();
+
+        // CreateClient can return before ApplicationStarted callbacks run.
+        IHostApplicationLifetime lifetime =
+            factory.Services.GetRequiredService<IHostApplicationLifetime>();
+        var started = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using CancellationTokenRegistration registration =
+            lifetime.ApplicationStarted.Register(() => started.TrySetResult());
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Contains(factory.Logs.Messages,
             message => message.Contains("AllowedTwitchLogins is empty", StringComparison.Ordinal));

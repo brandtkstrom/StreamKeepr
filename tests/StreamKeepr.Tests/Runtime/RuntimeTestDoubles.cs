@@ -88,4 +88,33 @@ internal static class RuntimeTestWait
             status.Changed -= Check;
         }
     }
+
+    public static async Task<T> ForValueAsync<T>(Func<T?> probe, TimeSpan timeout)
+        where T : class
+    {
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (probe() is { } value)
+                return value;
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException($"Condition was not met within {timeout}.");
+    }
+
+    public static async Task UntilAsync(Func<bool> condition, TimeSpan timeout)
+    {
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (condition())
+                return;
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException($"Condition was not met within {timeout}.");
+    }
 }

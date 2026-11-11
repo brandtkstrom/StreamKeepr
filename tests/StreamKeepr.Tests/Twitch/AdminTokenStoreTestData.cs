@@ -57,7 +57,12 @@ internal sealed class TestDataProtection : IDisposable
 internal sealed class StubHttpClientFactory(HttpMessageHandler handler) : IHttpClientFactory
 {
     public HttpClient CreateClient(string name) =>
-        new(handler, disposeHandler: false) { BaseAddress = new Uri("https://id.twitch.tv/") };
+        new(handler, disposeHandler: false)
+        {
+            BaseAddress = name == TwitchHttpClients.Helix
+                ? new Uri("https://api.twitch.tv/")
+                : new Uri("https://id.twitch.tv/"),
+        };
 }
 
 internal sealed record RecordedRequest(HttpMethod Method, Uri? RequestUri, string? Body);

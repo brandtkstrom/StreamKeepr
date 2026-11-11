@@ -84,7 +84,7 @@ public sealed class RecordingRuntimeIntegrationTests
         poller.Send(Channel, new StreamObservation.Offline());
         poller.Send(Channel, new StreamObservation.Offline());
 
-        RecordingSummary summary = await WaitForAsync(
+        RecordingSummary summary = await RuntimeTestWait.ForValueAsync(
             () =>
             {
                 IReadOnlyList<RecordingSummary> all = library.All;
@@ -118,18 +118,4 @@ public sealed class RecordingRuntimeIntegrationTests
         Assert.NotEmpty(await segmentResponse.Content.ReadAsByteArrayAsync());
     }
 
-    private static async Task<T> WaitForAsync<T>(Func<T?> probe, TimeSpan timeout)
-        where T : class
-    {
-        DateTimeOffset deadline = DateTimeOffset.UtcNow + timeout;
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            if (probe() is { } value)
-                return value;
-
-            await Task.Delay(25);
-        }
-
-        throw new TimeoutException($"Condition was not met within {timeout}.");
-    }
 }

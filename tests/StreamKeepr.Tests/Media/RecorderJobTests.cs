@@ -388,7 +388,7 @@ public sealed class RecorderJobTests : IDisposable
         // The fake processes never exit on their own and ignore SIGINT, so every wait in the
         // contract's shutdown order expires: 5 + 5 for Streamlink, 15 finalize for FFmpeg,
         // then 5 + 5. The injected clock records those durations and fires each wait after a
-        // short real delay, so this runs in about a second instead of sleeping for 35 s.
+        // short real delay, so this runs in a few seconds instead of sleeping for 35 s.
         Assert.All(clock.RequestedWaits,
             wait => Assert.InRange(wait, TimeSpan.Zero, TimeSpan.FromSeconds(15)));
         Assert.Contains(TimeSpan.FromSeconds(15), clock.RequestedWaits);
@@ -543,7 +543,8 @@ public sealed class RecorderJobTests : IDisposable
     /// </summary>
     private sealed class ScaledTimeProvider : TimeProvider
     {
-        private static readonly TimeSpan RealDelay = TimeSpan.FromMilliseconds(200);
+        // Long enough for a force-killed process to exit under parallel test load.
+        private static readonly TimeSpan RealDelay = TimeSpan.FromSeconds(1);
 
         private readonly object _gate = new();
         private readonly List<TimeSpan> _requestedWaits = [];
