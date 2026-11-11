@@ -175,4 +175,3 @@ docker run --rm -p 8080:8080 \
 
 The two files must have the ownership and mode described above. Streamlink is pinned at 8.6.3 and can be bumped with `--build-arg STREAMLINK_VERSION=<version>`.
 
-The old worker still builds beside the new app until the migration switch.

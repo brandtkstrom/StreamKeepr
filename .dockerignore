@@ -18,8 +18,6 @@
 *.sln.DotSettings.user
 
 # Non-runtime projects and assets
-StreamCaptureService/
-StreamCaptureService.Tests/
 design-system/
 tests/
 docs/
