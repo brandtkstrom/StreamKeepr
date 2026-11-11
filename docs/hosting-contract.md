@@ -110,18 +110,18 @@ Docker healthcheck: `/health/live`, interval 30 s, timeout 5 s, start period 60 
 
 ### Dockerfile
 
-- Build stage: `mcr.microsoft.com/dotnet/sdk:10.0.114`; copy only `src/StreamKeepr/StreamKeepr.csproj`, restore, copy `src/`, publish Release.
+- Build stage: `mcr.microsoft.com/dotnet/sdk:10.0.103` (the newest published 10.0.1xx tag; `10.0.114` was never published); copy only `src/StreamKeepr/StreamKeepr.csproj`, restore, copy `src/`, publish Release.
 - Runtime stage: `mcr.microsoft.com/dotnet/aspnet:10.0.14`; install `python3`, `python3-venv`, `curl`; create `/opt/streamlink` venv and install the pinned Streamlink; copy static `ffmpeg` and `ffprobe`.
 - `ENV PATH="/opt/streamlink/bin:${PATH}"`, `Storage__RecordingsRoot=/recordings`.
 - Create `/recordings`, `chown "$APP_UID:$APP_UID"`, `USER $APP_UID`, `EXPOSE 8080`.
 - `HEALTHCHECK` as above; `ENTRYPOINT ["dotnet", "StreamKeepr.dll"]`.
 - Only `src/` enters the build; tests, secrets, recordings, and docs never enter an image layer.
 
-Pinned versions: .NET SDK `10.0.114`, ASP.NET runtime `10.0.14`, Streamlink `8.6.3`, static FFmpeg/ffprobe `9.0.2-1`, CliWrap `3.10.5`, Resilience `10.11.0`, OAuth `10.1.0`. Update deliberately; Streamlink is the one to watch and the build arg allows a bump.
+Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6.3`, static FFmpeg/ffprobe `9.0.2-1`, CliWrap `3.10.5`, Resilience `10.11.0`, OAuth `10.1.0`. Update deliberately; Streamlink is the one to watch and the build arg allows a bump.
 
 ### `.dockerignore`
 
-`**/bin/`, `**/obj/`, `.git/`, `.vs/`, `.idea/`, `.agents/`, `.claude/`, `.serena/`, `.github/`, `secrets/`, `recordings/`, `tests/`, `*.md`, `docs/`, `AGENTS.md`, `GLOSSARY.md`, `*.sln.DotSettings.user`.
+`**/bin/`, `**/obj/`, `.git/`, `.vs/`, `.idea/`, `.agents/`, `.claude/`, `.serena/`, `.github/`, `**/secrets/`, `**/.env`, `recordings/`, `tests/`, `*.md`, `docs/`, `AGENTS.md`, `GLOSSARY.md`, `*.sln.DotSettings.user`.
 
 ### Compose
 

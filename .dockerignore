@@ -1,26 +1,58 @@
-﻿**/.dockerignore
+# Build output
+**/bin/
+**/obj/
+
+# Version control and CI
+.git/
+.github/
+
+# IDE and agent state
+.vs/
+.vscode/
+.idea/
+.agents/
+.claude/
+.serena/
+.opencode/
+**/*.user
+*.sln.DotSettings.user
+
+# Non-runtime projects and assets
+StreamCaptureService/
+StreamCaptureService.Tests/
+design-system/
+tests/
+docs/
+
+# Secrets and local data
+**/secrets/
 **/.env
-**/.git
-**/.gitignore
-**/.project
-**/.settings
-**/.toolstarget
-**/.vs
-**/.vscode
-**/.idea
-**/.streamkeepr
-**/*.*proj.user
-**/*.dbmdl
-**/*.jfm
-**/azds.yaml
-**/bin
-**/charts
-**/docker-compose*
-**/Dockerfile*
-**/node_modules
-**/npm-debug.log
-**/obj
-**/secrets.dev.yaml
-**/values.dev.yaml
+**/.env.*
+recordings/
+.streamkeepr/
+**/*.pem
+**/*.key
+**/*.pfx
+
+# Compose and container descriptors are not build inputs
+compose*.yaml
+compose*.yml
+Dockerfile*
+
+# Repository metadata
+*.md
+AGENTS.md
+GLOSSARY.md
 LICENSE
-README.md
+.gitignore
+.editorconfig
+*.sln
+*.slnx
+*.binlog
+TestResults/
+**/TestResults/
+**/node_modules/
+
+# MonoLisa woff2 files are git-ignored but included when present in a private
+# working-tree build. Never publish an image built from a checkout that contains
+# them; a fresh clone has no MonoLisa binaries.
