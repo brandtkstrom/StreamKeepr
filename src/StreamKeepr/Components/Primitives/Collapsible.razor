@@ -1,6 +1,6 @@
 @* Controlled disclosure. The parent owns <see cref="Open"/> and updates it from OnToggle. *@
 <section class="sk-panel sk-collapse"
-         aria-expanded="@(Open ? "true" : "false")"
+         data-expanded="@(Open ? "true" : "false")"
          @attributes="AdditionalAttributes">
     <button type="button"
             class="sk-collapse-head"

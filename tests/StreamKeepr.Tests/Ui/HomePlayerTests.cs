@@ -1,5 +1,7 @@
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
+using StreamKeepr.Components.Features.Details;
 using StreamKeepr.Components.Features.Player;
 using StreamKeepr.Components.Pages;
 using StreamKeepr.Ui;
@@ -8,6 +10,8 @@ namespace StreamKeepr.Tests.Ui;
 
 public sealed class HomePlayerTests
 {
+    private static readonly DateTimeOffset Now = new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
+
     [Fact]
     public void A_known_recording_renders_the_player_in_the_player_slot()
     {
@@ -16,6 +20,7 @@ public sealed class HomePlayerTests
         IRenderedComponent<Home> cut = context.Render<Home>(p => p.Add(c => c.RecordingId, "r1"));
 
         Assert.NotNull(cut.Find("[data-slot='player'] [data-sk-player]"));
+        Assert.NotNull(cut.Find("[data-slot='details'] [data-recording-details]"));
         Assert.Equal(["player", "stats", "details"], cut.FindAll("[data-slot]").Select(s => s.GetAttribute("data-slot")));
     }
 
@@ -60,6 +65,22 @@ public sealed class HomePlayerTests
         Assert.Single(module.Invocations, call => call.Identifier == "load");
     }
 
+    [Fact]
+    public void The_details_card_renders_once_and_survives_a_recording_change()
+    {
+        using BunitContext context = CreateContext(out _);
+        IRenderedComponent<Home> cut = context.Render<Home>(p => p.Add(c => c.RecordingId, "r1"));
+        RecordingDetails before = cut.FindComponents<RecordingDetails>().Single().Instance;
+
+        Assert.Equal("First", cut.Find("[data-details-title]").TextContent);
+
+        cut.Render(p => p.Add(c => c.RecordingId, "r2"));
+
+        Assert.Same(before, cut.FindComponents<RecordingDetails>().Single().Instance);
+        Assert.Single(cut.FindAll("[data-recording-details]"));
+        Assert.Equal("Second", cut.Find("[data-details-title]").TextContent);
+    }
+
     private static BunitContext CreateContext(out BunitJSModuleInterop module, string? statsCookie = null)
     {
         var view = new TestLibraryView();
@@ -77,9 +98,11 @@ public sealed class HomePlayerTests
         if (statsCookie is not null)
             store.Cookies[UiPreferences.CookieName] = statsCookie;
         context.Services.AddSingleton<IClientStateStore>(store);
+        context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
+        context.Services.AddScoped<ViewerClock>();
         context.Services.AddScoped<UiPreferences>();
         context.Services.AddScoped<SnackbarService>();
-        context.Services.AddSingleton(TimeProvider.System);
+        context.Services.AddScoped<PlayerBridge>();
         context.Services.AddSingleton<ILibraryView>(view);
         return context;
     }

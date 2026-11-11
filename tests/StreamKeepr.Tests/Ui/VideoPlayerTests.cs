@@ -121,6 +121,21 @@ public sealed class VideoPlayerTests
     }
 
     [Fact]
+    public async Task The_player_attaches_its_seek_bridge_and_detaches_on_dispose()
+    {
+        using BunitContext context = CreateContext(out _);
+        var bridge = context.Services.GetRequiredService<PlayerBridge>();
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(p =>
+            p.Add(c => c.Recording, Recording("r1", "First")));
+
+        Assert.True(bridge.IsReady);
+
+        await cut.Instance.DisposeAsync();
+
+        Assert.False(bridge.IsReady);
+    }
+
+    [Fact]
     public async Task Dispose_releases_the_module()
     {
         using BunitContext context = CreateContext(out BunitJSModuleInterop module);
@@ -141,6 +156,7 @@ public sealed class VideoPlayerTests
         context.Services.AddLogging();
         context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
         context.Services.AddScoped<UiPreferences>();
+        context.Services.AddScoped<PlayerBridge>();
         return context;
     }
 

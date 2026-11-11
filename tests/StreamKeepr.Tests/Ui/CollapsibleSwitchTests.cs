@@ -19,7 +19,7 @@ public sealed class CollapsibleSwitchTests
         var header = cut.Find("button.sk-collapse-head");
         var body = cut.Find(".sk-collapse-body");
 
-        Assert.Equal("false", section.GetAttribute("aria-expanded"));
+        Assert.Equal("false", section.GetAttribute("data-expanded"));
         Assert.Equal("false", header.GetAttribute("aria-expanded"));
         Assert.Equal(header.GetAttribute("aria-controls"), body.GetAttribute("id"));
         Assert.True(body.HasAttribute("inert"));
@@ -35,7 +35,7 @@ public sealed class CollapsibleSwitchTests
             .Add(component => component.Header, "<h3>Recording details</h3>")
             .AddChildContent("<p>Body</p>"));
 
-        Assert.Equal("true", cut.Find("section.sk-collapse").GetAttribute("aria-expanded"));
+        Assert.Equal("true", cut.Find("section.sk-collapse").GetAttribute("data-expanded"));
         Assert.False(cut.Find(".sk-collapse-body").HasAttribute("inert"));
     }
 

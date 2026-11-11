@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Components.Features.Library;
+using StreamKeepr.Components.Features.Player;
 using StreamKeepr.Components.Layout;
 using StreamKeepr.Components.Pages;
 using StreamKeepr.Infrastructure.Storage;
@@ -321,6 +322,7 @@ public sealed class LibraryDrawerTests
         context.Services.AddSingleton<IClientStateStore>(store);
         context.Services.AddScoped<ViewerClock>();
         context.Services.AddScoped<SnackbarService>();
+        context.Services.AddScoped<PlayerBridge>();
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddSingleton<ILibraryView>(view);
         context.Services.AddScoped<UiPreferences>();

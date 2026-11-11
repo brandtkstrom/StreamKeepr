@@ -1,3 +1,4 @@
+using System.Globalization;
 using Deque.AxeCore.Commons;
 using Deque.AxeCore.Playwright;
 using Microsoft.Playwright;
@@ -255,6 +256,192 @@ public sealed class ShellJourneyTests(MockAppFixture app)
 
         await AssertAxeCleanAsync(
             page, nameof(Storage_meter_updates_live_without_a_reload));
+    }
+
+    [Fact]
+    public async Task Details_card_chapters_and_playlist_copy_work_across_recording_swaps()
+    {
+        using IPlaywright playwright = await Playwright.CreateAsync();
+        await using IBrowser browser = await playwright.Chromium.LaunchAsync(
+            new BrowserTypeLaunchOptions { Channel = "chrome", Headless = true });
+
+        string testName = nameof(Details_card_chapters_and_playlist_copy_work_across_recording_swaps);
+        string tracePath = Path.Combine(app.ArtifactsDirectory, $"{testName}.trace.zip");
+        string screenshotPath = Path.Combine(app.ArtifactsDirectory, $"{testName}.png");
+
+        await using IBrowserContext context = await browser.NewContextAsync(
+            new BrowserNewContextOptions
+            {
+                ViewportSize = new ViewportSize { Width = 1280, Height = 720 },
+            });
+        await context.GrantPermissionsAsync(
+            ["clipboard-read", "clipboard-write"],
+            new BrowserContextGrantPermissionsOptions { Origin = app.BaseUrl });
+        await context.Tracing.StartAsync(new TracingStartOptions
+        {
+            Screenshots = true,
+            Snapshots = true,
+            Sources = true,
+        });
+
+        try
+        {
+            IPage page = await context.NewPageAsync();
+            string? playlistUrl = null;
+            page.Request += (_, request) =>
+            {
+                if (request.Url.Contains("/media/", StringComparison.Ordinal) &&
+                    request.Url.EndsWith("/index.m3u8", StringComparison.Ordinal))
+                {
+                    playlistUrl ??= request.Url;
+                }
+            };
+
+            await page.GotoAsync(
+                app.BaseUrl,
+                new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
+
+            ILocator first = page.Locator("nav#sk-drawer a.sk-row", new PageLocatorOptions
+            {
+                HasText = "Ranked climb to Diamond",
+            });
+            await first.WaitForAsync(new LocatorWaitForOptions
+            {
+                State = WaitForSelectorState.Visible,
+                Timeout = 30_000,
+            });
+            string firstId = (await first.GetAttributeAsync("data-recording-id"))!;
+            await first.ClickAsync();
+            await page.WaitForURLAsync(
+                url => url.EndsWith($"/r/{firstId}", StringComparison.Ordinal),
+                new PageWaitForURLOptions { Timeout = 30_000 });
+
+            ILocator details = page.Locator("[data-slot='details'] [data-recording-details]");
+            await details.WaitForAsync(new LocatorWaitForOptions
+            {
+                State = WaitForSelectorState.Visible,
+                Timeout = 30_000,
+            });
+            await page.Locator("[data-sk='seek'][aria-disabled='false']").WaitForAsync(
+                new LocatorWaitForOptions { State = WaitForSelectorState.Attached, Timeout = 30_000 });
+
+            Assert.Equal(1, await details.CountAsync());
+            Assert.Equal(
+                "true",
+                await details.Locator(".sk-collapse-head").GetAttributeAsync("aria-expanded"));
+            Assert.Contains("Recording details", await details.Locator(".sk-collapse-head").InnerTextAsync());
+            string date = (await details.Locator("[data-details-date]").InnerTextAsync()).Trim();
+            Assert.Contains("2026", date);
+
+            Assert.StartsWith(
+                "Ranked climb to Diamond",
+                (await details.Locator("[data-details-title]").InnerTextAsync()).Trim());
+            Assert.Equal(
+                "mock_nova",
+                (await details.Locator("[data-details-streamer]").InnerTextAsync()).Trim());
+            Assert.Equal(
+                "Apex Legends",
+                (await details.Locator("[data-details-category]").InnerTextAsync()).Trim());
+            Assert.Contains(
+                "segments",
+                await details.Locator("[data-details-segments]").InnerTextAsync());
+            Assert.Equal("1 part", (await details.Locator("[data-details-parts]").InnerTextAsync()).Trim());
+            Assert.NotEmpty(await details.Locator("[data-details-size]").InnerTextAsync());
+
+            // The collapsed state is layout preference state and survives a reload.
+            await details.Locator(".sk-collapse-head").ClickAsync();
+            await Assertions.Expect(details.Locator(".sk-collapse-head")).ToHaveAttributeAsync(
+                "aria-expanded",
+                "false",
+                new LocatorAssertionsToHaveAttributeOptions { Timeout = 10_000 });
+            await page.WaitForFunctionAsync(
+                "() => decodeURIComponent(document.cookie).includes('\"details\":false')");
+
+            await page.ReloadAsync(new PageReloadOptions
+            {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+            });
+            details = page.Locator("[data-slot='details'] [data-recording-details]");
+            await details.WaitForAsync(new LocatorWaitForOptions
+            {
+                State = WaitForSelectorState.Visible,
+                Timeout = 30_000,
+            });
+            await Assertions.Expect(details.Locator(".sk-collapse-head")).ToHaveAttributeAsync(
+                "aria-expanded",
+                "false",
+                new LocatorAssertionsToHaveAttributeOptions { Timeout = 10_000 });
+            Assert.Equal(1, await details.CountAsync());
+
+            await details.Locator(".sk-collapse-head").ClickAsync();
+            await Assertions.Expect(details.Locator(".sk-collapse-head")).ToHaveAttributeAsync(
+                "aria-expanded",
+                "true",
+                new LocatorAssertionsToHaveAttributeOptions { Timeout = 10_000 });
+            await page.Locator("[data-sk='seek'][aria-disabled='false']").WaitForAsync(
+                new LocatorWaitForOptions { State = WaitForSelectorState.Attached, Timeout = 30_000 });
+
+            // Chapter seek moves the playhead without starting playback and keeps focus on the button.
+            ILocator chapter = details.Locator("[data-chapter]").First;
+            await chapter.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+            double chapterStart = double.Parse(
+                (await chapter.GetAttributeAsync("data-chapter"))!, CultureInfo.InvariantCulture);
+            Assert.True(await page.Locator("[data-sk='video']").EvaluateAsync<bool>("v => v.paused"));
+            await chapter.ClickAsync();
+            await page.WaitForFunctionAsync(
+                "expected => Math.abs(document.querySelector('[data-sk=video]').currentTime - expected) < 0.5",
+                chapterStart,
+                new PageWaitForFunctionOptions { Timeout = 10_000 });
+            Assert.True(
+                await page.Locator("[data-sk='video']").EvaluateAsync<bool>("v => v.paused"),
+                "a chapter seek must not autoplay");
+            Assert.True(
+                await chapter.EvaluateAsync<bool>("b => b === document.activeElement"),
+                "focus stays on the chapter button");
+
+            // Copy is public and uses the absolute playlist URL built from the app origin.
+            await page.Locator("[data-copy-playlist]").ClickAsync();
+            await Assertions.Expect(page.Locator(".sk-snackbar-text")).ToHaveTextAsync(
+                "Playlist URL copied",
+                new LocatorAssertionsToHaveTextOptions { Timeout = 10_000 });
+            Assert.False(string.IsNullOrWhiteSpace(playlistUrl), "the player requested a playlist");
+            string copied = await page.EvaluateAsync<string>("navigator.clipboard.readText()");
+            Assert.Equal(playlistUrl, copied);
+
+            // Swapping recordings updates the one details card instead of adding another.
+            ILocator second = page.Locator("nav#sk-drawer a.sk-row", new PageLocatorOptions
+            {
+                HasText = "Co-op horror night",
+            });
+            string secondId = (await second.GetAttributeAsync("data-recording-id"))!;
+            await second.ClickAsync();
+            await page.WaitForURLAsync(
+                url => url.EndsWith($"/r/{secondId}", StringComparison.Ordinal),
+                new PageWaitForURLOptions { Timeout = 30_000 });
+            await page.WaitForFunctionAsync(
+                "() => document.querySelector('[data-details-title]').textContent.trim().startsWith('Co-op horror night')",
+                null,
+                new PageWaitForFunctionOptions { Timeout = 30_000 });
+
+            details = page.Locator("[data-recording-details]");
+            Assert.Equal(1, await details.CountAsync());
+            Assert.Equal(
+                "2 parts",
+                (await details.Locator("[data-details-parts]").InnerTextAsync()).Trim());
+            Assert.Equal(2, await details.Locator("[data-chapter]").CountAsync());
+
+            await page.ScreenshotAsync(new PageScreenshotOptions
+            {
+                Path = screenshotPath,
+                FullPage = true,
+            });
+
+            await AssertAxeCleanAsync(page, testName);
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new TracingStopOptions { Path = tracePath });
+        }
     }
 
     private async Task AssertAxeCleanAsync(IPage page, string name)

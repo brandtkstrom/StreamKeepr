@@ -3,6 +3,7 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 @inject UiPreferences Preferences
+@inject PlayerBridge Bridge
 @inject ILogger<VideoPlayer> Logger
 
 @* Rendered once. VideoPlayer.razor.js owns hls.js, every control, and all dynamic player DOM;
@@ -181,6 +182,7 @@
                 return;
             }
             await _module.InvokeVoidAsync("init", _root, _self, ToPayload(Recording));
+            Bridge.Attach(SeekAsync);
         }
         catch (JSException ex)
         {
@@ -240,12 +242,32 @@
         await Preferences.PersistAsync();
     }
 
+    private async ValueTask SeekAsync(double seconds)
+    {
+        if (_module is null)
+            return;
+
+        try
+        {
+            await _module.InvokeVoidAsync("seek", _root, seconds);
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, so there is no browser state left to seek.
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "A player seek failed.");
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
             return;
 
         _disposed = true;
+        Bridge.Detach();
         if (_module is not null)
         {
             await InvokeAsync("dispose", _root);

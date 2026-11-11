@@ -598,6 +598,16 @@ export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } =
       renderPosition();
     },
 
+    seek(time) {
+      if (disposed || !Number.isFinite(time)) return;
+      if (!Number.isFinite(duration())) {
+        // Metadata is not loaded yet; loadedmetadata seeks to the queued position.
+        startAt = Math.max(0, time);
+        return;
+      }
+      seekTo(time);
+    },
+
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -631,6 +641,10 @@ export async function load(root, view) {
 
 export function update(root, view) {
   players.get(root)?.update(view);
+}
+
+export function seek(root, seconds) {
+  players.get(root)?.seek(seconds);
 }
 
 export function dispose(root) {

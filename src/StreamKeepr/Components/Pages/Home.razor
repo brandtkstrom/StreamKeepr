@@ -44,7 +44,12 @@ else
         <StatsPanel Recording="statRecording" />
     }
 </div>
-<div data-slot="details"></div>
+<div data-slot="details">
+    @if (Selected is { } detailed)
+    {
+        <RecordingDetails Recording="detailed" />
+    }
+</div>
 
 @code {
     [Parameter] public string? RecordingId { get; set; }
