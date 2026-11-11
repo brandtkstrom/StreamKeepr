@@ -19,10 +19,12 @@ public static class RecordingsMedia
     private const string PlaylistCacheControl = "no-cache";
     private const string ImmutableCacheControl = "public, max-age=31536000, immutable";
 
+    public const string PlaylistContentType = "application/vnd.apple.mpegurl";
+
     private static readonly IReadOnlyDictionary<string, string> ContentTypes =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            [PlaylistExtension] = "application/vnd.apple.mpegurl",
+            [PlaylistExtension] = PlaylistContentType,
             [".m4s"] = "video/iso.segment",
             [".mp4"] = "video/mp4",
             [".jpg"] = "image/jpeg",

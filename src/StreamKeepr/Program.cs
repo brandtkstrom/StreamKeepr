@@ -111,6 +111,7 @@ app.MapRazorComponents<App>()
 
 app.MapGet(AdminAuth.LoginPath, AdminAuth.HandleLogin);
 app.MapPost(AdminAuth.LogoutPath, AdminAuth.HandleLogoutAsync);
+app.MapGet(LiveIndexEndpoint.Route, LiveIndexEndpoint.HandleAsync);
 
 await app.RunAsync();
 
