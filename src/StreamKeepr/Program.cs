@@ -10,6 +10,11 @@ using StreamKeepr.Ui;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// The host budget is the recorder job budget plus shutdown/cleanup headroom.
+TimeSpan shutdownTimeout = ChannelCoordinator.JobStopBudget + TimeSpan.FromSeconds(5);
+builder.Services.Configure<HostOptions>(options =>
+    options.ShutdownTimeout = shutdownTimeout);
+
 builder.Services.AddOptions<TwitchOptions>()
     .BindConfiguration(TwitchOptions.SectionName)
     .ValidateDataAnnotations()

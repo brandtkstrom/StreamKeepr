@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
+using StreamKeepr.Infrastructure.Runtime;
 
 namespace StreamKeepr.Tests.Hosting;
 
@@ -45,6 +46,19 @@ public sealed class WebAppSmokeTests
 
         var auth = factory.Services.GetRequiredService<IOptions<AuthOptions>>().Value;
         Assert.Equal(["allowed_login"], auth.AllowedTwitchLogins);
+    }
+
+    [Fact]
+    public void Host_shutdown_timeout_is_40_seconds()
+    {
+        using var factory = new StreamKeeprAppFactory();
+
+        HostOptions options = factory.Services.GetRequiredService<IOptions<HostOptions>>().Value;
+
+        Assert.True(options.ShutdownTimeout > ChannelCoordinator.JobStopBudget);
+        Assert.Equal(
+            ChannelCoordinator.JobStopBudget + TimeSpan.FromSeconds(5),
+            options.ShutdownTimeout);
     }
 
     [Fact]
