@@ -111,9 +111,112 @@ public sealed class RecorderJobTests : IDisposable
         Assert.Empty(Directory.EnumerateFiles(session.Directory, "init_001*"));
     }
 
+    [Fact]
+    public async Task A_requested_stop_finalizes_the_part_and_reports_stopped()
+    {
+        string ffmpeg = RequireFfmpeg();
+        Session session = NewSession();
+        RecorderOptions options = NewOptions(ffmpeg);
+        options.StreamlinkPath = FixturePath("fake-live-streamlink");
+
+        using var stop = new CancellationTokenSource();
+        Task stopper = Task.Run(async () =>
+        {
+            // Cancel while the live stream is still producing, so the part really is finalized
+            // by EOF rather than by a natural stream end.
+            await WaitForPartSegmentAsync(session.Directory, part: 1);
+            stop.Cancel();
+        });
+
+        IReadOnlyList<DvrEvent> events = await RunAsync(session, options, stop.Token);
+        await stopper;
+
+        var media = Assert.Single(events.OfType<DvrEvent.PartProducingMedia>());
+        var exited = Assert.Single(events.OfType<DvrEvent.RecorderExited>());
+        Assert.Equal(RecorderExitKind.Stopped, exited.Kind);
+        Assert.True(
+            events.ToList().IndexOf(media) < events.ToList().IndexOf(exited),
+            "PartProducingMedia must be published before RecorderExited");
+
+        string playlistPath = Path.Combine(session.Directory, PartFiles.Playlist(1));
+        Assert.True(File.Exists(playlistPath), $"missing part playlist at {playlistPath}");
+
+        string playlist = await File.ReadAllTextAsync(playlistPath);
+        Assert.Contains("#EXT-X-ENDLIST", playlist);
+        await AssertPlayableAsync(ffmpeg, playlistPath);
+    }
+
+    [Fact]
+    public async Task Ffmpeg_exiting_first_stops_streamlink_and_reports_exited()
+    {
+        string trueCommand = FindExecutable("true")
+            ?? throw new InvalidOperationException("the true command is required by this test");
+        Session session = NewSession();
+        RecorderOptions options = NewOptions(trueCommand);
+
+        IReadOnlyList<DvrEvent> events = await RunAsync(session, options);
+
+        Assert.Empty(events.OfType<DvrEvent.PartProducingMedia>());
+        var exited = Assert.Single(events.OfType<DvrEvent.RecorderExited>());
+        Assert.Equal(RecorderExitKind.Exited, exited.Kind);
+        Assert.Contains("ffmpeg exited first", exited.Detail, StringComparison.Ordinal);
+        Assert.Empty(Directory.EnumerateFiles(session.Directory, "p001*"));
+        Assert.Empty(Directory.EnumerateFiles(session.Directory, "init_001*"));
+    }
+
+    [Fact]
+    public async Task A_worst_case_stop_fits_inside_the_35_second_job_budget()
+    {
+        Session session = NewSession();
+        var clock = new ScaledTimeProvider();
+        var options = new RecorderOptions
+        {
+            StreamlinkPath = FixturePath("fake-hanging-streamlink"),
+            FfmpegPath = FixturePath("fake-hanging-ffmpeg"),
+            Quality = "best",
+            SegmentSeconds = 2,
+            FinalizeTimeoutSeconds = 15,
+        };
+
+        using var stop = new CancellationTokenSource();
+        Task stopper = Task.Run(async () =>
+        {
+            // Never stop before both fake processes are alive; otherwise the job takes the
+            // pre-start shortcut and the shutdown path under test never runs.
+            await WaitForFileAsync(Path.Combine(session.Directory, "streamlink.started"));
+            await WaitForFileAsync(Path.Combine(session.Directory, "ffmpeg.started"));
+            stop.Cancel();
+        });
+
+        long startedTicks = Stopwatch.GetTimestamp();
+        IReadOnlyList<DvrEvent> events = await RunAsync(session, options, stop.Token, clock);
+        TimeSpan elapsed = Stopwatch.GetElapsedTime(startedTicks);
+        await stopper;
+
+        var exited = Assert.Single(events.OfType<DvrEvent.RecorderExited>());
+        Assert.Equal(RecorderExitKind.Killed, exited.Kind);
+
+        // The fake processes never exit on their own and ignore SIGINT, so every wait in the
+        // contract's shutdown order expires: 5 + 5 for Streamlink, 15 finalize for FFmpeg,
+        // then 5 + 5. The injected clock records those durations and fires each wait after a
+        // short real delay, so this runs in about a second instead of sleeping for 35 s.
+        Assert.All(clock.RequestedWaits,
+            wait => Assert.InRange(wait, TimeSpan.Zero, TimeSpan.FromSeconds(15)));
+        Assert.Contains(TimeSpan.FromSeconds(15), clock.RequestedWaits);
+        Assert.True(
+            clock.RequestedWaits.Count(wait => wait == TimeSpan.FromSeconds(5)) >= 2,
+            "both processes must have taken the graceful stop path");
+        Assert.True(
+            clock.RequestedWaits.Sum(wait => wait.TotalSeconds) <= 35,
+            $"recorder requested {clock.RequestedWaits.Sum(wait => wait.TotalSeconds)} s of waits");
+        Assert.True(elapsed < TimeSpan.FromSeconds(35), $"stop took {elapsed}");
+    }
+
     private static async Task<IReadOnlyList<DvrEvent>> RunAsync(
         Session session,
-        RecorderOptions options)
+        RecorderOptions options,
+        CancellationToken stopRequested = default,
+        TimeProvider? clock = null)
     {
         var events = new List<DvrEvent>();
         ValueTask Publish(DvrEvent dvrEvent, CancellationToken _)
@@ -125,9 +228,9 @@ public sealed class RecorderJobTests : IDisposable
 
         var job = new RecorderJob(
             Options.Create(options),
-            TimeProvider.System,
+            clock ?? TimeProvider.System,
             NullLogger<RecorderJob>.Instance);
-        Task run = job.RunAsync(session, new JobId(session.Id, 1), Publish);
+        Task run = job.RunAsync(session, new JobId(session.Id, 1), Publish, stopRequested);
         Task completed = await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(60)));
 
         Assert.True(completed == run, "recorder job did not finish within 60 seconds");
@@ -135,6 +238,28 @@ public sealed class RecorderJobTests : IDisposable
 
         lock (events)
             return events.ToList();
+    }
+
+    private static async Task WaitForFileAsync(string path) =>
+        await WaitForAsync(() => File.Exists(path), path);
+
+    private static async Task WaitForPartSegmentAsync(string directory, int part) =>
+        await WaitForAsync(
+            () => Directory.Exists(directory)
+                && Directory.EnumerateFiles(directory, $"p{part:D3}_*.m4s").Any(),
+            $"part {part:D3} media segments");
+
+    private static async Task WaitForAsync(Func<bool> condition, string description)
+    {
+        for (int attempt = 0; attempt < 1000; attempt++)
+        {
+            if (condition())
+                return;
+
+            await Task.Delay(10);
+        }
+
+        throw new TimeoutException($"timed out waiting for {description}");
     }
 
     private RecorderOptions NewOptions(string ffmpeg) => new()
@@ -168,15 +293,17 @@ public sealed class RecorderJobTests : IDisposable
         return ffmpeg!;
     }
 
-    private static string FakeStreamlinkPath()
+    private static string FakeStreamlinkPath() => FixturePath("fake-streamlink");
+
+    private static string FixturePath(string name)
     {
-        string path = Path.Combine(FindRepositoryRoot(), "tests", "fixtures", "fake-streamlink");
-        Assert.True(File.Exists(path), $"fake Streamlink script not found at {path}");
+        string path = Path.Combine(FindRepositoryRoot(), "tests", "fixtures", name);
+        Assert.True(File.Exists(path), $"fake process script not found at {path}");
 
         FileAttributes attributes = File.GetAttributes(path);
         Assert.False(
             attributes.HasFlag(FileAttributes.Directory),
-            $"fake Streamlink path is a directory: {path}");
+            $"fake process path is a directory: {path}");
 
         if (!OperatingSystem.IsWindows())
         {
@@ -186,7 +313,7 @@ public sealed class RecorderJobTests : IDisposable
                 | UnixFileMode.OtherExecute;
             Assert.True(
                 (mode & execute) != 0,
-                $"fake Streamlink script is not executable: {path}");
+                $"fake process script is not executable: {path}");
         }
 
         return path;
@@ -261,5 +388,76 @@ public sealed class RecorderJobTests : IDisposable
         Assert.True(
             process.ExitCode == 0,
             $"ffmpeg could not play the recorded part (exit {process.ExitCode}): {errors}");
+    }
+
+    /// <summary>
+    /// A clock that records each requested bounded wait but fires it after a short real delay, so
+    /// a test can prove the 35 second shutdown budget without sleeping through it.
+    /// </summary>
+    private sealed class ScaledTimeProvider : TimeProvider
+    {
+        private static readonly TimeSpan RealDelay = TimeSpan.FromMilliseconds(200);
+
+        private readonly object _gate = new();
+        private readonly List<TimeSpan> _requestedWaits = [];
+
+        public IReadOnlyList<TimeSpan> RequestedWaits
+        {
+            get
+            {
+                lock (_gate)
+                    return _requestedWaits.ToArray();
+            }
+        }
+
+        public override DateTimeOffset GetUtcNow() => StartedAt;
+
+        public override ITimer CreateTimer(
+            TimerCallback callback,
+            object? state,
+            TimeSpan dueTime,
+            TimeSpan period)
+        {
+            if (dueTime != Timeout.InfiniteTimeSpan)
+            {
+                lock (_gate)
+                    _requestedWaits.Add(dueTime);
+            }
+
+            var timer = new ScaledTimer(callback, state);
+            timer.Change(dueTime, period);
+            return timer;
+        }
+
+        private sealed class ScaledTimer(TimerCallback callback, object? state) : ITimer
+        {
+            private int _disposed;
+
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                if (Volatile.Read(ref _disposed) != 0)
+                    return false;
+
+                if (dueTime != Timeout.InfiniteTimeSpan)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(RealDelay);
+                        if (Volatile.Read(ref _disposed) == 0)
+                            callback(state);
+                    });
+                }
+
+                return true;
+            }
+
+            public void Dispose() => Interlocked.Exchange(ref _disposed, 1);
+
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
+        }
     }
 }

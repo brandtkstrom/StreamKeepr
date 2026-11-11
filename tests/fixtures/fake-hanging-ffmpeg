@@ -1,0 +1,10 @@
+#!/bin/sh
+# Hangs until force-killed and ignores SIGINT, exercising the recorder's bounded
+# FFmpeg finalize and force-kill path. Run from the recorder's working directory.
+set -eu
+
+: > ffmpeg.started
+trap '' INT
+while :; do
+    sleep 0.05
+done
