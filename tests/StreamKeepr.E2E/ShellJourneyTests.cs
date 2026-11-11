@@ -123,8 +123,10 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 Timeout = 30_000,
             });
 
-        string firstGroup = await page.Locator("nav#sk-drawer .sk-group").First.InnerTextAsync();
-        Assert.Contains("Recording now", firstGroup);
+        await Assertions.Expect(page.Locator("nav#sk-drawer .sk-group").First)
+            .ToContainTextAsync(
+                "Recording now",
+                new LocatorAssertionsToContainTextOptions { Timeout = 30_000 });
 
         string href = await page.Locator("a.sk-row").First.GetAttributeAsync("href") ?? "";
         Assert.StartsWith("/r/", href);
