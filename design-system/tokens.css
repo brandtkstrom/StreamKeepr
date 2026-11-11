@@ -84,8 +84,8 @@
   --state-focus: 0.10; /* Keyboard focus state layer (plus the focus ring). */
   --state-pressed: 0.10; /* Pressed state layer. */
   --state-disabled: 0.38; /* Disabled content opacity. */
-  --font-sans: "MonoLisa", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --font-mono: "MonoLisa", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-sans: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --font-icons: "Material Symbols Rounded";
   --text-display-small: 600 32px/40px var(--font-sans); /* Empty-state headline ("No recordings yet"). */
   --text-headline-small: 600 22px/30px var(--font-sans); /* Recording title under the player. */
@@ -199,18 +199,4 @@
   line-height: 28px;
   font-weight: 500;
   letter-spacing: 0px;
-}
-@font-face {
-  font-family: "MonoLisa";
-  src: url("fonts/0-normal.woff2") format("woff2");
-  font-weight: 100 1000;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "MonoLisa";
-  src: url("fonts/1-italic.woff2") format("woff2");
-  font-weight: 100 1000;
-  font-style: italic;
-  font-display: swap;
 }

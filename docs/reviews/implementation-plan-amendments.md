@@ -62,7 +62,7 @@ Every fix names an owner ticket. A finding is not resolved until its owner ticke
 
 | ID | Finding | Evidence | Disposition | Owner |
 |---|---|---|---|---|
-| D-01 | The design system is absent: `tokens.css`, `components.css`, previews, Material Symbols, hls.js 1.7.4; MonoLisa is local but unlicensed for web self-hosting pending review. | Plan lines 3047, 3087; filesystem search. | Delegate | **Preserve planning inputs and acquire design assets.** |
+| D-01 | The design system is absent: `tokens.css`, `components.css`, previews, Material Symbols, hls.js 1.7.4. | Plan lines 3047, 3087; filesystem search. | Delegate | **Preserve planning inputs and acquire design assets.** |
 | D-02 | The `sk-tz` cookie script and the `.scrolled` observer have no owning task. | F0-T8 (3053); F1-T2 (3062). | Delegate | **Frontend foundation and app shell.** |
 | D-03 | Keyboard handling is split across tree navigation, player shortcuts, and search, with no precedence rule. | F2-T6 (3078), F3-T6 (3092), F7-T2 (3140). | Delegate | **Library, search, and live updates; Player, stats, and resume.** |
 | D-04 | Sort ties and zero-recording streamers are unspecified. | F2-T1 (3073); `StreamerView` (2966). | Delegate | **Library, search, and live updates.** |
@@ -78,7 +78,7 @@ Every fix names an owner ticket. A finding is not resolved until its owner ticke
 | E-03 | Retention automation and defaults. | Accept | Retention automation is a non-goal; recordings are kept until manually deleted. The spec omits the options and the hourly-service claim. See A-08 and `ADR-0004`. |
 | E-04 | Allowlist logins and viewing without sign-in. | Defer | Owner **Twitch polling, EventSub, and auth**. |
 | E-05 | HTTPS/reverse proxy for Twitch sign-in. | Defer | Owner **Twitch polling, EventSub, and auth; Hosting**. |
-| E-06 | MonoLisa web-font license. | Defer | Owner **Preserve planning inputs and acquire design assets**. |
+| E-06 | Text webfont licensing. | Superseded | The licensed text webfont was dropped; no text webfont is bundled. |
 | E-07 | Subscriber-only stream token handling. | Defer | Owner **Twitch polling, EventSub, and auth**. |
 | E-08 | Hover thumbnails dropped. | Accept | No action. |
 | E-09 | No hardware target; defaults stand. | Accept | No action. |
@@ -146,7 +146,7 @@ Add or change these edges; then recompute the Part 2 waves from the corrected gr
 - E-02 is resolved as a stub with a snackbar; no scheduling feature.
 - E-04 is resolved semantically: empty `AllowedTwitchLogins` means open administration; viewing stays public; exact deployment values are configuration.
 - E-05 is resolved as an external TLS proxy; sign-in works over HTTPS or localhost, and plain LAN HTTP cannot administer.
-- E-06 is resolved as a local-license constraint: MonoLisa woff2 stay Git-ignored and are never redistributed; commercial/product use needs the Creator plan.
+- E-06 is superseded: the licensed text webfont was dropped; UI text uses the system monospace stack and no text webfont is bundled.
 - E-07/E-14 keep the manual subscriber token; a Settings rotation entry is deferred.
 - E-20, E-22, and E-23 are accepted deviations/deferrals recorded in the binding contracts.
 - B-05 and C-01 are confirmed: backend-owned fields move into Part 1, and export is always a single MP4 with an explicit incompatible-parts error.
