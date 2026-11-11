@@ -496,80 +496,15 @@ public sealed class RecorderJobTests : IDisposable
         return session;
     }
 
-    private static string RequireFfmpeg()
-    {
-        string? ffmpeg = FindExecutable("ffmpeg");
-        Assert.True(
-            ffmpeg is not null,
-            "ffmpeg is required for recorder integration tests. Install ffmpeg and put it on PATH.");
-        return ffmpeg!;
-    }
+    private static string RequireFfmpeg() => TestPaths.RequireExecutable(
+        "ffmpeg",
+        "ffmpeg is required for recorder integration tests. Install ffmpeg and put it on PATH.");
 
     private static string FakeStreamlinkPath() => FixturePath("fake-streamlink");
 
-    private static string FixturePath(string name)
-    {
-        string path = Path.Combine(FindRepositoryRoot(), "tests", "fixtures", name);
-        Assert.True(File.Exists(path), $"fake process script not found at {path}");
+    private static string FixturePath(string name) => TestPaths.FixturePath(name);
 
-        FileAttributes attributes = File.GetAttributes(path);
-        Assert.False(
-            attributes.HasFlag(FileAttributes.Directory),
-            $"fake process path is a directory: {path}");
-
-        if (!OperatingSystem.IsWindows())
-        {
-            UnixFileMode mode = File.GetUnixFileMode(path);
-            UnixFileMode execute = UnixFileMode.UserExecute
-                | UnixFileMode.GroupExecute
-                | UnixFileMode.OtherExecute;
-            Assert.True(
-                (mode & execute) != 0,
-                $"fake process script is not executable: {path}");
-        }
-
-        return path;
-    }
-
-    private static string FindRepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "StreamKeepr.sln")))
-                return directory.FullName;
-            directory = directory.Parent;
-        }
-
-        throw new InvalidOperationException("could not locate the repository root from the test output");
-    }
-
-    private static string? FindExecutable(string executable)
-    {
-        string? path = Environment.GetEnvironmentVariable("PATH");
-        if (string.IsNullOrEmpty(path))
-            return null;
-
-        foreach (string directory in path.Split(Path.PathSeparator))
-        {
-            if (string.IsNullOrEmpty(directory))
-                continue;
-
-            string candidate = Path.Combine(directory, executable);
-            var file = new FileInfo(candidate);
-            if (!file.Exists)
-                continue;
-
-            // PATH may contain a stale symlink such as a removed Homebrew keg.
-            FileSystemInfo resolved = file.LinkTarget is null
-                ? file
-                : file.ResolveLinkTarget(returnFinalTarget: true) ?? file;
-            if (resolved.Exists)
-                return candidate;
-        }
-
-        return null;
-    }
+    private static string? FindExecutable(string executable) => TestPaths.FindExecutable(executable);
 
     private static async Task AssertPlayableAsync(string ffmpeg, string playlistPath)
     {

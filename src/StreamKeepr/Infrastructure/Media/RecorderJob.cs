@@ -15,7 +15,7 @@ namespace StreamKeepr.Infrastructure.Media;
 public sealed class RecorderJob(
     IOptions<RecorderOptions> options,
     TimeProvider clock,
-    ILogger<RecorderJob> logger)
+    ILogger<RecorderJob> logger) : IRecorder
 {
     private const int StderrCapacity = 20;
 
@@ -33,7 +33,8 @@ public sealed class RecorderJob(
         Session session,
         JobId job,
         Func<DvrEvent, CancellationToken, ValueTask> publish,
-        CancellationToken stopRequested = default)
+        CancellationToken stopRequested = default,
+        Action<JobId, long, TimeSpan>? reportProgress = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(publish);
@@ -102,6 +103,7 @@ public sealed class RecorderJob(
                     job,
                     bytes,
                     sample.MediaTime);
+                reportProgress?.Invoke(job, bytes, sample.MediaTime);
 
                 if (!sample.Advanced)
                     return;
