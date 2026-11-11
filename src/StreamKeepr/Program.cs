@@ -171,6 +171,7 @@ builder.Services.AddScoped<PlayerBridge>();
 builder.Services.AddScoped<LibraryView>();
 builder.Services.AddScoped<ILibraryView>(services => services.GetRequiredService<LibraryView>());
 builder.Services.AddScoped<SnackbarService>();
+builder.Services.AddScoped<IChannelsView, ChannelsView>();
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
