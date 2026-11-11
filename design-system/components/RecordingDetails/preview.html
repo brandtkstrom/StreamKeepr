@@ -4,7 +4,7 @@
 <head><meta charset="utf-8"><title>Recording details</title>
 <style></style></head>
 <body>
-<div style="padding:16px"><section class="sk-panel sk-collapse" data-collapse aria-expanded="true"><button class="sk-collapse-head" data-collapse-head aria-expanded="true"><h3>Recording details</h3><span class="hint" data-bind="date">Fri, Nov 6, 2026 · 9:12 AM</span><span class="sk-icon chev">expand_more</span></button><div class="sk-collapse-body"><div><div style="padding:0 16px 16px"><div class="sk-details-title"><h1 data-bind="title">Morning lofi &amp; sketching — ink studies</h1><div class="sk-actions"><button class="sk-btn tonal"><span class="sk-icon">download</span>Export MP4</button><button class="sk-btn outlined"><span class="sk-icon">content_copy</span>Copy playlist URL</button><button class="sk-icon-btn" aria-label="Delete recording"><span class="sk-icon">delete</span></button></div></div><div class="sk-details-meta"><span class="who"><span class="sk-avatar c2" data-bind-initial>lo</span><span data-bind="streamer">lowtidelofi</span></span><span class="sep"></span><span data-bind="cat">Art</span><span class="sep"></span><span>1,342 segments · 9.8 GB</span></div></div></div></div></section></div>
+<div style="padding:16px"><section class="sk-panel sk-collapse" data-collapse data-expanded="true"><button class="sk-collapse-head" data-collapse-head aria-expanded="true"><h3>Recording details</h3><span class="hint" data-bind="date">Fri, Nov 6, 2026 · 9:12 AM</span><span class="sk-icon chev">expand_more</span></button><div class="sk-collapse-body"><div><div style="padding:0 16px 16px"><div class="sk-details-title"><h1 data-bind="title">Morning lofi &amp; sketching — ink studies</h1><div class="sk-actions"><button class="sk-btn tonal"><span class="sk-icon">download</span>Export MP4</button><button class="sk-btn outlined"><span class="sk-icon">content_copy</span>Copy playlist URL</button><button class="sk-icon-btn" aria-label="Delete recording"><span class="sk-icon">delete</span></button></div></div><div class="sk-details-meta"><span class="who"><span class="sk-avatar c2" data-bind-initial>lo</span><span data-bind="streamer">lowtidelofi</span></span><span class="sep"></span><span data-bind="cat">Art</span><span class="sep"></span><span>1,342 segments · 9.8 GB</span></div></div></div></div></section></div>
 <script>
 (function () {
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -15,13 +15,15 @@
     return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
   };
 
-  /* collapsibles: [data-collapse] holds aria-expanded; its [data-collapse-head] toggles it */
+  /* collapsibles: [data-collapse] marks the container; panels use data-expanded, groups keep aria-expanded */
   $$('[data-collapse-head]').forEach(function (head) {
     head.addEventListener('click', function (e) {
       if (e.target.closest('[data-stop]')) return;
       var box = head.closest('[data-collapse]');
-      var open = box.getAttribute('aria-expanded') !== 'false';
-      box.setAttribute('aria-expanded', open ? 'false' : 'true');
+      var panel = box.classList.contains('sk-collapse');
+      var open = (panel ? box.getAttribute('data-expanded') : box.getAttribute('aria-expanded')) !== 'false';
+      if (panel) box.setAttribute('data-expanded', open ? 'false' : 'true');
+      else box.setAttribute('aria-expanded', open ? 'false' : 'true');
       head.setAttribute('aria-expanded', open ? 'false' : 'true');
     });
   });
@@ -54,14 +56,14 @@
   var stats = $('#sk-stats');
   function setStats(on) {
     if (!stats) return;
-    stats.setAttribute('aria-expanded', on ? 'true' : 'false');
+    stats.setAttribute('data-expanded', on ? 'true' : 'false');
     $$('[data-stats-toggle]').forEach(function (t) {
       if (t.hasAttribute('aria-checked')) t.setAttribute('aria-checked', on ? 'true' : 'false');
       else t.classList.toggle('on', on);
     });
   }
   $$('[data-stats-toggle]').forEach(function (t) {
-    t.addEventListener('click', function () { if (!stats) return; setStats(stats.getAttribute('aria-expanded') === 'false'); });
+    t.addEventListener('click', function () { if (!stats) return; setStats(stats.getAttribute('data-expanded') === 'false'); });
   });
 
   /* player */

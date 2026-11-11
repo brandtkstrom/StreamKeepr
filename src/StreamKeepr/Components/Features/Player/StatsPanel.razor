@@ -1,0 +1,295 @@
+@implements IAsyncDisposable
+@inject UiPreferences Preferences
+@inject SnackbarService Snackbars
+@inject IJSRuntime JS
+@inject ILogger<StatsPanel> Logger
+
+@* Rendered once. StatsPanel.razor.js owns the open state, sampled values, sparklines, and
+   the copy action; Blazor never re-renders this markup, so it cannot overwrite JS-owned
+   text, attributes, or SVG children. The player's stats button is wired by the same module. *@
+<section class="sk-panel sk-collapse"
+         data-sk-stats
+         data-open="@(_open ? "true" : "false")"
+         aria-labelledby="@_titleId"
+         @ref="_root">
+    <h2 id="@_titleId" class="sk-visually-hidden">Stats for nerds</h2>
+    <button type="button"
+            class="sk-toggle-bar"
+            data-sk="stats-toggle"
+            role="switch"
+            aria-label="Stats for nerds"
+            aria-checked="@(_open ? "true" : "false")"
+            aria-controls="@_bodyId">
+        <span class="sk-icon" aria-hidden="true">query_stats</span>
+        <span class="sk-toggle-title" aria-hidden="true">Stats for nerds</span>
+        <span class="hint" data-sk="stats-hint">—</span>
+        <span class="sk-switch" aria-hidden="true"></span>
+    </button>
+
+    <div class="sk-collapse-body"
+         id="@_bodyId"
+         data-sk="stats-body"
+         inert="@(_open ? null : "inert")">
+        <div>
+            <div class="sk-stats">
+                <div class="sk-stats-section">
+                    <h3><span class="sw" style="background:var(--primary)"></span>Video</h3>
+                    <div class="sk-tiles">
+                        <div class="sk-tile">
+                            <div class="lbl">Bitrate</div>
+                            <div class="val"><span data-sk="value-bitrate">—</span> <small>Mb/s</small></div>
+                            <svg data-sk="spark-bitrate"
+                                 data-spark-unit="Mb/s"
+                                 data-spark-color="var(--primary)"
+                                 aria-hidden="true"
+                                 focusable="false"></svg>
+                            <span class="tip" data-sk="tip-bitrate" aria-hidden="true"></span>
+                            <table class="sk-visually-hidden" data-sk="table-bitrate">
+                                <caption>Bitrate samples</caption>
+                                <thead>
+                                    <tr><th scope="col">Time</th><th scope="col">Value</th></tr>
+                                </thead>
+                                <tbody data-sk="rows-bitrate"></tbody>
+                            </table>
+                        </div>
+                        <div class="sk-tile">
+                            <div class="lbl">Frame rate</div>
+                            <div class="val"><span data-sk="value-frame">—</span> <small>fps</small></div>
+                            <svg data-sk="spark-frame"
+                                 data-spark-unit="fps"
+                                 data-spark-color="var(--primary)"
+                                 aria-hidden="true"
+                                 focusable="false"></svg>
+                            <span class="tip" data-sk="tip-frame" aria-hidden="true"></span>
+                            <table class="sk-visually-hidden" data-sk="table-frame">
+                                <caption>Frame rate samples</caption>
+                                <thead>
+                                    <tr><th scope="col">Time</th><th scope="col">Value</th></tr>
+                                </thead>
+                                <tbody data-sk="rows-frame"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <dl class="sk-kv">
+                        <dt>Resolution</dt>
+                        <dd data-sk="kv-resolution">—</dd>
+                        <dt>Codecs</dt>
+                        <dd data-sk="kv-codecs">—</dd>
+                        <dt>Dropped frames</dt>
+                        <dd data-sk="kv-dropped">—</dd>
+                        <dt>Decoder</dt>
+                        <dd data-sk="kv-decoder">—</dd>
+                    </dl>
+                </div>
+
+                <div class="sk-stats-section">
+                    <h3><span class="sw" style="background:var(--tertiary)"></span>Network</h3>
+                    <div class="sk-tiles">
+                        <div class="sk-tile">
+                            <div class="lbl">Bandwidth estimate</div>
+                            <div class="val"><span data-sk="value-bandwidth">—</span> <small>Mb/s</small></div>
+                            <svg data-sk="spark-bandwidth"
+                                 data-spark-unit="Mb/s"
+                                 data-spark-color="var(--tertiary)"
+                                 aria-hidden="true"
+                                 focusable="false"></svg>
+                            <span class="tip" data-sk="tip-bandwidth" aria-hidden="true"></span>
+                            <table class="sk-visually-hidden" data-sk="table-bandwidth">
+                                <caption>Bandwidth samples</caption>
+                                <thead>
+                                    <tr><th scope="col">Time</th><th scope="col">Value</th></tr>
+                                </thead>
+                                <tbody data-sk="rows-bandwidth"></tbody>
+                            </table>
+                        </div>
+                        <div class="sk-tile">
+                            <div class="lbl">Buffer health</div>
+                            <div class="val"><span data-sk="value-buffer">—</span> <small>s</small></div>
+                            <svg data-sk="spark-buffer"
+                                 data-spark-unit="s"
+                                 data-spark-color="var(--tertiary)"
+                                 aria-hidden="true"
+                                 focusable="false"></svg>
+                            <span class="tip" data-sk="tip-buffer" aria-hidden="true"></span>
+                            <table class="sk-visually-hidden" data-sk="table-buffer">
+                                <caption>Buffer samples</caption>
+                                <thead>
+                                    <tr><th scope="col">Time</th><th scope="col">Value</th></tr>
+                                </thead>
+                                <tbody data-sk="rows-buffer"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <dl class="sk-kv">
+                        <dt>Last segment</dt>
+                        <dd data-sk="kv-last-segment">—</dd>
+                        <dt>Segments loaded</dt>
+                        <dd data-sk="kv-segments">—</dd>
+                        <dt>Errors</dt>
+                        <dd class="sk-kv-errors" data-sk="kv-errors">None</dd>
+                        <dt>Playlist</dt>
+                        <dd data-sk="kv-playlist"
+                            title="@Recording.PlaylistUrl">@Recording.PlaylistUrl</dd>
+                    </dl>
+                </div>
+            </div>
+
+            <div class="sk-stats-actions">
+                <Button Variant="ButtonVariant.Text" data-sk="copy-stats">Copy stats</Button>
+            </div>
+        </div>
+    </div>
+</section>
+
+@code {
+    private const string ModulePath = "./Components/Features/Player/StatsPanel.razor.js";
+
+    private readonly string _bodyId = $"sk-stats-{Guid.NewGuid():N}";
+    private readonly string _titleId = $"sk-stats-title-{Guid.NewGuid():N}";
+    private ElementReference _root;
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<StatsPanel>? _self;
+    private RecordingView? _loaded;
+    private bool _open;
+    private bool _ready;
+    private bool _disposed;
+
+    [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
+
+    // The skeleton renders once; afterwards the module changes every dynamic part.
+    protected override bool ShouldRender() => !_ready;
+
+    protected override void OnInitialized()
+    {
+        _open = Preferences.StatsOpen;
+        Preferences.Changed += OnPreferencesChanged;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_module is null || _loaded is null || ReferenceEquals(_loaded, Recording))
+            return;
+
+        _loaded = Recording;
+        await InvokeModuleAsync("update", _root, ToPayload(Recording, _open));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _disposed)
+            return;
+
+        _ready = true;
+        _self = DotNetObjectReference.Create(this);
+        try
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
+            _loaded = Recording;
+            if (_disposed)
+            {
+                // DisposeAsync ran during the import: release the module, never attach.
+                await _module.DisposeAsync();
+                return;
+            }
+
+            await _module.InvokeVoidAsync("init", _root, _self, ToPayload(Recording, _open));
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "The stats panel module could not be initialized.");
+        }
+    }
+
+    /// <summary>Persists a toggle that happened in JS. The DOM is already in the new state.</summary>
+    [JSInvokable]
+    public async Task SetStatsOpen(bool open)
+    {
+        _open = open;
+        Preferences.SetStatsOpen(open);
+        await Preferences.PersistAsync();
+    }
+
+    /// <summary>Raises the copy-stats confirmation or failure through the shell's snackbar.</summary>
+    [JSInvokable]
+    public void Notify(string message)
+    {
+        if (!string.IsNullOrWhiteSpace(message))
+            Snackbars.Show(message);
+    }
+
+    private void OnPreferencesChanged() => _ = InvokeAsync(async () =>
+    {
+        _open = Preferences.StatsOpen;
+        if (_module is { } module)
+        {
+            try
+            {
+                await module.InvokeVoidAsync("setOpen", _root, _open);
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit is gone, so there is no browser state left to update.
+            }
+            catch (JSException ex)
+            {
+                Logger.LogDebug(ex, "The stats panel open state was not applied in the browser.");
+            }
+        }
+    });
+
+    private async Task InvokeModuleAsync(string identifier, params object[] args)
+    {
+        if (_module is null)
+            return;
+
+        try
+        {
+            await _module.InvokeVoidAsync(identifier, args);
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, so there is no browser state left to update.
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Stats panel call {Identifier} failed.", identifier);
+        }
+    }
+
+    internal static object ToPayload(RecordingView recording, bool open) => new
+    {
+        recordingId = recording.Id,
+        playlistUrl = recording.PlaylistUrl,
+        state = recording.State switch
+        {
+            RecordingState.Recording => "recording",
+            RecordingState.Reconnecting => "reconnecting",
+            RecordingState.Partial => "partial",
+            _ => "saved",
+        },
+        open,
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        Preferences.Changed -= OnPreferencesChanged;
+        if (_module is not null)
+        {
+            await InvokeModuleAsync("dispose", _root);
+            try
+            {
+                await _module.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit is gone, so there is no module left to release.
+            }
+        }
+
+        _self?.Dispose();
+    }
+}

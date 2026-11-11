@@ -2,6 +2,7 @@
 @page "/r/{RecordingId}"
 @implements IDisposable
 @inject ILibraryView Library
+@inject UiPreferences Preferences
 
 <PageTitle>@(RecordingId is null ? "Stream Keepr" : $"{RecordingId} · Stream Keepr")</PageTitle>
 
@@ -34,11 +35,21 @@ else
 <div data-slot="player" data-selected-recording="@Selected?.Id">
     @if (Selected is { } playing)
     {
-        <VideoPlayer Recording="playing" />
+        <VideoPlayer Recording="playing" StatsOpen="@Preferences.StatsOpen" />
     }
 </div>
-<div data-slot="stats"></div>
-<div data-slot="details"></div>
+<div data-slot="stats">
+    @if (Selected is { } statRecording)
+    {
+        <StatsPanel Recording="statRecording" />
+    }
+</div>
+<div data-slot="details">
+    @if (Selected is { } detailed)
+    {
+        <RecordingDetails Recording="detailed" />
+    }
+</div>
 
 @code {
     [Parameter] public string? RecordingId { get; set; }

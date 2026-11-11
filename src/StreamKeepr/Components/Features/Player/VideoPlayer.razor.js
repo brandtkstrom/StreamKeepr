@@ -2,6 +2,12 @@
 // this module owns hls.js, every control, and all dynamic player DOM. hls.js is imported lazily
 // from the vendored copy, only on recording pages, through an injectable loader for tests.
 
+import {
+  createStatsProbe,
+  registerStatsSource,
+  unregisterStatsSource,
+} from "/js/stats.js";
+
 // Defaults plus the contract's overrides. The stitched playlist targets 12 s segments, so one
 // target duration behind the end is the live edge.
 export const HLS_CONFIG = Object.freeze({
@@ -39,6 +45,7 @@ export const HOOKS = [
   "video", "title", "streamer", "chip", "center", "spinner", "overlay", "overlay-message",
   "retry", "seek", "buffered", "played", "ticks", "knob", "hover-time", "play", "back",
   "forward", "mute", "volume", "volume-level", "current", "duration", "speed", "speed-menu",
+  "stats",
 ];
 
 // JS twin of Ui/Format.Timecode (the source of truth); keep the two in step.
@@ -63,7 +70,7 @@ function hasMediaSource() {
   return typeof window.MediaSource === "function" || typeof window.ManagedMediaSource === "function";
 }
 
-export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
+export function createPlayer(root, { loadHls = defaultLoadHls, dotNet = null } = {}) {
   const el = Object.fromEntries(HOOKS.map((name) => [name, root.querySelector(`[data-sk="${name}"]`)]));
   const video = el.video;
   const listeners = new AbortController();
@@ -84,6 +91,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
   let dragging = false;
   let chapters = [];
   let hlsClass = null; // imported once per player, on the first load that needs it
+  const stats = createStatsProbe({ video });
 
   // ----- helpers -----
 
@@ -234,12 +242,42 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
     renderVolume();
   }
 
+  function setStatsPressed(open) {
+    if (el.stats)
+      el.stats.setAttribute("aria-pressed", open ? "true" : "false");
+  }
+
+  function toggleStats() {
+    if (!view || !el.stats) return;
+    // The panel switch announces its state through sk:stats-state, which keeps this
+    // button current; read the DOM so the click always toggles the shared state.
+    const open = el.stats.getAttribute("aria-pressed") !== "true";
+    setStatsPressed(open);
+    // Let the panel apply the same state immediately; SetStatsOpen persists it.
+    root.dispatchEvent(new CustomEvent("sk:stats-open", {
+      detail: { open },
+      bubbles: true,
+    }));
+    void invokeDotNet("SetStatsOpen", open);
+  }
+
+  async function invokeDotNet(identifier, ...args) {
+    if (!dotNet?.invokeMethodAsync) return;
+    try {
+      await dotNet.invokeMethodAsync(identifier, ...args);
+    } catch (error) {
+      // A closed circuit cannot persist the preference; the player control still works.
+      console.debug(`Stream Keepr: ${identifier} was not delivered.`, error);
+    }
+  }
+
   // ----- engine -----
 
   function teardownEngine() {
     clearTimeout(retryTimer);
     clearTimeout(spinnerTimer);
     retryTimer = 0;
+    stats.detachEngine();
     hls?.destroy();
     hls = null;
     if (native || video.hasAttribute("src")) {
@@ -308,6 +346,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
 
     if (Hls?.isSupported?.()) {
       hls = new Hls({ ...HLS_CONFIG });
+      stats.attachHls(hls, Hls);
       hls.on(Hls.Events.ERROR, (_event, data) => onHlsError(Hls, data));
       hls.on(Hls.Events.FRAG_LOADED, () => {
         networkAttempts = 0;
@@ -320,6 +359,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
 
     if (video.canPlayType?.(NATIVE_HLS)) {
       native = true;
+      stats.setNative(true);
       video.setAttribute("src", source);
       return;
     }
@@ -393,6 +433,7 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
     });
   }
   on(video, "error", () => {
+    stats.onNativeError(video.error);
     if (native) showOverlay(FAILED_MESSAGE, true);
   });
 
@@ -418,6 +459,11 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
   on(el.retry, "click", () => {
     if (!view) return;
     void start(lastKnownTime);
+  });
+  on(el.stats, "click", toggleStats);
+  on(document, "sk:stats-state", (event) => {
+    const next = event instanceof CustomEvent ? event.detail?.open : undefined;
+    if (typeof next === "boolean") setStatsPressed(next);
   });
 
   on(el.volume, "keydown", (event) => {
@@ -531,6 +577,9 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
     async load(next) {
       if (disposed || !next) return;
       view = next;
+      stats.setView(next);
+      stats.reset();
+      setStatsPressed(Boolean(next.statsOpen));
       renderView();
       renderSpeed();
       renderVolume();
@@ -544,8 +593,19 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
       if (disposed || !next || !view || next.recordingId !== view.recordingId) return;
       // Same recording: refresh what it shows, never the source or the position.
       view = { ...next, resumeSec: view.resumeSec };
+      stats.setView(view);
       renderView();
       renderPosition();
+    },
+
+    seek(time) {
+      if (disposed || !Number.isFinite(time)) return;
+      if (!Number.isFinite(duration())) {
+        // Metadata is not loaded yet; loadedmetadata seeks to the queued position.
+        startAt = Math.max(0, time);
+        return;
+      }
+      seekTo(time);
     },
 
     dispose() {
@@ -553,9 +613,11 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
       disposed = true;
       generation++;
       teardownEngine();
+      stats.dispose();
       listeners.abort();
       view = null;
     },
+    stats,
   };
 }
 
@@ -563,11 +625,13 @@ export function createPlayer(root, { loadHls = defaultLoadHls } = {}) {
 
 const players = new WeakMap();
 
-export async function init(root, view) {
+export async function init(root, self, view) {
   if (!root) return;
   players.get(root)?.dispose();
-  const player = createPlayer(root);
+  unregisterStatsSource(root);
+  const player = createPlayer(root, { dotNet: self });
   players.set(root, player);
+  registerStatsSource(root, player.stats);
   await player.load(view);
 }
 
@@ -579,7 +643,12 @@ export function update(root, view) {
   players.get(root)?.update(view);
 }
 
+export function seek(root, seconds) {
+  players.get(root)?.seek(seconds);
+}
+
 export function dispose(root) {
+  unregisterStatsSource(root);
   players.get(root)?.dispose();
   players.delete(root);
 }

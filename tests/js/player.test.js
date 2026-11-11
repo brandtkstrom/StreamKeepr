@@ -30,6 +30,7 @@ const MARKUP = `
       <button role="menuitemradio" data-rate="1.5" aria-checked="false"><span class="sk-icon"></span></button>
       <button role="menuitemradio" data-rate="2" aria-checked="false"><span class="sk-icon"></span></button>
     </div>
+    <button data-sk="stats" aria-label="Stats for nerds" aria-pressed="false"><span class="sk-icon">query_stats</span></button>
   </div>`;
 
 const hook = (name) => document.querySelector(`[data-sk="${name}"]`);
@@ -152,6 +153,7 @@ function view(overrides = {}) {
     state: "saved",
     durationSec: 120,
     resumeSec: null,
+    statsOpen: false,
     chapters: [
       { startSeconds: 0, title: "Intro", game: "Food" },
       { startSeconds: 60, title: "Main course", game: "Food" },
@@ -301,6 +303,33 @@ describe("VideoPlayer.razor.js", () => {
       await Promise.all([first, second]);
 
       expect(hls.instances.map((i) => i.loadSource.mock.calls[0][0])).toEqual(["/two.m3u8"]);
+    });
+
+    it("toggles the player-owned stats button and persists through .NET", async () => {
+      const dotNet = { invokeMethodAsync: vi.fn(async () => {}) };
+      const root = document.querySelector("[data-sk-player]");
+      const announced = [];
+      root.addEventListener("sk:stats-open", (event) => announced.push(event.detail.open));
+      player = createPlayer(root, { loadHls, dotNet });
+      await player.load(view());
+
+      expect(hook("stats").getAttribute("aria-pressed")).toBe("false");
+
+      hook("stats").click();
+      expect(hook("stats").getAttribute("aria-pressed")).toBe("true");
+      expect(dotNet.invokeMethodAsync).toHaveBeenCalledWith("SetStatsOpen", true);
+
+      hook("stats").click();
+      expect(hook("stats").getAttribute("aria-pressed")).toBe("false");
+      expect(dotNet.invokeMethodAsync).toHaveBeenCalledWith("SetStatsOpen", false);
+      expect(announced).toEqual([true, false]);
+
+      document.dispatchEvent(new CustomEvent("sk:stats-state", {
+        detail: { open: true },
+        bubbles: true,
+      }));
+      expect(hook("stats").getAttribute("aria-pressed")).toBe("true");
+      expect(dotNet.invokeMethodAsync).toHaveBeenCalledTimes(2);
     });
   });
 

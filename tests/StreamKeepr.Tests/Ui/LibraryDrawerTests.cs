@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Components.Features.Library;
+using StreamKeepr.Components.Features.Player;
 using StreamKeepr.Components.Layout;
 using StreamKeepr.Components.Pages;
 using StreamKeepr.Infrastructure.Storage;
@@ -278,7 +279,7 @@ public sealed class LibraryDrawerTests
     {
         var view = new TestLibraryView { IsLoaded = true };
 
-        using BunitContext context = CreateContext(view, includePreferences: false);
+        using BunitContext context = CreateContext(view);
         IRenderedComponent<Home> cut = context.Render<Home>(parameters =>
             parameters.Add(component => component.RecordingId, "missing"));
 
@@ -293,7 +294,7 @@ public sealed class LibraryDrawerTests
         var view = new TestLibraryView { IsLoaded = true };
         view.FindById["r1"] = Recording("r1", "alpha", RecordingState.Saved, Now.AddHours(-1));
 
-        using BunitContext context = CreateContext(view, includePreferences: false);
+        using BunitContext context = CreateContext(view);
         IRenderedComponent<Home> cut = context.Render<Home>(parameters =>
             parameters.Add(component => component.RecordingId, "r1"));
 
@@ -308,7 +309,6 @@ public sealed class LibraryDrawerTests
 
     private static BunitContext CreateContext(
         TestLibraryView view,
-        bool includePreferences = true,
         string? timeZoneId = null)
     {
         var context = new BunitContext();
@@ -322,11 +322,10 @@ public sealed class LibraryDrawerTests
         context.Services.AddSingleton<IClientStateStore>(store);
         context.Services.AddScoped<ViewerClock>();
         context.Services.AddScoped<SnackbarService>();
+        context.Services.AddScoped<PlayerBridge>();
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddSingleton<ILibraryView>(view);
-
-        if (includePreferences)
-            context.Services.AddScoped<UiPreferences>();
+        context.Services.AddScoped<UiPreferences>();
 
         return context;
     }

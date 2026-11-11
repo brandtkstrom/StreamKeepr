@@ -1,0 +1,185 @@
+@using System.Globalization
+@using StreamKeepr.Infrastructure.Storage
+@implements IAsyncDisposable
+@inject UiPreferences Preferences
+@inject ViewerClock Clock
+@inject SnackbarService Snackbars
+@inject PlayerBridge Bridge
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject ILogger<RecordingDetails> Logger
+
+@* Spec: docs/details-auth-settings-contract.md §§2–4; player contract §11. The same
+   component instance survives recording swaps because Home keeps it in one slot. *@
+<Collapsible Open="@Preferences.DetailsOpen"
+             OnToggle="ToggleAsync"
+             data-recording-details="true">
+    <Header>
+        <h2>Recording details</h2>
+        <span class="hint" data-details-date>@StartLabel</span>
+    </Header>
+    <ChildContent>
+        <div class="sk-details-body">
+            <div class="sk-details-title">
+                <h3 data-details-title>@Recording.Title</h3>
+                <div class="sk-actions">
+                    <Button Variant="ButtonVariant.Outlined"
+                            OnClick="CopyPlaylistAsync"
+                            data-copy-playlist="true">
+                        <Icon Name="content_copy" Size="IconSize.Small" />
+                        Copy playlist URL
+                    </Button>
+                </div>
+            </div>
+
+            <div class="sk-details-meta">
+                <span class="who">
+                    <Avatar Name="@Recording.StreamerLogin" Tone="AvatarTone.Tertiary" />
+                    <span data-details-streamer>@Recording.StreamerLogin</span>
+                </span>
+                <span class="sep" aria-hidden="true"></span>
+                <span data-details-category>@CategoryLabel</span>
+                <span class="sep" aria-hidden="true"></span>
+                <span data-details-start>@StartLabel</span>
+                <span class="sep" aria-hidden="true"></span>
+                <span data-details-counts>
+                    <span data-details-segments>@Count(Recording.SegmentCount, "segment")</span>
+                    <span aria-hidden="true"> · </span>
+                    <span data-details-parts>@Count(Recording.PartCount, "part")</span>
+                    @if (ShowSize)
+                    {
+                        <span aria-hidden="true"> · </span>
+                        <span data-details-size>@Format.Bytes(Recording.SizeBytes)</span>
+                    }
+                </span>
+            </div>
+
+            @{
+                IReadOnlyList<Chapter> chapters = VisibleChapters;
+            }
+            @if (chapters.Count > 0)
+            {
+                <div class="sk-chapters" role="group" aria-label="Chapters">
+                    @for (int index = 0; index < chapters.Count; index++)
+                    {
+                        Chapter chapter = chapters[index];
+                        <button type="button"
+                                class="sk-chapter"
+                                @key="ChapterKey(index, chapter)"
+                                data-chapter="@ChapterOffset(chapter)"
+                                data-chapter-key="@ChapterKey(index, chapter)"
+                                @onclick="() => SeekToChapterAsync(chapter)">
+                            <span class="sk-visually-hidden">Seek to </span>
+                            <span class="time">@Format.Timecode(chapter.StartSeconds)</span>
+                            <span class="title">@chapter.Title</span>
+                            @if (!string.IsNullOrWhiteSpace(chapter.Game))
+                            {
+                                <span class="game">@chapter.Game</span>
+                            }
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+    </ChildContent>
+</Collapsible>
+
+@code {
+    private const string ModulePath = "./Components/Features/Details/RecordingDetails.razor.js";
+
+    private IJSObjectReference? _module;
+
+    [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
+
+    private bool ShowSize =>
+        Recording.State is RecordingState.Partial or RecordingState.Saved;
+
+    private string CategoryLabel =>
+        string.IsNullOrWhiteSpace(Recording.Category) ? "No category" : Recording.Category;
+
+    private string StartLabel =>
+        Clock.ToLocal(Recording.StartedAt)
+            .ToString("ddd, MMM d, yyyy · h:mm tt", CultureInfo.InvariantCulture);
+
+    private string AbsolutePlaylistUrl =>
+        new Uri(new Uri(Navigation.BaseUri), Recording.PlaylistUrl).AbsoluteUri;
+
+    private IReadOnlyList<Chapter> VisibleChapters =>
+        Recording.Chapters
+            .Where(chapter =>
+                double.IsFinite(chapter.StartSeconds) &&
+                chapter.StartSeconds >= 0 &&
+                (Recording.DurationSec <= 0 || chapter.StartSeconds <= Recording.DurationSec))
+            .ToArray();
+
+    protected override void OnInitialized()
+    {
+        Preferences.Changed += OnPreferencesChanged;
+        Clock.Changed += OnClockChanged;
+    }
+
+    private async Task ToggleAsync(bool open)
+    {
+        Preferences.SetDetailsOpen(open);
+        await Preferences.PersistAsync();
+    }
+
+    private async Task SeekToChapterAsync(Chapter chapter) =>
+        await Bridge.SeekAsync(chapter.StartSeconds);
+
+    private async Task CopyPlaylistAsync()
+    {
+        bool copied = false;
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
+            copied = await _module.InvokeAsync<bool>("copyText", AbsolutePlaylistUrl);
+        }
+        catch (JSDisconnectedException ex)
+        {
+            // The circuit is gone; the failure snackbar cannot reach the page anyway.
+            Logger.LogDebug(ex, "The playlist URL was not copied because the circuit disconnected.");
+        }
+        catch (JSException ex)
+        {
+            Logger.LogDebug(ex, "The playlist URL could not be copied.");
+        }
+
+        Snackbars.Show(copied ? "Playlist URL copied" : "Could not copy playlist URL");
+    }
+
+    private static string Count(int value, string singular) =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"{value:N0} {(value == 1 ? singular : singular + "s")}");
+
+    private static string ChapterOffset(Chapter chapter) =>
+        chapter.StartSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+
+    // Offsets are not unique (two metadata changes can land in one segment); the index
+    // keeps sibling keys unique while preserving the offset for stable data attributes.
+    private static string ChapterKey(int index, Chapter chapter) =>
+        $"{ChapterOffset(chapter)}:{index}";
+
+    private void OnPreferencesChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void OnClockChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public async ValueTask DisposeAsync()
+    {
+        Preferences.Changed -= OnPreferencesChanged;
+        Clock.Changed -= OnClockChanged;
+
+        if (_module is null)
+            return;
+
+        try
+        {
+            await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // The browser is gone; there is no module state left to release.
+        }
+    }
+}

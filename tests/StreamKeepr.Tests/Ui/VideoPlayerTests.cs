@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.JSInterop;
 using StreamKeepr.Components.Features.Player;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Ui;
@@ -18,6 +19,7 @@ public sealed class VideoPlayerTests
         "video", "title", "streamer", "chip", "center", "spinner", "overlay", "overlay-message",
         "retry", "seek", "buffered", "played", "ticks", "knob", "hover-time", "play", "back",
         "forward", "mute", "volume", "volume-level", "current", "duration", "speed", "speed-menu",
+        "stats",
     ];
 
     [Fact]
@@ -58,13 +60,45 @@ public sealed class VideoPlayerTests
 
         JSRuntimeInvocation init = Assert.Single(module.Invocations, call => call.Identifier == "init");
         JsonElement payload = JsonSerializer.SerializeToElement(
-            init.Arguments[1], new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            init.Arguments[2], new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.Equal("r1", payload.GetProperty("recordingId").GetString());
         Assert.Equal("/media/ann/r1/index.m3u8", payload.GetProperty("playlistUrl").GetString());
         Assert.Equal("saved", payload.GetProperty("state").GetString());
         Assert.Equal(3600, payload.GetProperty("durationSec").GetDouble());
+        Assert.False(payload.GetProperty("statsOpen").GetBoolean());
         Assert.Equal(60, payload.GetProperty("chapters")[0].GetProperty("startSeconds").GetDouble());
         Assert.Equal("Main", payload.GetProperty("chapters")[0].GetProperty("title").GetString());
+    }
+
+    [Fact]
+    public void The_stats_button_reflects_the_initial_ui_preference()
+    {
+        using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(p =>
+        {
+            p.Add(c => c.Recording, Recording("r1", "First"));
+            p.Add(c => c.StatsOpen, true);
+        });
+
+        Assert.Equal("true", cut.Find("[data-sk='stats']").GetAttribute("aria-pressed"));
+        Assert.Equal("Stats for nerds", cut.Find("[data-sk='stats']").GetAttribute("aria-label"));
+    }
+
+    [Fact]
+    public async Task The_player_stats_button_persists_through_ui_preferences()
+    {
+        using BunitContext context = CreateContext(out _);
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(p =>
+            p.Add(c => c.Recording, Recording("r1", "First")));
+
+        await cut.InvokeAsync(() => cut.Instance.SetStatsOpen(true));
+
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
+        Assert.True(preferences.StatsOpen);
+        Assert.Contains(
+            context.JSInterop.Invocations,
+            invocation => invocation.Identifier == "skPrefs.writeUi");
     }
 
     [Fact]
@@ -88,6 +122,48 @@ public sealed class VideoPlayerTests
     }
 
     [Fact]
+    public async Task The_player_attaches_its_seek_bridge_and_detaches_on_dispose()
+    {
+        using BunitContext context = CreateContext(out _);
+        var bridge = context.Services.GetRequiredService<PlayerBridge>();
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(p =>
+            p.Add(c => c.Recording, Recording("r1", "First")));
+
+        Assert.True(bridge.IsReady);
+
+        await cut.Instance.DisposeAsync();
+
+        Assert.False(bridge.IsReady);
+    }
+
+    [Fact]
+    public async Task Disposing_during_init_never_attaches_the_bridge_or_seeks_the_module()
+    {
+        using BunitContext context = CreateContext(out _);
+        var runtime = new BlockingJsRuntime();
+        context.Services.AddSingleton<IJSRuntime>(runtime);
+        var bridge = context.Services.GetRequiredService<PlayerBridge>();
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(p =>
+            p.Add(c => c.Recording, Recording("r1", "First")));
+
+        await runtime.Module.InitStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(bridge.IsReady);
+
+        await cut.Instance.DisposeAsync();
+
+        Assert.True(runtime.Module.Disposed);
+        Assert.False(bridge.IsReady);
+
+        // Release init on the renderer so its continuation runs after disposal.
+        await cut.InvokeAsync(() => runtime.Module.ReleaseInit.TrySetResult(true));
+        await cut.InvokeAsync(() => { });
+
+        Assert.False(bridge.IsReady);
+        await bridge.SeekAsync(12);
+        Assert.Equal(0, runtime.Module.SeekCalls);
+    }
+
+    [Fact]
     public async Task Dispose_releases_the_module()
     {
         using BunitContext context = CreateContext(out BunitJSModuleInterop module);
@@ -106,6 +182,9 @@ public sealed class VideoPlayerTests
         module = context.JSInterop.SetupModule(Module);
         module.Mode = JSRuntimeMode.Loose;
         context.Services.AddLogging();
+        context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
+        context.Services.AddScoped<UiPreferences>();
+        context.Services.AddScoped<PlayerBridge>();
         return context;
     }
 
@@ -113,4 +192,71 @@ public sealed class VideoPlayerTests
         new(id, "ann", title, "Food", Now.AddHours(-2), Now.AddHours(-1), 3600,
             RecordingState.Saved, 8, 1, 1024, $"/thumbs/{id}.jpg", $"/media/ann/{id}/index.m3u8",
             null, [new Chapter(60, "Main", "Food")]);
+
+    private sealed class BlockingJsRuntime : IJSRuntime
+    {
+        public BlockingModule Module { get; } = new();
+
+        public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
+            InvokeAsync<TValue>(identifier, CancellationToken.None, args);
+
+        public ValueTask<TValue> InvokeAsync<TValue>(
+            string identifier,
+            CancellationToken cancellationToken,
+            object?[]? args)
+        {
+            if (identifier == "import")
+                return ValueTask.FromResult((TValue)(object)Module);
+
+            throw new NotSupportedException($"Unexpected JS runtime call '{identifier}'.");
+        }
+    }
+
+    private sealed class BlockingModule : IJSObjectReference
+    {
+        public TaskCompletionSource<bool> InitStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<bool> ReleaseInit { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int SeekCalls { get; private set; }
+
+        public bool Disposed { get; private set; }
+
+        public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
+            InvokeAsync<TValue>(identifier, CancellationToken.None, args);
+
+        public ValueTask<TValue> InvokeAsync<TValue>(
+            string identifier,
+            CancellationToken cancellationToken,
+            object?[]? args)
+        {
+            switch (identifier)
+            {
+                case "init":
+                    InitStarted.TrySetResult(true);
+                    return new ValueTask<TValue>(WaitForReleaseAsync<TValue>());
+                case "dispose":
+                    return ValueTask.FromResult(default(TValue)!);
+                case "seek":
+                    SeekCalls++;
+                    return ValueTask.FromResult(default(TValue)!);
+                default:
+                    throw new NotSupportedException($"Unexpected JS module call '{identifier}'.");
+            }
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            Disposed = true;
+            return ValueTask.CompletedTask;
+        }
+
+        private async Task<TValue> WaitForReleaseAsync<TValue>()
+        {
+            await ReleaseInit.Task;
+            return default!;
+        }
+    }
 }

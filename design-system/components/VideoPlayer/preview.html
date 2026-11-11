@@ -15,13 +15,15 @@
     return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
   };
 
-  /* collapsibles: [data-collapse] holds aria-expanded; its [data-collapse-head] toggles it */
+  /* collapsibles: [data-collapse] marks the container; panels use data-expanded, groups keep aria-expanded */
   $$('[data-collapse-head]').forEach(function (head) {
     head.addEventListener('click', function (e) {
       if (e.target.closest('[data-stop]')) return;
       var box = head.closest('[data-collapse]');
-      var open = box.getAttribute('aria-expanded') !== 'false';
-      box.setAttribute('aria-expanded', open ? 'false' : 'true');
+      var panel = box.classList.contains('sk-collapse');
+      var open = (panel ? box.getAttribute('data-expanded') : box.getAttribute('aria-expanded')) !== 'false';
+      if (panel) box.setAttribute('data-expanded', open ? 'false' : 'true');
+      else box.setAttribute('aria-expanded', open ? 'false' : 'true');
       head.setAttribute('aria-expanded', open ? 'false' : 'true');
     });
   });
@@ -54,14 +56,14 @@
   var stats = $('#sk-stats');
   function setStats(on) {
     if (!stats) return;
-    stats.setAttribute('aria-expanded', on ? 'true' : 'false');
+    stats.setAttribute('data-expanded', on ? 'true' : 'false');
     $$('[data-stats-toggle]').forEach(function (t) {
       if (t.hasAttribute('aria-checked')) t.setAttribute('aria-checked', on ? 'true' : 'false');
       else t.classList.toggle('on', on);
     });
   }
   $$('[data-stats-toggle]').forEach(function (t) {
-    t.addEventListener('click', function () { if (!stats) return; setStats(stats.getAttribute('aria-expanded') === 'false'); });
+    t.addEventListener('click', function () { if (!stats) return; setStats(stats.getAttribute('data-expanded') === 'false'); });
   });
 
   /* player */

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Playwright;
 using static StreamKeepr.E2E.LibraryJourneyTests;
 
@@ -105,6 +106,153 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await page.Locator("[data-sk='retry']").ClickAsync();
         await overlay.WaitForAsync(new() { State = WaitForSelectorState.Hidden });
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+    }
+
+    [Fact]
+    public async Task Stats_open_with_the_player_button_samples_and_copies_a_versioned_snapshot()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        await session.Context.GrantPermissionsAsync(["clipboard-read", "clipboard-write"]);
+
+        ILocator growing = page.Locator(
+            "nav#sk-drawer a.sk-row",
+            new() { HasTextString = "Community day" });
+        string id = (await growing.GetAttributeAsync("data-recording-id"))!;
+        await growing.ClickAsync();
+        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+
+        ILocator panel = page.Locator("[data-sk-stats]");
+        ILocator body = page.Locator("[data-sk='stats-body']");
+        ILocator playerButton = page.Locator("[data-sk='stats']");
+        ILocator toggle = page.Locator("[data-sk='stats-toggle']");
+
+        // Closed is one header row and an inert body.
+        Assert.Equal("false", await panel.GetAttributeAsync("data-open"));
+        Assert.Equal("false", await playerButton.GetAttributeAsync("aria-pressed"));
+        Assert.True(await body.EvaluateAsync<bool>("b => b.inert"));
+        double collapsedHeight = (await panel.BoundingBoxAsync())!.Height;
+        Assert.InRange(collapsedHeight, 47, 49);
+
+        await playerButton.ClickAsync();
+        await page.WaitForFunctionAsync(
+            """() => document.querySelector("[data-sk-stats]").dataset.open === 'true'""",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 5_000 });
+        Assert.Equal("true", await panel.GetAttributeAsync("data-open"));
+        Assert.Equal("true", await playerButton.GetAttributeAsync("aria-pressed"));
+        Assert.Equal("true", await toggle.GetAttributeAsync("aria-checked"));
+        Assert.False(await body.EvaluateAsync<bool>("b => b.inert"));
+
+        // Play so the requestVideoFrameCallback frame-rate estimate has frames to count.
+        await page.Locator("[data-sk='center']").ClickAsync();
+
+        await page.WaitForFunctionAsync(
+            """() => document.querySelectorAll("[data-sk='rows-buffer'] tr").length >= 3""",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 20_000 });
+
+        Assert.Equal("hls.js · source", (await page.Locator("[data-sk='stats-hint']").InnerTextAsync()).Trim());
+        Assert.Equal("MSE · hls.js", (await page.Locator("[data-sk='kv-decoder']").InnerTextAsync()).Trim());
+        Assert.Contains("index.m3u8", await page.Locator("[data-sk='kv-playlist']").GetAttributeAsync("title"));
+        string bitrate = (await page.Locator("[data-sk='value-bitrate']").InnerTextAsync()).Trim();
+        string frameRate = (await page.Locator("[data-sk='value-frame']").InnerTextAsync()).Trim();
+        string bandwidth = (await page.Locator("[data-sk='value-bandwidth']").InnerTextAsync()).Trim();
+        string buffer = (await page.Locator("[data-sk='value-buffer']").InnerTextAsync()).Trim();
+        string lastSegment = (await page.Locator("[data-sk='kv-last-segment']").InnerTextAsync()).Trim();
+        string segments = (await page.Locator("[data-sk='kv-segments']").InnerTextAsync()).Trim();
+        Assert.True(bitrate != "—",
+            $"bitrate={bitrate} frame={frameRate} bandwidth={bandwidth} buffer={buffer} " +
+            $"last={lastSegment} segments={segments}");
+        Assert.NotEqual("—", frameRate);
+        Assert.NotEqual("—", bandwidth);
+        Assert.NotEqual("—", buffer);
+        Assert.Contains(" ms", lastSegment);
+        Assert.NotEqual("—", segments);
+        Assert.Equal("None", (await page.Locator("[data-sk='kv-errors']").InnerTextAsync()).Trim());
+
+        ILocator bufferSpark = page.Locator("[data-sk='spark-buffer']");
+        ILocator line = bufferSpark.Locator("polyline.line");
+        await line.WaitForAsync();
+        Assert.Equal("2px", await line.EvaluateAsync<string>("el => getComputedStyle(el).strokeWidth"));
+        Assert.Equal(
+            "var(--primary)",
+            await page.Locator("[data-sk='spark-bitrate'] polyline.line").GetAttributeAsync("stroke"));
+        Assert.Equal("var(--tertiary)", await line.GetAttributeAsync("stroke"));
+
+        LocatorBoundingBoxResult sparkBox = (await bufferSpark.BoundingBoxAsync())!;
+        await page.Mouse.MoveAsync(sparkBox.X + sparkBox.Width / 2, sparkBox.Y + sparkBox.Height / 2);
+        Assert.Contains("s ago ·", await page.Locator("[data-sk='tip-buffer']").InnerTextAsync());
+        Assert.Equal(
+            "visible",
+            await bufferSpark.Locator("line.xh").GetAttributeAsync("visibility"));
+
+        // The active tooltip survives the next 2 s sparkline redraw.
+        int samplesBeforeHover = await page.Locator("[data-sk='rows-buffer'] tr").CountAsync();
+        await page.WaitForFunctionAsync(
+            """(count) => document.querySelectorAll("[data-sk='rows-buffer'] tr").length > count""",
+            samplesBeforeHover,
+            new PageWaitForFunctionOptions { Timeout = 5_000 });
+        Assert.Contains("s ago ·", await page.Locator("[data-sk='tip-buffer']").InnerTextAsync());
+        Assert.Equal(
+            "visible",
+            await bufferSpark.Locator("line.xh").GetAttributeAsync("visibility"));
+
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-stats");
+
+        await page.Locator("[data-sk='copy-stats']").ClickAsync();
+        await page.Locator(".sk-snackbar").WaitForAsync();
+        Assert.Contains("Stats copied", await page.Locator(".sk-snackbar").InnerTextAsync());
+
+        await page.WaitForFunctionAsync(
+            "async () => (await navigator.clipboard.readText()).length > 0",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 10_000 });
+        string json = await page.EvaluateAsync<string>("navigator.clipboard.readText()");
+        using JsonDocument snapshot = JsonDocument.Parse(json);
+        Assert.Equal(1, snapshot.RootElement.GetProperty("v").GetInt32());
+        Assert.Equal(id, snapshot.RootElement.GetProperty("recordingId").GetString());
+        Assert.Equal("live", snapshot.RootElement.GetProperty("mode").GetString());
+        Assert.True(snapshot.RootElement.GetProperty("samples").GetArrayLength() >= 3);
+        Assert.Equal(JsonValueKind.Array, snapshot.RootElement.GetProperty("errors").ValueKind);
+
+        // Closing while focus is inside moves it to the switch, then stops the sampler.
+        await page.Locator("[data-sk='copy-stats']").FocusAsync();
+        await toggle.EvaluateAsync("el => el.click()");
+        Assert.True(await toggle.EvaluateAsync<bool>("el => el === document.activeElement"));
+        Assert.Equal("false", await panel.GetAttributeAsync("data-open"));
+        Assert.Equal("false", await playerButton.GetAttributeAsync("aria-pressed"));
+        Assert.True(await body.EvaluateAsync<bool>("b => b.inert"));
+        await page.WaitForFunctionAsync(
+            """() => document.querySelector("[data-sk-stats]").getBoundingClientRect().height <= 49""",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 2_000 });
+        Assert.InRange((await panel.BoundingBoxAsync())!.Height, 47, 49);
+
+        // No new samples arrive after the panel closes.
+        int rows = await page.Locator("[data-sk='rows-buffer'] tr").CountAsync();
+        await page.WaitForFunctionAsync(
+            """
+            async (expected) => {
+                await new Promise((resolve) => setTimeout(resolve, 2200));
+                return document.querySelectorAll("[data-sk='rows-buffer'] tr").length === expected;
+            }
+            """,
+            rows,
+            new PageWaitForFunctionOptions { Timeout = 5_000 });
+
+        // Reopening persists sk-ui, and a reload restores the panel open.
+        await playerButton.ClickAsync();
+        await page.WaitForFunctionAsync(
+            """() => decodeURIComponent(document.cookie).includes('"stats":true')""",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 10_000 });
+        await page.ReloadAsync();
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        Assert.Equal("true", await panel.GetAttributeAsync("data-open"));
+        Assert.Equal("true", await playerButton.GetAttributeAsync("aria-pressed"));
+        Assert.False(await body.EvaluateAsync<bool>("b => b.inert"));
     }
 
     private static Task<bool> Video(IPage page, string expression) =>
