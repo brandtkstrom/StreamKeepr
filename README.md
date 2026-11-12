@@ -83,7 +83,9 @@ automatic retries; a failure is fixed or quarantined explicitly.
 
 ## Compose deployment
 
-`compose.yaml` builds the non-root image (UID 1654) and runs one `stream-keepr` service with Streamlink and static FFmpeg/ffprobe inside. It publishes plain HTTP on port 8080, stores recordings on a named volume, enables `init`, inherits the image's `/health/live` healthcheck, rotates Docker logs, and gives shutdown a 50 s grace period.
+To run a released image without the source, use [`deploy/`](deploy/README.md). It has an example `compose.yaml` for `ghcr.io/brandtkstrom/streamkeepr` with every setting documented, a `.env` template, and empty secret templates.
+
+The repository's own `compose.yaml` builds the non-root image (UID 1654) and runs one `stream-keepr` service with Streamlink and static FFmpeg/ffprobe inside. It publishes plain HTTP on port 8080, stores recordings on a named volume, enables `init`, inherits the image's `/health/live` healthcheck, rotates Docker logs, and gives shutdown a 50 s grace period.
 
 ### Secret files and permissions
 
