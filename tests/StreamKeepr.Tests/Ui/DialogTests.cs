@@ -1,4 +1,5 @@
 using Bunit;
+using Microsoft.JSInterop;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using StreamKeepr.Components.Primitives;
@@ -53,6 +54,22 @@ public sealed class DialogTests
         await cut.InvokeAsync(() => cut.Instance.OnDialogCancel());
 
         Assert.False(closed);
+    }
+
+    [Fact]
+    public async Task Disposing_after_the_circuit_disconnects_does_not_throw()
+    {
+        using var context = CreateContext();
+        BunitJSModuleInterop module = context.JSInterop.SetupModule("./Components/Primitives/Dialog.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        module.SetupVoid("dispose", _ => true)
+            .SetException(new JSDisconnectedException("The circuit is gone."));
+        var cut = RenderDialog(context, open: true);
+
+        Exception? error = await Record.ExceptionAsync(
+            () => cut.InvokeAsync(async () => await cut.Instance.DisposeAsync()));
+
+        Assert.Null(error);
     }
 
     private static BunitContext CreateContext()

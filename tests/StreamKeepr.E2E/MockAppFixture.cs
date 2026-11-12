@@ -6,7 +6,7 @@ using System.Net.Sockets;
 namespace StreamKeepr.E2E;
 
 /// <summary>
-/// Publishes the app once, starts the published host with the <c>Mock</c> environment on a free
+/// Publishes the app once per test run, starts the published host with the <c>Mock</c> environment on a free
 /// loopback port, waits for <c>/health/ready</c>, and keeps its logs for a failure report. The
 /// recordings root is a unique temp directory so the suite never reads or writes a developer's or
 /// production library.
@@ -15,6 +15,11 @@ namespace StreamKeepr.E2E;
 /// development handler resolves the framework <c>_framework/*.js</c> files against the source
 /// <c>wwwroot</c>, where they do not exist, so the interactive circuit never starts. Publish
 /// copies the framework assets into the output webroot and serves them correctly.
+///
+/// Every fixture shares one publish. Classes that own a disposable app start in parallel, and
+/// parallel publishes share the project's <c>obj/</c>: one rewrites a precompressed asset while
+/// another copies it, so an app could serve a 0-byte <c>hls.js</c> that the browser blocks on
+/// integrity and the player never loads (#109, #114).
 /// </summary>
 public sealed class MockAppFixture : IAsyncLifetime
 {
@@ -23,9 +28,14 @@ public sealed class MockAppFixture : IAsyncLifetime
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(120);
     private static readonly TimeSpan PublishTimeout = TimeSpan.FromSeconds(300);
 
+    private static readonly string SharedPublishRoot = SuiteTempPath($"publish-{Guid.NewGuid():N}");
+
+    private static readonly Lazy<Task> SharedPublish = new(
+        () => PublishAsync(FindRepositoryRoot(), SharedPublishRoot),
+        LazyThreadSafetyMode.ExecutionAndPublication);
+
     private readonly ConcurrentQueue<string> _logs = new();
-    private readonly string _tempRoot = Path.Combine(
-        Path.GetTempPath(), "streamkeepr-e2e", Guid.NewGuid().ToString("N"));
+    private readonly string _tempRoot = SuiteTempPath(Guid.NewGuid().ToString("N"));
     private Process? _process;
     private string? _logPath;
 
@@ -45,8 +55,6 @@ public sealed class MockAppFixture : IAsyncLifetime
 
     private string RecordingsRoot => Path.Combine(_tempRoot, "recordings");
 
-    private string PublishRoot => Path.Combine(_tempRoot, "publish");
-
     public async Task InitializeAsync()
     {
         try
@@ -56,7 +64,7 @@ public sealed class MockAppFixture : IAsyncLifetime
             _logPath = Path.Combine(ArtifactsDirectory, "mock-app.log");
             File.Delete(_logPath);
 
-            await PublishAsync();
+            await SharedPublish.Value;
 
             var startInfo = new ProcessStartInfo("dotnet")
             {
@@ -66,14 +74,14 @@ public sealed class MockAppFixture : IAsyncLifetime
                 UseShellExecute = false,
             };
 
-            startInfo.ArgumentList.Add(Path.Combine(PublishRoot, "StreamKeepr.dll"));
+            startInfo.ArgumentList.Add(Path.Combine(SharedPublishRoot, "StreamKeepr.dll"));
             startInfo.ArgumentList.Add("--urls");
             startInfo.ArgumentList.Add(BaseUrl);
             startInfo.Environment["ASPNETCORE_ENVIRONMENT"] = "Mock";
             startInfo.Environment["ASPNETCORE_CONTENTROOT"] =
                 Path.Combine(RepositoryRoot, "src", "StreamKeepr");
             startInfo.Environment["ASPNETCORE_WEBROOT"] =
-                Path.Combine(PublishRoot, "wwwroot");
+                Path.Combine(SharedPublishRoot, "wwwroot");
             startInfo.Environment["Mock__RecordingsRoot"] = RecordingsRoot;
             startInfo.Environment["Mock__Seed__ResetOnStart"] = "true";
             // Exports run at 6x real time so the cancel/retry journey can catch one Running.
@@ -126,11 +134,27 @@ public sealed class MockAppFixture : IAsyncLifetime
         WriteReport();
     }
 
-    private async Task PublishAsync()
+    static MockAppFixture()
+    {
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            try
+            {
+                if (Directory.Exists(SharedPublishRoot))
+                    Directory.Delete(SharedPublishRoot, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Best effort: the publish lives in the temp directory.
+            }
+        };
+    }
+
+    private static async Task PublishAsync(string repositoryRoot, string publishRoot)
     {
         var startInfo = new ProcessStartInfo("dotnet")
         {
-            WorkingDirectory = RepositoryRoot,
+            WorkingDirectory = repositoryRoot,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -142,7 +166,7 @@ public sealed class MockAppFixture : IAsyncLifetime
         startInfo.ArgumentList.Add("Debug");
         startInfo.ArgumentList.Add("-warnaserror");
         startInfo.ArgumentList.Add("-o");
-        startInfo.ArgumentList.Add(PublishRoot);
+        startInfo.ArgumentList.Add(publishRoot);
         startInfo.ArgumentList.Add("-nologo");
 
         using var process = new Process { StartInfo = startInfo };
@@ -168,6 +192,31 @@ public sealed class MockAppFixture : IAsyncLifetime
         {
             throw new InvalidOperationException(
                 $"The E2E publish failed with exit code {process.ExitCode}.{Environment.NewLine}{output}");
+        }
+
+        EnsureNoEmptyCompressedAssets(Path.Combine(publishRoot, "wwwroot"));
+    }
+
+    /// <summary>
+    /// Fails the run up front if a precompressed asset is empty. Even an empty file compresses
+    /// to at least one byte, so a 0-byte <c>.br</c> or <c>.gz</c> is a torn write. Without this
+    /// check it shows up later as unrelated player timeouts.
+    /// </summary>
+    internal static void EnsureNoEmptyCompressedAssets(string webRoot)
+    {
+        string[] empty = Directory
+            .EnumerateFiles(webRoot, "*", SearchOption.AllDirectories)
+            .Where(path => path.EndsWith(".br", StringComparison.Ordinal)
+                || path.EndsWith(".gz", StringComparison.Ordinal))
+            .Where(path => new FileInfo(path).Length == 0)
+            .Select(path => Path.GetRelativePath(webRoot, path))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        if (empty.Length > 0)
+        {
+            throw new InvalidOperationException(
+                "The E2E publish produced empty compressed assets: " + string.Join(", ", empty));
         }
     }
 
@@ -269,6 +318,10 @@ public sealed class MockAppFixture : IAsyncLifetime
         File.WriteAllText(reportPath, html);
     }
 
+    /// <summary>Every temp folder the suite creates lives under one root.</summary>
+    internal static string SuiteTempPath(string name) =>
+        Path.Combine(Path.GetTempPath(), "streamkeepr-e2e", name);
+
     private static int FindFreePort()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -280,7 +333,7 @@ public sealed class MockAppFixture : IAsyncLifetime
     {
         string? configured = Environment.GetEnvironmentVariable("STREAMKEEPR_E2E_ARTIFACTS");
         string directory = string.IsNullOrWhiteSpace(configured)
-            ? Path.Combine(Path.GetTempPath(), "streamkeepr-e2e", Guid.NewGuid().ToString("N"))
+            ? SuiteTempPath(Guid.NewGuid().ToString("N"))
             : Path.GetFullPath(configured);
         return artifactsName is null ? directory : Path.Combine(directory, artifactsName);
     }

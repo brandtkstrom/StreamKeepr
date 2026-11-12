@@ -1,4 +1,5 @@
 using Bunit;
+using Microsoft.JSInterop;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
@@ -111,6 +112,22 @@ public sealed class MenuTests
         cut.FindAll("[role='menuitem']")[1].Click();
 
         Assert.False(clicked);
+    }
+
+    [Fact]
+    public async Task Disposing_after_the_circuit_disconnects_does_not_throw()
+    {
+        using var context = CreateContext();
+        BunitJSModuleInterop module = context.JSInterop.SetupModule("./Components/Primitives/Menu.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        module.SetupVoid("dispose", _ => true)
+            .SetException(new JSDisconnectedException("The circuit is gone."));
+        var cut = RenderMenu(context);
+
+        Exception? error = await Record.ExceptionAsync(
+            () => cut.InvokeAsync(async () => await cut.Instance.DisposeAsync()));
+
+        Assert.Null(error);
     }
 
     private static BunitContext CreateContext()
