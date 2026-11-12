@@ -56,14 +56,14 @@ public sealed class RecordingDeleteTests
 
         cut.Find("button[data-delete]").Click();
 
-        var dialog = cut.FindComponent<Dialog>();
+        var dialog = DeleteDialog(cut);
         Assert.True(dialog.Instance.Open);
         Assert.Contains("Title — ann", cut.Find("[data-delete-banner]").TextContent);
         Assert.Contains("permanently", cut.Find("[data-delete-banner]").TextContent);
         Assert.Empty(admin.Deletes);
 
         cut.Find("[data-delete-cancel]").Click();
-        Assert.False(cut.FindComponent<Dialog>().Instance.Open);
+        Assert.False(DeleteDialog(cut).Instance.Open);
     }
 
     [Fact]
@@ -78,7 +78,7 @@ public sealed class RecordingDeleteTests
         var deleted = Assert.Single(admin.Deletes);
         Assert.Equal("r1", deleted.RecordingId);
         Assert.True(deleted.User.Identity?.IsAuthenticated);
-        Assert.False(cut.FindComponent<Dialog>().Instance.Open);
+        Assert.False(DeleteDialog(cut).Instance.Open);
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public sealed class RecordingDeleteTests
         Assert.Equal("true", cut.Find("[data-delete-dialog]").GetAttribute("aria-busy"));
 
         gate.SetResult();
-        cut.WaitForAssertion(() => Assert.False(cut.FindComponent<Dialog>().Instance.Open));
+        cut.WaitForAssertion(() => Assert.False(DeleteDialog(cut).Instance.Open));
     }
 
     [Fact]
@@ -106,13 +106,13 @@ public sealed class RecordingDeleteTests
         using BunitContext context = CreateContext(out _, signedIn: true);
         var cut = Render(context, Recording());
         cut.Find("button[data-delete]").Click();
-        Assert.True(cut.FindComponent<Dialog>().Instance.Open);
+        Assert.True(DeleteDialog(cut).Instance.Open);
 
         cut.Render(parameters => parameters.Add(
             component => component.Recording,
             Recording(id: "r2", title: "Next")));
 
-        Assert.False(cut.FindComponent<Dialog>().Instance.Open);
+        Assert.False(DeleteDialog(cut).Instance.Open);
     }
 
     [Fact]
@@ -130,7 +130,7 @@ public sealed class RecordingDeleteTests
 
         cut.Find("[data-delete-confirm]").Click();
 
-        Assert.True(cut.FindComponent<Dialog>().Instance.Open);
+        Assert.True(DeleteDialog(cut).Instance.Open);
         Assert.Contains("being exported", cut.Find("[data-delete-banner]").TextContent);
         cut.WaitForAssertion(() =>
             Assert.True(cut.Find("[data-delete-confirm]").HasAttribute("disabled")));
@@ -146,7 +146,7 @@ public sealed class RecordingDeleteTests
 
         cut.Find("[data-delete-confirm]").Click();
 
-        Assert.False(cut.FindComponent<Dialog>().Instance.Open);
+        Assert.False(DeleteDialog(cut).Instance.Open);
         Assert.Contains("already deleted", snackbars.Current?.Text);
     }
 
@@ -160,7 +160,7 @@ public sealed class RecordingDeleteTests
 
         cut.Find("[data-delete-confirm]").Click();
 
-        Assert.False(cut.FindComponent<Dialog>().Instance.Open);
+        Assert.False(DeleteDialog(cut).Instance.Open);
         Assert.Contains("Reconnect to delete recordings", snackbars.Current?.Text);
     }
 
@@ -181,6 +181,7 @@ public sealed class RecordingDeleteTests
         context.Services.AddSingleton<IExportService>(new TestExportService());
         admin = new TestRecordingAdmin();
         context.Services.AddSingleton<IRecordingAdmin>(admin);
+        context.Services.AddSingleton<IChannelsView>(new TestChannelsView());
         BunitAuthorizationContext auth = context.AddAuthorization();
         if (signedIn)
             auth.SetAuthorized("mock_admin");
@@ -194,6 +195,11 @@ public sealed class RecordingDeleteTests
         out TestRecordingAdmin admin,
         bool signedIn) =>
         CreateContext(out admin, out _, signedIn);
+
+    private static IRenderedComponent<Dialog> DeleteDialog(
+        IRenderedComponent<RecordingDetails> cut) =>
+        cut.FindComponents<Dialog>().Single(dialog =>
+            dialog.Instance.Title == "Delete recording?");
 
     private static IRenderedComponent<RecordingDetails> Render(
         BunitContext context,

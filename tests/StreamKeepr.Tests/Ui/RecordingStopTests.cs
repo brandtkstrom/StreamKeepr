@@ -53,7 +53,7 @@ public sealed class RecordingStopTests
 
         cut.Find("button[data-stop-recording]").Click();
 
-        var dialog = cut.FindComponent<Dialog>();
+        var dialog = StopDialog(cut);
         Assert.True(dialog.Instance.Open);
         Assert.Contains("finalized", cut.Find("[data-stop-dialog]").TextContent);
         Assert.Contains("stays paused", cut.Find("[data-stop-dialog]").TextContent);
@@ -61,7 +61,7 @@ public sealed class RecordingStopTests
         cut.Find("[data-stop-confirm]").Click();
 
         Assert.Equal(["stop:ann"], channels.Calls);
-        Assert.False(cut.FindComponent<Dialog>().Instance.Open);
+        Assert.False(StopDialog(cut).Instance.Open);
         Assert.Equal("Channel paused", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
     }
 
@@ -71,13 +71,13 @@ public sealed class RecordingStopTests
         using BunitContext context = CreateContext(out _, signedIn: true);
         var cut = Render(context, Recording(RecordingState.Recording));
         cut.Find("button[data-stop-recording]").Click();
-        Assert.True(cut.FindComponent<Dialog>().Instance.Open);
+        Assert.True(StopDialog(cut).Instance.Open);
 
         cut.Render(parameters => parameters.Add(
             component => component.Recording,
             Recording(RecordingState.Saved)));
 
-        Assert.False(cut.FindComponent<Dialog>().Instance.Open);
+        Assert.False(StopDialog(cut).Instance.Open);
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public sealed class RecordingStopTests
 
         cut.Find("[data-stop-confirm]").Click();
 
-        Assert.False(cut.FindComponent<Dialog>().Instance.Open);
+        Assert.False(StopDialog(cut).Instance.Open);
         Assert.Contains(
             "Reconnect to manage channels",
             context.Services.GetRequiredService<SnackbarService>().Current?.Text);
@@ -112,6 +112,7 @@ public sealed class RecordingStopTests
         context.Services.AddSingleton<IExportService>(new TestExportService());
         channels = new TestChannelsView();
         context.Services.AddSingleton<IChannelsView>(channels);
+        context.Services.AddSingleton<IRecordingAdmin>(new TestRecordingAdmin());
         BunitAuthorizationContext auth = context.AddAuthorization();
         if (signedIn)
             auth.SetAuthorized("mock_admin");
@@ -119,6 +120,11 @@ public sealed class RecordingStopTests
             auth.SetNotAuthorized();
         return context;
     }
+
+    private static IRenderedComponent<Dialog> StopDialog(
+        IRenderedComponent<RecordingDetails> cut) =>
+        cut.FindComponents<Dialog>().Single(dialog =>
+            dialog.Instance.Title == "Stop recording for ann?");
 
     private static IRenderedComponent<RecordingDetails> Render(
         BunitContext context,
