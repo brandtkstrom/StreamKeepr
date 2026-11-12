@@ -3,6 +3,8 @@
 @implements IDisposable
 @inject ILibraryView Library
 @inject UiPreferences Preferences
+@inject SnackbarService Snackbars
+@inject NavigationManager Navigation
 
 <PageTitle>@(RecordingId is null ? "Stream Keepr" : $"{RecordingId} · Stream Keepr")</PageTitle>
 
@@ -54,12 +56,68 @@ else
 @code {
     [Parameter] public string? RecordingId { get; set; }
 
+    private string? _lastRecordingId;
+    private bool _resolved;
+
     private RecordingView? Selected =>
         RecordingId is not null && Library.IsLoaded ? Library.Find(RecordingId) : null;
 
     protected override void OnInitialized() => Library.Changed += OnLibraryChanged;
 
-    private void OnLibraryChanged() => _ = InvokeAsync(StateHasChanged);
+    protected override void OnParametersSet()
+    {
+        if (!string.Equals(_lastRecordingId, RecordingId, StringComparison.Ordinal))
+        {
+            _lastRecordingId = RecordingId;
+            _resolved = Selected is not null;
+        }
+        else if (Selected is not null)
+        {
+            _resolved = true;
+        }
+    }
+
+    private void OnLibraryChanged() => _ = InvokeAsync(ReactToLibraryChange);
+
+    private void ReactToLibraryChange()
+    {
+        if (Selected is not null)
+        {
+            _resolved = true;
+            StateHasChanged();
+            return;
+        }
+
+        // An id that never resolved is the unknown-recording message, not a deletion.
+        if (!_resolved || !Library.IsLoaded)
+        {
+            StateHasChanged();
+            return;
+        }
+
+        _resolved = false;
+        Snackbars.Show("Recording deleted");
+
+        string? next = NextRecordingId();
+        string target = next is null
+            ? "/"
+            : LibraryUrl.With(
+                $"/r/{Uri.EscapeDataString(next)}",
+                LibraryUrl.Parse(Navigation.Uri));
+        Navigation.NavigateTo(target, replace: true);
+    }
+
+    private string? NextRecordingId()
+    {
+        LibraryQuery query = LibraryUrl.Parse(Navigation.Uri);
+        foreach (StreamerView streamer in Library.Streamers(query))
+        {
+            if (Library.Recordings(streamer.Login, query).FirstOrDefault() is { } next)
+                return next.Id;
+        }
+
+        return null;
+    }
 
     public void Dispose() => Library.Changed -= OnLibraryChanged;
 }

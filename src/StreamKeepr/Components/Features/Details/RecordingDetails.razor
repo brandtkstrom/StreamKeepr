@@ -10,6 +10,7 @@
 @inject NavigationManager Navigation
 @inject ILogger<RecordingDetails> Logger
 @inject IExportService Exports
+@inject IRecordingAdmin Admin
 
 @* Spec: docs/details-auth-settings-contract.md §§2–4; player contract §11. The same
    component instance survives recording swaps because Home keeps it in one slot. *@
@@ -50,6 +51,24 @@
                                 <Icon Name="movie" Size="IconSize.Small" />
                                 Export MP4
                             </Button>
+                        }
+                    </RequiresTwitch>
+                    <RequiresTwitch>
+                        @if (DeleteBlockedReason is { } deleteReason)
+                        {
+                            <Tooltip Text="@deleteReason" tabindex="0" data-delete-blocked>
+                                <IconButton Icon="delete"
+                                            Label="Delete recording"
+                                            Disabled="true"
+                                            data-delete />
+                            </Tooltip>
+                        }
+                        else
+                        {
+                            <IconButton Icon="delete"
+                                        Label="Delete recording"
+                                        OnClick="OpenDeleteDialog"
+                                        data-delete />
                         }
                     </RequiresTwitch>
                 </div>
@@ -166,6 +185,35 @@
     </ChildContent>
 </Collapsible>
 
+<Dialog Open="@_deleteOpen"
+        OpenChanged="OnDeleteOpenChanged"
+        Title="Delete recording?"
+        aria-busy="@(_deleting ? "true" : null)"
+        data-delete-dialog>
+    <ChildContent>
+        <p class="sk-error-banner"
+           role="@(_deleteError is null ? null : "alert")"
+           data-delete-banner>
+            <b>@Recording.Title — @Recording.StreamerLogin</b><br />
+            @(_deleteError ?? "The files and watch progress are removed permanently.")
+        </p>
+    </ChildContent>
+    <Actions>
+        <Button Variant="ButtonVariant.Text"
+                Disabled="@_deleting"
+                OnClick="CancelDelete"
+                data-delete-cancel>
+            Cancel
+        </Button>
+        <Button Variant="ButtonVariant.Danger"
+                Disabled="@(_deleting || DeleteBlockedReason is not null)"
+                OnClick="ConfirmDeleteAsync"
+                data-delete-confirm>
+            Delete
+        </Button>
+    </Actions>
+</Dialog>
+
 @code {
     private const string ModulePath = "./Components/Features/Details/RecordingDetails.razor.js";
 
@@ -180,8 +228,15 @@
     private readonly HashSet<string> _watching = new(StringComparer.Ordinal);
     private ExportJob? _job;
     private string? _jobRecordingId;
+    private const string DeleteSessionEnded =
+        "Your Twitch session ended. Reconnect to delete recordings.";
+
     private bool _starting;
     private bool _cancelling;
+    private bool _deleteOpen;
+    private bool _deleting;
+    private string? _deleteError;
+    private string? _deleteRecordingId;
 
     private bool IsLive =>
         Recording.State is RecordingState.Recording or RecordingState.Reconnecting;
@@ -193,6 +248,12 @@
     private string? ExportBlockedReason =>
         IsLive ? "Available when the recording finishes"
         : IsIncompatible ? "Its parts use different video settings, so one MP4 is not possible"
+        : null;
+
+    // Why Delete is disabled with a tooltip; null when the icon button is live.
+    private string? DeleteBlockedReason =>
+        IsLive ? "Available when the recording finishes"
+        : _job?.IsActive == true ? "Cancel the export before deleting"
         : null;
 
     private bool ShowSize =>
@@ -225,6 +286,14 @@
 
     protected override void OnParametersSet()
     {
+        // A different recording never keeps the previous recording's confirm dialog open.
+        if (_deleteRecordingId != Recording.Id)
+        {
+            _deleteRecordingId = Recording.Id;
+            _deleteOpen = false;
+            _deleteError = null;
+        }
+
         // A different recording never shows the previous recording's job.
         if (_jobRecordingId != Recording.Id)
             RefreshExport();
@@ -317,6 +386,76 @@
         finally
         {
             _cancelling = false;
+        }
+    }
+
+    private void OpenDeleteDialog()
+    {
+        if (DeleteBlockedReason is not null)
+            return;
+
+        _deleteError = null;
+        _deleteOpen = true;
+    }
+
+    private void OnDeleteOpenChanged(bool open)
+    {
+        // A native Esc/close must not hide the dialog while the server call is in flight.
+        if (!open && _deleting)
+            return;
+
+        _deleteOpen = open;
+        if (!open)
+            _deleteError = null;
+    }
+
+    private void CancelDelete()
+    {
+        if (_deleting)
+            return;
+
+        _deleteOpen = false;
+        _deleteError = null;
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (_deleting || AuthenticationState is null)
+            return;
+
+        _deleting = true;
+        _deleteError = null;
+        try
+        {
+            ClaimsPrincipal user = (await AuthenticationState).User;
+            await Admin.DeleteAsync(Recording.Id, user, CancellationToken.None);
+            _deleteOpen = false;
+        }
+        catch (KeyNotFoundException)
+        {
+            _deleteOpen = false;
+            Snackbars.Show("Recording was already deleted");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _deleteOpen = false;
+            Snackbars.Show(DeleteSessionEnded);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Live or leased: the dialog stays open and the server's user-safe text replaces
+            // the permanence copy. A concurrent export may have started in another tab.
+            _deleteError = ex.Message;
+            RefreshExport();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Deleting recording {RecordingId} failed.", Recording.Id);
+            _deleteError = "Could not delete the recording. Try again.";
+        }
+        finally
+        {
+            _deleting = false;
         }
     }
 

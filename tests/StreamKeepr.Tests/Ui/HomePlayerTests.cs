@@ -83,9 +83,15 @@ public sealed class HomePlayerTests
         Assert.Equal("Second", cut.Find("[data-details-title]").TextContent);
     }
 
-    private static BunitContext CreateContext(out BunitJSModuleInterop module, string? statsCookie = null)
+    private static BunitContext CreateContext(out BunitJSModuleInterop module, string? statsCookie = null) =>
+        CreateContext(out module, out _, statsCookie);
+
+    internal static BunitContext CreateContext(
+        out BunitJSModuleInterop module,
+        out TestLibraryView view,
+        string? statsCookie = null)
     {
-        var view = new TestLibraryView();
+        view = new TestLibraryView();
         view.FindById["r1"] = VideoPlayerTests.Recording("r1", "First");
         view.FindById["r2"] = VideoPlayerTests.Recording("r2", "Second");
 
@@ -106,6 +112,7 @@ public sealed class HomePlayerTests
         context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<PlayerBridge>();
         context.Services.AddSingleton<IExportService>(new TestExportService());
+        context.Services.AddSingleton<IRecordingAdmin>(new TestRecordingAdmin());
         context.AddAuthorization().SetNotAuthorized();
         context.Services.AddSingleton<IProgressStore>(new TestProgressStore());
         context.Services.AddSingleton<ILibraryView>(view);
