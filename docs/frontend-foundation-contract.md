@@ -166,7 +166,7 @@ Playwright:
 
 - Drawer expanded → rail → theater; reload preserves `sk-ui`; responsive 960/600; `.scrolled` class.
 - Reconnect notice/retry; auth disabled controls; unknown route; `/dev/components`.
-- axe clean and keyboard-only use on the shell; visual regression follows when baselines are available.
+- axe clean and keyboard-only use on the shell. Visual regression is dropped for now (#106).
 
 No automatic retries; flaky tests are fixed or quarantined per the testing contract.
 
