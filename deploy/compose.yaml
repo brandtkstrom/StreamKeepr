@@ -1,0 +1,102 @@
+# Stream Keepr: example Docker Compose deployment.
+#
+# Runs the published image; no source checkout or build is needed. Copy this folder
+# to the host, then follow deploy/README.md:
+#   1. Fill in the secret files under ./secrets (see the *.example templates).
+#   2. Optionally copy .env.example to .env and adjust it.
+#   3. docker compose up -d
+#
+# Settings use ASP.NET Core's environment-variable form: "__" separates sections,
+# and a list item takes an index, e.g. Auth__AllowedTwitchLogins__0. An optional
+# setting must be commented out rather than left empty: empty values fail startup
+# validation.
+
+name: stream-keepr
+
+services:
+  stream-keepr:
+    # Pin a release tag (1.0.0) so the deployment only changes when you change it.
+    # ":latest" follows main and changes on every merge.
+    image: ghcr.io/brandtkstrom/streamkeepr:${STREAMKEEP_VERSION:-1.0.0}
+    container_name: stream-keepr
+    restart: unless-stopped
+
+    # Forwards SIGTERM to the app so active recordings finalize on stop.
+    init: true
+
+    # Longer than the app's 40 s shutdown budget, so an active part can finalize
+    # before Docker kills the container.
+    stop_grace_period: 50s
+
+    ports:
+      # Plain HTTP. Viewing and playback work from any machine that can reach this
+      # port; signing in needs HTTPS (see "HTTPS reverse proxy" in README.md) or
+      # localhost.
+      - "${STREAMKEEP_PORT:-8080}:8080"
+
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+
+      # Time zone for log timestamps. The library shows dates in each viewer's own
+      # time zone regardless of this setting.
+      TZ: ${TZ:-UTC}
+
+      # Recordings, the channel list, and sign-in keys live here (the volume below).
+      Storage__RecordingsRoot: /recordings
+
+      # Recording stops when free space on /recordings falls below this many GB
+      # (1-1000, default 10). /health/ready reports degraded below twice this.
+      # Storage__MinFreeGb: "10"
+
+      # First channel to watch on a fresh deployment. Used only when the channel
+      # list is first created; afterwards, manage channels in Settings.
+      # Twitch__Channels__0: some_streamer
+
+      # Who may sign in as admin (export, delete, manage channels). Leave unset to
+      # let any Twitch account that signs in be admin; startup logs a warning then.
+      # Set it whenever other people can reach the app.
+      # Auth__AllowedTwitchLogins__0: your_twitch_login
+
+      # Streamlink quality (default "best").
+      # Recorder__Quality: best
+
+      # Trust X-Forwarded-* headers only from your HTTPS reverse proxy. Both lists
+      # are empty by default, which ignores forwarded headers; sign-in through an
+      # unconfigured proxy is refused with authError=httpsRequired.
+      # Hosting__ForwardedHeaders__KnownProxies__0: 172.18.0.1
+      # Hosting__ForwardedHeaders__KnownNetworks__0: 172.18.0.0/16
+
+    # Secret files are mounted under /run/secrets and read as configuration: the
+    # file name maps "__" to ":", so Twitch__ClientId becomes Twitch:ClientId.
+    secrets:
+      - Twitch__ClientId
+      - Twitch__ClientSecret
+      # Subscriber-only streams: uncomment here and in the top-level secrets below.
+      # - Recorder__TwitchUserOAuthToken
+
+    volumes:
+      # A named volume inherits the image's ownership (UID 1654). To use a host
+      # folder instead, replace this with "./recordings:/recordings" and run
+      # "sudo chown -R 1654:1654 ./recordings" first.
+      - recordings:/recordings
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+    # The image's own healthcheck probes /health/live every 30 s.
+
+volumes:
+  recordings:
+
+secrets:
+  # On Linux these are bind mounts read by UID 1654 inside the container:
+  #   sudo chown 1654:1654 secrets/*.txt && sudo chmod 400 secrets/*.txt
+  Twitch__ClientId:
+    file: ./secrets/twitch_client_id.txt
+  Twitch__ClientSecret:
+    file: ./secrets/twitch_client_secret.txt
+  # Recorder__TwitchUserOAuthToken:
+  #   file: ./secrets/recorder_twitch_user_oauth_token.txt
