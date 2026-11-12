@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.Playwright;
+using Xunit.Abstractions;
 
 namespace StreamKeepr.E2E;
 
@@ -8,16 +9,19 @@ namespace StreamKeepr.E2E;
 /// and 375×812 against approved baselines in <c>tests/StreamKeepr.E2E/Visual/{os}</c>.
 /// Chrome draws text differently on each OS, so baselines are per OS, and only the Linux ones
 /// (from CI) are committed. Every run writes its screenshots to <c>visual/actual</c> in the
-/// artifacts. A screen with no approved baseline for this OS is reported as blocked in
-/// <c>visual/report.txt</c> and does not fail (testing contract §8); with a baseline, more
-/// than 0.1 % differing pixels fails.
+/// artifacts. Until an OS has any baseline, its screens are reported as blocked (testing
+/// contract §10) and do not fail. Once it has one, a missing baseline fails, and so does a
+/// screen with more than 0.1 % differing pixels.
 /// </summary>
 [Trait("Category", "E2E")]
-public sealed class VisualJourneyTests : IAsyncLifetime
+public sealed class VisualJourneyTests(ITestOutputHelper output) : IAsyncLifetime
 {
     private static readonly ViewportSize Desktop = new() { Width = 1280, Height = 820 };
     private static readonly ViewportSize Phone = new() { Width = 375, Height = 812 };
     private const string MaskColor = "#FF00FF";
+    private const string SearchReady = "input[data-search-input][data-sk-ready]";
+    private const string DetailsCard = "[data-slot='details'] [data-recording-details]";
+    private const int SettledFrames = 10;
 
     // The live feed is off so nothing changes the library between screenshots.
     private readonly MockAppFixture _app = new(
@@ -31,13 +35,13 @@ public sealed class VisualJourneyTests : IAsyncLifetime
     private sealed record Screen(
         string Name, ViewportSize Viewport, Func<IPage, Task> OpenAsync, string? Element = null);
 
-    private static IEnumerable<Screen> Screens()
+    private IEnumerable<Screen> Screens()
     {
         foreach ((string size, ViewportSize viewport) in new[] { ("desktop", Desktop), ("phone", Phone) })
         {
             yield return new($"home-{size}", viewport, OpenHomeAsync);
             yield return new($"recording-{size}", viewport, OpenRecordingAsync);
-            yield return new($"details-{size}", viewport, OpenRecordingAsync, "[data-slot='details'] [data-recording-details]");
+            yield return new($"details-{size}", viewport, OpenRecordingAsync, DetailsCard);
             yield return new($"settings-{size}", viewport, OpenSettingsAsync);
         }
 
@@ -45,18 +49,23 @@ public sealed class VisualJourneyTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// Regions that change between runs for reasons other than the UI: relative day labels
-    /// and capture times follow the wall clock, the live captures keep growing, and video
-    /// frames depend on decode timing.
+    /// The regions that change between runs for reasons other than the UI. This list is the
+    /// source of truth; <c>Visual/README.md</c> describes it.
     /// </summary>
     private static IReadOnlyList<ILocator> Masks(IPage page) =>
     [
+        // Video frames depend on decode timing; the buffered fill on how far hls.js has loaded.
         page.Locator("video"),
+        page.Locator("[data-sk='buffered']"),
+
+        // "Today" and "Yesterday" follow the wall clock.
         page.Locator("nav#sk-drawer .sk-day"),
-        page.Locator("nav#sk-drawer a.sk-row:is([data-state='rec'], [data-state='reconnecting'])"),
-        page.Locator("nav#sk-drawer .sk-group-head .meta"),
-        page.Locator(".sk-storage"),
-        page.Locator("[data-details-date]"),
+
+        // Sessions still recording keep growing, and startup recovery decides between
+        // Recording and Reconnecting. Their title stays visible.
+        page.Locator("nav#sk-drawer a.sk-row:is([data-state='rec'], [data-state='reconnecting']) :is(.sk-thumb, .sk-row-meta, .sk-status)"),
+        page.Locator("nav#sk-drawer .sk-group-head:has(.sk-live-ring) .meta"),
+        page.Locator("[data-channel-state]"),
     ];
 
     [Fact]
@@ -65,6 +74,8 @@ public sealed class VisualJourneyTests : IAsyncLifetime
         string os = OperatingSystem.IsLinux() ? "linux" : OperatingSystem.IsMacOS() ? "macos" : "windows";
         string baselineDirectory = Path.Combine(
             _app.RepositoryRoot, "tests", "StreamKeepr.E2E", "Visual", os);
+        bool hasBaselines = Directory.Exists(baselineDirectory) &&
+            Directory.EnumerateFiles(baselineDirectory, "*.png").Any();
         string actualDirectory = Path.Combine(_app.ArtifactsDirectory, "actual");
         string diffDirectory = Path.Combine(_app.ArtifactsDirectory, "diff");
         Directory.CreateDirectory(actualDirectory);
@@ -75,6 +86,14 @@ public sealed class VisualJourneyTests : IAsyncLifetime
 
         var report = new StringBuilder();
         var failures = new List<string>();
+        void Report(string screen, string line, bool failed = false)
+        {
+            report.AppendLine($"{screen,-20} {line}");
+            output.WriteLine($"{screen,-20} {line}");
+            if (failed)
+                failures.Add($"{screen}: {line}");
+        }
+
         foreach (Screen screen in Screens())
         {
             byte[] actual = await CaptureAsync(browser, screen);
@@ -83,33 +102,42 @@ public sealed class VisualJourneyTests : IAsyncLifetime
             string baselinePath = Path.Combine(baselineDirectory, $"{screen.Name}.png");
             if (!File.Exists(baselinePath))
             {
-                report.AppendLine($"{screen.Name,-20} blocked: no approved {os} baseline; review visual/actual/{screen.Name}.png");
+                // Before the first approval the whole OS is blocked; after it, a missing
+                // baseline means one was deleted or renamed, which must not pass quietly.
+                Report(
+                    screen.Name,
+                    hasBaselines
+                        ? $"FAIL: no baseline, although other {os} baselines exist"
+                        : $"blocked: no approved {os} baselines yet; review visual/actual/{screen.Name}.png",
+                    failed: hasBaselines);
                 continue;
             }
 
             VisualDiff diff = await VisualDiff.CompareAsync(diffPage, await File.ReadAllBytesAsync(baselinePath), actual);
-            string result = diff.SizeMatches
-                ? $"{diff.DifferentRatio:P3} of pixels differ ({diff.DifferentPixels:N0})"
-                : $"size {diff.Width}×{diff.Height} differs from the baseline";
             if (diff.DiffPng is not null)
             {
                 Directory.CreateDirectory(diffDirectory);
                 await File.WriteAllBytesAsync(Path.Combine(diffDirectory, $"{screen.Name}.png"), diff.DiffPng);
             }
 
-            bool failed = diff.Exceeds(VisualDiff.MaxDifferentRatio);
-            report.AppendLine($"{screen.Name,-20} {(failed ? "FAIL" : "ok")}: {result}");
-            if (failed)
-                failures.Add($"{screen.Name}: {result}");
+            string result = diff.SizeMatches
+                ? $"{diff.DifferentRatio:P3} of pixels differ ({diff.DifferentPixels:N0})"
+                : $"size {diff.Width}×{diff.Height} differs from the baseline";
+            Report(screen.Name, $"{(diff.Exceeds() ? "FAIL" : "ok")}: {result}", diff.Exceeds());
         }
 
         await File.WriteAllTextAsync(Path.Combine(_app.ArtifactsDirectory, "report.txt"), report.ToString());
         Assert.True(
             failures.Count == 0,
-            $"Screens differ from their baselines (budget {VisualDiff.MaxDifferentRatio:P1}); see visual/diff:{Environment.NewLine}" +
-            string.Join(Environment.NewLine, failures));
+            $"Visual check failed (budget {VisualDiff.MaxDifferentRatio:P1}); see visual/report.txt and visual/diff:" +
+            $"{Environment.NewLine}{string.Join(Environment.NewLine, failures)}");
     }
 
+    /// <summary>
+    /// Opens <paramref name="screen"/> in a fresh context. This does not reuse
+    /// <c>LibraryJourneyTests.OpenAsync</c> because the screenshots also pin the locale, time
+    /// zone, colour scheme and motion.
+    /// </summary>
     private async Task<byte[]> CaptureAsync(IBrowser browser, Screen screen)
     {
         await using IBrowserContext context = await browser.NewContextAsync(new BrowserNewContextOptions
@@ -121,11 +149,10 @@ public sealed class VisualJourneyTests : IAsyncLifetime
             ReducedMotion = ReducedMotion.Reduce,
         });
         IPage page = await context.NewPageAsync();
-        await page.GotoAsync(_app.BaseUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
-        await page.Locator("input[data-search-input][data-sk-ready]").WaitForAsync();
+        await GoToAsync(page, "/");
         await screen.OpenAsync(page);
         await page.EvaluateAsync("() => document.fonts.ready");
-        await WaitForDrawerToSettleAsync(page);
+        await WaitForLayoutToSettleAsync(page);
 
         return screen.Element is null
             ? await page.ScreenshotAsync(new PageScreenshotOptions
@@ -144,45 +171,73 @@ public sealed class VisualJourneyTests : IAsyncLifetime
             });
     }
 
+    /// <summary>Navigates within the app and waits until the circuit is interactive.</summary>
+    private async Task GoToAsync(IPage page, string path)
+    {
+        await page.GotoAsync(
+            $"{_app.BaseUrl}{path}", new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
+        await page.Locator(SearchReady).WaitForAsync();
+    }
+
     /// <summary>
-    /// The drawer scrolls the selected row into view after the circuit starts. Wait until its
-    /// scroll position holds for ten frames so it is not captured mid-scroll.
+    /// Waits until the page holds still, so masks land where they belong. Two things move
+    /// after the circuit starts: rows are measured only once drawn (<c>content-visibility</c>),
+    /// and the drawer scrolls the selected row into view. Wait until no element's box changes
+    /// for <see cref="SettledFrames"/> frames, then centre the selected row (when the drawer is
+    /// on screen) and wait again, so every run captures the same scroll position.
     /// </summary>
-    private static Task WaitForDrawerToSettleAsync(IPage page) =>
+    private static Task WaitForLayoutToSettleAsync(IPage page) =>
         page.EvaluateAsync("""
-            async () => {
-              const list = document.querySelector('nav#sk-drawer .sk-drawer-list');
-              if (!list) return;
+            async settledFrames => {
+              const maxFrames = 600;
               const frame = () => new Promise(requestAnimationFrame);
-              let last = list.scrollTop;
-              for (let still = 0; still < 10;) {
-                await frame();
-                still = list.scrollTop === last ? still + 1 : 0;
-                last = list.scrollTop;
+              const layout = () => Array.from(document.querySelectorAll('body *'), el => {
+                const box = el.getBoundingClientRect();
+                return `${Math.round(box.x)},${Math.round(box.y)},${Math.round(box.width)},${Math.round(box.height)}`;
+              }).join(';');
+              const settle = async step => {
+                let last = null;
+                for (let still = 0, frames = 0; still < settledFrames; frames++) {
+                  if (frames > maxFrames) throw new Error(`the layout kept moving for ${maxFrames} frames`);
+                  step?.();
+                  await frame();
+                  const now = layout();
+                  still = now === last ? still + 1 : 0;
+                  last = now;
+                }
+              };
+
+              await settle();
+              const list = document.querySelector('nav#sk-drawer .sk-drawer-list');
+              const row = list?.querySelector("a.sk-row[aria-current='true']");
+              const view = list?.getBoundingClientRect();
+              if (row && list.checkVisibility({ visibilityProperty: true }) &&
+                  view.height > 0 && view.right > 0 && view.left < innerWidth) {
+                await settle(() => row.scrollIntoView({ block: 'center' }));
               }
             }
-            """);
+            """, SettledFrames);
 
     private static Task OpenHomeAsync(IPage page) =>
         page.Locator("nav#sk-drawer .sk-group").First.WaitForAsync(
             new LocatorWaitForOptions { State = WaitForSelectorState.Attached });
 
-    private static async Task OpenRecordingAsync(IPage page)
+    private async Task OpenRecordingAsync(IPage page)
     {
         ILocator row = page.Locator("nav#sk-drawer a.sk-row", new PageLocatorOptions { HasText = "Ranked climb to Diamond" });
-        string id = (await row.GetAttributeAsync("data-recording-id"))!;
-        await page.GotoAsync($"{new Uri(page.Url).GetLeftPart(UriPartial.Authority)}/r/{id}");
-        await page.Locator("input[data-search-input][data-sk-ready]").WaitForAsync();
-        await page.Locator("[data-slot='details'] [data-recording-details]").WaitForAsync();
+        string id = await row.GetAttributeAsync("data-recording-id")
+            ?? throw new InvalidOperationException("The seeded \"Ranked climb to Diamond\" row has no recording id.");
+        await GoToAsync(page, $"/r/{id}");
+        await page.Locator(DetailsCard).WaitForAsync();
         await page.Locator("[data-sk='seek'][aria-disabled='false']").WaitForAsync(
             new LocatorWaitForOptions { State = WaitForSelectorState.Attached, Timeout = 30_000 });
     }
 
-    private static async Task OpenSettingsAsync(IPage page)
+    private async Task OpenSettingsAsync(IPage page)
     {
-        await page.GotoAsync($"{new Uri(page.Url).GetLeftPart(UriPartial.Authority)}/settings");
-        await page.Locator("input[data-search-input][data-sk-ready]").WaitForAsync();
+        await GoToAsync(page, "/settings");
         await page.GetByRole(AriaRole.Heading, new() { Name = "Settings" }).WaitForAsync();
+        await page.Locator("[data-channel]").First.WaitForAsync();
     }
 
     private static async Task OpenPhoneDrawerAsync(IPage page)
