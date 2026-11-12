@@ -69,3 +69,6 @@ nunit-*.xml
 .idea/
 .serena/
 *.DotSettings.user
+# Visual baselines: only Linux (CI) baselines are committed (#106)
+tests/StreamKeepr.E2E/Visual/macos/
+tests/StreamKeepr.E2E/Visual/windows/
