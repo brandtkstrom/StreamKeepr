@@ -107,11 +107,11 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 | Job | Steps |
 |---|---|
 | `dotnet` | setup .NET 10; restore; `dotnet build -warnaserror`; `dotnet format --verify-no-changes`; `dotnet test` with coverage; upload results |
-| `js` | setup Node; `npm ci`; `npm run lint`; `npm test` |
+| `js` | setup Node 24 LTS; `npm ci`; `npm run lint`; `npm test` |
 | `e2e` | setup .NET and Node; build; `playwright install --with-deps`; start the Mock profile; `dotnet test tests/StreamKeepr.E2E`; upload Playwright report, traces, screenshots |
 | `docker` | `docker build`; run the image with dummy non-secret config and a temp `/recordings` volume; hit `/health/live` and `/`; verify non-root; stop cleanly |
 
-- Triggers: pull requests, `main`, and `fullstack-refactor` during the migration. Narrow to `main` after merge.
+- Triggers: pull requests and pushes to `main`. The `fullstack-refactor` trigger was removed once that migration merged (#112).
 - Required checks for merge; configure branch protection when collaborating.
 - Add a minimal `.editorconfig` so `dotnet format --verify-no-changes` has a stable baseline.
 - Cache NuGet, npm, and Playwright browsers; cancel superseded runs.
