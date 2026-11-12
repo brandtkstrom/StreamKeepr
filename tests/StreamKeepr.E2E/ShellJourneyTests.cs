@@ -14,8 +14,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
     {
         // Branded Chrome is required because Playwright's bundled Chromium lacks H.264 (E-21).
         using IPlaywright playwright = await Playwright.CreateAsync();
-        await using IBrowser browser = await playwright.Chromium.LaunchAsync(
-            new BrowserTypeLaunchOptions { Channel = "chrome", Headless = true });
+        await using IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
 
         string testName = nameof(App_loads_shell_renders_and_axe_is_clean);
         string tracePath = Path.Combine(app.ArtifactsDirectory, $"{testName}.trace.zip");
@@ -92,8 +91,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
     public async Task Drawer_renders_groups_rows_live_status_and_storage()
     {
         using IPlaywright playwright = await Playwright.CreateAsync();
-        await using IBrowser browser = await playwright.Chromium.LaunchAsync(
-            new BrowserTypeLaunchOptions { Channel = "chrome", Headless = true });
+        await using IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
         await using IBrowserContext context = await browser.NewContextAsync(
             new BrowserNewContextOptions
             {
@@ -144,8 +142,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
     public async Task Drawer_selection_deep_link_and_reload_keep_aria_current()
     {
         using IPlaywright playwright = await Playwright.CreateAsync();
-        await using IBrowser browser = await playwright.Chromium.LaunchAsync(
-            new BrowserTypeLaunchOptions { Channel = "chrome", Headless = true });
+        await using IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
         await using IBrowserContext context = await browser.NewContextAsync(
             new BrowserNewContextOptions
             {
@@ -206,8 +203,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
     public async Task Unknown_recording_route_shows_the_message_and_link_back()
     {
         using IPlaywright playwright = await Playwright.CreateAsync();
-        await using IBrowser browser = await playwright.Chromium.LaunchAsync(
-            new BrowserTypeLaunchOptions { Channel = "chrome", Headless = true });
+        await using IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
         await using IBrowserContext context = await browser.NewContextAsync();
 
         IPage page = await context.NewPageAsync();
@@ -233,8 +229,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
     public async Task Storage_meter_updates_live_without_a_reload()
     {
         using IPlaywright playwright = await Playwright.CreateAsync();
-        await using IBrowser browser = await playwright.Chromium.LaunchAsync(
-            new BrowserTypeLaunchOptions { Channel = "chrome", Headless = true });
+        await using IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
         await using IBrowserContext context = await browser.NewContextAsync();
 
         IPage page = await context.NewPageAsync();
@@ -262,8 +257,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
     public async Task Details_card_chapters_and_playlist_copy_work_across_recording_swaps()
     {
         using IPlaywright playwright = await Playwright.CreateAsync();
-        await using IBrowser browser = await playwright.Chromium.LaunchAsync(
-            new BrowserTypeLaunchOptions { Channel = "chrome", Headless = true });
+        await using IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
 
         string testName = nameof(Details_card_chapters_and_playlist_copy_work_across_recording_swaps);
         string tracePath = Path.Combine(app.ArtifactsDirectory, $"{testName}.trace.zip");

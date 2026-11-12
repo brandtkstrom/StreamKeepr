@@ -19,6 +19,7 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
     private const int WarmLoads = 3;
     private const int MinFlattenedItems = 2000;
 
+    private static readonly TimeSpan ColdFirstByteBudget = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan LoadBudget = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan SearchBudget = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ViewChangeBudget = TimeSpan.FromSeconds(3);
@@ -49,8 +50,7 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
         await using Session session = await OpenAsync(_app.BaseUrl);
         IPage page = session.Page;
 
-        // Cold: the app's first page. Its server time is warm-up (about 6 s locally with 8 or
-        // 1,008 recordings alike), so it is reported, not budgeted.
+        // Cold: the app's first page, in a browser that has never loaded it.
         double coldFirstByteMs = await FirstByteMsAsync(page);
 
         // Warm: reload until every row is in the DOM and the circuit is interactive. The rows
@@ -136,7 +136,7 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
                 Environment.NewLine,
                 $"rows                {totalRows:N0}",
                 $"flattened items     {flattened:N0} (groups + day headers + rows)",
-                $"cold first byte     {coldFirstByteMs,8:N0} ms (first page after start; not budgeted)",
+                $"cold first byte     {coldFirstByteMs,8:N0} ms (budget {ColdFirstByteBudget.TotalMilliseconds:N0}; first page after start)",
                 $"warm first byte     {warmFirstByteMs,8:N0} ms (median of 3 reloads)",
                 $"warm ready          {warmReadyMs,8:N0} ms (budget {LoadBudget.TotalMilliseconds:N0}; all rows and the circuit)",
                 $"page HTML           {htmlKb,8:N0} KB",
@@ -151,6 +151,9 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
 
         Assert.True(flattened >= MinFlattenedItems, $"only {flattened} flattened items rendered");
         Assert.True(scroll.GetProperty("atBottom").GetBoolean(), "the drawer did not reach the bottom");
+        Assert.True(
+            coldFirstByteMs <= ColdFirstByteBudget.TotalMilliseconds,
+            $"the first page took {coldFirstByteMs:N0} ms to its first byte");
         Assert.True(warmReadyMs <= LoadBudget.TotalMilliseconds, $"a warm load took {warmReadyMs:N0} ms");
         Assert.True(searchMs <= SearchBudget.TotalMilliseconds, $"search took {searchMs:N0} ms");
         Assert.True(clearMs <= ViewChangeBudget.TotalMilliseconds, $"clear took {clearMs:N0} ms");
