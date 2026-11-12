@@ -92,7 +92,7 @@ public sealed class MockSeeder(
         }
 
         await SeedChannelsAsync(cancellationToken);
-        await SeedRecordingsAsync(root, cancellationToken);
+        await SeedRecordingsAsync(root, options.ScaleRecordings, cancellationToken);
 
         Directory.CreateDirectory(Path.GetDirectoryName(marker)!);
         await File.WriteAllTextAsync(marker, SeedVersion, cancellationToken);
@@ -126,7 +126,7 @@ public sealed class MockSeeder(
         }
     }
 
-    private async Task SeedRecordingsAsync(string root, CancellationToken ct)
+    private async Task SeedRecordingsAsync(string root, int scaleRecordings, CancellationToken ct)
     {
         string template = Path.Combine(
             AppDataPaths.AppDataDirectory(root), "mock-template");
@@ -141,7 +141,7 @@ public sealed class MockSeeder(
             foreach (MockRecording recording in MockCatalog.Recordings)
                 await SeedRecordingAsync(recording, root, template, templatePlaylist, withMedia: true, ct);
 
-            foreach (MockRecording recording in MockCatalog.ArchiveRecordings(seedOptions.Value.ScaleRecordings))
+            foreach (MockRecording recording in MockCatalog.ArchiveRecordings(scaleRecordings))
                 await SeedRecordingAsync(recording, root, template, templatePlaylist, withMedia: false, ct);
         }
         finally

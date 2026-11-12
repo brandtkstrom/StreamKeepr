@@ -87,12 +87,14 @@ This is recorded as E-19 in the plan-review register.
 
 | Measure | Result | Budget |
 | --- | --- | --- |
-| Warm load, all rows and circuit ready | 315 ms (first byte 18 ms, 525 KB HTML) | 2 s |
-| Search to one row, including the 250 ms debounce | 282 ms | 2 s |
-| Clear search back to all rows | 128 ms | 3 s |
-| Scroll top to bottom, slowest frame | 18.4 ms; no frame over 50 ms | 250 ms |
+| Warm load, all rows and circuit ready (median of 3) | 312 ms (first byte 17 ms, 525 KB HTML) | 2 s |
+| Search to one row, including the 250 ms debounce | 281 ms | 2 s |
+| Clear search back to all rows (re-renders the whole list) | 115 ms | 3 s |
+| State filter to Saved | 71 ms | 3 s |
+| Sort to Oldest first, including opening the menu | 159 ms | 3 s |
+| Scroll top to bottom in 60 steps, slowest frame | 18.5 ms; no frame over 50 ms | 250 ms |
 
-Without `content-visibility` the same run was ready in 379 ms with the same search and scroll numbers. **E-19 stands:** nothing here calls for virtualization. The first page after the app starts takes about 6 s to send its first byte with 8 recordings as well as 1,008, so that time is app warm-up, not library size. It is not budgeted here.
+Timings include Playwright round trips, so they err slow. Budgets are several times the measured values, so they catch a regression without failing on CI jitter. Clearing a search re-renders all 2,019 items, which is also the worst case for a live `Changed` update; the live feed is off during the run so the counts stay fixed. In a one-off run with `content-visibility` removed, the library was ready in 379 ms with the same search and scroll numbers. **E-19 stands:** nothing here calls for virtualization. The first page after the app starts takes about 6 s to send its first byte with 8 recordings as well as 1,008, so that time is app warm-up, not library size. It is not budgeted here.
 
 ## 8. Live updates
 

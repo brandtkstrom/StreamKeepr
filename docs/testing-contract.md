@@ -81,7 +81,7 @@ Rules:
 
 `Mock` registers:
 
-- `MockSeeder`: four streamers, eight recordings (finished VOD, two-part partial, growing EVENT capture), thumbnails, chapters.
+- `MockSeeder`: four streamers, eight recordings (finished VOD, two-part partial, growing EVENT capture), thumbnails, chapters. `Mock:Seed:ScaleRecordings` (default 0) adds finished archive recordings without media segments for the library scale measurement (#110).
 - `MockPoller` / `MockEventSub`: deterministic observations and push notifications driven by `FakeTimeProvider` or explicit test controls.
 - Fake signed-in and signed-out auth states; no OAuth.
 - `fake-streamlink` for the growing capture.

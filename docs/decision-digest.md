@@ -286,7 +286,7 @@ The register holds the plan-line evidence and the full finding text. This table 
 | E-16 | Coverage collected, no percentage gate initially. | Accept | `testing-contract.md` |
 | E-17 | No automatic test retries; fix/quarantine with an issue. | Accept | `testing-contract.md` |
 | E-18 | Design-system CSS committed; `sync:ds` deferred. | Accept | `frontend-foundation-contract.md` |
-| E-19 | All-DOM library with `content-visibility`; revisit ~2,000 items. | Accept (deviation) | `library-contract.md` |
+| E-19 | All-DOM library with `content-visibility`; revisit ~2,000 items. | Accept (deviation); measured at 2,019 items on 2026-11-11 with no need to virtualize (#110) | `library-contract.md` §7 |
 | E-20 | Quality menu/preference deferred; static Source. | Accept (deferral) | `player-contract.md` |
 | E-21 | E2E on branded Chrome; native/fullscreen/PiP unit/manual. | Accept (environment) | `testing-contract.md`, `player-contract.md` |
 | E-22 | Inline export row + `FindByRecording`; one MP4. | Accept (deviation/addition) | `details-auth-settings-contract.md` |
