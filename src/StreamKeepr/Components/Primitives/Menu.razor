@@ -294,6 +294,10 @@
             {
                 await _module.InvokeVoidAsync("dispose", _root);
             }
+            catch (JSDisconnectedException)
+            {
+                // The circuit is gone, so there is no browser state left to release.
+            }
             catch (JSException ex)
             {
                 Logger.LogDebug(ex, "The menu JavaScript module could not be disposed.");
@@ -306,6 +310,10 @@
             try
             {
                 await _module.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit is gone, so there is no browser state left to release.
             }
             catch (JSException ex)
             {

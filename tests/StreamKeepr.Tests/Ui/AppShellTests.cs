@@ -1,4 +1,5 @@
 using Bunit;
+using Microsoft.JSInterop;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
@@ -152,6 +153,22 @@ public sealed class AppShellTests
 
         await cut.InvokeAsync(() => cut.Instance.SetReconnectModalVisible(true));
         cut.WaitForAssertion(() => Assert.Empty(cut.FindAll("[data-reconnect-notice]")));
+    }
+
+    [Fact]
+    public async Task Disposing_after_the_circuit_disconnects_does_not_throw()
+    {
+        using var context = CreateContext();
+        BunitJSModuleInterop module = context.JSInterop.SetupModule("./Components/Layout/AppShell.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        module.SetupVoid("dispose", _ => true)
+            .SetException(new JSDisconnectedException("The circuit is gone."));
+        var cut = RenderShell(context);
+
+        Exception? error = await Record.ExceptionAsync(
+            () => cut.InvokeAsync(async () => await cut.Instance.DisposeAsync()));
+
+        Assert.Null(error);
     }
 
     private static IRenderedComponent<AppShell> RenderShell(

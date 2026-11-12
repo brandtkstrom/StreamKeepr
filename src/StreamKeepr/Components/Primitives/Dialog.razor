@@ -153,6 +153,10 @@
             {
                 await _module.InvokeVoidAsync("dispose", _dialog);
             }
+            catch (JSDisconnectedException)
+            {
+                // The circuit is gone, so there is no browser state left to release.
+            }
             catch (JSException ex)
             {
                 Logger.LogDebug(ex, "The dialog JavaScript module could not be disposed.");
@@ -165,6 +169,10 @@
             try
             {
                 await _module.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit is gone, so there is no browser state left to release.
             }
             catch (JSException ex)
             {
