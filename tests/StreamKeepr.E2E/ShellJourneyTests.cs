@@ -12,7 +12,6 @@ public sealed class ShellJourneyTests(MockAppFixture app)
     [Fact]
     public async Task App_loads_shell_renders_and_axe_is_clean()
     {
-        // Branded Chrome is required because Playwright's bundled Chromium lacks H.264 (E-21).
         using IPlaywright playwright = await Playwright.CreateAsync();
         await using IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
 

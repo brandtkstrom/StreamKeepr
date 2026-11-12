@@ -51,6 +51,8 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
         IPage page = session.Page;
 
         // Cold: the app's first page, in a browser that has never loaded it.
+        // A runner with no auto-detect proxy passes this budget with or without --no-proxy-server,
+        // so in CI it guards server warm-up, not the WPAD wait (see E2EBrowser).
         double coldFirstByteMs = await FirstByteMsAsync(page);
 
         // Warm: reload until every row is in the DOM and the circuit is interactive. The rows
