@@ -286,6 +286,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await WaitForTimeAsync(page, paused, tolerance: 1);
         Assert.True(await Video(page, "v => v.paused"), "resume never autoplays");
         await bar.WaitForAsync();
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-resumed");
     }
 
     [Fact]
@@ -303,6 +304,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         ILocator live = page.Locator("[data-sk='live']");
         await live.WaitForAsync(new() { State = WaitForSelectorState.Visible });
         Assert.True(await page.Locator("[data-sk='edge']").IsVisibleAsync(), "the red live tick shows");
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-live");
         Assert.True(await Video(page, "v => v.paused"), "no autoplay at the live edge");
         // Opened at the sync position: well past the start, behind the seekable end.
         Assert.True(await Video(page, """
@@ -393,6 +395,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await page.Locator(".sk-shell.theater").WaitForAsync();
         Assert.False(await page.Locator("nav#sk-drawer").IsVisibleAsync());
         Assert.Equal("true", await page.Locator("[data-sk='theater']").GetAttributeAsync("aria-pressed"));
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-theater");
         await page.Locator("[data-sk='theater']").ClickAsync();
         await page.Locator(".sk-shell:not(.theater)").WaitForAsync();
 
