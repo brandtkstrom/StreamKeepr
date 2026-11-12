@@ -28,16 +28,14 @@ public sealed class MockAppFixture : IAsyncLifetime
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(120);
     private static readonly TimeSpan PublishTimeout = TimeSpan.FromSeconds(300);
 
-    private static readonly string SharedPublishRoot = Path.Combine(
-        Path.GetTempPath(), "streamkeepr-e2e", $"publish-{Guid.NewGuid():N}");
+    private static readonly string SharedPublishRoot = SuiteTempPath($"publish-{Guid.NewGuid():N}");
 
     private static readonly Lazy<Task> SharedPublish = new(
         () => PublishAsync(FindRepositoryRoot(), SharedPublishRoot),
         LazyThreadSafetyMode.ExecutionAndPublication);
 
     private readonly ConcurrentQueue<string> _logs = new();
-    private readonly string _tempRoot = Path.Combine(
-        Path.GetTempPath(), "streamkeepr-e2e", Guid.NewGuid().ToString("N"));
+    private readonly string _tempRoot = SuiteTempPath(Guid.NewGuid().ToString("N"));
     private Process? _process;
     private string? _logPath;
 
@@ -196,7 +194,7 @@ public sealed class MockAppFixture : IAsyncLifetime
                 $"The E2E publish failed with exit code {process.ExitCode}.{Environment.NewLine}{output}");
         }
 
-        AssertNoEmptyCompressedAssets(Path.Combine(publishRoot, "wwwroot"));
+        EnsureNoEmptyCompressedAssets(Path.Combine(publishRoot, "wwwroot"));
     }
 
     /// <summary>
@@ -204,7 +202,7 @@ public sealed class MockAppFixture : IAsyncLifetime
     /// to at least one byte, so a 0-byte <c>.br</c> or <c>.gz</c> is a torn write. Without this
     /// check it shows up later as unrelated player timeouts.
     /// </summary>
-    internal static void AssertNoEmptyCompressedAssets(string webRoot)
+    internal static void EnsureNoEmptyCompressedAssets(string webRoot)
     {
         string[] empty = Directory
             .EnumerateFiles(webRoot, "*", SearchOption.AllDirectories)
@@ -320,6 +318,10 @@ public sealed class MockAppFixture : IAsyncLifetime
         File.WriteAllText(reportPath, html);
     }
 
+    /// <summary>Every temp folder the suite creates lives under one root.</summary>
+    internal static string SuiteTempPath(string name) =>
+        Path.Combine(Path.GetTempPath(), "streamkeepr-e2e", name);
+
     private static int FindFreePort()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -331,7 +333,7 @@ public sealed class MockAppFixture : IAsyncLifetime
     {
         string? configured = Environment.GetEnvironmentVariable("STREAMKEEPR_E2E_ARTIFACTS");
         string directory = string.IsNullOrWhiteSpace(configured)
-            ? Path.Combine(Path.GetTempPath(), "streamkeepr-e2e", Guid.NewGuid().ToString("N"))
+            ? SuiteTempPath(Guid.NewGuid().ToString("N"))
             : Path.GetFullPath(configured);
         return artifactsName is null ? directory : Path.Combine(directory, artifactsName);
     }

@@ -6,8 +6,7 @@ namespace StreamKeepr.E2E;
 /// </summary>
 public sealed class MockAppFixturePublishTests : IDisposable
 {
-    private readonly string _webRoot = Path.Combine(
-        Path.GetTempPath(), "streamkeepr-e2e-guard", Guid.NewGuid().ToString("N"));
+    private readonly string _webRoot = MockAppFixture.SuiteTempPath($"guard-{Guid.NewGuid():N}");
 
     public MockAppFixturePublishTests() => Directory.CreateDirectory(Path.Combine(_webRoot, "lib"));
 
@@ -21,7 +20,7 @@ public sealed class MockAppFixturePublishTests : IDisposable
         File.WriteAllBytes(Path.Combine(_webRoot, "lib", "hls.abc.mjs.gz"), [0x1f, 0x8b]);
 
         var error = Assert.Throws<InvalidOperationException>(
-            () => MockAppFixture.AssertNoEmptyCompressedAssets(_webRoot));
+            () => MockAppFixture.EnsureNoEmptyCompressedAssets(_webRoot));
 
         Assert.Contains(Path.Combine("lib", "hls.abc.mjs.br"), error.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(".gz", error.Message, StringComparison.Ordinal);
@@ -33,6 +32,6 @@ public sealed class MockAppFixturePublishTests : IDisposable
         File.WriteAllBytes(Path.Combine(_webRoot, "empty.css"), []);
         File.WriteAllBytes(Path.Combine(_webRoot, "empty.css.br"), [0x3b]);
 
-        MockAppFixture.AssertNoEmptyCompressedAssets(_webRoot);
+        MockAppFixture.EnsureNoEmptyCompressedAssets(_webRoot);
     }
 }
