@@ -196,6 +196,34 @@ public sealed class ExportServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_lease_is_already_released_when_a_finished_state_is_published()
+    {
+        // Changed runs synchronously inside the state change, so a listener that sees a finished
+        // job must never still see the recording leased (delete would refuse it).
+        await SeedAsync("ok", "Done");
+        await SeedPartsAsync("mixed", ("160x90", "libx264"), ("320x180", "libx264"));
+        await SeedAsync("queued", "Waits");
+        var leasedWhenFinished = new List<string>();
+        _service.Changed += () =>
+        {
+            foreach (string recording in new[] { "ok", "mixed", "queued" })
+            {
+                if (_service.FindByRecording(recording) is { IsActive: false } && _leases.IsLeased(recording))
+                    leasedWhenFinished.Add(recording);
+            }
+        };
+
+        ExportJob ok = _service.Start("ok", Admin, CancellationToken.None);
+        ExportJob mixed = _service.Start("mixed", Admin, CancellationToken.None);
+        ExportJob queued = _service.Start("queued", Admin, CancellationToken.None);
+        _service.Cancel(queued.Id, Admin);
+        await WaitForAsync(ok.Id, ExportState.Succeeded);
+        await WaitForAsync(mixed.Id, ExportState.Failed);
+
+        Assert.Empty(leasedWhenFinished);
+    }
+
+    [Fact]
     public async Task Incompatible_parts_fail_with_the_stable_code_and_produce_no_file()
     {
         await SeedPartsAsync("r1", ("160x90", "libx264"), ("320x180", "libx264"));

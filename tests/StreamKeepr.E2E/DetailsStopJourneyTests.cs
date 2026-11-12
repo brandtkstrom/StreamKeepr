@@ -32,6 +32,7 @@ public sealed class DetailsStopJourneyTests : IAsyncLifetime
         await dialog.WaitForAsync();
         Assert.Contains("finalized", await dialog.InnerTextAsync());
         Assert.Contains("stays paused", await dialog.InnerTextAsync());
+        await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "stop-dialog");
         await page.Locator("[data-stop-confirm]").ClickAsync();
 
         await page.Locator(".sk-snackbar", new() { HasTextString = "Channel paused" }).WaitForAsync();
@@ -45,5 +46,6 @@ public sealed class DetailsStopJourneyTests : IAsyncLifetime
         Assert.Equal(
             0,
             await page.Locator("[data-tree-key='g:mock_rain'] .sk-live-ring").CountAsync());
+        await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "paused");
     }
 }

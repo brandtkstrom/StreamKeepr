@@ -387,10 +387,7 @@ public sealed class ExportService : BackgroundService, IExportService
                 .ExecuteAsync(cancel.Token);
 
             File.Move(temp, FinalPath(id), overwrite: true);
-            Update(
-                id,
-                current => current with { State = ExportState.Succeeded, Progress = 1, FileName = DownloadName(summary) },
-                immediate: true);
+            Finish(id, current => current with { State = ExportState.Succeeded, Progress = 1, FileName = DownloadName(summary) });
             _logger.LogInformation("Export {ExportId} finished.", id);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -401,7 +398,7 @@ public sealed class ExportService : BackgroundService, IExportService
         catch (OperationCanceledException) when (cancel.IsCancellationRequested)
         {
             TryDelete(temp);
-            Update(id, current => current with { State = ExportState.Cancelled }, immediate: true);
+            Finish(id, current => current with { State = ExportState.Cancelled });
             _logger.LogInformation("Cancelled running export {ExportId}.", id);
         }
         catch (Exception ex)
@@ -409,14 +406,25 @@ public sealed class ExportService : BackgroundService, IExportService
             // Any failure ends this job, never the worker: the next queued job still runs.
             _logger.LogWarning(ex, "Export {ExportId} failed.", id);
             TryDelete(temp);
-            Update(id, current => current with { State = ExportState.Failed, Error = FailedMessage }, immediate: true);
+            Finish(id, current => current with { State = ExportState.Failed, Error = FailedMessage });
         }
         finally
         {
+            // Idempotent: also covers host shutdown, which publishes no finished state.
             lock (_gate)
                 _running.Remove(id);
             ReleaseLease(id);
         }
+    }
+
+    /// <summary>
+    /// Publishes a finished state only after the lease is gone, so anyone reacting to the change
+    /// (a Delete enabled by it, a test) never finds the recording still leased.
+    /// </summary>
+    private void Finish(string id, Func<ExportJob, ExportJob> change)
+    {
+        ReleaseLease(id);
+        Update(id, change, immediate: true);
     }
 
     /// <summary>
@@ -435,14 +443,8 @@ public sealed class ExportService : BackgroundService, IExportService
     ];
 
     /// <summary>Fails a job that has not started running; a job cancelled meanwhile stays Cancelled.</summary>
-    private void FailQueued(string id, string error)
-    {
-        Update(
-            id,
-            current => current.State == ExportState.Queued ? current with { State = ExportState.Failed, Error = error } : current,
-            immediate: true);
-        ReleaseLease(id);
-    }
+    private void FailQueued(string id, string error) =>
+        Finish(id, current => current.State == ExportState.Queued ? current with { State = ExportState.Failed, Error = error } : current);
 
     /// <summary>FFmpeg's <c>out_time_us</c> over the recording duration, clamped to 0..1.</summary>
     public static double ProgressFraction(TimeSpan mediaTime, double durationSeconds) =>

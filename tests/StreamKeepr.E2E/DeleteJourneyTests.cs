@@ -44,6 +44,7 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         await dialog.WaitForAsync();
         Assert.Contains("Retro marathon", await page.Locator("[data-delete-banner]").InnerTextAsync());
         Assert.Contains("permanently", await page.Locator("[data-delete-banner]").InnerTextAsync());
+        await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "delete-dialog");
         await page.Locator("[data-delete-cancel]").ClickAsync();
         await dialog.WaitForAsync(new() { State = WaitForSelectorState.Hidden });
         Assert.True(await delete.EvaluateAsync<bool>("b => b === document.activeElement"));
@@ -76,5 +77,6 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         Assert.Contains(
             "finishes",
             await page.Locator("[data-delete-blocked] .sk-tooltip-bubble").TextContentAsync());
+        await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "live-actions-disabled");
     }
 }
