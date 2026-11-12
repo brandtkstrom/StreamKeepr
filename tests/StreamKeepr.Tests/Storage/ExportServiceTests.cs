@@ -143,6 +143,21 @@ public sealed class ExportServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public void Start_is_refused_while_a_delete_holds_the_recording()
+    {
+        _library.Upsert(Summary("delete-race"));
+
+        IDisposable? held = _leases.TryBeginDelete("delete-race");
+        Assert.NotNull(held);
+        using (held)
+            Assert.Throws<InvalidOperationException>(() =>
+                _service.Start("delete-race", Admin, CancellationToken.None));
+
+        Assert.Null(_service.FindByRecording("delete-race"));
+        Assert.False(_leases.IsLeased("delete-race"));
+    }
+
+    [Fact]
     public async Task A_cleaned_up_file_is_no_longer_found_by_recording()
     {
         await SeedAsync("r1", "Title");

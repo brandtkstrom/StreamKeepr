@@ -77,6 +77,7 @@ builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddSingleton<ChannelStore>();
 builder.Services.AddSingleton<ProgressStore>();
 builder.Services.AddSingleton<IExportLeaseRegistry, ExportLeaseRegistry>();
+builder.Services.AddSingleton<IRecordingAdmin, RecordingAdmin>();
 builder.Services.AddSingleton<ExportService>();
 builder.Services.AddSingleton<IExportService>(services => services.GetRequiredService<ExportService>());
 builder.Services.AddSingleton<IProgressStore>(services => services.GetRequiredService<ProgressStore>());

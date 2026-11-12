@@ -343,6 +343,7 @@ public sealed class LibraryDrawerTests
         context.Services.AddScoped<PlayerBridge>();
         context.Services.AddSingleton<IExportService>(new TestExportService());
         context.Services.AddSingleton<IChannelsView>(new TestChannelsView());
+        context.Services.AddSingleton<IRecordingAdmin>(new TestRecordingAdmin());
         context.Services.AddSingleton<IProgressStore>(new TestProgressStore());
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddSingleton<ILibraryView>(view);

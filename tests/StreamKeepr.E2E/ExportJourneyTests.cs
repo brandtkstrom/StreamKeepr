@@ -21,6 +21,11 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         await export.WaitForAsync();
         await export.ClickAsync();
 
+        // Wait for the card to rehydrate the queued job before checking the delete guard.
+        await page.Locator("[data-export-row]").WaitForAsync();
+        ILocator delete = page.Locator("button[data-delete]");
+        Assert.True(await delete.IsDisabledAsync(), "an active export blocks delete");
+
         // The row walks Queued/Running to MP4 ready; the button stays disabled while active.
         ILocator download = page.Locator("a[data-export-download]");
         await download.WaitForAsync(new() { Timeout = 60_000 });

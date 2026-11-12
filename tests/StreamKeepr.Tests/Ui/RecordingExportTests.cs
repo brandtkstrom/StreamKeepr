@@ -221,6 +221,7 @@ public sealed class RecordingExportTests
         exports = new TestExportService();
         context.Services.AddSingleton<IExportService>(exports);
         context.Services.AddSingleton<IChannelsView>(new TestChannelsView());
+        context.Services.AddSingleton<IRecordingAdmin>(new TestRecordingAdmin());
         BunitAuthorizationContext auth = context.AddAuthorization();
         if (signedIn)
             auth.SetAuthorized("mock_admin");

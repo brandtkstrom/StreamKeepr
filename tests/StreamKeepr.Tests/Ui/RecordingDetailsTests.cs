@@ -270,6 +270,7 @@ public sealed class RecordingDetailsTests
         context.Services.AddScoped<PlayerBridge>();
         context.Services.AddSingleton<IExportService>(new TestExportService());
         context.Services.AddSingleton<IChannelsView>(new TestChannelsView());
+        context.Services.AddSingleton<IRecordingAdmin>(new TestRecordingAdmin());
         context.AddAuthorization().SetNotAuthorized();
         return context;
     }
