@@ -9,8 +9,11 @@ namespace StreamKeepr.E2E;
 /// Measures the all-DOM library (E-19) near the contract's ~2,000 flattened items (#110) and
 /// writes the numbers to <c>library-scale.txt</c>. The budgets sit well above the measured
 /// values: they catch a regression that would justify virtualization, not normal CI jitter.
+/// The test runs alone, after the parallel classes, so it measures the library rather than
+/// other test apps competing for the runner's CPU.
 /// </summary>
 [Trait("Category", "E2E")]
+[Collection(LibraryScaleCollection.Name)]
 public sealed class LibraryScaleJourneyTests : IAsyncLifetime
 {
     private const int ArchiveCount = 1000;
@@ -193,4 +196,15 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
         await page.WaitForFunctionAsync(predicate, arg, new() { Timeout = 30_000, PollingInterval = 10 });
         return await page.EvaluateAsync<double>("() => performance.now()") - start;
     }
+}
+
+/// <summary>
+/// Runs <see cref="LibraryScaleJourneyTests"/> with no other test class in parallel. On CI,
+/// a warm load measured 0.9–1.6 s while other classes ran beside it, and once 2.4 s
+/// (run 43210166704), against about 0.3 s locally.
+/// </summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class LibraryScaleCollection
+{
+    public const string Name = "LibraryScale";
 }
