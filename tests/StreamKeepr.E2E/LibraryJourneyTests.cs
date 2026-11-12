@@ -122,6 +122,37 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     }
 
     [Fact]
+    public async Task Clicking_a_streamer_hides_and_restores_its_recordings()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        ILocator group = page.Locator("nav#sk-drawer .sk-group").First;
+        ILocator head = group.Locator(".sk-group-head");
+        ILocator body = group.Locator(".sk-group-body");
+        ILocator firstRow = body.Locator("a.sk-row").First;
+
+        Assert.Equal("true", await head.GetAttributeAsync("aria-expanded"));
+        Assert.True(await firstRow.IsVisibleAsync());
+
+        await head.ClickAsync();
+        await Expect(async () => await head.GetAttributeAsync("aria-expanded") == "false" ? 1 : 0, 1);
+        await Expect(
+            async () => await body.EvaluateAsync<bool>("b => b.getBoundingClientRect().height < 1") ? 1 : 0,
+            1);
+        Assert.NotNull(await body.GetAttributeAsync("inert"));
+
+        await head.ClickAsync();
+        await Expect(async () => await head.GetAttributeAsync("aria-expanded") == "true" ? 1 : 0, 1);
+        await Expect(
+            async () => await body.EvaluateAsync<bool>("b => b.getBoundingClientRect().height > 0") ? 1 : 0,
+            1);
+        Assert.Null(await body.GetAttributeAsync("inert"));
+
+        await firstRow.ClickAsync();
+        await page.WaitForURLAsync(url => url.Contains("/r/", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Rail_sort_menu_opens_right_and_remains_usable()
     {
         await using Session session = await OpenAsync(app.BaseUrl);

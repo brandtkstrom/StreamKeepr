@@ -172,7 +172,8 @@ mark.sk-hl { background: var(--highlight); color: var(--on-highlight); border-ra
 .sk-group[aria-expanded="false"] .chev, .sk-group-head[aria-expanded="false"] .chev { transform: rotate(-90deg); }
 .sk-group-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 300ms cubic-bezier(0.2, 0, 0, 1); }
 .sk-group-body > div { min-height: 0; overflow: hidden; }
-.sk-group[aria-expanded="false"] .sk-group-body { grid-template-rows: 0fr; }
+.sk-group[aria-expanded="false"] .sk-group-body,
+.sk-group-head[aria-expanded="false"] + .sk-group-body { grid-template-rows: 0fr; }
 .sk-day { padding: var(--space-2) var(--space-2) var(--space-1); color: var(--on-surface-variant); font: var(--text-label-medium); }
 
 .sk-row {
