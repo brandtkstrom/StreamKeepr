@@ -1,8 +1,10 @@
 # syntax=docker/dockerfile:1
 
 # SDK 10.0.103 is the newest published 10.0.1xx tag. Bump this and the
-# runtime pin together, deliberately.
-FROM mcr.microsoft.com/dotnet/sdk:10.0.103 AS build
+# runtime pin together, deliberately. The build stage runs on the builder's own
+# platform: the publish output is portable (no app host), so a multi-arch build
+# compiles once instead of under emulation.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0.103 AS build
 WORKDIR /src
 COPY src/StreamKeepr/StreamKeepr.csproj src/StreamKeepr/
 RUN dotnet restore src/StreamKeepr/StreamKeepr.csproj
