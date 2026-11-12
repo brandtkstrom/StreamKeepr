@@ -41,8 +41,10 @@ Use the design system's `.sk-shell` structure:
         details slot
 ```
 
-- Top app bar: menu toggle, type-only wordmark with REC dot, search slot, storage meter, schedule stub, settings, auth slot last.
+- Top app bar: menu toggle, type-only wordmark linking to `/` with REC dot, search slot, storage meter, schedule stub, settings, auth slot last.
+- The wordmark returns to the default library home: it clears `q`/`state`/`sort`, closes the selected recording, preserves the drawer mode, and exits theater on the empty home because theater hides the drawer.
 - REC dot is lit while any streamer is recording; storage meter turns `warning` below 10% free.
+- The main column has 24px (`--space-6`) top padding below the app bar on every route, breakpoint, and theater mode; it scrolls with the content.
 - Drawer: expanded 320px, rail 72px, hidden. The menu toggles expanded ↔ rail. Theater hides the drawer and sets the main column to `surface-container-lowest`.
 - Below 960px the drawer is modal over `scrim` with `elevation-3`, opened from the menu; below 600px stats tiles stack (stats implementation later).
 - The player column order is fixed: player → stats → details. The layout provides slots/placeholders; the feature tickets fill them.

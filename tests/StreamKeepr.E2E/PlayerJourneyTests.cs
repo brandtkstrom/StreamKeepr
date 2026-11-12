@@ -78,6 +78,53 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     }
 
     [Fact]
+    public async Task Clicking_the_video_frame_toggles_playback()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        ILocator saved = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").First;
+        string id = (await saved.GetAttributeAsync("data-recording-id"))!;
+        await saved.ClickAsync();
+        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+
+        await page.Locator("[data-sk='center']").ClickAsync();
+        await page.WaitForFunctionAsync("!document.querySelector('[data-sk=video]').paused");
+
+        ILocator video = page.Locator("[data-sk='video']");
+        LocatorBoundingBoxResult box = (await video.BoundingBoxAsync())!;
+        await page.Mouse.ClickAsync(box.X + box.Width / 2, box.Y + box.Height / 2);
+        Assert.True(await Video(page, "v => v.paused"), "a frame click pauses playback");
+
+        // Paused, the centre play surface covers the frame and resumes.
+        await page.Locator("[data-sk='center']").ClickAsync();
+        await page.WaitForFunctionAsync("!document.querySelector('[data-sk=video]').paused");
+        await page.Mouse.ClickAsync(box.X + box.Width / 2, box.Y + box.Height / 2);
+        Assert.True(await Video(page, "v => v.paused"), "a second frame click pauses again");
+    }
+
+    [Fact]
+    public async Task Touch_tap_reveals_controls_without_toggling_playback()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl, hasTouch: true);
+        IPage page = session.Page;
+        ILocator saved = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").First;
+        string id = (await saved.GetAttributeAsync("data-recording-id"))!;
+        await saved.ClickAsync();
+        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+
+        await page.Locator("[data-sk='center']").TapAsync();
+        await page.WaitForFunctionAsync("!document.querySelector('[data-sk=video]').paused");
+
+        LocatorBoundingBoxResult box = (await page.Locator("[data-sk='video']").BoundingBoxAsync())!;
+        await page.Touchscreen.TapAsync(box.X + box.Width / 2, box.Y + box.Height / 2);
+        await page.WaitForTimeoutAsync(500);
+
+        Assert.False(await Video(page, "v => v.paused"), "a touch tap must not toggle playback");
+    }
+
+    [Fact]
     public async Task A_failing_playlist_retries_then_offers_retry_that_recovers()
     {
         await using Session session = await OpenAsync(app.BaseUrl);

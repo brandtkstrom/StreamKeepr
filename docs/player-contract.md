@@ -13,7 +13,7 @@ The stitched `index.m3u8` is a **single media playlist**, not a multi-variant ma
 ## 2. Composition and ownership
 
 - `Home.razor` resolves the selected recording through `ILibraryView.Find` and renders the player column in the fixed order player → stats → details.
-- `VideoPlayer.razor` renders the complete player skeleton once: a `<video>` with no native controls, `playsinline`, `preload="metadata"`, and the thumbnail as poster; the title strip, centre play/replay, seek bar, control bar, menus, spinner, and error overlay. It has no player-click handlers.
+- `VideoPlayer.razor` renders the complete player skeleton once: a `<video>` with no native controls, `playsinline`, `preload="metadata"`, and the thumbnail as poster; the title strip, centre play/replay, seek bar, control bar, menus, spinner, and error overlay. A mouse/pen click on the video frame toggles play/pause; controls, links, and menus keep their own click behaviour.
 - `VideoPlayer.razor.js` owns hls.js, every player control, all dynamic player DOM, idle state, keyboard handling, progress timing, and error recovery. It calls .NET only for progress, `sk-ui` preferences, and the stats snackbar.
 - After the first interactive render, `VideoPlayer` returns `ShouldRender() => false`. Parameter changes call the JS module (`load`/`update`) but never re-render the player markup, so Blazor cannot overwrite JS-owned attributes, classes, text, or SVG children.
 - `StatsPanel.razor` likewise renders its skeleton once; `stats.js` owns the open state, values, sparklines, and copy button. The panel's switch exposes `aria-checked` from `UiPreferences.StatsOpen`; the section carries a non-ARIA `data-open` hook for the 300 ms collapse. A section-level `aria-expanded` is deliberately not used because ARIA does not allow it on a generic section (axe reports `aria-allowed-attr`); the switch and the inert body carry the state. The switch is a button containing only phrasing content, with the panel heading outside it, because a heading is invalid button content.
@@ -97,7 +97,7 @@ Control order, left to right, matches the design system:
 ## 6. Idle, overlays, and focus
 
 - The title strip, centre control, and control bar fade after 3 s without pointer movement while playing. Idle is not applied while paused, while focus is inside the player, or while a menu is open; the cursor hides with the overlays.
-- `pointermove`, `pointerdown`, `keydown`, and `focusin` reset the timer and reveal the overlays. Touch taps reveal them. No click-to-toggle on the video frame; the centre/control play button is the play surface.
+- `pointermove`, `pointerdown`, `keydown`, and `focusin` reset the timer and reveal the overlays. A mouse/pen click on the video frame toggles play/pause; a touch tap only reveals the controls. The centre/control play button remains the keyboard and accessible play surface, and clicks on controls never bubble into a frame toggle.
 - Reduced motion removes the fade transitions but not the hide behaviour.
 - Focus order follows the DOM: centre play (when visible), seek bar, play, skip, volume, live edge, speed, stats, PiP, theater, fullscreen. Menus return focus to their trigger. The error overlay focuses Retry; the player regains focus after a successful retry.
 - The status chip (`Rec`, `Reconnecting`, `Partial`) is a polite live region; timecode and stats values are not. Errors use `role="alert"`.

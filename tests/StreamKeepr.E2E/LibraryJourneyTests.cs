@@ -122,6 +122,68 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     }
 
     [Fact]
+    public async Task Rail_sort_menu_opens_right_and_remains_usable()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        ILocator drawer = page.Locator("nav#sk-drawer");
+        ILocator trigger = page.GetByRole(AriaRole.Button, new() { Name = "Library options" });
+        ILocator menu = page.Locator("[role='menu']:not([hidden])");
+
+        // The expanded drawer keeps opening the menu leftward.
+        await trigger.ClickAsync();
+        await menu.WaitForAsync();
+        LocatorBoundingBoxResult expandedTrigger = (await trigger.BoundingBoxAsync())!;
+        LocatorBoundingBoxResult expandedMenu = (await menu.BoundingBoxAsync())!;
+        Assert.True(expandedMenu.X < expandedTrigger.X, "expanded menu opens leftward");
+        await page.Keyboard.PressAsync("Escape");
+
+        await page.Locator("[data-drawer-toggle]").ClickAsync();
+        await Expect(
+            async () => await drawer.GetAttributeAsync("class") is { } c && c.Contains("rail") ? 1 : 0, 1);
+
+        await trigger.ClickAsync();
+        await menu.WaitForAsync();
+
+        double[] geometry = await page.EvaluateAsync<double[]>("""
+            () => {
+              const menu = document.querySelector("[role='menu']:not([hidden])");
+              const trigger = document.querySelector("[aria-label='Library options']");
+              const drawer = document.querySelector('#sk-drawer');
+              if (!menu || !trigger || !drawer) return [];
+              const m = menu.getBoundingClientRect();
+              const t = trigger.getBoundingClientRect();
+              const d = drawer.getBoundingClientRect();
+              const hit = document.elementFromPoint(m.left + m.width - 8, m.top + m.height / 2);
+              return [
+                m.left, m.top, m.width, m.height,
+                t.left, t.width,
+                d.left, d.width,
+                hit?.closest("[role=menu]:not([hidden])") ? 1 : 0,
+              ];
+            }
+            """);
+        Assert.Equal(9, geometry.Length);
+
+        double menuLeft = geometry[0];
+        double menuWidth = geometry[2];
+        double triggerLeft = geometry[4];
+        double drawerLeft = geometry[6];
+        double drawerWidth = geometry[7];
+        bool hit = geometry[8] == 1;
+
+        Assert.True(menuLeft >= triggerLeft - 1, "rail menu opens rightward");
+        Assert.True(
+            menuLeft + menuWidth > drawerLeft + drawerWidth,
+            "rail menu extends past the drawer");
+        Assert.True(hit, "the rail menu is not clipped by the drawer");
+
+        await page.GetByRole(AriaRole.Menuitem, new() { Name = "Oldest first" }).ClickAsync();
+        await page.WaitForURLAsync(url => url.Contains("sort=oldest", StringComparison.Ordinal));
+        await AssertAxeCleanAsync(page, "library-rail-sort-menu");
+    }
+
+    [Fact]
     public async Task A_dropped_connection_shows_the_quiet_note_not_the_modal()
     {
         // Offline emulation does not close a socket that is already open, so record the
@@ -174,13 +236,14 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     }
 
     internal static async Task<Session> OpenAsync(
-        string url, ViewportSize? viewport = null, string? initScript = null)
+        string url, ViewportSize? viewport = null, string? initScript = null, bool hasTouch = false)
     {
         IPlaywright playwright = await Playwright.CreateAsync();
         IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
         IBrowserContext context = await browser.NewContextAsync(new BrowserNewContextOptions
         {
             ViewportSize = viewport ?? new ViewportSize { Width = 1280, Height = 820 },
+            HasTouch = hasTouch,
         });
         if (initScript is not null)
             await context.AddInitScriptAsync(initScript);

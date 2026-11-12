@@ -59,6 +59,7 @@ This contract covers the library drawer, grouping and day headers, search/filter
 - `RecordingRow`: thumbnail (16:9, duration badge in timecode), resume bar in `primary` when `ResumeSec` exists, live bar in `rec` while Recording, two-line title, meta line, status chip except Saved; selected row `aria-current="true"` with `secondary-container` and the thumbnail ring; the row is `<a href="/r/{id}">` and works with or without the circuit.
 - `DayHeader`: not focusable; hidden when its group/filter is empty.
 - `LibraryRail`: avatars only, live ring; clicking expands the drawer and scrolls to the group; keyboard-reachable; one tab stop per rail item or roving focus consistent with the tree.
+- In the desktop rail, the drawer header's sort menu opens rightward so it remains visible over the main column; the expanded drawer keeps the leftward alignment, and the mobile modal drawer is unchanged.
 - The drawer lives in the layout and survives navigation; selecting a recording preserves drawer scroll. Changing search/filter/sort resets the list to the top; on load, the selected row scrolls into view.
 - Loading: skeleton rows until `RecordingLibrary.IsLoaded`. Empty library: “No recordings yet”. No-results: “No recordings match”. The `AppShell`/`Home` owns the unknown `/r/{id}` message.
 

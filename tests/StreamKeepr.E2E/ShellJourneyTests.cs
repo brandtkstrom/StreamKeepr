@@ -2,6 +2,7 @@ using System.Globalization;
 using Deque.AxeCore.Commons;
 using Deque.AxeCore.Playwright;
 using Microsoft.Playwright;
+using static StreamKeepr.E2E.LibraryJourneyTests;
 
 namespace StreamKeepr.E2E;
 
@@ -57,6 +58,10 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 State = WaitForSelectorState.Attached,
             });
             Assert.Equal(3, await main.Locator("[data-slot]").CountAsync());
+            Assert.Equal(
+                "24px",
+                await page.EvaluateAsync<string>(
+                    "getComputedStyle(document.querySelector('main.sk-main')).paddingTop"));
 
             // The shell must be styled, not just parsed: an empty static-asset body would
             // still leave the DOM present while axe color-contrast checks see no CSS.
@@ -84,6 +89,33 @@ public sealed class ShellJourneyTests(MockAppFixture app)
         {
             await context.Tracing.StopAsync(new TracingStopOptions { Path = tracePath });
         }
+    }
+
+    [Fact]
+    public async Task Wordmark_returns_home_clears_query_and_exits_theater()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+
+        await page.Locator("input[data-search-input]").FillAsync("NIGHT");
+        await page.WaitForURLAsync(url => url.Contains("q=NIGHT", StringComparison.Ordinal));
+        await page.Locator("nav#sk-drawer a.sk-row").First.ClickAsync();
+        await page.WaitForURLAsync(url => url.Contains("/r/", StringComparison.Ordinal));
+        await page.Locator("[data-sk='seek'][aria-disabled='false']")
+            .WaitForAsync(new() { Timeout = 20_000 });
+
+        await page.Locator("[data-sk='theater']").ClickAsync();
+        await page.Locator(".sk-shell.theater").WaitForAsync();
+
+        await page.Locator("a.sk-wordmark").ClickAsync();
+        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/");
+
+        await page.Locator(".sk-shell:not(.theater)").WaitForAsync();
+        Assert.Equal("", await page.Locator("input[data-search-input]").InputValueAsync());
+        Assert.Equal("newest", await page.Locator(".sk-sort").GetAttributeAsync("data-sort"));
+        Assert.True(await page.Locator("nav#sk-drawer").IsVisibleAsync());
+
+        await AssertAxeCleanAsync(page, "shell-wordmark-home");
     }
 
     [Fact]

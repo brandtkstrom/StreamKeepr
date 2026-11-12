@@ -58,6 +58,7 @@ else
 
     private string? _lastRecordingId;
     private bool _resolved;
+    private bool _theaterResetPending;
 
     private RecordingView? Selected =>
         RecordingId is not null && Library.IsLoaded ? Library.Find(RecordingId) : null;
@@ -66,6 +67,14 @@ else
 
     protected override void OnParametersSet()
     {
+        // Theater hides the drawer and the empty home has no player, so leaving it
+        // on would show a blank main column. The layout preference is not useful here.
+        if (RecordingId is null && Preferences.Theater)
+        {
+            Preferences.SetTheater(false);
+            _theaterResetPending = true;
+        }
+
         if (!string.Equals(_lastRecordingId, RecordingId, StringComparison.Ordinal))
         {
             _lastRecordingId = RecordingId;
@@ -75,6 +84,15 @@ else
         {
             _resolved = true;
         }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_theaterResetPending)
+            return;
+
+        _theaterResetPending = false;
+        await Preferences.PersistAsync();
     }
 
     private void OnLibraryChanged() => _ = InvokeAsync(ReactToLibraryChange);
