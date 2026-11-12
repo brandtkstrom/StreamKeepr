@@ -131,9 +131,13 @@ public sealed class ExportService : BackgroundService, IExportService
                 return active;
 
             job = new ExportJob(Guid.NewGuid().ToString("N"), recordingId, ExportState.Queued, 0, null, null);
+
+            // Acquire before publishing the job: a delete guard throws here, and no queued
+            // job or stale lease entry may survive the refusal.
+            IDisposable lease = _leases.Acquire(recordingId);
             _jobs[job.Id] = job;
             _latestByRecording[recordingId] = job.Id;
-            _held[job.Id] = _leases.Acquire(recordingId);
+            _held[job.Id] = lease;
         }
 
         _probeQueue.Writer.TryWrite(job.Id);

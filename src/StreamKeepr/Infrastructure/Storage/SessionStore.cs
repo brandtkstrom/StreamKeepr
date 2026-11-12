@@ -51,6 +51,10 @@ public sealed class SessionStore(
         return _locks.GetOrAdd(directory, _ => new SemaphoreSlim(1, 1));
     }
 
+    /// <summary>Removes the lock entry once its session folder has been deleted.</summary>
+    public void ForgetLock(string sessionDir) =>
+        _locks.TryRemove(Normalize(sessionDir), out _);
+
     /// <summary>
     /// Creates a session, or reopens the existing one. Never overwrites an existing manifest or
     /// its metadata history.

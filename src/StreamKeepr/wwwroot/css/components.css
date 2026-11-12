@@ -548,6 +548,10 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 .sk-dialog-content { font: var(--text-body-medium); }
 .sk-dialog-content p { margin: 0; }
 .sk-dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); flex-wrap: wrap; }
+.sk-error-banner {
+  margin: 0; padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm);
+  background: var(--error-container); color: var(--on-error-container); font: var(--text-body-medium);
+}
 
 /* ---------- snackbar ---------- */
 .sk-snackbar-host {
