@@ -87,7 +87,7 @@ This is recorded as E-19 in the plan-review register.
 
 | Measure | Result | Budget |
 | --- | --- | --- |
-| Cold first byte, first page after the app starts | 112 ms | 2 s |
+| Cold first byte, first page after the app starts (measured 2026-11-12) | 112 ms | 2 s |
 | Warm load, all rows and circuit ready (median of 3) | 312 ms (first byte 17 ms, 525 KB HTML) | 2 s |
 | Search to one row, including the 250 ms debounce | 281 ms | 2 s |
 | Clear search back to all rows (re-renders the whole list) | 115 ms | 3 s |
@@ -95,7 +95,7 @@ This is recorded as E-19 in the plan-review register.
 | Sort to Oldest first, including opening the menu | 159 ms | 3 s |
 | Scroll top to bottom in 60 steps, slowest frame | 18.5 ms; no frame over 50 ms | 250 ms |
 
-Timings include Playwright round trips, so they err slow. Budgets are several times the measured values, so they catch a regression without failing on CI jitter. Clearing a search re-renders all 2,019 items, which is also the worst case for a live `Changed` update; the live feed is off during the run so the counts stay fixed. In a one-off run with `content-visibility` removed, the library was ready in 379 ms with the same search and scroll numbers. **E-19 stands:** nothing here calls for virtualization. An earlier run reported about 6 s to the first byte of the first page. That time was spent in Chrome before it connected: it was looking up the Mac's auto-detect proxy (WPAD/PAC). The app itself answers its first request in about 85 ms in both Debug and Release. The E2E browser now launches with `--no-proxy-server`.
+Timings include Playwright round trips, so they err slow. Budgets are several times the measured values, so they catch a regression without failing on CI jitter. Clearing a search re-renders all 2,019 items, which is also the worst case for a live `Changed` update; the live feed is off during the run so the counts stay fixed. In a one-off run with `content-visibility` removed, the library was ready in 379 ms with the same search and scroll numbers. **E-19 stands:** nothing here calls for virtualization. An earlier run reported about 6 s to the first byte of the first page. That time was spent in Chrome before it connected: it was looking up the Mac's auto-detect proxy (WPAD/PAC). Timed with `curl` right after `/health/ready`, the app answers its first request in about 85 ms in both Debug and Release; the table's 112 ms is the browser's view, which adds Chrome's own request setup. The E2E browser now launches with `--no-proxy-server`.
 
 ## 8. Live updates
 
