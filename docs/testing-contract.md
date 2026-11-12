@@ -124,7 +124,7 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 - **Coverage:** collect it (`coverlet` or `dotnet test --collect`); no percentage gate initially. Add a threshold once the pure core is covered; do not block early work on an arbitrary number.
 - **Performance:** enforce the plan's first-paint JS budget (≤ 200 KB gzipped, including `blazor.web.js`) once the frontend exists. hls.js and the player module load only on recording pages. CI fails over budget.
 - **Accessibility:** axe (`Deque.AxeCore.Playwright`) clean on every E2E screen; a keyboard-only journey reaches every control; reduced motion stops the REC pulse and collapse animations.
-- **Visual regression:** blocked until the design-system previews exist (B-06/D-06). Once available, screenshots at 1280×820 and 375×812; diffs over 0.1% fail; Settings baselines require F11.
+- **Visual regression:** dropped for now (2026-11-12, #106). There is no screenshot gate; layout and styling are covered by bUnit markup tests, axe, and the E2E journeys. The harness built for it is kept unmerged on branch `test/106-visual-baselines` if the gate comes back.
 - **No automatic retries** for unit, integration, or E2E. A flaky test is fixed or quarantined with a linked issue and a deadline; quarantine is explicit and reported, never a silent skip.
 - Do not delete, skip, or weaken tests to make a build pass.
 
@@ -138,7 +138,7 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 | Runtime | Command order; open failure skip; finalize failure; job overrun fatal; retry timer; disk full; channel add/remove/stop/resume; Helix validation; seeded failure; control gate; shutdown |
 | Twitch/auth | Token cache/refresh/401; poller batch/Unknown/offline/profile; schedule/coverage; EventSub welcome/refusal/reconnect/backoff; allowlist empty/configured; callback/HTTPS/cookie/logout; token encryption/rotation/clear/wait; subscriber token |
 | Hosting | Media allowlist/traversal/content types/cache/Range; live vs final index; health push-aware/readiness; Data Protection persistence; preflight; endpoint auth |
-| Frontend | bUnit primitives and feature components; Vitest helpers/player logic; Playwright journeys; axe/keyboard; visual later |
+| Frontend | bUnit primitives and feature components; Vitest helpers/player logic; Playwright journeys; axe/keyboard |
 | Container | Build; non-root; health; deep links; volume; secrets; stop finalize; restart recovery |
 
 ## 10. Failure modes
@@ -151,7 +151,6 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 | Docker unavailable | Docker job fails; runner must provide Docker |
 | Test writes outside temp | Test fails review; cleanup guard |
 | Flaky test | No retry; fix or quarantine with an issue |
-| Visual preview missing | Visual test remains blocked and reported; other E2E runs |
 | Coverage below future threshold | Gate once introduced, not before |
 
 ## 11. Binding versus implementation freedom

@@ -131,7 +131,7 @@ Vitest:
 Playwright:
 
 - Drawer expand/rail/theater; search debounce/highlight/clear; filters; sort; keyboard tree; rail jump; reload restores `sk-ui`/URL; live update/reconnect note; axe clean; keyboard-only.
-- Visual regression follows when baselines are available.
+- No visual regression; it is dropped for now (#106).
 
 No automatic retries; flaky tests are fixed or quarantined per the testing contract.
 
