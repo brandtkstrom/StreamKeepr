@@ -16,7 +16,7 @@ concurrency:
 jobs:
   dotnet:
     name: Build and test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
 
     steps:
@@ -75,7 +75,7 @@ jobs:
 
   js:
     name: JS lint and test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
 
     defaults:
@@ -104,7 +104,7 @@ jobs:
 
   docker:
     name: Docker image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
 
     steps:
@@ -218,7 +218,7 @@ jobs:
 
   e2e:
     name: E2E (Mock profile)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 25
 
     steps:
@@ -292,7 +292,7 @@ jobs:
 
   compose:
     name: Compose deployment
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
 
     steps:
