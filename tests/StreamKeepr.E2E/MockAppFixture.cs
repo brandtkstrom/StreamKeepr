@@ -35,6 +35,7 @@ public sealed class MockAppFixture : IAsyncLifetime
         LazyThreadSafetyMode.ExecutionAndPublication);
 
     private readonly ConcurrentQueue<string> _logs = new();
+    private readonly IReadOnlyDictionary<string, string> _environment;
     private readonly string _tempRoot = SuiteTempPath(Guid.NewGuid().ToString("N"));
     private Process? _process;
     private string? _logPath;
@@ -44,9 +45,13 @@ public sealed class MockAppFixture : IAsyncLifetime
     {
     }
 
-    internal MockAppFixture(string? artifactsName)
+    /// <param name="artifactsName">Subfolder for this fixture's artifacts.</param>
+    /// <param name="environment">Extra app settings, for example a larger Mock seed.</param>
+    internal MockAppFixture(
+        string? artifactsName, IReadOnlyDictionary<string, string>? environment = null)
     {
         ArtifactsDirectory = ResolveArtifactsDirectory(artifactsName);
+        _environment = environment ?? new Dictionary<string, string>();
     }
 
     public string RepositoryRoot { get; } = FindRepositoryRoot();
@@ -87,6 +92,8 @@ public sealed class MockAppFixture : IAsyncLifetime
             // Exports run at 6x real time so the cancel/retry journey can catch one Running.
             startInfo.Environment["Recorder__FfmpegPath"] =
                 Path.Combine(RepositoryRoot, "tests", "fixtures", "slow-export-ffmpeg");
+            foreach ((string name, string value) in _environment)
+                startInfo.Environment[name] = value;
 
             _process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             _process.OutputDataReceived += (_, args) => Capture(args.Data);

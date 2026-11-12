@@ -177,8 +177,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         string url, ViewportSize? viewport = null, string? initScript = null)
     {
         IPlaywright playwright = await Playwright.CreateAsync();
-        IBrowser browser = await playwright.Chromium.LaunchAsync(
-            new BrowserTypeLaunchOptions { Channel = "chrome", Headless = true });
+        IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
         IBrowserContext context = await browser.NewContextAsync(new BrowserNewContextOptions
         {
             ViewportSize = viewport ?? new ViewportSize { Width = 1280, Height = 820 },

@@ -83,6 +83,20 @@ The plan's `<Virtualize>` over a flattened list of variable-height group heads, 
 
 This is recorded as E-19 in the plan-review register.
 
+**Measured 2026-11-11 (#110).** `LibraryScaleJourneyTests` seeds 1,008 recordings (2,019 flattened items: 4 groups, 1,007 day headers, 1,008 rows) and writes `library-scale.txt` on each E2E run. Local Chrome, 1280×820:
+
+| Measure | Result | Budget |
+| --- | --- | --- |
+| Cold first byte, first page after the app starts | 112 ms | 2 s |
+| Warm load, all rows and circuit ready (median of 3) | 312 ms (first byte 17 ms, 525 KB HTML) | 2 s |
+| Search to one row, including the 250 ms debounce | 281 ms | 2 s |
+| Clear search back to all rows (re-renders the whole list) | 115 ms | 3 s |
+| State filter to Saved | 71 ms | 3 s |
+| Sort to Oldest first, including opening the menu | 159 ms | 3 s |
+| Scroll top to bottom in 60 steps, slowest frame | 18.5 ms; no frame over 50 ms | 250 ms |
+
+Timings include Playwright round trips, so they err slow. Budgets are several times the measured values, so they catch a regression without failing on CI jitter. Clearing a search re-renders all 2,019 items, which is also the worst case for a live `Changed` update; the live feed is off during the run so the counts stay fixed. In a one-off run with `content-visibility` removed, the library was ready in 379 ms with the same search and scroll numbers. **E-19 stands:** nothing here calls for virtualization. An earlier run reported about 6 s to the first byte of the first page. That time was spent in Chrome before it connected: it was looking up the Mac's auto-detect proxy (WPAD/PAC). The app itself answers its first request in about 85 ms in both Debug and Release. The E2E browser now launches with `--no-proxy-server`.
+
 ## 8. Live updates
 
 - `ILibraryView.Changed` coalesces `RecordingLibrary`, `DvrStatus`, `ProgressStore`, and `StorageMonitor` changes and fires at most every 500 ms, only when the visible state differs.

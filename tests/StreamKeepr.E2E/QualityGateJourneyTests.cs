@@ -20,8 +20,7 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
     public async Task First_paint_js_fits_the_budget_and_the_player_loads_only_on_recording_pages()
     {
         using IPlaywright playwright = await Playwright.CreateAsync();
-        await using IBrowser browser = await playwright.Chromium.LaunchAsync(
-            new BrowserTypeLaunchOptions { Channel = "chrome", Headless = true });
+        await using IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
         await using IBrowserContext context = await browser.NewContextAsync(
             new BrowserNewContextOptions { ViewportSize = new ViewportSize { Width = 1280, Height = 820 } });
         IPage page = await context.NewPageAsync();

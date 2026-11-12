@@ -113,6 +113,31 @@ public static class MockCatalog
         Recordings.Single(recording => recording.Channel == "mock_rain"
             && recording.StreamId == "9100008");
 
+    private static readonly string[] ArchiveGames = ["Just Chatting", "Celeste", "Elden Ring", "Music"];
+
+    /// <summary>
+    /// Extra finished recordings for measuring the library at scale (#110). Archive recording
+    /// <c>i</c> belongs to streamer <c>i % 4</c> and starts <c>7 × (i + 1)</c> hours before
+    /// <see cref="T0"/>, so each streamer gets one recording about every 28 hours and the
+    /// drawer gets a day header for nearly every row.
+    /// </summary>
+    public static IReadOnlyList<MockRecording> ArchiveRecordings(int count)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+
+        return Enumerable.Range(0, count)
+            .Select(i => new MockRecording(
+                Streamers[i % Streamers.Count].Login,
+                $"95{i:D5}",
+                $"Archive stream {i + 1}",
+                ArchiveGames[i % ArchiveGames.Length],
+                T0.AddHours(-7 * (i + 1)),
+                Parts: 1,
+                Complete: true,
+                []))
+            .ToArray();
+    }
+
     /// <summary>The recording selected when the library first opens.</summary>
     public static MockRecording Selected => Recordings[0];
 
