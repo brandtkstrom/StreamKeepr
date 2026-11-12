@@ -3035,6 +3035,8 @@ Each task is one pull request that one agent can finish without waiting on anyon
 - No raw colours, font sizes or Google Fonts requests; only tokens and `sk-` classes.
 - The Mock seeder is updated if the task uses a new field or service.
 
+**Status** was last updated on 2026-11-11 by the post-implementation conformance review (`docs/reviews/conformance-review-2026-11-11.md`). Each Done task names the issues that delivered it. From here on, GitHub issues are the source of truth for status.
+
 **Task IDs** are `F<feature>-T<n>`. "Depends on" lists the tasks that must be Done first; tasks with no shared dependency can run in parallel. IDs match the React plan wherever the task survived, so links and history still line up.
 
 ## F0 — Project foundation and design system
@@ -3043,14 +3045,14 @@ Everything else builds on these eight tasks; T1 goes first, then the rest run in
 
 | ID | Task | Depends on | Done when | Status |
 | --- | --- | --- | --- | --- |
-| F0-T1 | Scaffold the Blazor UI | — | `Components/` tree as in the folder layout; `App.razor` keeps `<ImportMap />` and the reconnect UI; routes `/` and `/r/{RecordingId}` render an empty shell; bUnit in `tests/StreamKeepr.Tests`, Vitest and ESLint in `tests/js`; build, format and test commands pass | To do |
-| F0-T2 | Bring in the design system | F0-T1 | `tokens.css`, `components.css` (from `bundle.css`, Google Fonts imports removed) and `fonts.css` (Material Symbols Rounded vendored as woff2; UI text uses the system monospace stack) served by `MapStaticAssets`; dev-only `npm run sync:ds` regenerates `tokens.css` from `tokens.json`; zero requests to fonts.googleapis.com | To do |
-| F0-T3 | LibraryView service | F0-T1, F10-T1 | `ILibraryView` merges `RecordingLibrary`, `DvrStatus`, `ProgressStore` and `StorageMonitor` into the view models; derives `RecordingState` by the table above; throttles `Changed` to 500 ms; unit tests cover each state and a session moving from Recording to Reconnecting | To do |
-| F0-T4 | Mock launch profile | F0-T3 | `Mock` profile registers `MockSeeder` (4 streamers, 8 recordings including a finished VOD, a two-part partial and a growing EVENT capture fed by the v3 fake Streamlink) and `MockPoller` in place of Helix; runs with no Twitch credentials | To do |
-| F0-T5 | Design-system primitives | F0-T2 | `Button`, `IconButton`, `Icon`, `Chip`, `StatusChip`, `Avatar`, `Collapsible`, `Switch`, `Menu`, `Tooltip` as Razor components wrapping the `sk-` classes with correct ARIA; `/dev/components` (Development only) shows each matching its preview | To do |
-| F0-T6 | Dialog and snackbar | F0-T5 | `Dialog` opens a `<dialog>` with `showModal()` through a small JS helper, so focus is trapped and Esc closes it; scoped `SnackbarService` queues messages on `inverse-surface` with one action | To do |
-| F0-T7 | Preferences | F0-T1 | Scoped `UiPreferences` read from the `sk-ui` cookie at prerender and written by `prefs.js`; holds drawer mode, panel states, theater and collapsed streamers; a missing or malformed cookie falls back to defaults | To do |
-| F0-T8 | Formatting and viewer clock | F0-T1 | `Format.Timecode` (1:02:13), `Duration` (2h 14m), `DayHeader` (Today, Yesterday, Wed, Nov 4), `Bytes` (9.8 GB); scoped `ViewerClock` reads the `sk-tz` cookie, and on a first visit re-renders once the circuit reports the browser's zone; unit tests include DST edges; a JS `timecode` twin for the player | To do |
+| F0-T1 | Scaffold the Blazor UI | — | `Components/` tree as in the folder layout; `App.razor` keeps `<ImportMap />` and the reconnect UI; routes `/` and `/r/{RecordingId}` render an empty shell; bUnit in `tests/StreamKeepr.Tests`, Vitest and ESLint in `tests/js`; build, format and test commands pass | Done (#20, #53) |
+| F0-T2 | Bring in the design system | F0-T1 | `tokens.css`, `components.css` (from `bundle.css`, Google Fonts imports removed) and `fonts.css` (Material Symbols Rounded vendored as woff2; UI text uses the system monospace stack) served by `MapStaticAssets`; dev-only `npm run sync:ds` regenerates `tokens.css` from `tokens.json`; zero requests to fonts.googleapis.com | Done (#53) |
+| F0-T3 | LibraryView service | F0-T1, F10-T1 | `ILibraryView` merges `RecordingLibrary`, `DvrStatus`, `ProgressStore` and `StorageMonitor` into the view models; derives `RecordingState` by the table above; throttles `Changed` to 500 ms; unit tests cover each state and a session moving from Recording to Reconnecting | Done (#56) |
+| F0-T4 | Mock launch profile | F0-T3 | `Mock` profile registers `MockSeeder` (4 streamers, 8 recordings including a finished VOD, a two-part partial and a growing EVENT capture fed by the v3 fake Streamlink) and `MockPoller` in place of Helix; runs with no Twitch credentials | Done (#55) |
+| F0-T5 | Design-system primitives | F0-T2 | `Button`, `IconButton`, `Icon`, `Chip`, `StatusChip`, `Avatar`, `Collapsible`, `Switch`, `Menu`, `Tooltip` as Razor components wrapping the `sk-` classes with correct ARIA; `/dev/components` (Development only) shows each matching its preview | Done (#54) |
+| F0-T6 | Dialog and snackbar | F0-T5 | `Dialog` opens a `<dialog>` with `showModal()` through a small JS helper, so focus is trapped and Esc closes it; scoped `SnackbarService` queues messages on `inverse-surface` with one action | Done (#54) |
+| F0-T7 | Preferences | F0-T1 | Scoped `UiPreferences` read from the `sk-ui` cookie at prerender and written by `prefs.js`; holds drawer mode, panel states, theater and collapsed streamers; a missing or malformed cookie falls back to defaults | Done (#53) |
+| F0-T8 | Formatting and viewer clock | F0-T1 | `Format.Timecode` (1:02:13), `Duration` (2h 14m), `DayHeader` (Today, Yesterday, Wed, Nov 4), `Bytes` (9.8 GB); scoped `ViewerClock` reads the `sk-tz` cookie, and on a first visit re-renders once the circuit reports the browser's zone; unit tests include DST edges; a JS `timecode` twin for the player | Done (#53) |
 
 ## F1 — App shell and layout
 
@@ -3058,11 +3060,11 @@ The shell fixes the three regions and every collapse rule, so the feature teams 
 
 | ID | Task | Depends on | Done when | Status |
 | --- | --- | --- | --- | --- |
-| F1-T1 | AppShell layout | F0-T5, F0-T7 | `AppShell.razor` is the layout: 64px app bar, drawer slot, main column capped at 1100px and centred, player → stats → details order; matches the AppShell preview at 1280×820 | To do |
-| F1-T2 | Top app bar | F1-T1, F10-T5 | Menu toggle, type-only wordmark with REC dot (lit while any session is Recording), search slot, storage meter from `ILibraryView.Storage` (turns `warning` under 10% free), settings button opening `/settings` (F11-T1), schedule button (stub), auth slot last; `.scrolled` once the main column scrolls, set by a small JS observer | To do |
-| F1-T3 | Drawer modes and theater mode | F1-T1 | Expanded 320px, rail 72px, hidden; menu toggles expanded ↔ rail; theater hides the drawer and sets the main column to `surface-container-lowest`; state saved to `sk-ui`, so a reload renders correctly on the server with no flash | To do |
-| F1-T4 | Responsive layout | F1-T3, F0-T6 | Under 960px the drawer is modal over `scrim` (the F0-T6 dialog, for focus trap and Esc), closing after a selection; under 600px stats tiles stack; no horizontal scroll at 375px; breakpoints live in CSS only, so the server never guesses the width | To do |
-| F1-T5 | Loading, empty, error and disconnected states | F1-T1, F0-T4 | Skeleton rows until RecordingLibrary.IsLoaded turns true at the end of startup recovery; "No recordings yet" empty state; `ReconnectNotice` banner with Retry when the circuit drops (replaces "backend unreachable"); unknown `/r/{id}` shows a message and a link back | To do |
+| F1-T1 | AppShell layout | F0-T5, F0-T7 | `AppShell.razor` is the layout: 64px app bar, drawer slot, main column capped at 1100px and centred, player → stats → details order; matches the AppShell preview at 1280×820 | Done (#53) |
+| F1-T2 | Top app bar | F1-T1, F10-T5 | Menu toggle, type-only wordmark with REC dot (lit while any session is Recording), search slot, storage meter from `ILibraryView.Storage` (turns `warning` under 10% free), settings button opening `/settings` (F11-T1), schedule button (stub), auth slot last; `.scrolled` once the main column scrolls, set by a small JS observer | Done (#53) |
+| F1-T3 | Drawer modes and theater mode | F1-T1 | Expanded 320px, rail 72px, hidden; menu toggles expanded ↔ rail; theater hides the drawer and sets the main column to `surface-container-lowest`; state saved to `sk-ui`, so a reload renders correctly on the server with no flash | Done (#53) |
+| F1-T4 | Responsive layout | F1-T3, F0-T6 | Under 960px the drawer is modal over `scrim` (the F0-T6 dialog, for focus trap and Esc), closing after a selection; under 600px stats tiles stack; no horizontal scroll at 375px; breakpoints live in CSS only, so the server never guesses the width | Done (#53) |
+| F1-T5 | Loading, empty, error and disconnected states | F1-T1, F0-T4 | Skeleton rows until RecordingLibrary.IsLoaded turns true at the end of startup recovery; "No recordings yet" empty state; `ReconnectNotice` banner with Retry when the circuit drops (replaces "backend unreachable"); unknown `/r/{id}` shows a message and a link back | Done (#53) |
 
 ## F2 — Library drawer
 
@@ -3070,13 +3072,13 @@ Recordings are grouped by streamer and sorted newest first at every level: a str
 
 | ID | Task | Depends on | Done when | Status |
 | --- | --- | --- | --- | --- |
-| F2-T1 | Library view models and sort rules | F0-T3, F0-T4 | `Streamers(query)` and `Recordings(login, query)` from `ILibraryView`; a pure `LibrarySort.Sort()` puts recording streamers first, then `LastRecordedAt` desc, recordings by `StartedAt` desc; unit tests cover ties and an in-progress capture; no paging, because the whole library is in memory | To do |
-| F2-T2 | Streamer group | F2-T1, F0-T5 | Avatar (image or initials, red ring while recording), name, "14 recordings · Recording now" on one line with ellipsis, chevron; collapses independently; collapsed set saved in `sk-ui` | To do |
-| F2-T3 | Recording row | F2-T1, F0-T5, F0-T8 | Thumbnail with duration badge, resume bar (`primary`) or live bar (`rec`), two-line title, meta line, status chip except for Saved (Reconnecting uses the `warning` chip); selected row uses `aria-current`; the row is an `<a href="/r/{id}">`, so it works with or without the circuit | To do |
-| F2-T4 | Day headers | F2-T3, F0-T8 | Rows grouped under Today, Yesterday, then "Wed, Nov 4" in the viewer's time zone from `ViewerClock`; a header hides when a filter empties it | To do |
-| F2-T5 | Rail mode | F2-T2, F1-T3 | Rail shows avatars only, with the live ring; clicking one expands the drawer and scrolls to that group | To do |
-| F2-T6 | Keyboard navigation | F2-T3 | `tree-nav.js` runs the tree pattern on the rendered DOM, so focus moves without a server round-trip: ↑/↓ move between rows and group heads, ←/→ collapse and expand (the only calls back to .NET), Enter opens; one tab stop for the whole list | To do |
-| F2-T7 | Long lists | F2-T3 | Group heads, day headers and rows flattened into one list and rendered with `<Virtualize>` once over 200 rows; scroll position kept when switching recordings, because the drawer lives in the layout and survives navigation | To do |
+| F2-T1 | Library view models and sort rules | F0-T3, F0-T4 | `Streamers(query)` and `Recordings(login, query)` from `ILibraryView`; a pure `LibrarySort.Sort()` puts recording streamers first, then `LastRecordedAt` desc, recordings by `StartedAt` desc; unit tests cover ties and an in-progress capture; no paging, because the whole library is in memory | Done (#56) |
+| F2-T2 | Streamer group | F2-T1, F0-T5 | Avatar (image or initials, red ring while recording), name, "14 recordings · Recording now" on one line with ellipsis, chevron; collapses independently; collapsed set saved in `sk-ui` | Done (#56) |
+| F2-T3 | Recording row | F2-T1, F0-T5, F0-T8 | Thumbnail with duration badge, resume bar (`primary`) or live bar (`rec`), two-line title, meta line, status chip except for Saved (Reconnecting uses the `warning` chip); selected row uses `aria-current`; the row is an `<a href="/r/{id}">`, so it works with or without the circuit | Done (#56) |
+| F2-T4 | Day headers | F2-T3, F0-T8 | Rows grouped under Today, Yesterday, then "Wed, Nov 4" in the viewer's time zone from `ViewerClock`; a header hides when a filter empties it | Done (#56) |
+| F2-T5 | Rail mode | F2-T2, F1-T3 | Rail shows avatars only, with the live ring; clicking one expands the drawer and scrolls to that group | Done (#58) |
+| F2-T6 | Keyboard navigation | F2-T3 | `tree-nav.js` runs the tree pattern on the rendered DOM, so focus moves without a server round-trip: ↑/↓ move between rows and group heads, ←/→ collapse and expand (the only calls back to .NET), Enter opens; one tab stop for the whole list | Done (#58) |
+| F2-T7 | Long lists | F2-T3 | Group heads, day headers and rows flattened into one list and rendered with `<Virtualize>` once over 200 rows; scroll position kept when switching recordings, because the drawer lives in the layout and survives navigation | Done (#58) |
 
 ## F3 — Video player
 
@@ -3084,14 +3086,14 @@ The player is the primary component: a 16:9 frame at full column width that play
 
 | ID | Task | Depends on | Done when | Status |
 | --- | --- | --- | --- | --- |
-| F3-T1 | HLS engine module | F0-T4 | `VideoPlayer.razor.js` lazy-imports hls.js (native HLS on Safari); `load(recording)` swaps the source on route change without re-creating the component; retries network and media errors (3 tries, then an error state); exposes time, duration, buffered, playing, levels and the `hls` instance to the other player and stats code; everything is released on dispose | To do |
-| F3-T2 | Control bar | F3-T1, F0-T5 | Play/pause, back and forward 10s, volume with slider on hover, timecode, then speed menu, quality menu, stats toggle, picture-in-picture, theater, fullscreen; the quality menu shows the source level with resolution and bitrate and lists more only if levels exist; fullscreen targets the player container so the controls stay; controls hide below 720px and 520px player width as the design system specifies | To do |
-| F3-T3 | Seek bar | F3-T1 | Played (`primary`) and buffered (`secondary`) ranges, knob on hover and drag, a single seek on release, hover tooltip with timecode and chapter name, chapter ticks from title and game changes; `role="slider"` with ←/→ for 5s | To do |
-| F3-T4 | Captures in progress | F3-T3 | For Recording and Reconnecting: opens at the live edge, ignoring any saved position; EVENT playlist, red live-edge tick, Live edge button that jumps to and follows the edge, duration grows as segments arrive; REC chip in the title strip, or a Reconnecting chip while the recorder retries; playback continues across part gaps | To do |
-| F3-T5 | Overlays and idle | F3-T2 | Title strip and centre play button; strip and control bar fade after 3s without pointer movement while playing; cursor hides with them; keyboard focus brings them back | To do |
-| F3-T6 | Keyboard shortcuts | F3-T2 | Space/K play-pause, J/L ±10s, ←/→ ±5s, M mute, F fullscreen, T theater, I stats; ignored while typing in an input; handled in JS, with theater and stats calling back to .NET to update `sk-ui` | To do |
-| F3-T7 | Resume position | F3-T1, F10-T2 | Finished recordings start at `ResumeSec`; saves every 15s while playing and on pause through a `DotNetObjectReference` call to `ProgressStore`, and on page hide with `fetch` (`PUT`, `keepalive: true`) to `/api/recordings/{id}/progress`; thumbnail resume bars update through `LibraryView.Changed` | To do |
-| F3-T8 | Remember playback preferences | F3-T2 | Volume, mute, speed and preferred quality persist in localStorage and apply to the next recording | To do |
+| F3-T1 | HLS engine module | F0-T4 | `VideoPlayer.razor.js` lazy-imports hls.js (native HLS on Safari); `load(recording)` swaps the source on route change without re-creating the component; retries network and media errors (3 tries, then an error state); exposes time, duration, buffered, playing, levels and the `hls` instance to the other player and stats code; everything is released on dispose | Done (#59) |
+| F3-T2 | Control bar | F3-T1, F0-T5 | Play/pause, back and forward 10s, volume with slider on hover, timecode, then speed menu, quality menu, stats toggle, picture-in-picture, theater, fullscreen; the quality menu shows the source level with resolution and bitrate and lists more only if levels exist; fullscreen targets the player container so the controls stay; controls hide below 720px and 520px player width as the design system specifies | Done (#59, #61) |
+| F3-T3 | Seek bar | F3-T1 | Played (`primary`) and buffered (`secondary`) ranges, knob on hover and drag, a single seek on release, hover tooltip with timecode and chapter name, chapter ticks from title and game changes; `role="slider"` with ←/→ for 5s | Done (#59) |
+| F3-T4 | Captures in progress | F3-T3 | For Recording and Reconnecting: opens at the live edge, ignoring any saved position; EVENT playlist, red live-edge tick, Live edge button that jumps to and follows the edge, duration grows as segments arrive; REC chip in the title strip, or a Reconnecting chip while the recorder retries; playback continues across part gaps | Done (#60) |
+| F3-T5 | Overlays and idle | F3-T2 | Title strip and centre play button; strip and control bar fade after 3s without pointer movement while playing; cursor hides with them; keyboard focus brings them back | Done (#61) |
+| F3-T6 | Keyboard shortcuts | F3-T2 | Space/K play-pause, J/L ±10s, ←/→ ±5s, M mute, F fullscreen, T theater, I stats; ignored while typing in an input; handled in JS, with theater and stats calling back to .NET to update `sk-ui` | Done (#61) |
+| F3-T7 | Resume position | F3-T1, F10-T2 | Finished recordings start at `ResumeSec`; saves every 15s while playing and on pause through a `DotNetObjectReference` call to `ProgressStore`, and on page hide with `fetch` (`PUT`, `keepalive: true`) to `/api/recordings/{id}/progress`; thumbnail resume bars update through `LibraryView.Changed` | Done (#62) |
+| F3-T8 | Remember playback preferences | F3-T2 | Volume, mute, speed and preferred quality persist in localStorage and apply to the next recording | Done (#61) |
 
 F3-T1 supersedes the player skeleton from an earlier draft of Part 1. Its proven parts carry over: the single `AbortController` for listeners, media-error recovery and the JS-side keyboard handling. I now toggles stats as in the React plan; picture-in-picture is button-only.
 
@@ -3101,10 +3103,10 @@ A collapsible panel directly under the player shows video stats in `primary` and
 
 | ID | Task | Depends on | Done when | Status |
 | --- | --- | --- | --- | --- |
-| F4-T1 | Stats sampler | F3-T1 | `stats.js`, imported by the player module, reads hls.js events (`FRAG_LOADED` load time and bytes, `LEVEL_SWITCHED`, `ERROR`), `hls.bandwidthEstimate`, `getVideoPlaybackQuality()` and buffer health every 2s into a 20-sample ring buffer; sampling stops while the panel is closed | To do |
-| F4-T2 | Panel and toggle | F4-T1, F0-T5 | `StatsPanel.razor` renders the header row with switch, the tiles and the key/value list; open state shared with the player's `query_stats` button and saved in `sk-ui`; collapsed it is one 48px row; two columns (one under 600px); problems shown in `error` with ⚠ | To do |
-| F4-T3 | Sparkline | F0-T2 | `sparkline.js` draws a one-series SVG line, 2px stroke, hover crosshair and value tooltip, colour passed in as a token name; keeps a visually hidden table of the samples for screen readers | To do |
-| F4-T4 | Copy stats | F4-T2, F0-T6 | "Copy stats" puts a JSON snapshot (recording id, level, codecs, last 20 samples, errors) on the clipboard from JS and confirms with a snackbar raised through `SnackbarService` | To do |
+| F4-T1 | Stats sampler | F3-T1 | `stats.js`, imported by the player module, reads hls.js events (`FRAG_LOADED` load time and bytes, `LEVEL_SWITCHED`, `ERROR`), `hls.bandwidthEstimate`, `getVideoPlaybackQuality()` and buffer health every 2s into a 20-sample ring buffer; sampling stops while the panel is closed | Done (#63) |
+| F4-T2 | Panel and toggle | F4-T1, F0-T5 | `StatsPanel.razor` renders the header row with switch, the tiles and the key/value list; open state shared with the player's `query_stats` button and saved in `sk-ui`; collapsed it is one 48px row; two columns (one under 600px); problems shown in `error` with ⚠ | Done (#63) |
+| F4-T3 | Sparkline | F0-T2 | `sparkline.js` draws a one-series SVG line, 2px stroke, hover crosshair and value tooltip, colour passed in as a token name; keeps a visually hidden table of the samples for screen readers | Done (#63) |
+| F4-T4 | Copy stats | F4-T2, F0-T6 | "Copy stats" puts a JSON snapshot (recording id, level, codecs, last 20 samples, errors) on the clipboard from JS and confirms with a snackbar raised through `SnackbarService` | Done (#63) |
 
 ## F5 — Recording details and actions
 
@@ -3112,10 +3114,10 @@ A collapsible card under the stats panel shows what the recording is and holds i
 
 | ID | Task | Depends on | Done when | Status |
 | --- | --- | --- | --- | --- |
-| F5-T1 | Details card | F0-T5, F0-T8, F2-T1 | Title, streamer, category, start date, segment count, part count and size, plus a chapter list of title and game changes where each entry seeks the player; collapses to one 48px header showing the date; state saved in `sk-ui` | To do |
-| F5-T2 | Export MP4 | F5-T1, F0-T6, F6-T4, F10-T3 | Calls `ExportService.StartAsync` and follows its progress event (no polling); progress in a snackbar, Download (`/api/exports/{id}/download`) when done, Retry on failure; disabled while Recording or Reconnecting | To do |
-| F5-T3 | Copy playlist URL | F5-T1, F0-T6 | Copies the absolute `PlaylistUrl`, built from the request's scheme and host, and confirms with a snackbar | To do |
-| F5-T4 | Delete recording | F5-T1, F0-T6, F6-T4, F10-T4 | Confirmation dialog with an `error-container` banner naming the recording; on confirm calls `RecordingAdmin.DeleteAsync`; the library updates through `Changed` and the page opens the next newest recording; disabled while Recording or Reconnecting | To do |
+| F5-T1 | Details card | F0-T5, F0-T8, F2-T1 | Title, streamer, category, start date, segment count, part count and size, plus a chapter list of title and game changes where each entry seeks the player; collapses to one 48px header showing the date; state saved in `sk-ui` | Done (#64) |
+| F5-T2 | Export MP4 | F5-T1, F0-T6, F6-T4, F10-T3 | Calls `ExportService.StartAsync` and follows its progress event (no polling); progress in a snackbar, Download (`/api/exports/{id}/download`) when done, Retry on failure; disabled while Recording or Reconnecting | Done (#66) |
+| F5-T3 | Copy playlist URL | F5-T1, F0-T6 | Copies the absolute `PlaylistUrl`, built from the request's scheme and host, and confirms with a snackbar | Done (#64) |
+| F5-T4 | Delete recording | F5-T1, F0-T6, F6-T4, F10-T4 | Confirmation dialog with an `error-container` banner naming the recording; on confirm calls `RecordingAdmin.DeleteAsync`; the library updates through `Changed` and the page opens the next newest recording; disabled while Recording or Reconnecting | Done (#68) |
 
 ## F6 — Twitch sign-in
 
@@ -3123,10 +3125,10 @@ Sign-in is Stream Keepr's admin login. The backend runs the OAuth code flow with
 
 | ID | Task | Depends on | Done when | Status |
 | --- | --- | --- | --- | --- |
-| F6-T1 | Sign-in backend | F0-T1 | Cookie authentication plus a Twitch OAuth handler (`AspNet.Security.OAuth.Twitch` or `AddOAuth`), no extra scopes; `/api/auth/twitch/login?returnUrl=` (local URLs only) and `/api/auth/logout`; sign-in refused unless the login is allowlisted; components receive the session as cascading `AuthenticationState`; tokens saved through `IAdminTokenStore` (F10-T7) at sign-in; the Mock profile offers a fake signed-in and signed-out user | To do |
-| F6-T2 | Twitch auth button | F6-T1, F0-T5, F1-T2 | Disconnected: Connect with Twitch is a plain link to `/api/auth/twitch/login?returnUrl=<current URL>`, a full-page navigation as OAuth needs; Connecting: spinner and "Waiting for Twitch…" until navigation; Connected: account chip with green dot and menu (Manage Twitch connection, Disconnect → logout form post) | To do |
-| F6-T3 | Expired session | F6-T2 | A `RevalidatingServerAuthenticationStateProvider` re-checks the stored Twitch token against `id.twitch.tv/oauth2/validate` every 30 minutes, inside Twitch's hourly validation requirement; on failure the circuit shows the "Twitch session expired" chip with Reconnect, and the current page and playback continue | To do |
-| F6-T4 | Feature gating | F6-T1, F0-T5 | `<RequiresTwitch>` wraps controls with `AuthorizeView` and disables them with the tooltip "Connect Twitch to use this", never hiding them; `ExportService`, `RecordingAdmin` and the download endpoint check authorization too, so a disabled button is never the only guard | To do |
+| F6-T1 | Sign-in backend | F0-T1 | Cookie authentication plus a Twitch OAuth handler (`AspNet.Security.OAuth.Twitch` or `AddOAuth`), no extra scopes; `/api/auth/twitch/login?returnUrl=` (local URLs only) and `/api/auth/logout`; sign-in refused unless the login is allowlisted; components receive the session as cascading `AuthenticationState`; tokens saved through `IAdminTokenStore` (F10-T7) at sign-in; the Mock profile offers a fake signed-in and signed-out user | Done (#65) |
+| F6-T2 | Twitch auth button | F6-T1, F0-T5, F1-T2 | Disconnected: Connect with Twitch is a plain link to `/api/auth/twitch/login?returnUrl=<current URL>`, a full-page navigation as OAuth needs; Connecting: spinner and "Waiting for Twitch…" until navigation; Connected: account chip with green dot and menu (Manage Twitch connection, Disconnect → logout form post) | Done (#65) |
+| F6-T3 | Expired session | F6-T2 | A `RevalidatingServerAuthenticationStateProvider` re-checks the stored Twitch token against `id.twitch.tv/oauth2/validate` every 30 minutes, inside Twitch's hourly validation requirement; on failure the circuit shows the "Twitch session expired" chip with Reconnect, and the current page and playback continue | Done (#65) |
+| F6-T4 | Feature gating | F6-T1, F0-T5 | `<RequiresTwitch>` wraps controls with `AuthorizeView` and disables them with the tooltip "Connect Twitch to use this", never hiding them; `ExportService`, `RecordingAdmin` and the download endpoint check authorization too, so a disabled button is never the only guard | Done (#54, #65) |
 
 Twitch only accepts an HTTPS redirect URI, except for `localhost`. On a home network, sign-in therefore needs HTTPS through a reverse proxy, or a browser on the same machine.
 
@@ -3136,9 +3138,9 @@ Search, filter chips and sort all narrow the same library list, and live in the 
 
 | ID | Task | Depends on | Done when | Status |
 | --- | --- | --- | --- | --- |
-| F7-T1 | Filter chips | F2-T1, F0-T5 | All / Recording / Saved chips under the drawer header map to `?state=` through `[SupplyParameterFromQuery]`; Recording also matches Reconnecting and Saved also matches Partial; empty groups and day headers hide | To do |
-| F7-T2 | Search | F2-T1, F1-T2 | App-bar field sets `?q=` 250ms after typing stops, debounced in JS so keystrokes don't each cross the circuit; matches title, category and streamer, highlighted with `mark.sk-hl`; `/` focuses the field and Esc clears it (`shortcuts.js`); no-results message in the drawer | To do |
-| F7-T3 | Sort menu | F2-T1, F0-T5 | Library options menu offers Newest first (default), Oldest first, A–Z by streamer; header label follows the choice; `?sort=` in the URL; reload restores Newest first unless the URL says otherwise | To do |
+| F7-T1 | Filter chips | F2-T1, F0-T5 | All / Recording / Saved chips under the drawer header map to `?state=` through `[SupplyParameterFromQuery]`; Recording also matches Reconnecting and Saved also matches Partial; empty groups and day headers hide | Done (#57) |
+| F7-T2 | Search | F2-T1, F1-T2 | App-bar field sets `?q=` 250ms after typing stops, debounced in JS so keystrokes don't each cross the circuit; matches title, category and streamer, highlighted with `mark.sk-hl`; `/` focuses the field and Esc clears it (`shortcuts.js`); no-results message in the drawer | Done (#57) |
+| F7-T3 | Sort menu | F2-T1, F0-T5 | Library options menu offers Newest first (default), Oldest first, A–Z by streamer; header label follows the choice; `?sort=` in the URL; reload restores Newest first unless the URL says otherwise | Done (#57) |
 
 ## F8 — Live updates over the Blazor circuit
 
@@ -3146,10 +3148,10 @@ The Blazor circuit is already a SignalR connection, so capture events reach the 
 
 | ID | Task | Depends on | Done when | Status |
 | --- | --- | --- | --- | --- |
-| F8-T1 | Change notifications | F0-T3, F0-T4 | `ILibraryView.Changed` fires for started, updated, ended and deleted recordings and for storage changes; the Mock profile produces all five on a timer; bUnit tests show a subscribed component re-rendering and unsubscribing on dispose | To do |
-| F8-T2 | Targeted re-renders | F8-T1, F2-T1, F1-T2 | Streamer order, rows, REC chips, live ring and storage meter update without re-rendering the whole drawer: `LibraryView` reuses the previous `RecordingView` instance when nothing changed, and rows use `@key` and skip rendering when their instance is the same | To do |
-| F8-T3 | Player reacts to changes | F8-T2, F3-T4 | The open capture ending switches the player from live to VOD at the same position (hls.js sees `#EXT-X-ENDLIST`; the component only updates chips); the open recording being deleted shows a snackbar and opens the next newest | To do |
-| F8-T4 | Reconnect handling | F8-T1 | While the circuit is disconnected, a quiet "Live updates paused" note shows in the drawer header, driven by Blazor's reconnect state events; playback continues; after reconnecting the page renders current state, or reloads if the server restarted and the circuit is gone | To do |
+| F8-T1 | Change notifications | F0-T3, F0-T4 | `ILibraryView.Changed` fires for started, updated, ended and deleted recordings and for storage changes; the Mock profile produces all five on a timer; bUnit tests show a subscribed component re-rendering and unsubscribing on dispose | Done (#56) |
+| F8-T2 | Targeted re-renders | F8-T1, F2-T1, F1-T2 | Streamer order, rows, REC chips, live ring and storage meter update without re-rendering the whole drawer: `LibraryView` reuses the previous `RecordingView` instance when nothing changed, and rows use `@key` and skip rendering when their instance is the same | Done (#56) |
+| F8-T3 | Player reacts to changes | F8-T2, F3-T4 | The open capture ending switches the player from live to VOD at the same position (hls.js sees `#EXT-X-ENDLIST`; the component only updates chips); the open recording being deleted shows a snackbar and opens the next newest | Done (#60, #68) |
+| F8-T4 | Reconnect handling | F8-T1 | While the circuit is disconnected, a quiet "Live updates paused" note shows in the drawer header, driven by Blazor's reconnect state events; playback continues; after reconnecting the page renders current state, or reloads if the server restarted and the circuit is gone | Done (#58) |
 
 ## F9 — Quality, CI and hosting
 
@@ -3157,13 +3159,13 @@ These tasks keep the others honest and get the UI into the v3 container; T1 and 
 
 | ID | Task | Depends on | Done when | Status |
 | --- | --- | --- | --- | --- |
-| F9-T1 | Contract tests | F0-T3 | Tests pin the view-model shapes and state rules, and each HTTP endpoint (progress, download, auth) has a `WebApplicationFactory` integration test; this replaces the OpenAPI drift check, since the UI no longer calls a REST API | To do |
-| F9-T2 | End-to-end tests | F1-T3, F2-T3, F3-T2, F4-T2, F6-T2, F11-T1, F11-T2 | Playwright for .NET against the Mock profile covers: open a recording and play, drawer expanded → rail → theater, stats toggle, filter and search, sign in and out with the fake user, delete a recording, add and remove a channel, stop and resume one | To do |
-| F9-T3 | Accessibility pass | F9-T2 | axe (Deque.AxeCore.Playwright) clean on every screen state in the e2e run; a keyboard-only test reaches every control; reduced motion stops the REC pulse and collapse animations | To do |
-| F9-T4 | Visual regression | F9-T2 | Screenshots at 1280×820 and 375×812, baselines approved against the design-system previews; diffs over 0.1% fail | To do |
-| F9-T5 | CI pipeline | F0-T1 | GitHub Actions on every PR: restore, build with warnings as errors, format check, unit and bUnit tests, JS lint and Vitest, e2e with the Playwright report uploaded, and `docker build`; required to merge | To do |
-| F9-T6 | Container and deep links | F1-T1 | The v3 image serves the UI with no extra build stage; `MapStaticAssets` caches hashed assets for a year and the document not at all; `/r/{id}` deep links render after a restart; Data Protection keys persist under `/recordings/.streamkeepr/keys`, so sign-in cookies and antiforgery tokens survive restarts | To do |
-| F9-T7 | Performance budget | F3-T1, F9-T5 | First-paint JS at most 200 KB gzipped including `blazor.web.js`; hls.js and the player module load only on recording pages; CI fails over budget | To do |
+| F9-T1 | Contract tests | F0-T3 | Tests pin the view-model shapes and state rules, and each HTTP endpoint (progress, download, auth) has a `WebApplicationFactory` integration test; this replaces the OpenAPI drift check, since the UI no longer calls a REST API | Done (#71) |
+| F9-T2 | End-to-end tests | F1-T3, F2-T3, F3-T2, F4-T2, F6-T2, F11-T1, F11-T2 | Playwright for .NET against the Mock profile covers: open a recording and play, drawer expanded → rail → theater, stats toggle, filter and search, sign in and out with the fake user, delete a recording, add and remove a channel, stop and resume one | Done (#71) |
+| F9-T3 | Accessibility pass | F9-T2 | axe (Deque.AxeCore.Playwright) clean on every screen state in the e2e run; a keyboard-only test reaches every control; reduced motion stops the REC pulse and collapse animations | Done (#71) |
+| F9-T4 | Visual regression | F9-T2 | Screenshots at 1280×820 and 375×812, baselines approved against the design-system previews; diffs over 0.1% fail | Open (#106) |
+| F9-T5 | CI pipeline | F0-T1 | GitHub Actions on every PR: restore, build with warnings as errors, format check, unit and bUnit tests, JS lint and Vitest, e2e with the Playwright report uploaded, and `docker build`; required to merge | Done (#71) |
+| F9-T6 | Container and deep links | F1-T1 | The v3 image serves the UI with no extra build stage; `MapStaticAssets` caches hashed assets for a year and the document not at all; `/r/{id}` deep links render after a restart; Data Protection keys persist under `/recordings/.streamkeepr/keys`, so sign-in cookies and antiforgery tokens survive restarts | Done (#71) |
+| F9-T7 | Performance budget | F3-T1, F9-T5 | First-paint JS at most 200 KB gzipped including `blazor.web.js`; hls.js and the player module load only on recording pages; CI fails over budget | Done (#71) |
 
 ## F10 — Backend additions
 
@@ -3171,13 +3173,13 @@ These seven tasks add what the UI needs to the v3 backend, following its rules: 
 
 | ID | Task | Depends on | Done when | Status |
 | --- | --- | --- | --- | --- |
-| F10-T1 | Summary fields and streamer profiles | F0-T1 | `RecordingSummary` gains `PartCount`, `SegmentCount` and `EndedAt`, counted by `SessionStore` at finalize and on each live stitch; the poller fetches each channel's display name and avatar from Helix `GET /helix/users` once a day and when a channel is added, into `channels.json` through `ChannelStore.SetProfileAsync`, including the user ID EventSub needs; recovery and the library skip folders starting with `.` | To do |
-| F10-T2 | Progress store | F0-T1 | Singleton `ProgressStore` keeps positions in memory and writes `/recordings/.streamkeepr/progress.json` atomically at most every 10 s; `PUT /api/recordings/{id}/progress` checks the id against the library; positions within 30 s of the end are cleared; raises `Changed` | To do |
-| F10-T3 | Export service | F0-T1 | `ExportService` runs one export at a time from a queue: `ffmpeg -i index.m3u8 -c copy -movflags +faststart` into `/recordings/.streamkeepr/exports/{id}.mp4`, with progress from `-progress`; when parts differ in video parameters (compared with `ffprobe` on each init file), it writes one MP4 per part into a zip instead; files deleted after 24 h; while an export runs it holds a lease on the session, so the session can't be deleted mid-export; `GET /api/exports/{id}/download` requires sign-in | To do |
-| F10-T4 | Recording admin | F0-T1 | `RecordingAdmin.DeleteAsync(id)` deletes only Complete sessions, takes the session's lock from SessionStore.LockFor (shared with finalize and retention), refuses while an export holds a lease on the session, removes the session from the library and its progress entry, and requires sign-in | To do |
-| F10-T5 | Storage monitor | F0-T1 | Singleton `StorageMonitor` samples `DiskGuard` every 60 s and after each finalize, delete or export, and raises `Changed` only when free space moves by more than 1 % | To do |
-| F10-T6 | Channels in the UI layer | F0-T3 | `ILibraryView` merges `ChannelStore` (watched, paused, profile) with `DvrStatus` for every channel; a scoped `ChannelsView` wraps `IChannelControl` with an authorization check, so components never call the supervisor directly; a login is checked against Helix `GET /helix/users` before it is added | To do |
-| F10-T7 | Admin token store | F6-T1 | `AdminTokenStore` implements `IAdminTokenStore`: saves the admin's access and refresh tokens at sign-in, encrypted with Data Protection under `/recordings/.streamkeepr/`; refreshes them before expiry; clears them on Disconnect, which also stops EventSub; `WaitForTokenAsync` wakes the EventSub client | To do |
+| F10-T1 | Summary fields and streamer profiles | F0-T1 | `RecordingSummary` gains `PartCount`, `SegmentCount` and `EndedAt`, counted by `SessionStore` at finalize and on each live stitch; the poller fetches each channel's display name and avatar from Helix `GET /helix/users` once a day and when a channel is added, into `channels.json` through `ChannelStore.SetProfileAsync`, including the user ID EventSub needs; recovery and the library skip folders starting with `.` | Done (#29, #40, #56) |
+| F10-T2 | Progress store | F0-T1 | Singleton `ProgressStore` keeps positions in memory and writes `/recordings/.streamkeepr/progress.json` atomically at most every 10 s; `PUT /api/recordings/{id}/progress` checks the id against the library; positions within 30 s of the end are cleared; raises `Changed` | Done (#62) |
+| F10-T3 | Export service | F0-T1 | `ExportService` runs one export at a time from a queue: `ffmpeg -i index.m3u8 -c copy -movflags +faststart` into `/recordings/.streamkeepr/exports/{id}.mp4`, with progress from `-progress`; when parts differ in video parameters (compared with `ffprobe` on each init file), it writes one MP4 per part into a zip instead; files deleted after 24 h; while an export runs it holds a lease on the session, so the session can't be deleted mid-export; `GET /api/exports/{id}/download` requires sign-in | Done (#66) |
+| F10-T4 | Recording admin | F0-T1 | `RecordingAdmin.DeleteAsync(id)` deletes only Complete sessions, takes the session's lock from SessionStore.LockFor (shared with finalize and retention), refuses while an export holds a lease on the session, removes the session from the library and its progress entry, and requires sign-in | Done (#68) |
+| F10-T5 | Storage monitor | F0-T1 | Singleton `StorageMonitor` samples `DiskGuard` every 60 s and after each finalize, delete or export, and raises `Changed` only when free space moves by more than 1 % | Done (#56) |
+| F10-T6 | Channels in the UI layer | F0-T3 | `ILibraryView` merges `ChannelStore` (watched, paused, profile) with `DvrStatus` for every channel; a scoped `ChannelsView` wraps `IChannelControl` with an authorization check, so components never call the supervisor directly; a login is checked against Helix `GET /helix/users` before it is added | Done (#69) |
+| F10-T7 | Admin token store | F6-T1 | `AdminTokenStore` implements `IAdminTokenStore`: saves the admin's access and refresh tokens at sign-in, encrypted with Data Protection under `/recordings/.streamkeepr/`; refreshes them before expiry; clears them on Disconnect, which also stops EventSub; `WaitForTokenAsync` wakes the EventSub client | Done (#43) |
 
 ## F11 — Channels and recording controls
 
@@ -3185,8 +3187,8 @@ Channels are managed in the app, and each one can be stopped and resumed; both n
 
 | ID | Task | Depends on | Done when | Status |
 | --- | --- | --- | --- | --- |
-| F11-T1 | Settings page | F1-T2, F0-T6, F6-T4, F10-T6 | `/settings` (signed-in) lists channels with avatar, name and state (Recording, Paused, Watching); add by login with an inline error for unknown logins; remove with a confirmation dialog that says recordings are kept, then a Removing… state until any open session is finalized (up to about 35 s); a status line shows "Push notifications on" or "Polling only" with the reason | To do |
-| F11-T2 | Stop and resume | F2-T2, F3-T4, F0-T6, F6-T4, F10-T6 | The streamer group menu, and the player's title strip during a capture, offer Stop recording with a confirmation dialog, and Resume recording while paused; paused streamers show a Paused chip and no live ring; the change appears everywhere through `LibraryView.Changed` | To do |
+| F11-T1 | Settings page | F1-T2, F0-T6, F6-T4, F10-T6 | `/settings` (signed-in) lists channels with avatar, name and state (Recording, Paused, Watching); add by login with an inline error for unknown logins; remove with a confirmation dialog that says recordings are kept, then a Removing… state until any open session is finalized (up to about 35 s); a status line shows "Push notifications on" or "Polling only" with the reason | Done (#69) |
+| F11-T2 | Stop and resume | F2-T2, F3-T4, F0-T6, F6-T4, F10-T6 | The streamer group menu, and the player's title strip during a capture, offer Stop recording with a confirmation dialog, and Resume recording while paused; paused streamers show a Paused chip and no live ring; the change appears everywhere through `LibraryView.Changed` | Done (#70) |
 
 ## Sequencing
 
