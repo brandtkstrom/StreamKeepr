@@ -228,7 +228,7 @@ Playwright (Chrome channel against the Mock profile):
 - Idle after 3 s, pointer restore, reduced-motion emulation; preferences (volume/mute/speed) across reload; theater and keyboard shortcuts; fullscreen/PiP controls present and correctly hidden when unsupported.
 - axe clean and keyboard-only on the player page (closed and open stats); no automatic retries.
 
-Native HLS, iOS fullscreen, and PiP transitions are covered by Vitest/bUnit stubs and the manual iPhone Safari checklist; the E2E job installs branded Chrome because Playwright's bundled Chromium lacks H.264 (E-21). The E2E media fixture is a short H.264 fMP4 generated at test time; no large binaries are committed.
+Native HLS, iOS fullscreen, and PiP transitions are covered by Vitest/bUnit stubs and the manual [iPhone Safari checklist](manual/iphone-safari-checklist.md); the E2E job installs branded Chrome because Playwright's bundled Chromium lacks H.264 (E-21). The E2E media fixture is a short H.264 fMP4 generated at test time; no large binaries are committed.
 
 ## 16. Binding versus implementation freedom
 
