@@ -4,6 +4,8 @@ Review of the built app on `main` at `a10c225` (after #107) against `docs/decisi
 
 **Outcome:** 7 of 9 gates pass. G1 and G6 are held by three Major gaps. Each gap is one issue. Per digest §9.4, a Major gap blocks release until it is fixed or the owner accepts the risk in writing here with a dated follow-up.
 
+**Status on 2026-11-12:** all 9 gates pass. Every Major gap is fixed or accepted by the owner (CR-01 and CR-02 accepted as dropped). See [Status update](#status-update-2026-11-12). The sections below are the review as written on 2026-11-11.
+
 ## Method
 
 As digest §9.2 specifies:
@@ -67,6 +69,28 @@ Release is blocked by CR-01, CR-02, and CR-03 until each is fixed or accepted be
 
 | ID | Accepted by | Date | Follow-up due |
 |---|---|---|---|
-| CR-01 | | | |
-| CR-02 | | | |
-| CR-03 | | | |
+| CR-01 | Repository owner: visual regression dropped for now; #106 closed as not planned | 2026-11-12 | None. Reopen #106 to bring it back; the harness is kept on branch `test/106-visual-baselines`. |
+| CR-02 | Repository owner: the iPhone Safari pass is dropped (no iOS device to test with); #108 closed as not planned | 2026-11-12 | None. Native HLS, fullscreen, and PiP stay unit-tested only; the checklist in `docs/manual/` is kept. |
+| CR-03 | Not needed: fixed (see below) | | |
+
+## Status update (2026-11-12)
+
+| ID | Status | Resolved by |
+|---|---|---|
+| CR-01 | Accepted (dropped) | #106 closed as not planned; PR #121 updates the testing contract, plan F9-T4, and digest |
+| CR-02 | Accepted (dropped) | PR #118 added the checklist; the device pass was dropped and #108 closed as not planned; the player contract and digest say so |
+| CR-03 | Fixed | PR #116: one shared E2E publish and a guard against empty compressed assets (the root cause was a torn brotli `hls.js`); `main` then passed 5 runs in a row and #109 was closed |
+| CR-04 | Fixed | PRs #117 and #119: 2,019 flattened items measured within budget; E-19 stands |
+| CR-05 | Fixed | PR #118: CI on Node 24; the prefs tests pass on Node 22–26 |
+| CR-06 | Fixed | PR #118: CI pushes trigger on `main` only |
+| CR-07 | Fixed | PR #116: plan task statuses point at their issues |
+| CR-08 | Fixed | PR #116: the E2E app is published once per run |
+| CR-09 | Fixed | #19's links now point at `main` |
+
+| Gate | Now |
+|---|---|
+| G1 Build/test | Pass (CR-03, CR-05, CR-08 fixed) |
+| G6 UI conformance | Pass (CR-01 and CR-02 accepted, CR-04 fixed) |
+| G9 Documentation | Pass (CR-06, CR-07, CR-09 fixed) |
+
+Nothing blocks release: no Major gap is open.

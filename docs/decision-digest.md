@@ -188,7 +188,7 @@ This is the single handoff for the full application specification. It records th
 - Preferences: `sk-player` v1 volume/mute/speed; clamped/defaulted; no quality preference (E-20); localStorage failures degrade.
 - Stats: 2 s/20-sample rings; Video bitrate/frame rate, Network bandwidth/buffer; native fallback; copy JSON v1 via clipboard + snackbar; open state `sk-ui` only; collapsed body inert.
 - Errors: three retries with backoff; media recovery/swap audio; waiting-for-first-segment; unsupported-browser overlay; retry at last position.
-- Known: live edge ~one target duration behind; no captions; native Safari manual; quality switching deferred.
+- Known: live edge ~one target duration behind; no captions; native Safari not tested on a device (#108); quality switching deferred.
 
 ### 5.4 Details, export, delete, auth, settings
 
@@ -305,14 +305,14 @@ The register holds the plan-line evidence and the full finding text. This table 
 | No coverage percentage gate initially | Avoid blocking early work on an arbitrary number | Collect coverage; add a threshold later; E-16 |
 | No automatic test retries | Keep flakes visible | Fix/quarantine with an issue and deadline; E-17 |
 | Quality switching absent | One captured variant/media playlist | Static Source; E-20 |
-| Chrome-only playback E2E | Playwright Chromium lacks H.264 | Branded Chrome in CI; native Safari manual; E-21 |
+| Chrome-only playback E2E | Playwright Chromium lacks H.264 | Branded Chrome in CI; native Safari not tested on a device (#108); E-21 |
 | Stop/resume surfaces reduced | Player DOM is JS-owned; settings is the management surface | Settings + details Stop; library Paused; E-23 |
 | No global recording cap | Channel list is user-controlled | Add only under disk/bandwidth pressure; E-12 |
 | Manual subscriber token | No safe automated flow yet | Secret rotation documented; Settings entry deferred; E-07/E-14 |
 | Font redistribution | Bundled font assets | Material Symbols Rounded only (Apache-2.0); UI text uses system fonts; E-06 |
 | No visual regression gate | Dropped by the owner for now (#106) | bUnit markup, axe, and E2E journeys cover the UI; harness kept on branch `test/106-visual-baselines` |
 | No captions | Recorder captures no subtitle track | Documented limitation; axe caption best-practice not a gate |
-| Native Safari/fullscreen/PiP manual | Not deterministic in CI | Unit tests + manual iPhone Safari checklist |
+| Native Safari/fullscreen/PiP not tested on a device | Not deterministic in CI, and no iOS device is available | Unit tests with stubs only; manual pass dropped on 2026-11-12 (#108); checklist kept in `docs/manual/` |
 | Export file survives recording deletion | Export is a derived artifact; 24 h cleanup | Documented; delete dialog does not promise otherwise |
 | Export jobs are in-memory | Process-wide service; restart loses jobs | Completed file may remain; user can re-export |
 | Thumbnail strategy undecided | No source chosen yet | `ThumbnailUrl` nullable; spec must not assume Helix vs frame grab |
@@ -327,7 +327,7 @@ The register holds the plan-line evidence and the full finding text. This table 
 | Subscriber-token rotation UI in Settings | Deferred | Auth/settings; manual secret works today |
 | Quality menu/preference | Deferred until a multi-variant master playlist exists | Player; E-20 |
 | Streamer group/player stop-resume surfaces | Deferred | Details/settings; E-23 |
-| Native Safari, fullscreen, PiP transitions | Manual validation | Frontend QA; unit tests cover stubs |
+| Native Safari, fullscreen, PiP transitions | Unit-tested only; manual pass dropped (#108) | Accepted risk; unit tests cover stubs |
 | Captions | Not captured/available | Product limitation; no caption control |
 | Post-implementation review findings | Future | Produced by the review in §9; not a map decision |
 
@@ -383,7 +383,7 @@ Repeat the register's method against the built app:
 - Shell/routes/prefs/clock/`LibraryView`/primitives/Mock/reconnect; library grouping/sort/search/filter/keyboard/all-DOM/live updates; player engine/live edge/handoffs/resume/prefs/stats/copy/chapters/errors; details/export/delete/auth/settings/stop-resume.
 - Accessibility: axe clean, keyboard-only reaches every control, labels/ARIA/focus return, reduced motion; no hidden/inert focus traps.
 - Performance: first-paint JS ≤200 KB gzipped; hls.js/player only on recording pages; no timeupdate circuit traffic.
-- Browser: Chrome playback E2E; native Safari manual; fullscreen/PiP unit/manual.
+- Browser: Chrome playback E2E; native Safari and fullscreen/PiP unit-tested only (manual pass dropped, #108).
 
 **Licensing and docs**
 

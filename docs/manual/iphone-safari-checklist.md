@@ -1,6 +1,6 @@
 # iPhone Safari manual checklist
 
-Status: checklist ready; no pass recorded yet (#108)
+Status: not in use. The iPhone pass was dropped on 2026-11-12 because no iOS device is available (#108). The checklist is kept for anyone who can test on one.
 Source: `docs/player-contract.md` §§3, 4, 9, 10, 14, 15; decision digest E-21 and §9.3 ("native Safari manual").
 
 The E2E suite plays video only in branded Chrome. Native HLS, iOS fullscreen and picture-in-picture are covered by Vitest/bUnit stubs, and by this checklist on a real iPhone. Run it once before a release and again after any change to `VideoPlayer.razor.js`, `player-*.js` or the vendored hls.js. Record each pass in [Results](#results).
