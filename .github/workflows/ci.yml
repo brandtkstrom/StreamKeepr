@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - fullstack-refactor
   pull_request:
 
 permissions:
