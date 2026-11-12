@@ -639,4 +639,6 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 .sk-export-progress { flex: 1 1 160px; height: 4px; border-radius: var(--radius-full); background: var(--surface-container-highest); overflow: hidden; }
 .sk-export-progress i { display: block; height: 100%; background: var(--primary); transition: width 200ms linear; }
 .sk-export-row .sk-btn { margin-left: auto; }
+/* primary as text is only ≥4.5:1 up to surface-container (tokens.css); this row is -high. */
+.sk-export-row .sk-btn.text { color: var(--on-surface); }
 @media (prefers-reduced-motion: reduce) { .sk-export-progress i { transition: none; } }

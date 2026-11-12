@@ -19,12 +19,18 @@ function isMobile() {
   return window.matchMedia("(max-width: 959.98px)").matches;
 }
 
+// The drawer's tab stops: library rows are one roving stop (tabindex="-1" on the rest), and
+// rows in a collapsed group are not rendered visible, so neither counts as a trap end.
 function focusableElements() {
   if (!drawer) return [];
   return Array.from(
     drawer.querySelectorAll(
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]',
     ),
+  ).filter(
+    (element) =>
+      element.getAttribute("tabindex") !== "-1" &&
+      element.checkVisibility?.({ visibilityProperty: true }) !== false,
   );
 }
 
