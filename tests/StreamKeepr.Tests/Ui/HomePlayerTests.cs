@@ -38,6 +38,22 @@ public sealed class HomePlayerTests
     }
 
     [Fact]
+    public void The_library_page_clears_theater_when_no_recording_is_selected()
+    {
+        const string theaterCookie =
+            """{"v":1,"drawer":"expanded","theater":true,"stats":false,"details":true,"collapsed":[]}""";
+        using BunitContext context = CreateContext(out _, theaterCookie);
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
+
+        IRenderedComponent<Home> cut = context.Render<Home>(p => p.Add(c => c.RecordingId, "r1"));
+        Assert.True(preferences.Theater);
+
+        cut.Render(p => p.Add(c => c.RecordingId, (string?)null));
+
+        Assert.False(preferences.Theater);
+    }
+
+    [Fact]
     public void The_stats_panel_renders_once_and_shares_the_open_state_with_the_player_button()
     {
         const string openCookie =

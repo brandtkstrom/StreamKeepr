@@ -27,6 +27,9 @@ public sealed class AppShellTests
         Assert.NotNull(cut.Find(".sk-appbar"));
         Assert.NotNull(cut.Find(".sk-drawer"));
         Assert.NotNull(cut.Find(".sk-main .sk-main-inner [data-test='main']"));
+        var wordmark = cut.Find("a.sk-wordmark");
+        Assert.Equal("/", wordmark.GetAttribute("href"));
+        Assert.Equal("StreamKeepr home", wordmark.GetAttribute("aria-label"));
         Assert.NotNull(cut.Find(".sk-wordmark .rec-dot"));
         Assert.NotNull(cut.Find(".sk-search input"));
         Assert.Contains("20.0 GB free", cut.Find(".sk-storage").TextContent);

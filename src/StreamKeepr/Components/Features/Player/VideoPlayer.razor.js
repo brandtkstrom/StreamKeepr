@@ -748,6 +748,19 @@ export function createPlayer(
     renderPlayState();
   }
 
+  // Mouse/pen clicks on the frame toggle playback; touch taps only reveal the
+  // controls (contract §6). Controls have their own listeners, so they never
+  // bubble into this handler.
+  let lastPointerType = "mouse";
+  on(video, "pointerdown", (event) => {
+    lastPointerType = event.pointerType || "mouse";
+  });
+  on(video, "click", (event) => {
+    const pointerType = event.pointerType || lastPointerType;
+    if (pointerType === "touch") return;
+    togglePlay();
+  });
+
   on(el.play, "click", togglePlay);
   on(el.center, "click", () => {
     togglePlay();
