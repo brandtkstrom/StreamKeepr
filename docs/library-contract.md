@@ -83,6 +83,17 @@ The plan's `<Virtualize>` over a flattened list of variable-height group heads, 
 
 This is recorded as E-19 in the plan-review register.
 
+**Measured 2026-11-11 (#110).** `LibraryScaleJourneyTests` seeds 1,008 recordings (2,019 flattened items: 4 groups, 1,007 day headers, 1,008 rows) and writes `library-scale.txt` on each E2E run. Local Chrome, 1280×820:
+
+| Measure | Result | Budget |
+| --- | --- | --- |
+| Warm load, all rows and circuit ready | 315 ms (first byte 18 ms, 525 KB HTML) | 2 s |
+| Search to one row, including the 250 ms debounce | 282 ms | 2 s |
+| Clear search back to all rows | 128 ms | 3 s |
+| Scroll top to bottom, slowest frame | 18.4 ms; no frame over 50 ms | 250 ms |
+
+Without `content-visibility` the same run was ready in 379 ms with the same search and scroll numbers. **E-19 stands:** nothing here calls for virtualization. The first page after the app starts takes about 6 s to send its first byte with 8 recordings as well as 1,008, so that time is app warm-up, not library size. It is not budgeted here.
+
 ## 8. Live updates
 
 - `ILibraryView.Changed` coalesces `RecordingLibrary`, `DvrStatus`, `ProgressStore`, and `StorageMonitor` changes and fires at most every 500 ms, only when the visible state differs.
