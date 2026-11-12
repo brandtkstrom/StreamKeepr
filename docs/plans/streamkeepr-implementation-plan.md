@@ -2824,7 +2824,7 @@ The poller still needs Helix to report the channel live, so for these runs eithe
 - [ ] Streamlink broken (point `StreamlinkPath` at a script that answers `--version` but exits 1 otherwise, so preflight still passes): retries, then CoolingDown after 3 sessions, `/health/ready` Degraded, and no empty folders left.
 - [ ] Free space below `MinFreeGb`: no new parts, `/health/ready` Unhealthy, no crash loop.
 - [ ] A title change mid-stream appears as a chapter tick and tooltip label.
-- [ ] Player: every shortcut, full screen keeps the custom controls, theater, picture-in-picture, resume position, and native playback on iPhone Safari.
+- [ ] Player: every shortcut, full screen keeps the custom controls, theater, picture-in-picture, and resume position. (Native playback on iPhone Safari: dropped on 2026-11-12, #108.)
 - [ ] 10-hour soak: memory flat, idle CPU near zero, live `index.m3u8` responses stay fast.
 
 * [ ] Two channels live at once record independently; killing one channel's FFmpeg doesn't touch the other.

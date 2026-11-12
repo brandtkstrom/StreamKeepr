@@ -201,7 +201,7 @@ Control order, left to right, matches the design system:
   - The live edge is about one target duration behind the true playlist end.
   - Native HLS (iOS Safari) may use native fullscreen/controls and exposes limited stats.
   - Resume/progress and playback preferences are shared per recording/browser, not per user or tab.
-  - Fullscreen, PiP, and native-HLS transitions are unit-tested; the iPhone Safari pass is manual.
+  - Fullscreen, PiP, and native-HLS transitions are unit-tested only. There is no manual iPhone Safari pass: it was dropped on 2026-11-12 because no iOS device is available (#108).
 
 ## 15. Test matrix
 
@@ -228,7 +228,7 @@ Playwright (Chrome channel against the Mock profile):
 - Idle after 3 s, pointer restore, reduced-motion emulation; preferences (volume/mute/speed) across reload; theater and keyboard shortcuts; fullscreen/PiP controls present and correctly hidden when unsupported.
 - axe clean and keyboard-only on the player page (closed and open stats); no automatic retries.
 
-Native HLS, iOS fullscreen, and PiP transitions are covered by Vitest/bUnit stubs and the manual [iPhone Safari checklist](manual/iphone-safari-checklist.md); the E2E job installs branded Chrome because Playwright's bundled Chromium lacks H.264 (E-21). The E2E media fixture is a short H.264 fMP4 generated at test time; no large binaries are committed.
+Native HLS, iOS fullscreen, and PiP transitions are covered by Vitest/bUnit stubs only; the manual iPhone pass was dropped (#108), and the [iPhone Safari checklist](manual/iphone-safari-checklist.md) is kept for anyone who can test on a device; the E2E job installs branded Chrome because Playwright's bundled Chromium lacks H.264 (E-21). The E2E media fixture is a short H.264 fMP4 generated at test time; no large binaries are committed.
 
 ## 16. Binding versus implementation freedom
 
