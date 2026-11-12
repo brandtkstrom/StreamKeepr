@@ -55,5 +55,6 @@ public sealed class AuthJourneyTests(MockAppFixture app)
         Assert.Contains("This Twitch account is not allowed to manage Stream Keepr.", await snackbar.InnerTextAsync());
         await page.WaitForURLAsync(url => url.EndsWith("/?sort=az", StringComparison.Ordinal));
         Assert.Equal(1, await snackbar.CountAsync());
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "auth-error");
     }
 }

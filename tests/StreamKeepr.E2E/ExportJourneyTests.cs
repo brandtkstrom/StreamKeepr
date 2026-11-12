@@ -65,6 +65,7 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         await page.Locator("button[data-export]").ClickAsync();
         ILocator status = page.Locator("[data-export-row] [role='status']");
         await page.Locator("[data-export-row='Running'] [role='progressbar']").WaitForAsync(new() { Timeout = 30_000 });
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "export-running");
 
         await page.Locator("button[data-export-cancel]").ClickAsync();
 
@@ -90,5 +91,6 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         ILocator export = page.Locator("button[data-export]");
         await export.WaitForAsync();
         Assert.True(await export.IsDisabledAsync());
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "export-live-disabled");
     }
 }

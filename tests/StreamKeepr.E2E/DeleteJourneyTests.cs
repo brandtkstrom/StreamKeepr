@@ -77,5 +77,6 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         Assert.Contains(
             "finishes",
             await page.Locator("[data-delete-blocked] .sk-tooltip-bubble").TextContentAsync());
+        await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "live-actions-disabled");
     }
 }

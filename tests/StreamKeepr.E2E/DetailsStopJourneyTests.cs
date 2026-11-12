@@ -46,6 +46,6 @@ public sealed class DetailsStopJourneyTests : IAsyncLifetime
         Assert.Equal(
             0,
             await page.Locator("[data-tree-key='g:mock_rain'] .sk-live-ring").CountAsync());
-        await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "stopped");
+        await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "paused");
     }
 }

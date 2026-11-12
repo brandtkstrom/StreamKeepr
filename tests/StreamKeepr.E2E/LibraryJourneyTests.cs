@@ -147,6 +147,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
 
         Assert.True(await note.IsVisibleAsync());
         Assert.False(await page.Locator("#components-reconnect-modal").EvaluateAsync<bool>("d => d.open"));
+        await AssertAxeCleanAsync(page, "updates-paused");
 
         await session.Context.SetOfflineAsync(false);
         await page.WaitForFunctionAsync(
