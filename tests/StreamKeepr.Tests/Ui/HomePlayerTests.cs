@@ -112,6 +112,7 @@ public sealed class HomePlayerTests
         context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<PlayerBridge>();
         context.Services.AddSingleton<IExportService>(new TestExportService());
+        context.Services.AddSingleton<IChannelsView>(new TestChannelsView());
         context.Services.AddSingleton<IRecordingAdmin>(new TestRecordingAdmin());
         context.AddAuthorization().SetNotAuthorized();
         context.Services.AddSingleton<IProgressStore>(new TestProgressStore());

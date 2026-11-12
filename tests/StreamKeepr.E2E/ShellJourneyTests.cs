@@ -300,6 +300,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             await page.GotoAsync(
                 app.BaseUrl,
                 new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
+            await page.Locator("input[data-search-input][data-sk-ready]").WaitForAsync();
 
             ILocator first = page.Locator("nav#sk-drawer a.sk-row", new PageLocatorOptions
             {

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Components.Authorization;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Infrastructure.Twitch;
 
 namespace StreamKeepr.Ui;
 
@@ -15,7 +16,9 @@ public sealed record ChannelView(
     string? AvatarUrl,
     bool IsWatched,
     bool IsPaused,
-    ChannelRuntimeState State);
+    ChannelRuntimeState State,
+    bool PushConnected,
+    string PushReason);
 
 /// <summary>
 /// The circuit's channel-management surface (backend-for-UI contract §3). Every member throws
@@ -33,6 +36,12 @@ public interface IChannelsView : IDisposable
 
     /// <summary>Finalizes any open session and stops watching; recordings are kept.</summary>
     Task RemoveAsync(string login, CancellationToken ct);
+
+    /// <summary>Finalizes any open capture and parks the channel in Paused.</summary>
+    Task StopAsync(string login, CancellationToken ct);
+
+    /// <summary>Clears Paused and nudges the poller.</summary>
+    Task ResumeAsync(string login, CancellationToken ct);
 }
 
 public sealed class ChannelsView : IChannelsView
@@ -43,6 +52,7 @@ public sealed class ChannelsView : IChannelsView
     private readonly DvrStatus _status;
     private readonly RecordingLibrary _library;
     private readonly IChannelControl _control;
+    private readonly PollSchedule _schedule;
     private readonly AuthenticationStateProvider _auth;
     private readonly TimeProvider _clock;
     private readonly object _gate = new();
@@ -56,6 +66,7 @@ public sealed class ChannelsView : IChannelsView
         DvrStatus status,
         RecordingLibrary library,
         IChannelControl control,
+        PollSchedule schedule,
         AuthenticationStateProvider auth,
         TimeProvider clock)
     {
@@ -63,6 +74,7 @@ public sealed class ChannelsView : IChannelsView
         _status = status;
         _library = library;
         _control = control;
+        _schedule = schedule;
         _auth = auth;
         _clock = clock;
 
@@ -71,6 +83,7 @@ public sealed class ChannelsView : IChannelsView
         _channels.Changed += OnSourceChanged;
         _status.Changed += OnSourceChanged;
         _library.Changed += OnSourceChanged;
+        _schedule.Changed += OnSourceChanged;
     }
 
     public event Action? Changed;
@@ -81,13 +94,15 @@ public sealed class ChannelsView : IChannelsView
         {
             RequireAdmin();
             IReadOnlyDictionary<string, DvrSnapshot> status = _status.Current;
+            PushStatus push = _schedule.Push;
             var openSessions = _library.All
                 .Where(recording => recording.IsRecording)
                 .Select(recording => recording.Channel)
                 .ToHashSet(StringComparer.Ordinal);
 
             return _channels.Snapshot
-                .Select(entry => Build(entry, status.GetValueOrDefault(entry.Login), openSessions))
+                .Select(entry => Build(
+                    entry, status.GetValueOrDefault(entry.Login), openSessions, push))
                 .OrderBy(view => view.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(view => view.Login, StringComparer.Ordinal)
                 .ToArray();
@@ -106,12 +121,24 @@ public sealed class ChannelsView : IChannelsView
         return _control.RemoveChannelAsync(login, ct);
     }
 
+    public Task StopAsync(string login, CancellationToken ct)
+    {
+        RequireAdmin();
+        return _control.StopRecordingAsync(login, ct);
+    }
+
+    public Task ResumeAsync(string login, CancellationToken ct)
+    {
+        RequireAdmin();
+        return _control.ResumeRecordingAsync(login, ct);
+    }
+
     internal static ChannelRuntimeState StateOf(
         ChannelEntry entry, DvrSnapshot? snapshot, bool hasOpenSession) =>
-        snapshot?.ActiveJob is not null && snapshot.State is DvrState.Recording
-            ? ChannelRuntimeState.Recording
-            : entry.Paused || snapshot?.State is DvrState.Paused
-                ? ChannelRuntimeState.Paused
+        entry.Paused || snapshot?.State is DvrState.Paused
+            ? ChannelRuntimeState.Paused
+            : snapshot?.ActiveJob is not null && snapshot.State is DvrState.Recording
+                ? ChannelRuntimeState.Recording
                 : snapshot?.State is DvrState.CoolingDown
                     ? ChannelRuntimeState.CoolingDown
                     : hasOpenSession
@@ -119,14 +146,19 @@ public sealed class ChannelsView : IChannelsView
                         : ChannelRuntimeState.Watching;
 
     private static ChannelView Build(
-        ChannelEntry entry, DvrSnapshot? snapshot, HashSet<string> openSessions) =>
+        ChannelEntry entry,
+        DvrSnapshot? snapshot,
+        HashSet<string> openSessions,
+        PushStatus push) =>
         new(
             entry.Login,
             string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.Login : entry.DisplayName,
             entry.AvatarUrl,
             IsWatched: true,
             entry.Paused,
-            StateOf(entry, snapshot, openSessions.Contains(entry.Login)));
+            StateOf(entry, snapshot, openSessions.Contains(entry.Login)),
+            push.Connected,
+            push.Reason);
 
     private void RequireAdmin()
     {
@@ -182,5 +214,6 @@ public sealed class ChannelsView : IChannelsView
         _channels.Changed -= OnSourceChanged;
         _status.Changed -= OnSourceChanged;
         _library.Changed -= OnSourceChanged;
+        _schedule.Changed -= OnSourceChanged;
     }
 }

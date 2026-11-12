@@ -320,6 +320,21 @@ public sealed class LibraryViewTests
     }
 
     [Fact]
+    public async Task A_paused_channel_never_reports_a_live_ring()
+    {
+        using Harness harness = await Harness.CreateAsync("alpha");
+        RecordingSummary summary = Summary("one", "alpha", Now.AddHours(-2), recording: true);
+        harness.Add(summary);
+        harness.MarkActive(summary);
+        await harness.SetPausedAsync("alpha", true);
+
+        StreamerView streamer = Assert.Single(harness.View.Streamers(new LibraryQuery()));
+
+        Assert.True(streamer.IsPaused);
+        Assert.False(streamer.IsRecording);
+    }
+
+    [Fact]
     public async Task Unwatched_streamers_still_appear_with_login_fallback()
     {
         using Harness harness = await Harness.CreateAsync();

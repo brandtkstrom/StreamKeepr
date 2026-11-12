@@ -315,11 +315,12 @@ public sealed class LibraryView : ILibraryView
         ChannelEntry? channel)
     {
         DateTimeOffset? lastRecordedAt = null;
+        bool paused = channel?.Paused ?? false;
         bool recording = false;
 
         foreach (RecordingView recordingView in recordings)
         {
-            if (recordingView.State == RecordingState.Recording)
+            if (!paused && recordingView.State == RecordingState.Recording)
                 recording = true;
 
             if (lastRecordedAt is null || recordingView.StartedAt > lastRecordedAt)
@@ -331,7 +332,7 @@ public sealed class LibraryView : ILibraryView
             string.IsNullOrWhiteSpace(channel?.DisplayName) ? login : channel.DisplayName,
             channel?.AvatarUrl,
             recording,
-            channel?.Paused ?? false,
+            paused,
             channel is not null,
             recordings.Count,
             lastRecordedAt);
