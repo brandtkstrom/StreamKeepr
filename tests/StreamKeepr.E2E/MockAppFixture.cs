@@ -11,10 +11,9 @@ namespace StreamKeepr.E2E;
 /// recordings root is a unique temp directory so the suite never reads or writes a developer's or
 /// production library.
 ///
-/// The suite runs the published output rather than <c>dotnet run</c>: the SDK's static-web-asset
-/// development handler resolves the framework <c>_framework/*.js</c> files against the source
-/// <c>wwwroot</c>, where they do not exist, so the interactive circuit never starts. Publish
-/// copies the framework assets into the output webroot and serves them correctly.
+/// The suite runs the published output rather than <c>dotnet run</c> so every test class shares
+/// one stable, immutable webroot. The Mock host also serves the framework assets from a normal
+/// build (Program enables the static-web-asset file provider outside Development).
 ///
 /// Every fixture shares one publish. Classes that own a disposable app start in parallel, and
 /// parallel publishes share the project's <c>obj/</c>: one rewrites a precompressed asset while

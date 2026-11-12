@@ -42,6 +42,24 @@ public sealed class AppShellDocumentTests
     }
 
     [Fact]
+    public async Task Blazor_framework_script_is_served_from_the_build_manifest()
+    {
+        using var factory = new StreamKeeprAppFactory();
+        using var client = factory.CreateClient();
+
+        var html = await client.GetStringAsync("/");
+        var match = Regex.Match(html, @"src=""(?<src>_framework/blazor\.web(?:\.[a-z0-9]+)?\.js)""");
+        Assert.True(match.Success, "The Blazor framework script is missing from the document.");
+
+        using var response = await client.GetAsync(match.Groups["src"].Value);
+        var script = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/javascript", response.Content.Headers.ContentType?.MediaType);
+        Assert.False(string.IsNullOrWhiteSpace(script));
+    }
+
+    [Fact]
     public async Task Recording_route_renders_the_same_shell()
     {
         using var factory = new StreamKeeprAppFactory();

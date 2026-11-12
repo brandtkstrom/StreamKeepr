@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Hosting.StaticWebAssets;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Components;
@@ -14,6 +15,12 @@ using StreamKeepr.Mock;
 using StreamKeepr.Ui;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// MapStaticAssets serves build-time assets, but the framework only installs their
+// file provider in Development. Mock/Testing run from build output and need it;
+// published Production serves wwwroot directly.
+if (!builder.Environment.IsDevelopment() && !builder.Environment.IsProduction())
+    StaticWebAssetsLoader.UseStaticWebAssets(builder.Environment, builder.Configuration);
 
 // Compose mounts secret files at /run/secrets. AddKeyPerFile maps "__" in a
 // file name to ":" in the key (Twitch__ClientId becomes Twitch:ClientId), so
