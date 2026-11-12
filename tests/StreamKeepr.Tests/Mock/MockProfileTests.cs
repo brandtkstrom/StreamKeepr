@@ -506,6 +506,34 @@ public sealed class MockSeederTests : IDisposable
     }
 
     [Fact]
+    public async Task Scale_seeding_adds_finished_archive_recordings_across_every_streamer()
+    {
+        (MockSeeder seeder, _, RecordingLibrary library) = CreateSeeder(
+            new MockSeedOptions { ScaleRecordings = 40 });
+
+        await seeder.StartAsync(CancellationToken.None);
+
+        Assert.Equal(48, library.All.Count);
+        Assert.Equal(2, library.All.Count(summary => summary.IsRecording));
+        RecordingSummary[] archive = library.All
+            .Where(summary => summary.Title.StartsWith("Archive stream", StringComparison.Ordinal))
+            .ToArray();
+        Assert.Equal(40, archive.Length);
+        Assert.All(archive, summary =>
+        {
+            Assert.False(summary.IsRecording);
+            Assert.True(summary.HasThumbnail);
+            Assert.True(summary.StartedAt < MockCatalog.T0);
+        });
+        Assert.All(
+            MockCatalog.Streamers,
+            streamer => Assert.Equal(10, archive.Count(summary => summary.Channel == streamer.Login)));
+        Assert.True(
+            archive.Select(summary => summary.StartedAt.UtcDateTime.Date).Distinct().Count() > 10,
+            "the archive spreads over many days so the drawer gets many day headers");
+    }
+
+    [Fact]
     public async Task Refuses_to_reset_a_root_with_unrelated_data()
     {
         Directory.CreateDirectory(_root);
@@ -537,7 +565,8 @@ public sealed class MockSeederTests : IDisposable
         Assert.False(File.Exists(leftover));
     }
 
-    private (MockSeeder Seeder, ChannelStore Channels, RecordingLibrary Library) CreateSeeder()
+    private (MockSeeder Seeder, ChannelStore Channels, RecordingLibrary Library) CreateSeeder(
+        MockSeedOptions? seedOptions = null)
     {
         string ffmpeg = TestPaths.RequireExecutable(
             "ffmpeg", "ffmpeg is required for Mock seeding tests. Install it and put it on PATH.");
@@ -563,7 +592,7 @@ public sealed class MockSeederTests : IDisposable
         var seeder = new MockSeeder(
             storage,
             recorder,
-            Options.Create(new MockSeedOptions()),
+            Options.Create(seedOptions ?? new MockSeedOptions()),
             channels,
             sessions,
             library,

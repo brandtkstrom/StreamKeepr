@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.ComponentModel.DataAnnotations;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
@@ -20,13 +21,21 @@ public sealed class MockSeedOptions
     /// relies on this for deterministic journeys.
     /// </summary>
     public bool ResetOnStart { get; set; } = true;
+
+    /// <summary>
+    /// Extra finished archive recordings for measuring the library at scale (#110). They have
+    /// a playlist, manifest, and thumbnail but no media segments, so they list but do not play.
+    /// </summary>
+    [Range(0, 5000)]
+    public int ScaleRecordings { get; set; }
 }
 
 /// <summary>
 /// Populates the disposable Mock recordings root before startup recovery runs: four fake
 /// channels and eight sessions, including a finished VOD, a complete two-part session, a
 /// two-part partial, a growing EVENT capture, thumbnails, and chapters. All IDs and timestamps
-/// come from <see cref="MockCatalog"/>.
+/// come from <see cref="MockCatalog"/>. <see cref="MockSeedOptions.ScaleRecordings"/> adds
+/// media-less archive recordings for measuring the library at scale.
 /// </summary>
 public sealed class MockSeeder(
     IOptions<StorageOptions> storage,
@@ -90,7 +99,7 @@ public sealed class MockSeeder(
 
         logger.LogInformation(
             "Seeded {RecordingCount} recordings for {ChannelCount} mock channels at {Root}.",
-            MockCatalog.Recordings.Count,
+            MockCatalog.Recordings.Count + options.ScaleRecordings,
             MockCatalog.Streamers.Count,
             root);
     }
@@ -130,7 +139,10 @@ public sealed class MockSeeder(
                 Path.Combine(template, MockMedia.TemplatePlaylist), ct);
 
             foreach (MockRecording recording in MockCatalog.Recordings)
-                await SeedRecordingAsync(recording, root, template, templatePlaylist, ct);
+                await SeedRecordingAsync(recording, root, template, templatePlaylist, withMedia: true, ct);
+
+            foreach (MockRecording recording in MockCatalog.ArchiveRecordings(seedOptions.Value.ScaleRecordings))
+                await SeedRecordingAsync(recording, root, template, templatePlaylist, withMedia: false, ct);
         }
         finally
         {
@@ -144,6 +156,7 @@ public sealed class MockSeeder(
         string root,
         string template,
         string templatePlaylist,
+        bool withMedia,
         CancellationToken ct)
     {
         Session session = MockCatalog.SessionFor(recording, root);
@@ -151,7 +164,8 @@ public sealed class MockSeeder(
 
         for (int part = 1; part <= recording.Parts; part++)
         {
-            MockMedia.CopyPartFiles(template, session.Directory, part);
+            if (withMedia)
+                MockMedia.CopyPartFiles(template, session.Directory, part);
             string playlist = MockMedia.RenderPartPlaylist(
                 templatePlaylist,
                 part,

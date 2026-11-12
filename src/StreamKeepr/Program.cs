@@ -61,6 +61,7 @@ if (mock)
 {
     builder.Services.AddOptions<MockSeedOptions>()
         .BindConfiguration(MockSeedOptions.SectionName)
+        .ValidateDataAnnotations()
         .ValidateOnStart();
 }
 
