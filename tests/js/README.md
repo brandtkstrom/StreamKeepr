@@ -1,7 +1,8 @@
 # StreamKeepr JS tests
 
-Dev-only package for ESLint and Vitest (Node 20.12+). Node is not part of the runtime
-image and this package is never restored during application startup or publish.
+Dev-only package for ESLint and Vitest (Node 20.12+, per `engines`). CI runs it on Node 24
+LTS. Node is not part of the runtime image and this package is never restored during
+application startup or publish.
 
 ```sh
 npm ci

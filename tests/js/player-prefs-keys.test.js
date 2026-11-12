@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_PREFS,
   parsePlayerPrefs,
@@ -9,7 +9,14 @@ import {
 import { playerAction } from "../../src/StreamKeepr/wwwroot/js/player-keys.js";
 
 describe("player-prefs.js", () => {
-  afterEach(() => localStorage.clear());
+  // Node 25+ has its own localStorage global, which Vitest keeps over jsdom's and which is
+  // undefined without --localstorage-file. Vitest exposes the jsdom instance as globalThis.jsdom.
+  beforeEach(() => vi.stubGlobal("localStorage", globalThis.jsdom.window.localStorage));
+
+  afterEach(() => {
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
 
   it("parses a v1 value and clamps or replaces invalid fields", () => {
     expect(parsePlayerPrefs('{"v":1,"volume":0.4,"muted":true,"speed":1.5,"extra":1}'))
