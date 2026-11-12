@@ -42,7 +42,7 @@ tests/
 
 - `tests/StreamKeepr.Tests` references `src/StreamKeepr` directly. No separate test-only public API.
 - `tests/StreamKeepr.E2E` starts the app with the `Mock` launch profile on a free loopback port, waits for `/health/ready`, then runs Playwright.
-- The E2E fixture may publish the Debug output and run `StreamKeepr.dll` with `ASPNETCORE_ENVIRONMENT=Mock` when the SDK development static-asset handler cannot serve the framework `_framework/*.js` assets. It keeps the source project as the content root for the Mock fixture path and points `ASPNETCORE_WEBROOT` at the publish output.
+- The E2E fixture publishes the Debug output once per run and starts `StreamKeepr.dll` with `ASPNETCORE_ENVIRONMENT=Mock` on a free loopback port, then runs Playwright. It keeps the source project as the content root for the Mock fixture path and points `ASPNETCORE_WEBROOT` at the publish output. The shared publish is a stable test artifact, not a workaround: the Mock host enables build-time static web assets outside Development, so `_framework/*.js` is also served from a normal build.
 - `tests/js` is dev-only; Node never enters the image.
 - The old `StreamCaptureService.Tests` project is deleted with the old app in the migration route.
 
