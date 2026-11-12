@@ -27,7 +27,7 @@ public sealed class PollScheduleTests
     {
         var clock = NewClock();
         var schedule = new PollSchedule(clock);
-        schedule.SetPushCoverage(true);
+        schedule.SetPushStatus(PushStatus.AllConnected);
 
         Task wait = schedule.WaitAsync(Normal, WithPush, CancellationToken.None);
         clock.Advance(TimeSpan.FromSeconds(299));
@@ -91,10 +91,10 @@ public sealed class PollScheduleTests
     {
         var clock = NewClock();
         var schedule = new PollSchedule(clock);
-        schedule.SetPushCoverage(true);
+        schedule.SetPushStatus(PushStatus.AllConnected);
 
         Task wait = schedule.WaitAsync(Normal, WithPush, CancellationToken.None);
-        schedule.SetPushCoverage(false);
+        schedule.SetPushStatus(PushStatus.PollingOnly);
         await wait.WaitAsync(TimeSpan.FromSeconds(1));
 
         Task normal = schedule.WaitAsync(Normal, WithPush, CancellationToken.None);
@@ -116,6 +116,18 @@ public sealed class PollScheduleTests
 
         Assert.Equal(start.AddSeconds(5), schedule.LastPollAt);
         Assert.False(schedule.IsPushConnected);
+    }
+
+    [Fact]
+    public void Push_status_reports_the_contract_reason_strings()
+    {
+        Assert.Equal("Polling only", PushStatus.PollingOnly.Reason);
+        Assert.Equal("No admin token", PushStatus.NoAdminToken.Reason);
+        Assert.Equal("EventSub reconnecting", PushStatus.Reconnecting.Reason);
+        Assert.Equal("Partial coverage", PushStatus.PartialCoverage.Reason);
+        Assert.Equal("EventSub connected", PushStatus.AllConnected.Reason);
+        Assert.True(PushStatus.AllConnected.Connected);
+        Assert.False(PushStatus.PartialCoverage.Connected);
     }
 
     private static FakeTimeProvider NewClock() =>

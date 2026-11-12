@@ -54,7 +54,7 @@ public sealed class EventSubClient(
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogWarning(ex, "Could not read the admin token; polling continues.");
-                schedule.SetPushCoverage(false);
+                schedule.SetPushStatus(PushStatus.Reconnecting);
                 try
                 {
                     await Task.Delay(InitialBackoff, clock, ct);
@@ -69,7 +69,7 @@ public sealed class EventSubClient(
 
             if (token is null)
             {
-                schedule.SetPushCoverage(false);
+                schedule.SetPushStatus(PushStatus.NoAdminToken);
                 try
                 {
                     await adminTokens.WaitForTokenAsync(ct);
@@ -93,6 +93,9 @@ public sealed class EventSubClient(
 
                 continue;
             }
+
+            // The token exists, but no subscription is active until the session welcomes us.
+            schedule.SetPushStatus(PushStatus.Reconnecting);
 
             using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             void Restart() => sessionCts.Cancel();
@@ -126,7 +129,7 @@ public sealed class EventSubClient(
             {
                 channels.SubscriptionsChanged -= Restart;
                 adminTokens.Changed -= Restart;
-                schedule.SetPushCoverage(false);
+                schedule.SetPushStatus(PushStatus.Reconnecting);
             }
 
             if (state.HadSubscriptions)
@@ -251,7 +254,7 @@ public sealed class EventSubClient(
                     break;
 
                 case "session_reconnect":
-                    schedule.SetPushCoverage(false);
+                    schedule.SetPushStatus(PushStatus.Reconnecting);
                     string? reconnect = payload.TryGetProperty("session", out JsonElement reconnectSession)
                         ? reconnectSession.TryGetProperty("reconnect_url", out JsonElement url)
                             ? url.GetString()
@@ -262,7 +265,7 @@ public sealed class EventSubClient(
                         "Twitch requested a session reconnect.");
 
                 case "revocation":
-                    schedule.SetPushCoverage(false);
+                    schedule.SetPushStatus(PushStatus.Reconnecting);
                     logger.LogWarning(
                         "EventSub subscription was revoked; reconnecting.");
                     throw new EventSubRestartException(null, "subscription revoked");
@@ -288,7 +291,7 @@ public sealed class EventSubClient(
 
             if (online == SubscriptionResult.Failed || offline == SubscriptionResult.Failed)
             {
-                schedule.SetPushCoverage(false);
+                schedule.SetPushStatus(PushStatus.Reconnecting);
                 throw new EventSubRestartException(
                     null, $"subscription request failed for {channel.Login}");
             }
@@ -300,7 +303,10 @@ public sealed class EventSubClient(
         if (covered == 0 && watched.Length == 0)
             logger.LogInformation("EventSub has no watched channels to cover.");
 
-        schedule.SetPushCoverage(watched.Length > 0 && covered == watched.Length);
+        schedule.SetPushStatus(
+            watched.Length == 0 ? PushStatus.PollingOnly
+            : covered == watched.Length ? PushStatus.AllConnected
+            : PushStatus.PartialCoverage);
         logger.LogInformation(
             "EventSub push coverage: {Covered}/{Total} channels.",
             covered,

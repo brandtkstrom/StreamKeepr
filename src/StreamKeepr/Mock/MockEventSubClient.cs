@@ -1,4 +1,5 @@
 using StreamKeepr.Domain;
+using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
 
 namespace StreamKeepr.Mock;
@@ -11,12 +12,18 @@ namespace StreamKeepr.Mock;
 public sealed class MockEventSubClient(
     MockTwitch twitch,
     PollSchedule schedule,
+    ChannelStore channels,
     ILogger<MockEventSubClient> logger) : IEventSubClient
 {
     private static readonly TimeSpan BurstDuration = TimeSpan.FromSeconds(10);
 
     public async Task RunAsync(StreamObservationRoute route, CancellationToken ct)
     {
+        // The Mock profile is a working fake EventSub: push arrives through MockTwitch.
+        // No watched channels means there is nothing to cover, not that push is on.
+        channels.Changed += UpdatePushStatus;
+        UpdatePushStatus();
+
         try
         {
             await foreach (MockPush push in twitch.ReadPushesAsync(ct))
@@ -31,5 +38,15 @@ public sealed class MockEventSubClient(
         {
             // Host shutdown.
         }
+        finally
+        {
+            channels.Changed -= UpdatePushStatus;
+        }
     }
+
+    private void UpdatePushStatus() =>
+        schedule.SetPushStatus(
+            channels.Snapshot.Count == 0
+                ? PushStatus.PollingOnly
+                : PushStatus.AllConnected);
 }

@@ -2,6 +2,38 @@ using System.Threading.Channels;
 
 namespace StreamKeepr.Infrastructure.Twitch;
 
+/// <summary>The reason push is or is not fully covering the watched channels.</summary>
+public enum PushState
+{
+    PollingOnly,
+    NoAdminToken,
+    EventSubReconnecting,
+    PartialCoverage,
+    Connected,
+}
+
+/// <summary>One immutable push-status snapshot for the UI and health checks.</summary>
+public sealed record PushStatus(PushState State)
+{
+    public static PushStatus PollingOnly { get; } = new(PushState.PollingOnly);
+    public static PushStatus NoAdminToken { get; } = new(PushState.NoAdminToken);
+    public static PushStatus Reconnecting { get; } = new(PushState.EventSubReconnecting);
+    public static PushStatus PartialCoverage { get; } = new(PushState.PartialCoverage);
+    public static PushStatus AllConnected { get; } = new(PushState.Connected);
+
+    public bool Connected => State == PushState.Connected;
+
+    /// <summary>The stable user-facing reason from backend-for-UI contract §3.</summary>
+    public string Reason => State switch
+    {
+        PushState.Connected => "EventSub connected",
+        PushState.NoAdminToken => "No admin token",
+        PushState.PartialCoverage => "Partial coverage",
+        PushState.EventSubReconnecting => "EventSub reconnecting",
+        _ => "Polling only",
+    };
+}
+
 /// <summary>
 /// Owns the poll tick interval, burst window, nudge coalescing, and push coverage.
 /// The poller supplies the normal and push-aware intervals; this type chooses between them.
@@ -13,11 +45,13 @@ public sealed class PollSchedule(TimeProvider clock)
     private readonly Channel<bool> _nudge = Channel.CreateBounded<bool>(
         new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
 
-    private volatile bool _pushConnected;
+    private volatile PushStatus _push = PushStatus.PollingOnly;
     private long _lastPollTicks = clock.GetUtcNow().UtcTicks;
     private long _burstUntilTicks;
 
-    public bool IsPushConnected => _pushConnected;
+    public PushStatus Push => _push;
+
+    public bool IsPushConnected => _push.Connected;
 
     /// <summary>Raised whenever push coverage is recomputed.</summary>
     public event Action? Changed;
@@ -26,17 +60,16 @@ public sealed class PollSchedule(TimeProvider clock)
         new(Interlocked.Read(ref _lastPollTicks), TimeSpan.Zero);
 
     /// <summary>
-    /// True only when every watched channel has both push subscriptions. A coverage change
-    /// wakes a pending wait so losing push takes effect immediately.
+    /// Updates push coverage and its reason. Losing push wakes a pending wait so the normal
+    /// polling interval takes effect immediately.
     /// </summary>
-    public void SetPushCoverage(bool allCovered)
+    public void SetPushStatus(PushStatus status)
     {
-        bool lostCoverage = _pushConnected && !allCovered;
-        _pushConnected = allCovered;
+        ArgumentNullException.ThrowIfNull(status);
+        bool lostCoverage = _push.Connected && !status.Connected;
+        _push = status;
         Changed?.Invoke();
 
-        // Losing push must shorten an in-flight 300 s wait; gaining it can wait for the
-        // current tick to finish.
         if (lostCoverage)
             Nudge();
     }
@@ -71,7 +104,7 @@ public sealed class PollSchedule(TimeProvider clock)
         TimeSpan interval = clock.GetUtcNow().UtcTicks
             < Interlocked.Read(ref _burstUntilTicks)
                 ? BurstInterval
-                : _pushConnected
+                : _push.Connected
                     ? withPush
                     : normal;
 

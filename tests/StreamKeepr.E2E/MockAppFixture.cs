@@ -29,9 +29,19 @@ public sealed class MockAppFixture : IAsyncLifetime
     private Process? _process;
     private string? _logPath;
 
+    public MockAppFixture()
+        : this(null)
+    {
+    }
+
+    internal MockAppFixture(string? artifactsName)
+    {
+        ArtifactsDirectory = ResolveArtifactsDirectory(artifactsName);
+    }
+
     public string RepositoryRoot { get; } = FindRepositoryRoot();
 
-    public string ArtifactsDirectory { get; } = ResolveArtifactsDirectory();
+    public string ArtifactsDirectory { get; }
 
     private string RecordingsRoot => Path.Combine(_tempRoot, "recordings");
 
@@ -266,12 +276,13 @@ public sealed class MockAppFixture : IAsyncLifetime
         return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
 
-    private static string ResolveArtifactsDirectory()
+    private static string ResolveArtifactsDirectory(string? artifactsName)
     {
         string? configured = Environment.GetEnvironmentVariable("STREAMKEEPR_E2E_ARTIFACTS");
-        return string.IsNullOrWhiteSpace(configured)
+        string directory = string.IsNullOrWhiteSpace(configured)
             ? Path.Combine(Path.GetTempPath(), "streamkeepr-e2e", Guid.NewGuid().ToString("N"))
             : Path.GetFullPath(configured);
+        return artifactsName is null ? directory : Path.Combine(directory, artifactsName);
     }
 
     private static string FindRepositoryRoot()

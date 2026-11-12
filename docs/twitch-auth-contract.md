@@ -56,12 +56,12 @@ public sealed class TwitchTokenProvider(
 - Any channel recording or waiting to retry forces the short interval.
 - Partial coverage is not “push connected”: if any watched channel lacks a subscription, poll every 30 s.
 - `LastPollAt` updates after each tick; health uses it.
-- `SetPushCoverage(bool allCovered)` replaces the plan’s global bool.
+- `SetPushStatus(PushStatus)` updates coverage and carries the reason: `EventSub connected`, `No admin token`, `Partial coverage`, `EventSub reconnecting`, or `Polling only`.
 
 ## 5. EventSub
 
 - WebSocket `wss://eventsub.wss.twitch.tv/ws`; a user token is required to create subscriptions, but `stream.online` and `stream.offline` need **no extra scope**.
-- No token: `schedule.SetPushCoverage(false)`, wait for a token, polling carries the app.
+- No token: `schedule.SetPushStatus(PushStatus.NoAdminToken)`, wait for a token, polling carries the app.
 - On `session_welcome`: subscribe `stream.online` and `stream.offline` for every watched channel with a `UserId`.
 - `409 Conflict` means the subscription already exists; count it as active. Any other refusal logs and leaves that channel uncovered.
 - Coverage becomes true only when every watched channel has both subscriptions. A channel add/remove or `UserId` change restarts the session and recomputes coverage.

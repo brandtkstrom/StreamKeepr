@@ -165,8 +165,20 @@ public sealed class MockEventSubClientTests
         var twitch = new MockTwitch();
         var clock = new FakeTimeProvider(MockCatalog.T0);
         var schedule = new PollSchedule(clock);
+        var channels = new ChannelStore(
+            Options.Create(new TwitchOptions()),
+            Options.Create(new StorageOptions
+            {
+                RecordingsRoot = Path.Combine(
+                    Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N")),
+            }),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ChannelStore>.Instance);
+        await channels.LoadAsync(CancellationToken.None);
         var client = new MockEventSubClient(
-            twitch, schedule, Microsoft.Extensions.Logging.Abstractions.NullLogger<MockEventSubClient>.Instance);
+            twitch,
+            schedule,
+            channels,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<MockEventSubClient>.Instance);
 
         var routed = new TaskCompletionSource<(string Login, StreamObservation Observation)>(
             TaskCreationOptions.RunContinuationsAsynchronously);

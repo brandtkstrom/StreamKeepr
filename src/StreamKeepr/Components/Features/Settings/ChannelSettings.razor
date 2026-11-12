@@ -5,6 +5,11 @@
 @inject ILogger<ChannelSettings> Logger
 
 @* Rendered only for a signed-in admin. ChannelsView enforces the same rule on every call. *@
+<section class="sk-panel sk-settings-section" aria-labelledby="sk-settings-push">
+    <h2 id="sk-settings-push">Push status</h2>
+    <p class="body-medium" role="status" data-push-status>@PushStatusText</p>
+</section>
+
 <section class="sk-panel sk-settings-section" aria-labelledby="sk-settings-channels">
     <h2 id="sk-settings-channels">Channels</h2>
 
@@ -18,20 +23,44 @@
             @foreach (ChannelView channel in _channels)
             {
                 bool removing = _removing.Contains(channel.Login);
-                <li class="sk-channel-row" @key="channel.Login" data-channel="@channel.Login" aria-busy="@(removing ? "true" : null)">
+                bool busy = removing || IsBusy(channel.Login);
+                <li class="sk-channel-row" @key="channel.Login" data-channel="@channel.Login" aria-busy="@(busy ? "true" : null)">
                     <Avatar Name="@channel.DisplayName" ImageUrl="@channel.AvatarUrl" aria-hidden="true" />
                     <span class="who">
                         <b>@channel.DisplayName</b>
                         <span class="login">@channel.Login</span>
                     </span>
                     <StatusChip Status="@ChipKind(channel.State)" Label="@StateLabel(channel.State)" Icon="@StateIcon(channel.State)" data-channel-state="@channel.State" />
+                    <StatusChip Status="StatusChipKind.Saved"
+                                Label="@(channel.PushConnected ? "Push" : "Polling")"
+                                Icon="@(channel.PushConnected ? null : "schedule")"
+                                title="@channel.PushReason"
+                                data-push="@(channel.PushConnected ? "connected" : "polling")" />
                     <span class="grow"></span>
-                    @if (removing)
+                    @if (busy)
                     {
-                        <span class="sk-channel-busy" role="status">Removing…</span>
+                        <span class="sk-channel-busy" role="status">@BusyLabel(channel.Login)</span>
                     }
                     else
                     {
+                        @if (IsPaused(channel))
+                        {
+                            <Button Variant="ButtonVariant.Text"
+                                    OnClick="() => ResumeAsync(channel)"
+                                    aria-label="@($"Resume recording for {channel.DisplayName}")"
+                                    data-channel-resume>
+                                Resume recording
+                            </Button>
+                        }
+                        else
+                        {
+                            <Button Variant="ButtonVariant.Text"
+                                    OnClick="() => AskStop(channel)"
+                                    aria-label="@($"{StopLabel(channel)} for {channel.DisplayName}")"
+                                    data-channel-stop>
+                                @StopLabel(channel)
+                            </Button>
+                        }
                         <Button Variant="ButtonVariant.Text"
                                 OnClick="() => AskRemove(channel)"
                                 aria-label="@($"Remove {channel.DisplayName}")"
@@ -100,10 +129,30 @@
     </Actions>
 </Dialog>
 
+<Dialog Open="@(_stop is not null)"
+        OpenChanged="OnStopOpenChanged"
+        Title="@StopTitle"
+        data-channel-stop-dialog>
+    <ChildContent>
+        <p>@StopBody</p>
+    </ChildContent>
+    <Actions>
+        <Button Variant="ButtonVariant.Text" OnClick="CancelStop" data-channel-stop-cancel>Cancel</Button>
+        <Button Variant="ButtonVariant.Danger"
+                Disabled="@(_stop is not null && IsBusy(_stop.Login))"
+                OnClick="ConfirmStopAsync"
+                data-channel-stop-confirm>
+            @StopActionLabel
+        </Button>
+    </Actions>
+</Dialog>
+
 @code {
     private const string SessionEnded = "Your Twitch session ended. Reconnect to manage channels.";
 
     private readonly HashSet<string> _removing = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _stopping = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _resuming = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _rowErrors = new(StringComparer.Ordinal);
     private IReadOnlyList<ChannelView> _channels = [];
     private ElementReference _input;
@@ -111,8 +160,55 @@
     private string? _addError;
     private bool _adding;
     private ChannelView? _confirm;
+    private ChannelView? _stop;
 
     private bool CanAdd => !_adding && !string.IsNullOrWhiteSpace(_login);
+
+    private string PushStatusText
+    {
+        get
+        {
+            if (_channels.Count == 0)
+                return "No channels watched.";
+
+            string? reason = _channels
+                .FirstOrDefault(channel => !channel.PushConnected)?.PushReason;
+            if (reason is null)
+                return "Push notifications on";
+
+            return $"Polling only — {reason}";
+        }
+    }
+
+    private bool IsBusy(string login) =>
+        _stopping.Contains(login) || _resuming.Contains(login);
+
+    private static bool IsPaused(ChannelView channel) =>
+        channel.State == ChannelRuntimeState.Paused;
+
+    private static bool IsLive(ChannelView channel) =>
+        channel.State is ChannelRuntimeState.Recording or ChannelRuntimeState.Reconnecting;
+
+    private static string StopLabel(ChannelView channel) =>
+        IsLive(channel) ? "Stop recording" : "Pause channel";
+
+    private string BusyLabel(string login) =>
+        _removing.Contains(login) ? "Removing…"
+        : _stopping.Contains(login) ? "Stopping…"
+        : "Resuming…";
+
+    private string StopTitle =>
+        _stop is null ? "Stop recording?"
+        : IsLive(_stop) ? $"Stop recording for {_stop.DisplayName}?"
+        : $"Pause {_stop.DisplayName}?";
+
+    private string StopBody =>
+        _stop is not null && IsLive(_stop)
+            ? "The current capture is finalized, and the channel stays paused until you resume."
+            : "The channel stays paused until you resume.";
+
+    private string StopActionLabel =>
+        _stop is not null && IsLive(_stop) ? "Stop recording" : "Pause channel";
 
     protected override void OnInitialized()
     {
@@ -157,6 +253,9 @@
             Logger.LogDebug(ex, "Channel list hidden: the circuit is no longer signed in.");
             _channels = [];
         }
+
+        if (_stop is not null && _channels.All(channel => channel.Login != _stop.Login))
+            _stop = null;
     }
 
     private async Task OnKeyDownAsync(KeyboardEventArgs args)
@@ -250,6 +349,74 @@
         finally
         {
             _removing.Remove(channel.Login);
+            Refresh();
+        }
+    }
+
+
+    private void AskStop(ChannelView channel)
+    {
+        _rowErrors.Remove(channel.Login);
+        _stop = channel;
+    }
+
+    private void CancelStop() => _stop = null;
+
+    private void OnStopOpenChanged(bool open)
+    {
+        if (!open)
+            _stop = null;
+    }
+
+    private async Task ConfirmStopAsync()
+    {
+        if (_stop is not { } channel)
+            return;
+
+        _stop = null;
+        _stopping.Add(channel.Login);
+        try
+        {
+            // The channel is paused immediately; the coordinator finalizes in its queue.
+            await Channels.StopAsync(channel.Login, CancellationToken.None);
+            Snackbars.Show("Channel paused");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Stopping channel {Login} failed.", channel.Login);
+            _rowErrors[channel.Login] = ex is UnauthorizedAccessException
+                ? SessionEnded
+                : $"Could not stop {channel.DisplayName}. Try again.";
+        }
+        finally
+        {
+            _stopping.Remove(channel.Login);
+            Refresh();
+        }
+    }
+
+    private async Task ResumeAsync(ChannelView channel)
+    {
+        if (IsBusy(channel.Login) || _removing.Contains(channel.Login))
+            return;
+
+        _rowErrors.Remove(channel.Login);
+        _resuming.Add(channel.Login);
+        try
+        {
+            await Channels.ResumeAsync(channel.Login, CancellationToken.None);
+            Snackbars.Show("Recording resumed");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Resuming channel {Login} failed.", channel.Login);
+            _rowErrors[channel.Login] = ex is UnauthorizedAccessException
+                ? SessionEnded
+                : $"Could not resume {channel.DisplayName}. Try again.";
+        }
+        finally
+        {
+            _resuming.Remove(channel.Login);
             Refresh();
         }
     }

@@ -7,6 +7,7 @@ using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Ui;
 
 namespace StreamKeepr.Tests.Ui;
@@ -22,6 +23,7 @@ public sealed class ChannelsViewTests : IDisposable
     private readonly RecordingLibrary _library = new(NullLogger<RecordingLibrary>.Instance);
     private readonly FakeControl _control = new();
     private readonly SwitchableAuth _auth = new();
+    private readonly PollSchedule _schedule = new(new FakeTimeProvider(Now));
     private ChannelStore _channels = null!;
 
     [Fact]
@@ -32,6 +34,8 @@ public sealed class ChannelsViewTests : IDisposable
         Assert.Throws<UnauthorizedAccessException>(() => view.All);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => view.AddAsync("ann", default));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => view.RemoveAsync("ann", default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => view.StopAsync("ann", default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => view.ResumeAsync("ann", default));
         Assert.Empty(_control.Calls);
     }
 
@@ -62,14 +66,53 @@ public sealed class ChannelsViewTests : IDisposable
     }
 
     [Fact]
-    public async Task Add_and_remove_go_through_channel_control()
+    public async Task The_pause_flag_wins_over_an_active_job()
+    {
+        using ChannelsView view = await CreateAsync(signedIn: true);
+        await _channels.AddAsync(new ChannelEntry("ann", Paused: true), default);
+        MarkRecording("ann");
+
+        ChannelView channel = Assert.Single(view.All);
+
+        Assert.True(channel.IsPaused);
+        Assert.Equal(ChannelRuntimeState.Paused, channel.State);
+    }
+
+    [Fact]
+    public async Task Add_remove_stop_and_resume_go_through_channel_control()
     {
         using ChannelsView view = await CreateAsync(signedIn: true);
 
         await view.AddAsync("ann", default);
         await view.RemoveAsync("ann", default);
+        await view.StopAsync("ann", default);
+        await view.ResumeAsync("ann", default);
 
-        Assert.Equal(["add:ann", "remove:ann"], _control.Calls);
+        Assert.Equal(["add:ann", "remove:ann", "stop:ann", "resume:ann"], _control.Calls);
+    }
+
+    [Fact]
+    public async Task Every_channel_reports_the_global_push_status_and_reason()
+    {
+        using ChannelsView view = await CreateAsync(signedIn: true);
+        await _channels.AddAsync("ann", default);
+
+        Assert.False(view.All.Single().PushConnected);
+        Assert.Equal("Polling only", view.All.Single().PushReason);
+
+        _schedule.SetPushStatus(PushStatus.NoAdminToken);
+        Assert.False(view.All.Single().PushConnected);
+        Assert.Equal("No admin token", view.All.Single().PushReason);
+
+        _schedule.SetPushStatus(PushStatus.PartialCoverage);
+        Assert.Equal("Partial coverage", view.All.Single().PushReason);
+
+        _schedule.SetPushStatus(PushStatus.Reconnecting);
+        Assert.Equal("EventSub reconnecting", view.All.Single().PushReason);
+
+        _schedule.SetPushStatus(PushStatus.AllConnected);
+        Assert.True(view.All.Single().PushConnected);
+        Assert.Equal("EventSub connected", view.All.Single().PushReason);
     }
 
     [Fact]
@@ -85,8 +128,13 @@ public sealed class ChannelsViewTests : IDisposable
         _clock.Advance(TimeSpan.FromMilliseconds(500));
         Assert.Equal(1, changed);
 
-        _auth.Set(signedIn: false);
+        _schedule.SetPushStatus(PushStatus.NoAdminToken);
+        Assert.Equal(1, changed);
+        _clock.Advance(TimeSpan.FromMilliseconds(500));
         Assert.Equal(2, changed);
+
+        _auth.Set(signedIn: false);
+        Assert.Equal(3, changed);
         Assert.Throws<UnauthorizedAccessException>(() => view.All);
     }
 
@@ -104,7 +152,8 @@ public sealed class ChannelsViewTests : IDisposable
             NullLogger<ChannelStore>.Instance);
         await _channels.LoadAsync(default);
         _auth.Set(signedIn);
-        return new ChannelsView(_channels, _status, _library, _control, _auth, _clock);
+        return new ChannelsView(
+            _channels, _status, _library, _control, _schedule, _auth, _clock);
     }
 
     private void MarkRecording(string login)
@@ -137,9 +186,17 @@ public sealed class ChannelsViewTests : IDisposable
             return Task.CompletedTask;
         }
 
-        public Task StopRecordingAsync(string login, CancellationToken ct) => Task.CompletedTask;
+        public Task StopRecordingAsync(string login, CancellationToken ct)
+        {
+            Calls.Add($"stop:{login}");
+            return Task.CompletedTask;
+        }
 
-        public Task ResumeRecordingAsync(string login, CancellationToken ct) => Task.CompletedTask;
+        public Task ResumeRecordingAsync(string login, CancellationToken ct)
+        {
+            Calls.Add($"resume:{login}");
+            return Task.CompletedTask;
+        }
     }
 
     internal sealed class SwitchableAuth : AuthenticationStateProvider

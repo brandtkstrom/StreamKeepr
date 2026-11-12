@@ -220,6 +220,7 @@ public sealed class RecordingExportTests
         context.Services.AddScoped<StreamKeepr.Components.Features.Player.PlayerBridge>();
         exports = new TestExportService();
         context.Services.AddSingleton<IExportService>(exports);
+        context.Services.AddSingleton<IChannelsView>(new TestChannelsView());
         BunitAuthorizationContext auth = context.AddAuthorization();
         if (signedIn)
             auth.SetAuthorized("mock_admin");

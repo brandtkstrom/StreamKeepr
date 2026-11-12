@@ -276,6 +276,23 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
+    public void A_paused_streamer_shows_paused_without_a_live_ring()
+    {
+        using BunitContext context = CreateContext(new TestLibraryView());
+        StreamerView paused = Streamer(
+            "ann", "Ann", recording: false, count: 2, last: Now, paused: true);
+
+        IRenderedComponent<StreamerGroup> cut = context.Render<StreamerGroup>(parameters => parameters
+            .Add(component => component.Streamer, paused)
+            .Add(component => component.Recordings, [Recording("r1", "ann", RecordingState.Saved, Now)])
+            .Add(component => component.Expanded, true)
+            .Add(component => component.Now, Now));
+
+        Assert.Contains("Paused", cut.Find(".meta").TextContent);
+        Assert.Empty(cut.FindAll(".sk-live-ring"));
+    }
+
+    [Fact]
     public void Unknown_recording_renders_a_message_and_link_back()
     {
         var view = new TestLibraryView { IsLoaded = true };
@@ -325,6 +342,7 @@ public sealed class LibraryDrawerTests
         context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<PlayerBridge>();
         context.Services.AddSingleton<IExportService>(new TestExportService());
+        context.Services.AddSingleton<IChannelsView>(new TestChannelsView());
         context.Services.AddSingleton<IProgressStore>(new TestProgressStore());
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddSingleton<ILibraryView>(view);

@@ -18,7 +18,7 @@ public sealed class SettingsPageTests
     [Fact]
     public void Signed_out_shows_the_connect_prompt_and_never_creates_the_channels_view()
     {
-        using BunitContext context = CreateContext(out FakeChannelsView channels, signedIn: false);
+        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: false);
 
         IRenderedComponent<Settings> cut = context.Render<Settings>();
 
@@ -33,12 +33,12 @@ public sealed class SettingsPageTests
     [Fact]
     public void Signed_in_shows_the_account_and_channels_with_their_states()
     {
-        using BunitContext context = CreateContext(out FakeChannelsView channels, signedIn: true);
+        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
         channels.Items =
         [
-            new("ann", "Ann", null, true, false, ChannelRuntimeState.Recording),
-            new("bob", "Bob", null, true, true, ChannelRuntimeState.Paused),
-            new("cat", "Cat", null, true, false, ChannelRuntimeState.CoolingDown),
+            new("ann", "Ann", null, true, false, ChannelRuntimeState.Recording, true, "EventSub connected"),
+            new("bob", "Bob", null, true, true, ChannelRuntimeState.Paused, true, "EventSub connected"),
+            new("cat", "Cat", null, true, false, ChannelRuntimeState.CoolingDown, true, "EventSub connected"),
         ];
 
         IRenderedComponent<Settings> cut = context.Render<Settings>();
@@ -52,6 +52,86 @@ public sealed class SettingsPageTests
             cut.FindAll("[data-channel-state]").Select(chip =>
                 chip.TextContent.Replace(chip.QuerySelector(".sk-icon")?.TextContent ?? "\u0000", "").Trim()));
         Assert.Equal("pause", cut.Find("[data-channel='bob'] .sk-icon").TextContent);
+    }
+
+
+    [Fact]
+    public void Push_status_and_each_channel_badge_reflect_the_channel_view()
+    {
+        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        channels.Items =
+        [
+            new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected"),
+            new("bob", "Bob", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected"),
+        ];
+
+        IRenderedComponent<ChannelSettings> connected = context.Render<ChannelSettings>();
+
+        Assert.Equal("Push notifications on", connected.Find("[data-push-status]").TextContent);
+        Assert.Equal(2, connected.FindAll("[data-push='connected']").Count);
+
+        using BunitContext pollingContext = CreateContext(out TestChannelsView polling, signedIn: true);
+        polling.Items =
+        [
+            new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, false, "No admin token"),
+        ];
+
+        IRenderedComponent<ChannelSettings> notConnected = pollingContext.Render<ChannelSettings>();
+
+        Assert.Equal(
+            "Polling only — No admin token",
+            notConnected.Find("[data-push-status]").TextContent);
+        Assert.Single(notConnected.FindAll("[data-push='polling']"));
+        Assert.Contains("No admin token", notConnected.Find("[data-push='polling']").GetAttribute("title"));
+    }
+
+    [Fact]
+    public void Stop_confirms_finalization_then_offers_resume()
+    {
+        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Recording, true, "EventSub connected")];
+        var pending = new TaskCompletionSource();
+        channels.OnStop = _ => pending.Task;
+        IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
+
+        cut.Find("[data-channel='ann'] [data-channel-stop]").Click();
+
+        Assert.Contains("Stop recording for Ann?", cut.Find("[data-channel-stop-dialog]").TextContent);
+        Assert.Contains("finalized", cut.Find("[data-channel-stop-dialog]").TextContent);
+        Assert.Contains("stays paused", cut.Find("[data-channel-stop-dialog]").TextContent);
+        Assert.Empty(channels.Calls);
+
+        cut.Find("[data-channel-stop-confirm]").Click();
+
+        Assert.Equal(["stop:ann"], channels.Calls);
+        Assert.Equal("Stopping…", cut.Find("[data-channel='ann'] [role='status']").TextContent);
+
+        channels.Items = [new("ann", "Ann", null, true, true, ChannelRuntimeState.Paused, true, "EventSub connected")];
+        cut.InvokeAsync(pending.SetResult);
+
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-channel='ann'] [data-channel-resume]")));
+        Assert.Equal("Channel paused", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+    }
+
+    [Fact]
+    public void Resume_is_immediate_and_restores_the_stop_action()
+    {
+        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        channels.Items = [new("ann", "Ann", null, true, true, ChannelRuntimeState.Paused, true, "EventSub connected")];
+        var pending = new TaskCompletionSource();
+        channels.OnResume = _ => pending.Task;
+        IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
+
+        cut.Find("[data-channel='ann'] [data-channel-resume]").Click();
+
+        Assert.Equal(["resume:ann"], channels.Calls);
+        Assert.Equal("Resuming…", cut.Find("[data-channel='ann'] [role='status']").TextContent);
+
+        channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected")];
+        cut.InvokeAsync(pending.SetResult);
+
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-channel='ann'] [data-channel-stop]")));
+        Assert.Equal("Recording resumed", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
     }
 
     [Theory]
@@ -71,7 +151,7 @@ public sealed class SettingsPageTests
     [Fact]
     public void Add_trims_and_lowercases_shows_busy_then_clears_and_announces()
     {
-        using BunitContext context = CreateContext(out FakeChannelsView channels, signedIn: true);
+        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
         var pending = new TaskCompletionSource();
         channels.OnAdd = _ => pending.Task;
         IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
@@ -100,7 +180,7 @@ public sealed class SettingsPageTests
     [InlineData("session", "Your Twitch session ended. Reconnect to manage channels.")]
     public void Add_failures_show_an_inline_error_and_keep_the_input(string failure, string message)
     {
-        using BunitContext context = CreateContext(out FakeChannelsView channels, signedIn: true);
+        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
         channels.OnAdd = login => Task.FromException(failure switch
         {
             "unknown" => new UnknownChannelException(login),
@@ -124,8 +204,8 @@ public sealed class SettingsPageTests
     [Fact]
     public void Remove_confirms_that_recordings_are_kept_then_shows_removing_until_done()
     {
-        using BunitContext context = CreateContext(out FakeChannelsView channels, signedIn: true);
-        channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Recording)];
+        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Recording, true, "EventSub connected")];
         var pending = new TaskCompletionSource();
         channels.OnRemove = _ => pending.Task;
         IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
@@ -151,8 +231,8 @@ public sealed class SettingsPageTests
     [Fact]
     public void A_failed_remove_restores_the_row_with_an_error()
     {
-        using BunitContext context = CreateContext(out FakeChannelsView channels, signedIn: true);
-        channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching)];
+        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected")];
         channels.OnRemove = _ => Task.FromException(new IOException("disk"));
         IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
 
@@ -165,7 +245,7 @@ public sealed class SettingsPageTests
     }
 
     private static BunitContext CreateContext(
-        out FakeChannelsView channels, bool signedIn, string? baseUri = null)
+        out TestChannelsView channels, bool signedIn, string? baseUri = null)
     {
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
@@ -173,7 +253,7 @@ public sealed class SettingsPageTests
         context.Services.AddSingleton(new AdminSessionState());
         context.Services.AddSingleton(new SnackbarService(new FakeTimeProvider()));
         context.Services.AddSingleton<AntiforgeryStateProvider>(new FixedAntiforgery());
-        channels = new FakeChannelsView();
+        channels = new TestChannelsView();
         context.Services.AddSingleton<IChannelsView>(channels);
 
         BunitAuthorizationContext auth = context.AddAuthorization();
@@ -185,46 +265,6 @@ public sealed class SettingsPageTests
         var navigation = context.Services.GetRequiredService<NavigationManager>();
         navigation.NavigateTo(baseUri ?? "/settings");
         return context;
-    }
-
-    internal sealed class FakeChannelsView : IChannelsView
-    {
-        public IReadOnlyList<ChannelView> Items { get; set; } = [];
-
-        public int AllReads { get; private set; }
-
-        public List<string> Calls { get; } = [];
-
-        public Func<string, Task> OnAdd { get; set; } = _ => Task.CompletedTask;
-
-        public Func<string, Task> OnRemove { get; set; } = _ => Task.CompletedTask;
-
-        public event Action? Changed { add { } remove { } }
-
-        public IReadOnlyList<ChannelView> All
-        {
-            get
-            {
-                AllReads++;
-                return Items;
-            }
-        }
-
-        public Task AddAsync(string login, CancellationToken ct)
-        {
-            Calls.Add($"add:{login}");
-            return OnAdd(login);
-        }
-
-        public Task RemoveAsync(string login, CancellationToken ct)
-        {
-            Calls.Add($"remove:{login}");
-            return OnRemove(login);
-        }
-
-        public void Dispose()
-        {
-        }
     }
 
     private sealed class FixedAntiforgery : AntiforgeryStateProvider

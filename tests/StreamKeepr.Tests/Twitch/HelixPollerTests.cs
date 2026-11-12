@@ -261,7 +261,7 @@ public sealed class HelixPollerTests
             clock.GetUtcNow());
 
         var schedule = new PollSchedule(clock);
-        schedule.SetPushCoverage(true);
+        schedule.SetPushStatus(PushStatus.AllConnected);
 
         int polls = 0;
         var firstPoll = new TaskCompletionSource(

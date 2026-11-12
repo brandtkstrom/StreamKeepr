@@ -17,6 +17,10 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
         await rows.First.WaitForAsync();
         Assert.True(await rows.CountAsync() >= 4, "the seeded channels are listed");
         Assert.Equal(0, await page.Locator("[data-channel='mock_wren']").CountAsync());
+        Assert.Equal("Push notifications on", await page.Locator("[data-push-status]").InnerTextAsync());
+        Assert.Equal(
+            await rows.CountAsync(),
+            await page.Locator("[data-push='connected']").CountAsync());
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "settings");
 
         ILocator input = page.Locator("[data-channel-login]");
@@ -76,5 +80,44 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
             "/api/auth/twitch/login?returnUrl=%2Fsettings",
             await prompt.Locator("a.sk-twitch").GetAttributeAsync("href"));
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "settings-signed-out");
+    }
+
+    [Fact]
+    public async Task An_admin_pauses_and_resumes_a_channel_and_the_library_shows_paused()
+    {
+        await using Session session = await OpenAsync($"{app.BaseUrl}/settings");
+        IPage page = session.Page;
+
+        ILocator row = page.Locator("[data-channel='mock_nova']");
+        await row.WaitForAsync();
+        await row.Locator("[data-channel-stop]").ClickAsync();
+
+        ILocator dialog = page.Locator("[data-channel-stop-dialog][open]");
+        await dialog.WaitForAsync();
+        Assert.Contains("stays paused", await dialog.InnerTextAsync());
+        await page.Locator("[data-channel-stop-confirm]").ClickAsync();
+
+        await row.Locator("[data-channel-resume]").WaitForAsync();
+        Assert.Contains("PAUSED", await row.Locator("[data-channel-state]").InnerTextAsync());
+        await page.Locator(".sk-snackbar", new() { HasTextString = "Channel paused" }).WaitForAsync();
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "settings-paused");
+
+        await page.GotoAsync(app.BaseUrl);
+        await page.Locator("nav#sk-drawer .sk-group").First.WaitForAsync();
+        Assert.Contains(
+            "Paused",
+            await page.Locator("[data-tree-key='g:mock_nova'] .meta").TextContentAsync());
+        Assert.Equal(
+            0,
+            await page.Locator("[data-tree-key='g:mock_nova'] .sk-live-ring").CountAsync());
+
+        await page.GotoAsync($"{app.BaseUrl}/settings");
+        row = page.Locator("[data-channel='mock_nova']");
+        await row.Locator("[data-channel-resume]").WaitForAsync();
+        await row.Locator("[data-channel-resume]").ClickAsync();
+        await row.Locator("[data-channel-stop]").WaitForAsync();
+        await page.Locator(".sk-snackbar", new() { HasTextString = "Recording resumed" }).WaitForAsync();
+        Assert.Contains("WATCHING", await row.Locator("[data-channel-state]").InnerTextAsync());
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "settings-resumed");
     }
 }

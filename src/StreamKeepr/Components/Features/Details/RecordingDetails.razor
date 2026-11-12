@@ -10,6 +10,7 @@
 @inject NavigationManager Navigation
 @inject ILogger<RecordingDetails> Logger
 @inject IExportService Exports
+@inject IChannelsView Channels
 
 @* Spec: docs/details-auth-settings-contract.md §§2–4; player contract §11. The same
    component instance survives recording swaps because Home keeps it in one slot. *@
@@ -25,6 +26,18 @@
             <div class="sk-details-title">
                 <h3 data-details-title>@Recording.Title</h3>
                 <div class="sk-actions">
+                    @if (IsLive)
+                    {
+                        <RequiresTwitch>
+                            <Button Variant="ButtonVariant.Outlined"
+                                    Disabled="@_stopping"
+                                    OnClick="OpenStopDialog"
+                                    data-stop-recording="true">
+                                <Icon Name="pause" Size="IconSize.Small" />
+                                Stop recording
+                            </Button>
+                        </RequiresTwitch>
+                    }
                     <Button Variant="ButtonVariant.Outlined"
                             OnClick="CopyPlaylistAsync"
                             data-copy-playlist="true">
@@ -166,6 +179,26 @@
     </ChildContent>
 </Collapsible>
 
+<Dialog Open="@_stopOpen"
+        OpenChanged="OnStopOpenChanged"
+        Title="@($"Stop recording for {Recording.StreamerLogin}?")"
+        aria-busy="@(_stopping ? "true" : null)"
+        data-stop-dialog>
+    <ChildContent>
+        <p>The current capture is finalized, and the channel stays paused until you resume.</p>
+    </ChildContent>
+    <Actions>
+        <Button Variant="ButtonVariant.Text"
+                Disabled="@_stopping"
+                OnClick="CancelStop"
+                data-stop-cancel>Cancel</Button>
+        <Button Variant="ButtonVariant.Danger"
+                Disabled="@_stopping"
+                OnClick="ConfirmStopAsync"
+                data-stop-confirm>Stop recording</Button>
+    </Actions>
+</Dialog>
+
 @code {
     private const string ModulePath = "./Components/Features/Details/RecordingDetails.razor.js";
 
@@ -182,6 +215,9 @@
     private string? _jobRecordingId;
     private bool _starting;
     private bool _cancelling;
+    private bool _stopOpen;
+    private bool _stopping;
+    private string? _stopRecordingId;
 
     private bool IsLive =>
         Recording.State is RecordingState.Recording or RecordingState.Reconnecting;
@@ -225,6 +261,15 @@
 
     protected override void OnParametersSet()
     {
+        if (_stopRecordingId != Recording.Id)
+        {
+            _stopRecordingId = Recording.Id;
+            _stopOpen = false;
+        }
+
+        if (!IsLive)
+            _stopOpen = false;
+
         // A different recording never shows the previous recording's job.
         if (_jobRecordingId != Recording.Id)
             RefreshExport();
@@ -347,6 +392,65 @@
         ExportState.Cancelled => "cancel",
         _ => "error",
     };
+
+
+    private void OpenStopDialog()
+    {
+        if (!IsLive || _stopping)
+            return;
+
+        _stopOpen = true;
+    }
+
+    private void OnStopOpenChanged(bool open)
+    {
+        if (!open && _stopping)
+            return;
+
+        _stopOpen = open;
+    }
+
+    private void CancelStop()
+    {
+        if (!_stopping)
+            _stopOpen = false;
+    }
+
+    private async Task ConfirmStopAsync()
+    {
+        if (_stopping || !IsLive)
+            return;
+
+        _stopping = true;
+        try
+        {
+            // The recorder's stop budget bounds finalization; no client timeout.
+            await Channels.StopAsync(Recording.StreamerLogin, CancellationToken.None);
+            _stopOpen = false;
+            Snackbars.Show("Channel paused");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _stopOpen = false;
+            Snackbars.Show("Your Twitch session ended. Reconnect to manage channels.");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or KeyNotFoundException)
+        {
+            _stopOpen = false;
+            Snackbars.Show(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(
+                ex, "Stopping the recording for {Login} failed.", Recording.StreamerLogin);
+            _stopOpen = false;
+            Snackbars.Show("Could not stop the recording. Try again.");
+        }
+        finally
+        {
+            _stopping = false;
+        }
+    }
 
     private void OnExportsChanged() => _ = InvokeAsync(() =>
     {

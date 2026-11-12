@@ -286,7 +286,7 @@ public sealed class HealthCheckTests : IDisposable
         clock = _clock;
         status = new DvrStatus();
         schedule = new PollSchedule(clock);
-        schedule.SetPushCoverage(pushConnected);
+        schedule.SetPushStatus(pushConnected ? PushStatus.AllConnected : PushStatus.PollingOnly);
 
         return new DvrHealthCheck(
             status,

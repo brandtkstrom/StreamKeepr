@@ -84,6 +84,9 @@
     {
         get
         {
+            if (Streamer.IsPaused)
+                return "Paused";
+
             if (Streamer.IsRecording)
                 return "Recording now";
 
