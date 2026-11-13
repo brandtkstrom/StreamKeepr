@@ -195,6 +195,89 @@ public sealed class EventSubClientTests : IDisposable
     }
 
     [Fact]
+    public async Task Unauthorized_subscription_refreshes_once_and_reuses_the_new_token()
+    {
+        var requests = new List<string>();
+        _httpHandler.Handler = request =>
+        {
+            string token = request.Headers.Authorization?.Parameter ?? "";
+            requests.Add(token);
+            return Task.FromResult(new HttpResponseMessage(
+                requests.Count == 1 ? HttpStatusCode.Unauthorized : HttpStatusCode.Accepted));
+        };
+
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+        Task coverageChanged = NextCoverageAsync();
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1"));
+        await coverageChanged.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(_schedule.IsPushConnected);
+        Assert.Equal(1, _tokens.RefreshCount);
+        Assert.Equal(["admin-token", "refreshed-token", "refreshed-token"], requests);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Second_unauthorized_does_not_refresh_again_in_the_same_session()
+    {
+        var tokenStore = new ScriptedTokenStore();
+        int requests = 0;
+        var secondRequest = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _httpHandler.Handler = _ =>
+        {
+            if (Interlocked.Increment(ref requests) == 2)
+                secondRequest.TrySetResult();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        };
+
+        EventSubClient client = CreateClient(tokens: tokenStore);
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1"));
+        await secondRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await tokenStore.SecondGet.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, tokenStore.RefreshCount);
+        Assert.False(_schedule.IsPushConnected);
+        Assert.Single(_socketFactory.Sockets);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Refresh_without_a_token_fails_the_subscription_and_waits_for_a_token()
+    {
+        _tokens.RefreshedToken = null;
+        _httpHandler.Handler = _ =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized));
+
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1"));
+        await _tokens.Waiting.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, _tokens.RefreshCount);
+        Assert.False(_schedule.IsPushConnected);
+        Assert.Single(_socketFactory.Sockets);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public async Task Keepalive_silence_reconnects()
     {
         var subscribed = new TaskCompletionSource(
@@ -373,11 +456,12 @@ public sealed class EventSubClientTests : IDisposable
 
     private EventSubClient CreateClient(
         IRetryJitter? jitter = null,
-        IEventSubSocketFactory? socketFactory = null) =>
+        IEventSubSocketFactory? socketFactory = null,
+        IAdminTokenStore? tokens = null) =>
         new(
             socketFactory ?? _socketFactory,
             _httpFactory,
-            _tokens,
+            tokens ?? _tokens,
             _channels,
             _poller,
             _schedule,
@@ -477,6 +561,40 @@ public sealed class EventSubClientTests : IDisposable
         }
     }
 
+    private sealed class ScriptedTokenStore : IAdminTokenStore
+    {
+        private int _getCalls;
+
+        public int RefreshCount { get; private set; }
+
+        public TaskCompletionSource SecondGet { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public event Action? Changed { add { } remove { } }
+
+        public ValueTask<string?> GetAsync(CancellationToken ct)
+        {
+            if (Interlocked.Increment(ref _getCalls) == 1)
+                return ValueTask.FromResult<string?>("admin-token");
+
+            SecondGet.TrySetResult();
+            return ValueTask.FromResult<string?>(null);
+        }
+
+        public ValueTask<string?> RefreshAsync(CancellationToken ct)
+        {
+            RefreshCount++;
+            return ValueTask.FromResult<string?>("refreshed-token");
+        }
+
+        public Task SaveAsync(AdminToken token, CancellationToken ct) => Task.CompletedTask;
+
+        public Task ClearAsync(CancellationToken ct) => Task.CompletedTask;
+
+        public Task WaitForTokenAsync(CancellationToken ct) =>
+            Task.Delay(Timeout.InfiniteTimeSpan, ct);
+    }
+
     private sealed class FakeAdminTokenStore(string? token) : IAdminTokenStore
     {
         public string? Token { get; set; } = token;
@@ -486,8 +604,19 @@ public sealed class EventSubClientTests : IDisposable
 
         public event Action? Changed;
 
+        public string? RefreshedToken { get; set; } = "refreshed-token";
+
+        public int RefreshCount { get; private set; }
+
         public ValueTask<string?> GetAsync(CancellationToken ct) =>
             ValueTask.FromResult(Token);
+
+        public ValueTask<string?> RefreshAsync(CancellationToken ct)
+        {
+            RefreshCount++;
+            Token = RefreshedToken;
+            return ValueTask.FromResult(RefreshedToken);
+        }
 
         public Task SaveAsync(AdminToken token, CancellationToken ct)
         {
@@ -515,7 +644,9 @@ public sealed class EventSubClientTests : IDisposable
 
     private sealed class FakeEventSubSocketFactory : IEventSubSocketFactory
     {
-        public FakeEventSubSocket? LastSocket { get; private set; }
+        public List<FakeEventSubSocket> Sockets { get; } = [];
+
+        public FakeEventSubSocket? LastSocket => Sockets.LastOrDefault();
 
         public TaskCompletionSource SocketTwo { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -524,10 +655,11 @@ public sealed class EventSubClientTests : IDisposable
 
         public IEventSubSocket Create()
         {
-            LastSocket = new FakeEventSubSocket();
+            var socket = new FakeEventSubSocket();
+            Sockets.Add(socket);
             if (Interlocked.Increment(ref _created) == 2)
                 SocketTwo.TrySetResult();
-            return LastSocket;
+            return socket;
         }
     }
 

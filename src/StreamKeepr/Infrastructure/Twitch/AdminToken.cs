@@ -27,6 +27,14 @@ public interface IAdminTokenStore
     /// </summary>
     ValueTask<string?> GetAsync(CancellationToken ct);
 
+    /// <summary>
+    /// Forces a refresh even when the token is not near expiry. Returns the new
+    /// access token, or <c>null</c> when no token exists or the refresh failed.
+    /// A failed refresh clears the token and raises <see cref="Changed"/>.
+    /// A successful refresh does not raise <see cref="Changed"/>.
+    /// </summary>
+    ValueTask<string?> RefreshAsync(CancellationToken ct);
+
     /// <summary>Replaces the stored token. The latest admin sign-in wins.</summary>
     Task SaveAsync(AdminToken token, CancellationToken ct);
 

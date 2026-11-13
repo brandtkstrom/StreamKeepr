@@ -53,7 +53,7 @@ public sealed class AdminTokenStore(
             {
                 if (token.ExpiresAt - clock.GetUtcNow() <= RefreshWindow)
                 {
-                    var refreshed = await RefreshAsync(token, ct);
+                    var refreshed = await RefreshTokenAsync(token, ct);
                     if (refreshed is null)
                     {
                         TryClearLocked();
@@ -70,6 +70,46 @@ public sealed class AdminTokenStore(
                 else
                 {
                     accessToken = token.AccessToken;
+                }
+            }
+        }
+        finally
+        {
+            _lock.Release();
+        }
+
+        if (cleared)
+            Changed?.Invoke();
+
+        return accessToken;
+    }
+
+    public async ValueTask<string?> RefreshAsync(CancellationToken ct)
+    {
+        string? accessToken = null;
+        var cleared = false;
+
+        await _lock.WaitAsync(ct);
+        try
+        {
+            var (token, loadCleared) = await LoadLockedAsync(ct);
+            cleared |= loadCleared;
+
+            if (token is not null)
+            {
+                var refreshed = await RefreshTokenAsync(token, ct);
+                if (refreshed is null)
+                {
+                    TryClearLocked();
+                    cleared = true;
+                }
+                else
+                {
+                    PersistLocked(refreshed);
+                    _token = refreshed;
+                    accessToken = refreshed.AccessToken;
+                    logger.LogInformation(
+                        "Refreshed the admin Twitch token for {Login}.", refreshed.Login);
                 }
             }
         }
@@ -218,7 +258,7 @@ public sealed class AdminTokenStore(
         }
     }
 
-    private async Task<AdminToken?> RefreshAsync(AdminToken token, CancellationToken ct)
+    private async Task<AdminToken?> RefreshTokenAsync(AdminToken token, CancellationToken ct)
     {
         var options = twitch.Value;
         using var client = httpFactory.CreateClient(TwitchHttpClients.Auth);

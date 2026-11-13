@@ -279,25 +279,37 @@ public sealed class EventSubClient(
         ChannelEntry[] watched = channels.Snapshot.ToArray();
         int covered = 0;
 
+        string currentToken = token;
         foreach (ChannelEntry channel in watched)
         {
             if (channel.UserId is null)
                 continue;
 
-            SubscriptionResult online = await SubscribeAsync(
-                sessionId, token, channel, "stream.online", ct);
-            SubscriptionResult offline = await SubscribeAsync(
-                sessionId, token, channel, "stream.offline", ct);
-
-            if (online == SubscriptionResult.Failed || offline == SubscriptionResult.Failed)
+            SubscriptionAttempt online = await SubscribeAsync(
+                sessionId, currentToken, channel, "stream.online", ct);
+            currentToken = online.Token;
+            if (online.Result == SubscriptionResult.Failed)
             {
                 schedule.SetPushStatus(PushStatus.Reconnecting);
                 throw new EventSubRestartException(
                     null, $"subscription request failed for {channel.Login}");
             }
 
-            if (online == SubscriptionResult.Active && offline == SubscriptionResult.Active)
+            SubscriptionAttempt offline = await SubscribeAsync(
+                sessionId, currentToken, channel, "stream.offline", ct);
+            currentToken = offline.Token;
+            if (offline.Result == SubscriptionResult.Failed)
+            {
+                schedule.SetPushStatus(PushStatus.Reconnecting);
+                throw new EventSubRestartException(
+                    null, $"subscription request failed for {channel.Login}");
+            }
+
+            if (online.Result == SubscriptionResult.Active
+                && offline.Result == SubscriptionResult.Active)
+            {
                 covered++;
+            }
         }
 
         if (covered == 0 && watched.Length == 0)
@@ -314,7 +326,57 @@ public sealed class EventSubClient(
         return covered;
     }
 
-    private async Task<SubscriptionResult> SubscribeAsync(
+    private async Task<SubscriptionAttempt> SubscribeAsync(
+        string sessionId,
+        string token,
+        ChannelEntry channel,
+        string type,
+        CancellationToken ct)
+    {
+        SubscriptionAttempt attempt = await SendSubscriptionAsync(
+            sessionId, token, channel, type, ct);
+
+        if (attempt.Result != SubscriptionResult.Unauthorized)
+            return attempt;
+
+        string? refreshed;
+        try
+        {
+            refreshed = await adminTokens.RefreshAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex, "EventSub admin-token refresh failed for {Login}.", channel.Login);
+            return attempt with { Result = SubscriptionResult.Failed };
+        }
+
+        if (refreshed is null)
+        {
+            logger.LogWarning(
+                "EventSub admin-token refresh returned no token for {Login}.", channel.Login);
+            return attempt with { Result = SubscriptionResult.Failed };
+        }
+
+        SubscriptionAttempt retry = await SendSubscriptionAsync(
+            sessionId, refreshed, channel, type, ct);
+        if (retry.Result == SubscriptionResult.Unauthorized)
+        {
+            logger.LogError(
+                "EventSub subscription {Type} for {Login} still returned 401 after a forced token refresh; check the Twitch Client-Id and token type.",
+                type,
+                channel.Login);
+            return retry with { Result = SubscriptionResult.Failed };
+        }
+
+        return retry;
+    }
+
+    private async Task<SubscriptionAttempt> SendSubscriptionAsync(
         string sessionId,
         string token,
         ChannelEntry channel,
@@ -341,10 +403,12 @@ public sealed class EventSubClient(
 
             using HttpResponseMessage response = await http.SendAsync(request, ct);
             if (response.StatusCode == HttpStatusCode.Conflict || response.IsSuccessStatusCode)
-                return SubscriptionResult.Active;
+                return new SubscriptionAttempt(SubscriptionResult.Active, token);
 
-            if (response.StatusCode == HttpStatusCode.Unauthorized
-                || response.StatusCode == HttpStatusCode.TooManyRequests
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+                return new SubscriptionAttempt(SubscriptionResult.Unauthorized, token);
+
+            if (response.StatusCode == HttpStatusCode.TooManyRequests
                 || (int)response.StatusCode >= 500)
             {
                 logger.LogWarning(
@@ -352,7 +416,7 @@ public sealed class EventSubClient(
                     type,
                     channel.Login,
                     (int)response.StatusCode);
-                return SubscriptionResult.Failed;
+                return new SubscriptionAttempt(SubscriptionResult.Failed, token);
             }
 
             logger.LogWarning(
@@ -360,7 +424,7 @@ public sealed class EventSubClient(
                 type,
                 channel.Login,
                 (int)response.StatusCode);
-            return SubscriptionResult.Refused;
+            return new SubscriptionAttempt(SubscriptionResult.Refused, token);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -370,7 +434,7 @@ public sealed class EventSubClient(
         {
             logger.LogWarning(
                 ex, "EventSub subscription {Type} for {Login} failed.", type, channel.Login);
-            return SubscriptionResult.Failed;
+            return new SubscriptionAttempt(SubscriptionResult.Failed, token);
         }
     }
 
@@ -466,7 +530,10 @@ public sealed class EventSubClient(
         Active,
         Refused,
         Failed,
+        Unauthorized,
     }
+
+    private sealed record SubscriptionAttempt(SubscriptionResult Result, string Token);
 
     private sealed class EventSubRestartException(Uri? reconnectUrl, string message)
         : Exception(message)

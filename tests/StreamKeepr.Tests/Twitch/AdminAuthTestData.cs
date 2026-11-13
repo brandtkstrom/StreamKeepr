@@ -29,8 +29,16 @@ internal sealed class RecordingAdminTokenStore : IAdminTokenStore
 
     public int ClearCount { get; private set; }
 
+    public int RefreshCount { get; private set; }
+
     public ValueTask<string?> GetAsync(CancellationToken ct) =>
         ValueTask.FromResult(Token?.AccessToken);
+
+    public ValueTask<string?> RefreshAsync(CancellationToken ct)
+    {
+        RefreshCount++;
+        return ValueTask.FromResult(Token?.AccessToken);
+    }
 
     public Task SaveAsync(AdminToken token, CancellationToken ct)
     {

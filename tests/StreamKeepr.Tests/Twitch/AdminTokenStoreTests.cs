@@ -198,6 +198,64 @@ public sealed class AdminTokenStoreTests
     }
 
     [Fact]
+    public async Task RefreshAsync_forces_a_refresh_outside_the_window_and_does_not_raise_changed()
+    {
+        using var harness = new Harness(
+            _ => AdminTokenStoreTestData.TokenResponse("access-2", "refresh-2"));
+        await harness.Store.SaveAsync(
+            AdminTokenStoreTestData.Token(T0.AddHours(2), "access-1", "refresh-1"),
+            CancellationToken.None);
+
+        var changes = 0;
+        harness.Store.Changed += () => changes++;
+
+        Assert.Equal("access-2", await harness.Store.RefreshAsync(CancellationToken.None));
+
+        Assert.Equal(0, changes);
+        var request = Assert.Single(harness.Handler.Requests);
+        Assert.Contains("refresh_token=refresh-1", request.Body, StringComparison.Ordinal);
+
+        Assert.Equal("access-2", await harness.Store.GetAsync(CancellationToken.None));
+        Assert.Single(harness.Handler.Requests);
+
+        using var second = harness.CreateSecondStore();
+        Assert.Equal("access-2", await second.GetAsync(CancellationToken.None));
+        Assert.Single(harness.Handler.Requests);
+    }
+
+    [Fact]
+    public async Task RefreshAsync_returns_null_without_http_when_no_token_exists()
+    {
+        using var harness = new Harness(_ => throw UnexpectedRequest());
+        var changes = 0;
+        harness.Store.Changed += () => changes++;
+
+        Assert.Null(await harness.Store.RefreshAsync(CancellationToken.None));
+
+        Assert.Empty(harness.Handler.Requests);
+        Assert.Equal(0, changes);
+    }
+
+    [Fact]
+    public async Task RefreshAsync_failure_clears_the_token_and_raises_changed_once()
+    {
+        using var harness = new Harness(_ => new HttpResponseMessage(HttpStatusCode.BadRequest));
+        await harness.Store.SaveAsync(
+            AdminTokenStoreTestData.Token(T0.AddHours(2)),
+            CancellationToken.None);
+
+        var changes = 0;
+        harness.Store.Changed += () => changes++;
+
+        Assert.Null(await harness.Store.RefreshAsync(CancellationToken.None));
+
+        Assert.Equal(1, changes);
+        Assert.False(File.Exists(harness.TokenPath));
+        Assert.Null(await harness.Store.GetAsync(CancellationToken.None));
+        Assert.Single(harness.Handler.Requests);
+    }
+
+    [Fact]
     public async Task Corrupt_token_file_is_logged_cleared_and_returns_null()
     {
         using var harness = new Harness(_ => throw UnexpectedRequest());
