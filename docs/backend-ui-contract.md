@@ -91,7 +91,7 @@ public interface IChannelsView : IDisposable
 - Scoped and signed-in. `All` and every method throw `UnauthorizedAccessException` when the circuit has no authenticated admin. Components use `AuthorizeView`/`RequiresTwitch` for display; the service enforces.
 - `All` lists watched channels.
 - `State`: Recording when the active job is running; Reconnecting when the manifest is Recording without a job; Paused when the pause flag is set; CoolingDown when the reducer is cooling down; Watching otherwise.
-- `PushConnected` is `PollSchedule.IsPushConnected` (all watched channels covered). `PushReason` is `EventSub connected`, `No admin token`, `Partial coverage`, `EventSub reconnecting`, or `Polling only`.
+- `PushConnected` is `PollSchedule.IsPushConnected` (all watched channels covered). `PushReason` is `EventSub connected`, `No admin token`, `Partial coverage`, `EventSub reconnecting`, or `Polling only`. `No admin token` occurs only with the WebSocket transport (ADR-0007).
 - `AddAsync` delegates to `IChannelControl.AddChannelAsync`, which validates the login through Helix and resolves the profile. Unknown/invalid logins throw `ArgumentException`/`InvalidOperationException` with a user-safe message.
 - `RemoveAsync` finalizes the open session and keeps recordings. `StopAsync` persists `Paused` and routes `StopRequested`. `ResumeAsync` clears `Paused`, routes `ResumeRequested`, and nudges the poller.
 - `Changed` fires on `ChannelStore.Changed`, `DvrStatus.Changed`, and push-status changes; throttle to 500 ms.

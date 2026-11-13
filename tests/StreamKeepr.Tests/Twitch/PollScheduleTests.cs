@@ -130,6 +130,18 @@ public sealed class PollScheduleTests
         Assert.False(PushStatus.PartialCoverage.Connected);
     }
 
+    [Theory]
+    [InlineData(0, 0, PushState.PollingOnly)]
+    [InlineData(0, 2, PushState.PartialCoverage)]
+    [InlineData(1, 2, PushState.PartialCoverage)]
+    [InlineData(2, 2, PushState.Connected)]
+    public void Coverage_is_all_or_nothing(int covered, int watched, PushState expected) =>
+        Assert.Equal(expected, PushStatus.FromCoverage(covered, watched).State);
+
+    [Fact]
+    public void Coverage_rejects_more_covered_than_watched() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => PushStatus.FromCoverage(3, 2));
+
     private static FakeTimeProvider NewClock() =>
         new(new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
 }

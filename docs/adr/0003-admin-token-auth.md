@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. Amended by ADR-0007: with `Twitch:EventSubTransport = Conduit`, EventSub uses the app token and does not depend on the admin token.
 
 ## Context
 

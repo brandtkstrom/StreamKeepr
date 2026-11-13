@@ -11,7 +11,13 @@ namespace StreamKeepr.Infrastructure.Twitch;
 [JsonSerializable(typeof(HelixChannelsResponse))]
 [JsonSerializable(typeof(HelixUsersResponse))]
 [JsonSerializable(typeof(EventSubSubscriptionRequest))]
+[JsonSerializable(typeof(ConduitState))]
 [JsonSerializable(typeof(HelixEventSubSubscriptionsResponse))]
+[JsonSerializable(typeof(HelixConduitsResponse))]
+[JsonSerializable(typeof(CreateConduitRequest))]
+[JsonSerializable(typeof(UpdateConduitShardsRequest))]
+[JsonSerializable(typeof(UpdateConduitShardsResponse))]
+[JsonSerializable(typeof(HelixErrorResponse))]
 internal partial class TwitchJsonContext : JsonSerializerContext
 {
 }

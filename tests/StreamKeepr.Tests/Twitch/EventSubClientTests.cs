@@ -11,6 +11,7 @@ using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
+using static StreamKeepr.Tests.Twitch.EventSubMessages;
 
 namespace StreamKeepr.Tests.Twitch;
 
@@ -1310,6 +1311,110 @@ public sealed class EventSubClientTests : IDisposable
         await run.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    [Fact]
+    public async Task Adding_a_channel_subscribes_every_channel_on_the_new_session()
+    {
+        Channel<string> bodies = RecordSubscriptionBodies();
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        await WelcomeOnSocketAsync(1, "session-1");
+        Assert.Equal(["stream.offline/123/session-1", "stream.online/123/session-1"], await ReadAsync(bodies, 2));
+        await WaitForPushAsync(PushState.Connected);
+
+        await _channels.AddAsync(
+            new ChannelEntry("second", UserId: "456", DisplayName: "Second"), CancellationToken.None);
+        await WelcomeOnSocketAsync(2, "session-2");
+
+        // WebSocket subscriptions die with their session, so the new one re-subscribes all channels.
+        Assert.Equal(
+            [
+                "stream.offline/123/session-2", "stream.offline/456/session-2",
+                "stream.online/123/session-2", "stream.online/456/session-2",
+            ],
+            await ReadAsync(bodies, 4));
+        await WaitForPushAsync(PushState.Connected);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Removing_a_channel_leaves_it_off_the_new_session()
+    {
+        await _channels.AddAsync(
+            new ChannelEntry("second", UserId: "456", DisplayName: "Second"), CancellationToken.None);
+        Channel<string> bodies = RecordSubscriptionBodies();
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        await WelcomeOnSocketAsync(1, "session-1");
+        Assert.Equal(4, (await ReadAsync(bodies, 4)).Length);
+        await WaitForPushAsync(PushState.Connected);
+
+        await _channels.RemoveAsync("second", CancellationToken.None);
+        await WelcomeOnSocketAsync(2, "session-2");
+
+        Assert.Equal(["stream.offline/123/session-2", "stream.online/123/session-2"], await ReadAsync(bodies, 2));
+        await WaitForPushAsync(PushState.Connected);
+        Assert.False(bodies.Reader.TryRead(out _));
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Records each subscription request as "type/broadcaster/session" and accepts it.</summary>
+    private Channel<string> RecordSubscriptionBodies()
+    {
+        Channel<string> bodies = Channel.CreateUnbounded<string>();
+        _httpHandler.Handler = async request =>
+        {
+            var json = System.Text.Json.Nodes.JsonNode.Parse(await request.Content!.ReadAsStringAsync())!;
+            bodies.Writer.TryWrite(
+                $"{json["type"]}/{json["condition"]!["broadcaster_user_id"]}/{json["transport"]!["session_id"]}");
+            return new HttpResponseMessage(HttpStatusCode.Accepted);
+        };
+        return bodies;
+    }
+
+    private static async Task<string[]> ReadAsync(Channel<string> bodies, int count)
+    {
+        var read = new List<string>();
+        for (int i = 0; i < count; i++)
+            read.Add(await bodies.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+        return [.. read.Order(StringComparer.Ordinal)];
+    }
+
+    private async Task WelcomeOnSocketAsync(int number, string sessionId)
+    {
+        FakeEventSubSocket socket = await _socketFactory.SocketAsync(number).WaitAsync(TimeSpan.FromSeconds(5));
+        await socket.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        socket.Push(Welcome(sessionId));
+    }
+
+    private async Task WaitForPushAsync(PushState expected)
+    {
+        var met = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Check()
+        {
+            if (_schedule.Push.State == expected)
+                met.TrySetResult();
+        }
+
+        _schedule.Changed += Check;
+        try
+        {
+            Check();
+            await met.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            _schedule.Changed -= Check;
+        }
+    }
+
     private Task NextCoverageAsync()
     {
         var changed = new TaskCompletionSource(
@@ -1349,38 +1454,20 @@ public sealed class EventSubClientTests : IDisposable
         ILogger<EventSubClient>? logger = null) =>
         new(
             socketFactory ?? _socketFactory,
-            httpFactory ?? _httpFactory,
-            tokens ?? _tokens,
+            new WebSocketEventSubBinding(
+                httpFactory ?? _httpFactory,
+                tokens ?? _tokens,
+                _channels,
+                _schedule,
+                Options.Create(new TwitchOptions { ClientId = "client-id" }),
+                _clock,
+                NullLogger<WebSocketEventSubBinding>.Instance),
             _channels,
             _poller,
             _schedule,
             jitter ?? new NoJitter(),
-            Options.Create(new TwitchOptions { ClientId = "client-id" }),
             _clock,
             logger ?? NullLogger<EventSubClient>.Instance);
-
-    private static string Welcome(
-        string sessionId, int keepaliveSeconds = 10, string? messageId = null) =>
-        "{\"metadata\":{\"message_type\":\"session_welcome\""
-        + (messageId is null ? "" : ",\"message_id\":\"" + messageId + "\"")
-        + "},\"payload\":{\"session\":{\"id\":\"" + sessionId + "\","
-        + "\"keepalive_timeout_seconds\":" + keepaliveSeconds + "}}}";
-
-    private static string Reconnect(string url) =>
-        "{\"metadata\":{\"message_type\":\"session_reconnect\"},"
-        + "\"payload\":{\"session\":{\"reconnect_url\":\"" + url + "\"}}}";
-
-    private static string Revoked() =>
-        "{\"metadata\":{\"message_type\":\"revocation\"},\"payload\":{}}";
-
-    private static string Notification(
-        string type, string? messageId = null, string? broadcastType = null) =>
-        "{\"metadata\":{\"message_type\":\"notification\""
-        + (messageId is null ? "" : ",\"message_id\":\"" + messageId + "\"")
-        + "},\"payload\":{\"subscription\":{\"type\":\"" + type + "\"},"
-        + "\"event\":{\"id\":\"987\",\"broadcaster_user_id\":\"123\","
-        + (broadcastType is null ? "" : "\"type\":\"" + broadcastType + "\",")
-        + "\"started_at\":\"2026-11-10T16:30:00Z\"}}}";
 
     private static HttpResponseMessage SubscriptionsResponse(string sessionId) =>
         new(HttpStatusCode.OK)
@@ -1398,11 +1485,6 @@ public sealed class EventSubClientTests : IDisposable
         "{\"id\":\"" + id + "\",\"status\":\"enabled\",\"type\":\"" + type + "\","
         + "\"condition\":{\"broadcaster_user_id\":\"123\"},"
         + "\"transport\":{\"method\":\"websocket\",\"session_id\":\"" + sessionId + "\"}}";
-
-    private sealed class NoJitter : IRetryJitter
-    {
-        public TimeSpan Apply(TimeSpan baseDelay) => TimeSpan.Zero;
-    }
 
     private sealed class RecordingJitter : IRetryJitter
     {
@@ -1466,42 +1548,6 @@ public sealed class EventSubClientTests : IDisposable
             Entered.TrySetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("The hanging request completed unexpectedly.");
-        }
-    }
-
-    private sealed class FakeChannelInfoPoller : IStreamPoller
-    {
-        public ChannelInfo? Info { get; set; }
-
-        public int ChannelInfoCalls { get; private set; }
-
-        public TaskCompletionSource LookupStarted { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public bool HangChannelInfo { get; set; }
-
-        public Task RunAsync(
-            Func<IReadOnlyList<string>> logins,
-            StreamObservationRoute route,
-            CancellationToken ct) =>
-            Task.Delay(Timeout.InfiniteTimeSpan, ct);
-
-        public Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct) =>
-            Task.FromResult<ChannelProfile?>(null);
-
-        public async Task<ChannelInfo?> GetChannelInfoAsync(
-            string broadcasterId, CancellationToken ct)
-        {
-            ChannelInfoCalls++;
-            LookupStarted.TrySetResult();
-            if (HangChannelInfo)
-                await Task.Delay(Timeout.InfiniteTimeSpan, ct);
-
-            return Info;
-        }
-
-        public void Nudge()
-        {
         }
     }
 
@@ -1617,107 +1663,5 @@ public sealed class EventSubClientTests : IDisposable
         }
 
         public void RaiseChanged() => Changed?.Invoke();
-    }
-
-    private sealed class FakeEventSubSocketFactory : IEventSubSocketFactory
-    {
-        private readonly List<TaskCompletionSource<FakeEventSubSocket>> _slots = [];
-
-        public List<FakeEventSubSocket> Sockets { get; } = [];
-
-        public FakeEventSubSocket? LastSocket => Sockets.LastOrDefault();
-
-        public TaskCompletionSource SocketTwo { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public bool HangOnConnect { get; set; }
-
-        private int _created;
-
-        public IEventSubSocket Create()
-        {
-            var socket = new FakeEventSubSocket { HangOnConnect = HangOnConnect };
-            Sockets.Add(socket);
-            int created = Interlocked.Increment(ref _created);
-            Slot(created).TrySetResult(socket);
-            if (created == 2)
-                SocketTwo.TrySetResult();
-            return socket;
-        }
-
-        /// <summary>Completes when the <paramref name="number"/>th socket (1-based) is created.</summary>
-        public Task<FakeEventSubSocket> SocketAsync(int number) => Slot(number).Task;
-
-        private TaskCompletionSource<FakeEventSubSocket> Slot(int number)
-        {
-            lock (_slots)
-            {
-                while (_slots.Count < number)
-                {
-                    _slots.Add(new TaskCompletionSource<FakeEventSubSocket>(
-                        TaskCreationOptions.RunContinuationsAsynchronously));
-                }
-
-                return _slots[number - 1];
-            }
-        }
-    }
-
-    private sealed class FakeEventSubSocket : IEventSubSocket
-    {
-        private readonly Channel<string> _messages = Channel.CreateUnbounded<string>();
-        private int _received;
-
-        public TaskCompletionSource Connected { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public TaskCompletionSource ConnectStarted { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public TaskCompletionSource Subscribed { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public TaskCompletionSource Disposed { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public Uri? ConnectedUri { get; private set; }
-
-        public bool HangOnConnect { get; set; }
-
-        public Task ConnectAsync(Uri uri, CancellationToken ct)
-        {
-            ConnectedUri = uri;
-            ConnectStarted.TrySetResult();
-            if (HangOnConnect)
-                return Task.Delay(Timeout.InfiniteTimeSpan, ct);
-
-            Connected.TrySetResult();
-            return Task.CompletedTask;
-        }
-
-        public async Task<string?> ReceiveTextAsync(CancellationToken ct)
-        {
-            if (!await _messages.Reader.WaitToReadAsync(ct)
-                || !_messages.Reader.TryRead(out string? message))
-            {
-                return null;
-            }
-
-            if (Interlocked.Increment(ref _received) == 1)
-                Subscribed.TrySetResult();
-            return message;
-        }
-
-        public void Push(string message) => _messages.Writer.TryWrite(message);
-
-        /// <summary>Simulates Twitch closing the socket: pending and later receives return null.</summary>
-        public void Close() => _messages.Writer.TryComplete();
-
-        public ValueTask DisposeAsync()
-        {
-            _messages.Writer.TryComplete();
-            Disposed.TrySetResult();
-            return ValueTask.CompletedTask;
-        }
     }
 }

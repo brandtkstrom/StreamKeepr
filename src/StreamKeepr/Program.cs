@@ -122,6 +122,15 @@ else
     builder.Services.AddSingleton<TwitchTokenProvider>();
     builder.Services.AddSingleton<IStreamPoller, TwitchStreamPoller>();
     builder.Services.AddSingleton<IEventSubSocketFactory, ClientWebSocketEventSubSocketFactory>();
+
+    // Twitch:EventSubTransport picks the push transport (ADR-0007); polling covers both.
+    builder.Services.AddSingleton<IConduitStateStore, ConduitStateStore>();
+    builder.Services.AddSingleton<EventSubConduitApi>();
+    builder.Services.AddSingleton<IEventSubBinding>(services =>
+        services.GetRequiredService<IOptions<TwitchOptions>>().Value.EventSubTransport
+            == EventSubTransportMode.Conduit
+            ? ActivatorUtilities.CreateInstance<ConduitEventSubBinding>(services)
+            : ActivatorUtilities.CreateInstance<WebSocketEventSubBinding>(services));
     builder.Services.AddSingleton<IEventSubClient, EventSubClient>();
 }
 
@@ -148,6 +157,10 @@ builder.Services.AddStreamKeeprDataProtection();
 
 // The supervisor starts only after preflight and the key-ring check have succeeded.
 builder.Services.AddHostedService(services => services.GetRequiredService<DvrSupervisor>());
+
+// Conduit rollback cleanup; a no-op unless WebSocket mode finds a saved conduit.
+if (!mock)
+    builder.Services.AddHostedService<ConduitRetirementService>();
 
 builder.Services.AddHealthChecks()
        .AddCheck<DvrHealthCheck>("dvr", tags: ["live", "ready"])

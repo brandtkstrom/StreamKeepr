@@ -68,6 +68,7 @@ The rest of the settings are commented out under `environment:` in `compose.yaml
 | `Twitch__Channels__0` | To watch a first channel on a fresh deployment. After that, add and remove channels in **Settings**. |
 | `Storage__MinFreeGb` | To change when recording stops for low disk space (default 10 GB). |
 | `Recorder__Quality` | To record something other than Streamlink's `best`. |
+| `Twitch__EventSubTransport` | To try `Conduit` push: it uses the app credentials, keeps working without an admin signed in, and covers far more than five channels. The default `WebSocket` needs a signed-in admin. Setting it back to `WebSocket` deletes the conduit on the next start. |
 | `Hosting__ForwardedHeaders__…` | When the app runs behind an HTTPS reverse proxy. See the next section. |
 
 Uncomment a setting to use it; don't leave one set to an empty value, because empty values fail validation at startup.

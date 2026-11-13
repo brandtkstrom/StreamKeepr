@@ -312,7 +312,7 @@ public static class AdminAuth
         catch (Exception ex)
         {
             // A failed token save must not leave the user with an admin cookie that
-            // cannot drive EventSub. The reason is logged and the sign-in is redirected
+            // cannot drive WebSocket-mode EventSub. The reason is logged and the sign-in is redirected
             // to the local return URL as a generic failure.
             Reject(
                 context,

@@ -23,6 +23,16 @@ public sealed record PushStatus(PushState State)
 
     public bool Connected => State == PushState.Connected;
 
+    /// <summary>All-or-nothing coverage (contract §4): connected only when every watched channel is covered.</summary>
+    public static PushStatus FromCoverage(int covered, int watched)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(covered);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(covered, watched);
+        return watched == 0 ? PollingOnly
+            : covered == watched ? AllConnected
+            : PartialCoverage;
+    }
+
     /// <summary>The stable user-facing reason from backend-for-UI contract §3.</summary>
     public string Reason => State switch
     {
