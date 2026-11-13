@@ -103,6 +103,21 @@ public sealed class EventSubClient(
                 continue;
             }
 
+            if (!HasResolvedChannel())
+            {
+                try
+                {
+                    await WaitForResolvedChannelAsync(ct);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                backoff = InitialBackoff;
+                continue;
+            }
+
             // The token exists, but no subscription is active until the session welcomes us.
             schedule.SetPushStatus(PushStatus.Reconnecting);
 
@@ -462,6 +477,37 @@ public sealed class EventSubClient(
         }
     }
 
+    private bool HasResolvedChannel() =>
+        channels.Snapshot.Any(entry => entry.UserId is not null);
+
+    private async Task WaitForResolvedChannelAsync(CancellationToken ct)
+    {
+        var signal = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnChanged() => signal.TrySetResult();
+
+        channels.SubscriptionsChanged += OnChanged;
+        adminTokens.Changed += OnChanged;
+        try
+        {
+            if (HasResolvedChannel())
+                return;
+
+            IReadOnlyList<ChannelEntry> snapshot = channels.Snapshot;
+            schedule.SetPushStatus(
+                snapshot.Count == 0
+                    ? PushStatus.PollingOnly
+                    : PushStatus.PartialCoverage);
+
+            await signal.Task.WaitAsync(ct);
+        }
+        finally
+        {
+            channels.SubscriptionsChanged -= OnChanged;
+            adminTokens.Changed -= OnChanged;
+        }
+    }
+
     private async Task<int> SubscribeAllAsync(
         string sessionId, string token, CancellationToken ct)
     {
@@ -477,6 +523,14 @@ public sealed class EventSubClient(
             SubscriptionAttempt online = await SubscribeAsync(
                 sessionId, currentToken, channel, "stream.online", ct);
             currentToken = online.Token;
+            if (online.Result == SubscriptionResult.Capacity)
+            {
+                logger.LogWarning(
+                    "EventSub push capacity reached for {Login}; the remaining channels stay on polling.",
+                    channel.Login);
+                break;
+            }
+
             if (online.Result == SubscriptionResult.Failed)
             {
                 schedule.SetPushStatus(PushStatus.Reconnecting);
@@ -487,6 +541,14 @@ public sealed class EventSubClient(
             SubscriptionAttempt offline = await SubscribeAsync(
                 sessionId, currentToken, channel, "stream.offline", ct);
             currentToken = offline.Token;
+            if (offline.Result == SubscriptionResult.Capacity)
+            {
+                logger.LogWarning(
+                    "EventSub push capacity reached for {Login}; keeping the online subscription and leaving the remaining channels on polling.",
+                    channel.Login);
+                break;
+            }
+
             if (offline.Result == SubscriptionResult.Failed)
             {
                 schedule.SetPushStatus(PushStatus.Reconnecting);
@@ -597,8 +659,31 @@ public sealed class EventSubClient(
             if (response.StatusCode == HttpStatusCode.Unauthorized)
                 return new SubscriptionAttempt(SubscriptionResult.Unauthorized, token);
 
-            if (response.StatusCode == HttpStatusCode.TooManyRequests
-                || (int)response.StatusCode >= 500)
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                string? detail = null;
+                try
+                {
+                    detail = await response.Content.ReadAsStringAsync(ct);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception)
+                {
+                    // The status code is the authoritative signal; the body is diagnostic.
+                }
+
+                logger.LogWarning(
+                    "EventSub subscription capacity reached for {Type} for {Login}: HTTP 429 {Detail}",
+                    type,
+                    channel.Login,
+                    detail);
+                return new SubscriptionAttempt(SubscriptionResult.Capacity, token);
+            }
+
+            if ((int)response.StatusCode >= 500)
             {
                 logger.LogWarning(
                     "EventSub subscription {Type} for {Login} failed with HTTP {Status}.",
@@ -779,6 +864,7 @@ public sealed class EventSubClient(
         Refused,
         Failed,
         Unauthorized,
+        Capacity,
     }
 
     private sealed record SubscriptionAttempt(SubscriptionResult Result, string Token);

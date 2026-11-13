@@ -195,6 +195,98 @@ public sealed class EventSubClientTests : IDisposable
     }
 
     [Fact]
+    public async Task Capacity_429_keeps_the_session_and_partial_coverage()
+    {
+        await _channels.AddAsync(
+            new ChannelEntry("second", UserId: "456", DisplayName: "Second"),
+            CancellationToken.None);
+
+        int posts = 0;
+        var limited = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _httpHandler.Handler = _ =>
+        {
+            if (Interlocked.Increment(ref posts) == 3)
+            {
+                limited.TrySetResult();
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                {
+                    Content = new StringContent("{\"message\":\"capacity\"}"),
+                });
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Accepted));
+        };
+
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+        Task partial = NextStatusAsync(PushStatus.PartialCoverage);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1"));
+        await limited.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await partial.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(_schedule.IsPushConnected);
+        Assert.Single(_socketFactory.Sockets);
+        Assert.Equal(3, posts);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task No_watched_channels_does_not_open_a_socket_and_reports_polling_only()
+    {
+        await _channels.RemoveAsync("streamer", CancellationToken.None);
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+        Task pollingOnly = NextStatusAsync(PushStatus.PollingOnly);
+
+        await pollingOnly.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Null(_socketFactory.LastSocket);
+
+        await _channels.AddAsync(
+            new ChannelEntry("late", UserId: "789", DisplayName: "Late"),
+            CancellationToken.None);
+
+        FakeEventSubSocket socket = await _socketFactory.SocketAsync(1)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await socket.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(new Uri("wss://eventsub.wss.twitch.tv/ws"), socket.ConnectedUri);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Unresolved_only_channels_use_partial_coverage_without_a_socket()
+    {
+        await _channels.RemoveAsync("streamer", CancellationToken.None);
+        await _channels.AddAsync(new ChannelEntry("unresolved"), CancellationToken.None);
+
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+        Task partial = NextStatusAsync(PushStatus.PartialCoverage);
+
+        await partial.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Null(_socketFactory.LastSocket);
+
+        await _channels.SetProfileAsync(
+            "unresolved", "999", "Unresolved", null, CancellationToken.None);
+
+        FakeEventSubSocket socket = await _socketFactory.SocketAsync(1)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await socket.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public async Task Duplicate_notification_id_is_ignored()
     {
         var observations = Channel.CreateUnbounded<(string Login, StreamObservation Observation)>();
@@ -750,6 +842,29 @@ public sealed class EventSubClientTests : IDisposable
             TaskCreationOptions.RunContinuationsAsynchronously);
         _schedule.Changed += () => changed.TrySetResult();
         return changed.Task;
+    }
+
+    private Task NextStatusAsync(PushStatus expected)
+    {
+        var reached = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnChanged()
+        {
+            if (_schedule.Push != expected)
+                return;
+
+            _schedule.Changed -= OnChanged;
+            reached.TrySetResult();
+        }
+
+        _schedule.Changed += OnChanged;
+        if (_schedule.Push == expected)
+        {
+            _schedule.Changed -= OnChanged;
+            reached.TrySetResult();
+        }
+
+        return reached.Task;
     }
 
     private EventSubClient CreateClient(
