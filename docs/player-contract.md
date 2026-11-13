@@ -12,7 +12,7 @@ The stitched `index.m3u8` is a **single media playlist**, not a multi-variant ma
 
 ## 2. Composition and ownership
 
-- `Home.razor` resolves the selected recording through `ILibraryView.Find` and renders the player column in the fixed order player → stats → details.
+- `Home.razor` resolves the selected recording through `ILibraryView.Find` and renders the player column in the fixed order player → details → stats.
 - `VideoPlayer.razor` renders the complete player skeleton once: a `<video>` with no native controls, `playsinline`, `preload="metadata"`, and the thumbnail as poster; the title strip, centre play/replay, seek bar, control bar, menus, spinner, and error overlay. A mouse/pen click on the video frame toggles play/pause; controls, links, and menus keep their own click behaviour.
 - `VideoPlayer.razor.js` owns hls.js, every player control, all dynamic player DOM, idle state, keyboard handling, progress timing, and error recovery. It calls .NET only for progress, `sk-ui` preferences, and the stats snackbar.
 - After the first interactive render, `VideoPlayer` returns `ShouldRender() => false`. Parameter changes call the JS module (`load`/`update`) but never re-render the player markup, so Blazor cannot overwrite JS-owned attributes, classes, text, or SVG children.
@@ -134,7 +134,7 @@ Control order, left to right, matches the design system:
 
 ## 10. Stats for nerds
 
-- `StatsPanel.razor` renders the design-system panel once, directly under the player: a 48 px switch header, two columns (Video in `primary`, Network in `tertiary`), two tiles per column, and the key/value lists. The header is a switch button containing only phrasing content; a visually hidden `h2` outside the button names the panel and keeps heading order valid. The body is `inert` when collapsed; closing while focus is inside moves focus to the switch first.
+- `StatsPanel.razor` renders the design-system panel once, at the bottom of the player column below the details card: a 48 px switch header, two columns (Video in `primary`, Network in `tertiary`), two tiles per column, and the key/value lists. The header is a switch button containing only phrasing content; a visually hidden `h2` outside the button names the panel and keeps heading order valid. The body is `inert` when collapsed; closing while focus is inside moves focus to the switch first.
 - Video tiles: **Bitrate** (Mb/s) and **Frame rate** (fps). Network tiles: **Bandwidth estimate** (Mb/s) and **Buffer health** (s). Each has a 20-sample, 2 px sparkline with a hover crosshair and a value tooltip; an active tooltip is repositioned rather than blanked when a sample redraws the sparkline.
 - Video key/values: resolution (encoded → viewport when different), codecs, dropped frames (`dropped of total`), decoder (`MSE · hls.js` or `Native HLS`).
 - Network key/values: last segment (`#index · duration · load time`), segments loaded, errors/retries (⚠ prefix and `error` text when non-zero), playlist URL (ellipsised, full value in `title`).

@@ -23,7 +23,7 @@ public sealed class HomePlayerTests
 
         Assert.NotNull(cut.Find("[data-slot='player'] [data-sk-player]"));
         Assert.NotNull(cut.Find("[data-slot='details'] [data-recording-details]"));
-        Assert.Equal(["player", "stats", "details"], cut.FindAll("[data-slot]").Select(s => s.GetAttribute("data-slot")));
+        Assert.Equal(["player", "details", "stats"], cut.FindAll("[data-slot]").Select(s => s.GetAttribute("data-slot")));
     }
 
     [Fact]
