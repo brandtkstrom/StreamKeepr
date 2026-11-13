@@ -751,6 +751,30 @@ public sealed class EventSubClient(
 
         if (type == "stream.online")
         {
+            string? streamType = @event.TryGetProperty("type", out JsonElement streamTypeElement)
+                ? streamTypeElement.GetString()
+                : null;
+            if (!string.Equals(streamType, "live", StringComparison.Ordinal))
+            {
+                if (streamType is null)
+                {
+                    logger.LogWarning(
+                        "EventSub stream.online for {Login} had no broadcast type; treating it as offline.",
+                        channel.Login);
+                }
+                else
+                {
+                    logger.LogInformation(
+                        "EventSub stream.online for {Login} had broadcast type {Type}; treating it as offline.",
+                        channel.Login,
+                        streamType);
+                }
+
+                await RouteAsync(route, channel.Login, new StreamObservation.Offline(), ct);
+                schedule.Burst(BurstDuration);
+                return;
+            }
+
             string streamId = @event.TryGetProperty("id", out JsonElement idElement)
                 ? idElement.GetString() ?? ""
                 : "";

@@ -173,7 +173,7 @@ public sealed class EventSubClientTests : IDisposable
         _socketFactory.LastSocket!.Push(Welcome("session-1"));
         await subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        _socketFactory.LastSocket!.Push(Notification("stream.online"));
+        _socketFactory.LastSocket!.Push(Notification("stream.online", streamType: "live"));
         (string login, StreamObservation observation) =
             await observations.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -189,6 +189,68 @@ public sealed class EventSubClientTests : IDisposable
             .WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal("streamer", login);
         Assert.IsType<StreamObservation.Offline>(observation);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Non_live_online_routes_offline_without_a_channel_lookup()
+    {
+        var observations = Channel.CreateUnbounded<(string Login, StreamObservation Observation)>();
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync(
+            (login, observation, _) =>
+            {
+                observations.Writer.TryWrite((login, observation));
+                return ValueTask.CompletedTask;
+            },
+            stop.Token);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1"));
+        await _socketFactory.LastSocket.Subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        _socketFactory.LastSocket.Push(
+            Notification("stream.online", messageId: "rerun", streamType: "rerun"));
+
+        (_, StreamObservation observation) = await observations.Reader.ReadAsync()
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsType<StreamObservation.Offline>(observation);
+        Assert.Equal(0, _poller.ChannelInfoCalls);
+        Assert.Single(_socketFactory.Sockets);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Missing_online_type_routes_offline()
+    {
+        var observations = Channel.CreateUnbounded<(string Login, StreamObservation Observation)>();
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync(
+            (login, observation, _) =>
+            {
+                observations.Writer.TryWrite((login, observation));
+                return ValueTask.CompletedTask;
+            },
+            stop.Token);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1"));
+        await _socketFactory.LastSocket.Subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        _socketFactory.LastSocket.Push(Notification("stream.online", messageId: "missing"));
+
+        (_, StreamObservation observation) = await observations.Reader.ReadAsync()
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsType<StreamObservation.Offline>(observation);
+        Assert.Equal(0, _poller.ChannelInfoCalls);
 
         stop.Cancel();
         await run.WaitAsync(TimeSpan.FromSeconds(5));
@@ -304,10 +366,12 @@ public sealed class EventSubClientTests : IDisposable
         _socketFactory.LastSocket.Push(Welcome("session-1"));
         await _socketFactory.LastSocket.Subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        _socketFactory.LastSocket.Push(Notification("stream.online", messageId: "same"));
+        _socketFactory.LastSocket.Push(
+            Notification("stream.online", messageId: "same", streamType: "live"));
         await observations.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
 
-        _socketFactory.LastSocket.Push(Notification("stream.online", messageId: "same"));
+        _socketFactory.LastSocket.Push(
+            Notification("stream.online", messageId: "same", streamType: "live"));
         _socketFactory.LastSocket.Push(Notification("stream.offline", messageId: "other"));
 
         (_, StreamObservation observation) = await observations.Reader.ReadAsync()
@@ -399,7 +463,8 @@ public sealed class EventSubClientTests : IDisposable
         _socketFactory.LastSocket.Push(Welcome("session-1"));
         await _socketFactory.LastSocket.Subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        _socketFactory.LastSocket.Push(Notification("stream.online", messageId: "1"));
+        _socketFactory.LastSocket.Push(
+            Notification("stream.online", messageId: "1", streamType: "live"));
         _socketFactory.LastSocket.Push(Notification("stream.offline", messageId: "2"));
 
         (_, StreamObservation observation) = await observations.Reader.ReadAsync()
@@ -628,7 +693,7 @@ public sealed class EventSubClientTests : IDisposable
         // Twitch keeps delivering on the old socket until the new one says welcome.
         Assert.False(oldSocket.Disposed.Task.IsCompleted, "old socket closed before the new welcome");
         Assert.True(_schedule.IsPushConnected);
-        oldSocket.Push(Notification("stream.online"));
+        oldSocket.Push(Notification("stream.online", streamType: "live"));
         Assert.IsType<StreamObservation.Live>(
             await observations.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.False(oldSocket.Disposed.Task.IsCompleted, "old socket closed before the new welcome");
@@ -961,6 +1026,8 @@ public sealed class EventSubClientTests : IDisposable
     {
         public ChannelInfo? Info { get; set; }
 
+        public int ChannelInfoCalls { get; private set; }
+
         public Task RunAsync(
             Func<IReadOnlyList<string>> logins,
             StreamObservationRoute route,
@@ -971,8 +1038,11 @@ public sealed class EventSubClientTests : IDisposable
             Task.FromResult<ChannelProfile?>(null);
 
         public Task<ChannelInfo?> GetChannelInfoAsync(
-            string broadcasterId, CancellationToken ct) =>
-            Task.FromResult(Info);
+            string broadcasterId, CancellationToken ct)
+        {
+            ChannelInfoCalls++;
+            return Task.FromResult(Info);
+        }
 
         public void Nudge()
         {
