@@ -1,6 +1,8 @@
 # Deploying Stream Keepr with Docker Compose
 
-This folder holds what you need to run the published image from `ghcr.io/brandtkstrom/streamkeepr`. You don't need the source code or a build.
+> **Private home use only.** These instructions are for a trusted private home or LAN deployment. StreamKeepr is a personal project, not a hosted service. Public reverse-proxy exposure, multi-tenant use, and third-party distribution are unsupported; use your own hardening if you expose it. The image is published for the owner's convenience, not as a supported distribution channel. See [`../SECURITY.md`](../SECURITY.md).
+
+This folder holds what you need to run the image from `ghcr.io/brandtkstrom/streamkeepr` on your own private host. You don't need the source code or a build.
 
 | File | Purpose |
 | --- | --- |
@@ -14,7 +16,7 @@ The image runs on `linux/amd64` and `linux/arm64`. It includes Streamlink and FF
 
 1. Open the [Twitch developer console](https://dev.twitch.tv/console/apps) and choose **Register Your Application**.
 2. Add an **OAuth Redirect URL** that matches the address you'll sign in from exactly, followed by `/signin-twitch`:
-   - `https://streamkeepr.example.com/signin-twitch` behind an HTTPS reverse proxy;
+   - `https://streamkeepr.home.example/signin-twitch` behind a private HTTPS reverse proxy on your home network;
    - `http://localhost:8080/signin-twitch` if you only sign in on the host itself.
 3. Set the category to **Application Integration** and create the app.
 4. Copy the **Client ID**, then choose **New Secret** and copy the **Client Secret**.
@@ -80,13 +82,13 @@ docker compose up -d
 docker compose logs -f stream-keepr
 ```
 
-Then open `http://<host>:8080`. Viewing and playback work from any machine that can reach the port. When the service has started, `docker compose ps` shows it as `healthy`.
+Then open `http://<host>:8080`. Viewing and playback work from machines on your trusted home network that can reach the port. When the service has started, `docker compose ps` shows it as `healthy`.
 
 ## HTTPS reverse proxy
 
-Twitch sign-in needs HTTPS, except from `localhost`, so use a TLS-terminating reverse proxy (Caddy, Traefik, nginx and so on) for remote administration:
+Twitch sign-in needs HTTPS, except from `localhost`, so use a TLS-terminating reverse proxy (Caddy, Traefik, nginx and so on) for private remote administration on your home network:
 
-1. Point the proxy at `http://<host>:8080`, and use its public `https://` address as the Twitch redirect URL.
+1. Point the proxy at `http://<host>:8080`, and use the proxy's `https://` address (the one you registered with Twitch) as the redirect URL.
 2. Tell the app to trust the proxy's `X-Forwarded-*` headers by uncommenting one of these and setting it to the proxy's address or network:
 
    ```yaml
