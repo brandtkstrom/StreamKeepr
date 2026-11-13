@@ -40,16 +40,18 @@ else
         <VideoPlayer Recording="playing" StatsOpen="@Preferences.StatsOpen" />
     }
 </div>
-<div data-slot="stats">
-    @if (Selected is { } statRecording)
-    {
-        <StatsPanel Recording="statRecording" />
-    }
-</div>
+
 <div data-slot="details">
     @if (Selected is { } detailed)
     {
         <RecordingDetails Recording="detailed" />
+    }
+</div>
+
+<div data-slot="stats">
+    @if (Selected is { } statRecording)
+    {
+        <StatsPanel Recording="statRecording"/>
     }
 </div>
 

@@ -387,7 +387,7 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 
 /* ---------- details ---------- */
 .sk-details-title { display: flex; align-items: flex-start; gap: var(--space-4); }
-.sk-details-title :is(h1, h2, h3) { flex: 1; margin: 0; font: var(--text-headline-small); }
+.sk-details-title :is(h1, h2, h3) { flex: 1; margin: 0; font: var(--text-headline-small); padding: var(--space-2) 0; }
 .sk-details-meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-top: var(--space-2); color: var(--on-surface-variant); font: var(--text-body-medium); }
 .sk-details-meta .who { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--on-surface); font-weight: 600; }
 .sk-details-meta .sep { width: 4px; height: 4px; border-radius: var(--radius-full); background: var(--outline); }

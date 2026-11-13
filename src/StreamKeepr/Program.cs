@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting.StaticWebAssets;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Components;
 using StreamKeepr.Components.Features.Player;
@@ -33,43 +32,45 @@ if (Directory.Exists("/run/secrets"))
 // recordings root under the system temp directory before any options are bound.
 bool mock = builder.Environment.IsEnvironment(MockEnvironment.Name);
 if (mock)
+{
     MockEnvironment.Configure(builder);
+}
 
 // The host budget is the recorder job budget plus shutdown/cleanup headroom.
 TimeSpan shutdownTimeout = ChannelCoordinator.JobStopBudget + TimeSpan.FromSeconds(5);
 builder.Services.Configure<HostOptions>(options =>
-    options.ShutdownTimeout = shutdownTimeout);
+                                            options.ShutdownTimeout = shutdownTimeout);
 
 builder.Services.AddOptions<TwitchOptions>()
-    .BindConfiguration(TwitchOptions.SectionName)
-    .ValidateDataAnnotations()
-    .Validate(options => options.Channels.All(AuthOptions.IsValidLogin),
-        $"{TwitchOptions.SectionName}:{nameof(TwitchOptions.Channels)} contains an invalid Twitch login.")
-    .ValidateOnStart();
+       .BindConfiguration(TwitchOptions.SectionName)
+       .ValidateDataAnnotations()
+       .Validate(options => options.Channels.All(AuthOptions.IsValidLogin),
+                 $"{TwitchOptions.SectionName}:{nameof(TwitchOptions.Channels)} contains an invalid Twitch login.")
+       .ValidateOnStart();
 
 builder.Services.AddOptions<RecorderOptions>()
-    .BindConfiguration(RecorderOptions.SectionName)
-    .ValidateDataAnnotations()
-    .ValidateOnStart();
+       .BindConfiguration(RecorderOptions.SectionName)
+       .ValidateDataAnnotations()
+       .ValidateOnStart();
 
 builder.Services.AddOptions<StorageOptions>()
-    .BindConfiguration(StorageOptions.SectionName)
-    .ValidateDataAnnotations()
-    .ValidateOnStart();
+       .BindConfiguration(StorageOptions.SectionName)
+       .ValidateDataAnnotations()
+       .ValidateOnStart();
 
 builder.Services.AddOptions<AuthOptions>()
-    .BindConfiguration(AuthOptions.SectionName)
-    .ValidateDataAnnotations()
-    .Validate(options => options.AllowedTwitchLogins.All(AuthOptions.IsValidLogin),
-        $"{AuthOptions.SectionName}:{nameof(AuthOptions.AllowedTwitchLogins)} contains an invalid Twitch login.")
-    .ValidateOnStart();
+       .BindConfiguration(AuthOptions.SectionName)
+       .ValidateDataAnnotations()
+       .Validate(options => options.AllowedTwitchLogins.All(AuthOptions.IsValidLogin),
+                 $"{AuthOptions.SectionName}:{nameof(AuthOptions.AllowedTwitchLogins)} contains an invalid Twitch login.")
+       .ValidateOnStart();
 
 if (mock)
 {
     builder.Services.AddOptions<MockSeedOptions>()
-        .BindConfiguration(MockSeedOptions.SectionName)
-        .ValidateDataAnnotations()
-        .ValidateOnStart();
+           .BindConfiguration(MockSeedOptions.SectionName)
+           .ValidateDataAnnotations()
+           .ValidateOnStart();
 }
 
 builder.Services.AddStreamKeeprForwardedHeaders();
@@ -108,11 +109,13 @@ if (mock)
 
     // The mock volume makes the 1 % storage threshold observable in local/E2E runs.
     builder.Services.AddSingleton<MockDiskSpace>();
+
     builder.Services.AddSingleton<IDiskSpace>(services =>
-        services.GetRequiredService<MockDiskSpace>());
+                                                  services.GetRequiredService<MockDiskSpace>());
+
     builder.Services.AddOptions<MockLiveFeedOptions>()
-        .BindConfiguration(MockLiveFeedOptions.SectionName)
-        .ValidateOnStart();
+           .BindConfiguration(MockLiveFeedOptions.SectionName)
+           .ValidateOnStart();
 }
 else
 {
@@ -123,8 +126,7 @@ else
 }
 
 builder.Services.AddSingleton<DvrSupervisor>();
-builder.Services.AddSingleton<IChannelControl>(
-    services => services.GetRequiredService<DvrSupervisor>());
+builder.Services.AddSingleton<IChannelControl>(services => services.GetRequiredService<DvrSupervisor>());
 
 // Hosted services start in registration order, so preflight runs before Data
 // Protection, the supervisor, and any channel or recording service.
@@ -148,14 +150,16 @@ builder.Services.AddStreamKeeprDataProtection();
 builder.Services.AddHostedService(services => services.GetRequiredService<DvrSupervisor>());
 
 builder.Services.AddHealthChecks()
-    .AddCheck<DvrHealthCheck>("dvr", tags: ["live", "ready"])
-    .AddCheck<DiskSpaceHealthCheck>("disk", tags: ["ready"])
-    .AddCheck<LibraryLoadedHealthCheck>("library", tags: ["ready"]);
+       .AddCheck<DvrHealthCheck>("dvr", tags: ["live", "ready"])
+       .AddCheck<DiskSpaceHealthCheck>("disk", tags: ["ready"])
+       .AddCheck<LibraryLoadedHealthCheck>("library", tags: ["ready"]);
 
 builder.Services.AddHttpClient(TwitchHttpClients.Auth, client =>
-    client.BaseAddress = new Uri("https://id.twitch.tv/"));
+                                   client.BaseAddress = new Uri("https://id.twitch.tv/"));
+
 builder.Services.AddHttpClient(TwitchHttpClients.Helix, client =>
-    client.BaseAddress = new Uri("https://api.twitch.tv/"));
+                                   client.BaseAddress = new Uri("https://api.twitch.tv/"));
+
 builder.Services.AddSingleton<IAdminTokenStore, AdminTokenStore>();
 
 if (mock)
@@ -188,7 +192,7 @@ builder.Services.AddScoped<SnackbarService>();
 builder.Services.AddScoped<IChannelsView, ChannelsView>();
 
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+       .AddInteractiveServerComponents();
 
 var app = builder.Build();
 
@@ -196,16 +200,12 @@ app.Lifetime.ApplicationStarted.Register(() =>
 {
     if (mock)
     {
-        app.Logger.LogWarning(
-            "Running the Mock profile: dummy Twitch credentials, fake poller/EventSub/auth, " +
-            "and a disposable recordings root at {Root}. Never use it for production data.",
-            app.Services.GetRequiredService<IOptions<StorageOptions>>().Value.RecordingsRoot);
+        app.Logger.LogWarning("Running the Mock profile: dummy Twitch credentials, fake poller/EventSub/auth, " + "and a disposable recordings root at {Root}. Never use it for production data.",
+                              app.Services.GetRequiredService<IOptions<StorageOptions>>().Value.RecordingsRoot);
     }
     else if (app.Services.GetRequiredService<IOptions<AuthOptions>>().Value.AllowedTwitchLogins.Count == 0)
     {
-        app.Logger.LogWarning(
-            "AllowedTwitchLogins is empty; any Twitch user can administer this app. " +
-            "Set Auth:AllowedTwitchLogins on shared networks.");
+        app.Logger.LogWarning("AllowedTwitchLogins is empty; any Twitch user can administer this app. " + "Set Auth:AllowedTwitchLogins on shared networks.");
     }
 });
 
@@ -217,8 +217,10 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
 
 app.UseAuthentication();
+
 if (mock)
     app.UseStreamKeeprMockAuth();
+
 app.UseAuthorization();
 app.UseAntiforgery();
 
@@ -241,8 +243,9 @@ if (!app.Environment.IsDevelopment())
 app.UseRecordingsMedia();
 
 app.MapStaticAssets();
+
 app.MapRazorComponents<App>()
-    .AddInteractiveServerRenderMode();
+   .AddInteractiveServerRenderMode();
 
 // Mock uses a fake cookie identity with stand-in login/logout endpoints on the same paths.
 if (mock)
@@ -255,23 +258,24 @@ else
     app.MapPost(AdminAuth.LogoutPath, AdminAuth.HandleLogoutAsync);
 }
 
-app.MapMethods(
-    LiveIndexEndpoint.Route,
-    [HttpMethods.Get, HttpMethods.Head],
-    LiveIndexEndpoint.HandleAsync);
+app.MapMethods(LiveIndexEndpoint.Route,
+               [HttpMethods.Get, HttpMethods.Head],
+               LiveIndexEndpoint.HandleAsync);
 
 app.MapPut(ProgressEndpoint.Route, ProgressEndpoint.HandleAsync);
+
 // The cookie scheme answers an API challenge with 401; the default challenge is Twitch OAuth.
 app.MapGet(ExportDownloadEndpoint.Route, ExportDownloadEndpoint.Handle)
-    .RequireAuthorization(new Microsoft.AspNetCore.Authorization.AuthorizeAttribute
-    {
-        AuthenticationSchemes = AdminAuth.CookieScheme,
-    });
+   .RequireAuthorization(new Microsoft.AspNetCore.Authorization.AuthorizeAttribute
+   {
+       AuthenticationSchemes = AdminAuth.CookieScheme,
+   });
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions
 {
     Predicate = registration => registration.Tags.Contains("live"),
 });
+
 app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
     Predicate = registration => registration.Tags.Contains("ready"),
