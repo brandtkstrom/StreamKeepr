@@ -37,6 +37,9 @@ public sealed class EventSubClient(
 
     // Twitch closes the old connection (4004) 30 s after session_reconnect.
     private static readonly TimeSpan ReconnectGrace = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan SubscriptionRequestTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ChannelInfoTimeout = TimeSpan.FromSeconds(5);
 
     private const int RecentMessageIdCapacity = 256;
 
@@ -188,7 +191,10 @@ public sealed class EventSubClient(
         bool socketOpen = true;
         try
         {
-            await socket.ConnectAsync(uri, ct);
+            using var connectTimeout = new CancellationTokenSource(ConnectTimeout, clock);
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(
+                ct, connectTimeout.Token);
+            await socket.ConnectAsync(uri, connectCts.Token);
             logger.LogInformation("EventSub connected to {Uri}; waiting for session_welcome.", uri);
 
             while (!ct.IsCancellationRequested)
@@ -306,10 +312,21 @@ public sealed class EventSubClient(
     }
 
     /// <returns>The new session's keepalive, or null when the welcome does not state one.</returns>
-    private static async Task<TimeSpan?> ReceiveHandoffWelcomeAsync(
+    private async Task<TimeSpan?> ReceiveHandoffWelcomeAsync(
         IEventSubSocket socket, Uri reconnectUrl, CancellationToken ct)
     {
-        await socket.ConnectAsync(reconnectUrl, ct);
+        using var connectTimeout = new CancellationTokenSource(ConnectTimeout, clock);
+        using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(
+            ct, connectTimeout.Token);
+        try
+        {
+            await socket.ConnectAsync(reconnectUrl, connectCts.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new EventSubRestartException("reconnect connect timed out");
+        }
+
         string? message = await socket.ReceiveTextAsync(ct)
             ?? throw new EventSubRestartException(
                 "reconnect connection closed before session_welcome");
@@ -652,7 +669,11 @@ public sealed class EventSubClient(
             request.Headers.Add("Client-Id", options.Value.ClientId);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-            using HttpResponseMessage response = await http.SendAsync(request, ct);
+            using var requestTimeout = new CancellationTokenSource(
+                SubscriptionRequestTimeout, clock);
+            using var requestCts = CancellationTokenSource.CreateLinkedTokenSource(
+                ct, requestTimeout.Token);
+            using HttpResponseMessage response = await http.SendAsync(request, requestCts.Token);
             if (response.StatusCode == HttpStatusCode.Conflict || response.IsSuccessStatusCode)
                 return new SubscriptionAttempt(SubscriptionResult.Active, token);
 
@@ -797,9 +818,23 @@ public sealed class EventSubClient(
             ChannelInfo? info;
             try
             {
-                info = await poller.GetChannelInfoAsync(userId, ct);
+                using var lookupTimeout = new CancellationTokenSource(
+                    ChannelInfoTimeout, clock);
+                using var lookupCts = CancellationTokenSource.CreateLinkedTokenSource(
+                    ct, lookupTimeout.Token);
+                info = await poller.GetChannelInfoAsync(userId, lookupCts.Token);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                logger.LogWarning(
+                    "EventSub channel lookup timed out for {Login}.", channel.Login);
+                info = null;
+            }
+            catch (Exception ex)
             {
                 logger.LogWarning(ex, "EventSub channel lookup failed for {Login}.", channel.Login);
                 info = null;

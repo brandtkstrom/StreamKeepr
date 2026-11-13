@@ -257,6 +257,91 @@ public sealed class EventSubClientTests : IDisposable
     }
 
     [Fact]
+    public async Task Connect_timeout_restarts_the_session()
+    {
+        _socketFactory.HangOnConnect = true;
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        FakeEventSubSocket first = await _socketFactory.SocketAsync(1)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await first.ConnectStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _clock.Advance(TimeSpan.FromSeconds(10));
+        await _socketFactory.SocketTwo.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(first.Connected.Task.IsCompleted);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Subscription_request_timeout_restarts_the_session()
+    {
+        var handler = new HangingHandler();
+        var factory = new StubHttpClientFactory(handler);
+        EventSubClient client = CreateClient(httpFactory: factory);
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        FakeEventSubSocket socket = await _socketFactory.SocketAsync(1)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await socket.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        socket.Push(Welcome("session-1"));
+        await handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        _clock.Advance(TimeSpan.FromSeconds(10));
+        await _socketFactory.SocketTwo.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Channel_info_timeout_routes_with_empty_metadata_and_keeps_the_session()
+    {
+        _poller.HangChannelInfo = true;
+        var observations = Channel.CreateUnbounded<(string Login, StreamObservation Observation)>();
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync(
+            (login, observation, _) =>
+            {
+                observations.Writer.TryWrite((login, observation));
+                return ValueTask.CompletedTask;
+            },
+            stop.Token);
+
+        FakeEventSubSocket socket = await _socketFactory.SocketAsync(1)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await socket.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        socket.Push(Welcome("session-1"));
+        await socket.Subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        socket.Push(Notification("stream.online", messageId: "1", streamType: "live"));
+        await _poller.LookupStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _clock.Advance(TimeSpan.FromSeconds(5));
+
+        (_, StreamObservation observation) = await observations.Reader.ReadAsync()
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        var live = Assert.IsType<StreamObservation.Live>(observation);
+        Assert.Equal("", live.Stream.Title);
+        Assert.Equal("", live.Stream.Game);
+
+        socket.Push(Notification("stream.offline", messageId: "2"));
+        (_, observation) = await observations.Reader.ReadAsync()
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsType<StreamObservation.Offline>(observation);
+        Assert.Single(_socketFactory.Sockets);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public async Task Capacity_429_keeps_the_session_and_partial_coverage()
     {
         await _channels.AddAsync(
@@ -935,10 +1020,11 @@ public sealed class EventSubClientTests : IDisposable
     private EventSubClient CreateClient(
         IRetryJitter? jitter = null,
         IEventSubSocketFactory? socketFactory = null,
-        IAdminTokenStore? tokens = null) =>
+        IAdminTokenStore? tokens = null,
+        IHttpClientFactory? httpFactory = null) =>
         new(
             socketFactory ?? _socketFactory,
-            _httpFactory,
+            httpFactory ?? _httpFactory,
             tokens ?? _tokens,
             _channels,
             _poller,
@@ -1022,11 +1108,30 @@ public sealed class EventSubClientTests : IDisposable
             Handler(request);
     }
 
+    private sealed class HangingHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource Entered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Entered.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("The hanging request completed unexpectedly.");
+        }
+    }
+
     private sealed class FakeChannelInfoPoller : IStreamPoller
     {
         public ChannelInfo? Info { get; set; }
 
         public int ChannelInfoCalls { get; private set; }
+
+        public TaskCompletionSource LookupStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool HangChannelInfo { get; set; }
 
         public Task RunAsync(
             Func<IReadOnlyList<string>> logins,
@@ -1037,11 +1142,15 @@ public sealed class EventSubClientTests : IDisposable
         public Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct) =>
             Task.FromResult<ChannelProfile?>(null);
 
-        public Task<ChannelInfo?> GetChannelInfoAsync(
+        public async Task<ChannelInfo?> GetChannelInfoAsync(
             string broadcasterId, CancellationToken ct)
         {
             ChannelInfoCalls++;
-            return Task.FromResult(Info);
+            LookupStarted.TrySetResult();
+            if (HangChannelInfo)
+                await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+
+            return Info;
         }
 
         public void Nudge()
@@ -1141,11 +1250,13 @@ public sealed class EventSubClientTests : IDisposable
         public TaskCompletionSource SocketTwo { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        public bool HangOnConnect { get; set; }
+
         private int _created;
 
         public IEventSubSocket Create()
         {
-            var socket = new FakeEventSubSocket();
+            var socket = new FakeEventSubSocket { HangOnConnect = HangOnConnect };
             Sockets.Add(socket);
             int created = Interlocked.Increment(ref _created);
             Slot(created).TrySetResult(socket);
@@ -1180,6 +1291,9 @@ public sealed class EventSubClientTests : IDisposable
         public TaskCompletionSource Connected { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        public TaskCompletionSource ConnectStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public TaskCompletionSource Subscribed { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -1188,9 +1302,15 @@ public sealed class EventSubClientTests : IDisposable
 
         public Uri? ConnectedUri { get; private set; }
 
+        public bool HangOnConnect { get; set; }
+
         public Task ConnectAsync(Uri uri, CancellationToken ct)
         {
             ConnectedUri = uri;
+            ConnectStarted.TrySetResult();
+            if (HangOnConnect)
+                return Task.Delay(Timeout.InfiniteTimeSpan, ct);
+
             Connected.TrySetResult();
             return Task.CompletedTask;
         }
