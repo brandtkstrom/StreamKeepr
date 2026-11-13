@@ -25,4 +25,18 @@ public sealed class TwitchOptions
     [Range(10, 600)] public int PollIntervalSeconds { get; set; } = 30;
 
     [Range(60, 3600)] public int PollIntervalWithEventSubSeconds { get; set; } = 300;
+
+    // How EventSub push is delivered; see docs/adr/0006-eventsub-conduit-transport.md.
+    [EnumDataType(typeof(EventSubTransportMode))]
+    public EventSubTransportMode EventSubTransport { get; set; } = EventSubTransportMode.WebSocket;
+}
+
+/// <summary>The EventSub transport. Polling stays the safety net in both modes.</summary>
+public enum EventSubTransportMode
+{
+    /// <summary>User-token WebSocket; needs a signed-in admin and covers about five channels.</summary>
+    WebSocket,
+
+    /// <summary>App-token conduit with one WebSocket shard; independent of admin sign-in.</summary>
+    Conduit,
 }

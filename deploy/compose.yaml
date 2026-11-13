@@ -60,6 +60,11 @@ services:
       # Streamlink quality (default "best").
       # Recorder__Quality: best
 
+      # EventSub push transport: WebSocket (default; needs a signed-in admin and
+      # covers about five channels) or Conduit (app token; no sign-in needed).
+      # Polling covers every channel either way. See docs/adr/0006.
+      # Twitch__EventSubTransport: WebSocket
+
       # Trust X-Forwarded-* headers only from your HTTPS reverse proxy. Both lists
       # are empty by default, which ignores forwarded headers; sign-in through an
       # unconfigured proxy is refused with authError=httpsRequired.

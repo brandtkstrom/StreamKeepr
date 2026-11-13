@@ -1,7 +1,7 @@
 # Stream Keepr Twitch and Admin Auth Contract
 
-Status: accepted (2026-11-10)
-Source: Implementation plan Part 1, Phase 3; Part 2 F6/F10; `docs/domain-model.md`; `docs/runtime-contract.md`; ADR-0003.
+Status: accepted (2026-11-10); amended 2026-11-13 for the EventSub conduit transport (ADR-0006)
+Source: Implementation plan Part 1, Phase 3; Part 2 F6/F10; `docs/domain-model.md`; `docs/runtime-contract.md`; ADR-0003; ADR-0006.
 Binding: yes. Where this contract differs from the plan, this contract wins.
 
 ## 1. Scope and ownership
@@ -9,12 +9,14 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 - `TwitchTokenProvider` owns the app access token used for Helix.
 - `TwitchStreamPoller` owns Helix observations and the `/channels` and `/users` lookups.
 - `PollSchedule` owns the tick interval, burst, nudge, and push coverage.
-- `EventSubClient` owns the WebSocket, subscriptions, reconnect, and notification routing.
+- `EventSubClient` owns the EventSub WebSocket loop, keepalive, reconnect handoff, backoff, and notification routing.
+- `IEventSubBinding` owns how a session authenticates and subscribes: `WebSocketEventSubBinding` (user token) or `ConduitEventSubBinding` (app token and conduit), chosen by `Twitch:EventSubTransport`.
+- `EventSubConduitApi` owns the Helix conduit, shard, and conduit subscription calls; `IConduitStateStore` owns the saved conduit ID.
 - `IAdminTokenStore` owns the admin's Twitch user token, encrypted at rest.
 - The cookie auth handler owns the browser admin session.
 - The supervisor owns channel add/seed profile resolution and feeds observations to the coordinators.
 
-The admin token is used **only** for EventSub subscriptions. Recording uses the Twitch app client credentials; subscriber-only streams use a separate Streamlink browser token.
+The admin token is used **only** for EventSub subscriptions in WebSocket mode. Conduit mode uses the app token and never reads the admin token. Recording uses the Twitch app client credentials; subscriber-only streams use a separate Streamlink browser token.
 
 ## 2. App token provider
 
@@ -60,6 +62,10 @@ public sealed class TwitchTokenProvider(
 
 ## 5. EventSub
 
+`Twitch:EventSubTransport` is `WebSocket` (default) or `Conduit`. Both modes share the socket loop: keepalive, the reconnect handoff, backoff, notification routing and burst, and all-or-nothing coverage. §5.1 applies to WebSocket mode; §5.2 lists what differs in Conduit mode.
+
+### 5.1 WebSocket mode
+
 - WebSocket `wss://eventsub.wss.twitch.tv/ws`; a user token is required to create subscriptions, but `stream.online` and `stream.offline` need **no extra scope**.
 - No token: `schedule.SetPushStatus(PushStatus.NoAdminToken)`, wait for a token, polling carries the app.
 - On `session_welcome`: subscribe `stream.online` and `stream.offline` for every watched channel with a `UserId`.
@@ -72,6 +78,18 @@ public sealed class TwitchTokenProvider(
 - Token/HTTP failures during subscription are logged; the client reconnects with backoff; polling continues.
 - `IAdminTokenStore.Changed` cancels and reconnects the session on sign-in or logout, so push starts/stops promptly.
 - `LiveFromNotificationAsync` uses `/channels` for current title/game; the thumbnail is saved by the next poll.
+
+### 5.2 Conduit mode (ADR-0006)
+
+- The app access token from `TwitchTokenProvider` authorizes every conduit, shard, and subscription call. A 401 invalidates it and retries once. The admin token is never read, and `IAdminTokenStore.Changed` does not restart the session: sign-in and logout do not affect push.
+- Before each session: load the saved conduit (§7). Reuse it if `GET /helix/eventsub/conduits` still lists it and it was saved under the current `ClientId`; otherwise create one with `shard_count = 1` and save it. Never delete a conduit Stream Keepr did not create. A 429 on create means the five-conduit limit and is logged as such.
+- On `session_welcome`: first bind shard `0` to the session (`PATCH /helix/eventsub/conduits/shards`; Twitch allows 10 s), then reconcile. Reconcile lists the subscriptions on our conduit (all pages, filtered by `conduit_id` and checked client-side), deletes those for unwatched channels, disabled statuses, duplicates, or other types, and creates the missing `stream.online`/`stream.offline` with `transport = {method: conduit, conduit_id}`.
+- `409 Conflict` counts as active only if a second listing shows that subscription enabled on our conduit. Any other 4xx, including 429, logs and leaves that channel uncovered. A 401 after the retry, a 5xx, or a network error restarts the session with backoff.
+- A channel add/remove or `UserId` change restarts the session, which re-binds the shard and reconciles the delta; subscriptions are not recreated.
+- `session_reconnect`: the same handoff as §5.1, and the shard is bound to the new session before the old socket closes.
+- `revocation` affects one subscription: log it, and if the channel is watched set `Partial coverage`. The session keeps running; the next session re-creates the subscription.
+- A failed conduit setup or shard bind restarts the session with backoff; polling continues.
+- The real cost budget, the app rate bucket, and shard behaviour on reconnect are unverified until the owner runs the live prototype (spike memo §6.2). Each reconcile logs the `total_cost` and `max_total_cost` that Twitch reports.
 
 ## 6. Admin sign-in
 
@@ -126,6 +144,13 @@ public interface IAdminTokenStore
 - `WaitForTokenAsync` completes when a token is available; it remains waiting after a clear.
 - No token is ever logged, returned to the browser, or written outside the encrypted file.
 
+### Conduit state
+
+- File: `/recordings/.streamkeepr/eventsub-conduit.json` with `conduit_id` and `client_id`. Not a secret; written atomically with mode `0600` like the other app data.
+- A missing or unreadable file means "no conduit": log, create a new one, and let the lost one expire on Twitch's side.
+- WebSocket mode at startup (`ConduitRetirementService`): if the file names a conduit under the current `ClientId`, delete it (404 counts as deleted) and the file. If the delete fails, keep the file so the next start retries. A conduit under another `ClientId` is forgotten without a delete.
+- Logout and app shutdown do not touch the conduit; a restart within 72 hours resumes it without re-subscribing.
+
 ## 8. Subscriber-only streams
 
 - `RecorderOptions.TwitchUserOAuthToken` is a manual secret containing the twitch.tv browser token.
@@ -149,7 +174,7 @@ This corrects amendment A-06: a 90 s budget is only valid when polling is the ac
 2. Load admin tokens; if unreadable, clear and log.
 3. Configure the OAuth handler and cookie scheme.
 4. Load channels and resolve missing profiles through `/helix/users`.
-5. Start the poller and EventSub; EventSub waits for a token if none exists.
+5. Start the poller and EventSub. WebSocket mode waits for a token if none exists; Conduit mode needs only the app token. In WebSocket mode, a leftover conduit is deleted in the background.
 
 The token store and key persistence are backend prerequisites; sign-in depends on them, not the reverse. This resolves the F6-T1/F10-T7 cycle.
 
@@ -160,18 +185,21 @@ The token store and key persistence are backend prerequisites; sign-in depends o
 | Twitch auth down | Poller observations become `Unknown`; no finalize; retry next tick. |
 | Helix 401 | Invalidate app token, retry once, then `Unknown`. |
 | Helix 429/5xx | Resilience retries; exhausted requests become `Unknown`. |
-| No admin token | EventSub waits; polling covers the app. |
+| No admin token | WebSocket mode: EventSub waits; polling covers the app. Conduit mode: no effect. |
 | Subscription refused | Channel stays uncovered; coverage false; poll every 30 s. |
 | Partial coverage | Same as refused: global push false. |
 | EventSub disconnect | Exponential backoff; polling continues. |
-| Token revoked/refresh fails | Clear token; EventSub stops; polling continues. |
-| Logout | Clear token; EventSub stops; polling continues. |
+| Token revoked/refresh fails | Clear token; WebSocket-mode EventSub stops; polling continues. Conduit mode: no effect. |
+| Logout | Clear token; WebSocket-mode EventSub stops; polling continues. Conduit mode: push continues. |
+| Conduit missing after downtime | Create a new conduit, save it, reconcile; polling covers the gap. |
+| Five conduits already exist | Conduit create returns 429; log "EventSub conduit limit reached"; back off; polling continues. |
+| Conduit shard bind fails | Restart the session with backoff; polling continues. |
 | Key ring lost | Tokens unreadable; clear; re-authenticate. |
 | Empty allowlist | Any authenticated Twitch user is admin; startup warning. |
 | Non-HTTPS sign-in | Clear configuration error; admin actions unavailable. |
 | Invalid return URL | Redirect to `/`. |
 | Non-allowed login | Reject; no cookie, no token. |
-| Multiple admins | Latest sign-in replaces the stored token; EventSub uses the latest. |
+| Multiple admins | Latest sign-in replaces the stored token; WebSocket-mode EventSub uses the latest. |
 | Subscriber token expired | Streamlink fails; recorder error/retry; rotate the secret. |
 
 ## 12. Test matrix
@@ -190,7 +218,13 @@ Poll schedule:
 
 EventSub:
 
-- No token → wait; welcome → subscriptions; 409 counts active; refusal → uncovered; coverage all-or-nothing; notification routing and burst; reconnect URL; reconnect handoff keeps the old socket until the new welcome, routes old-socket notifications meanwhile, and does not re-subscribe; handoff close or 30 s timeout falls back to a fresh session; keepalive timeout; revocation; exponential backoff/reset; token changed → reconnect; channel change → restart.
+- No token → wait (WebSocket mode); welcome → subscriptions; 409 counts active; refusal → uncovered; coverage all-or-nothing; notification routing and burst; reconnect URL; reconnect handoff keeps the old socket until the new welcome, routes old-socket notifications meanwhile, and does not re-subscribe; handoff close or 30 s timeout falls back to a fresh session; keepalive timeout; revocation; exponential backoff/reset; token changed → reconnect; channel change → restart.
+
+Conduit mode:
+
+- First start creates and saves a conduit and binds shard 0 before any subscription; restart reuses the saved conduit and creates only what is missing; a conduit Twitch deleted is replaced; one saved under another client ID is left alone; unwatched and disabled subscriptions are deleted; refusal → partial coverage; 409 counts only when the subscription is on our conduit; notification routing; revocation → partial coverage without a reconnect; reconnect rebinds the shard before the old socket closes; shard bind failure restarts; app-token outage backs off without a socket; admin token changes never restart.
+- Conduit API: one shard; conduit limit 429; 401 invalidate and retry once; pagination with a client-side conduit filter; shard errors in a 202; 409/4xx/429/5xx outcomes; deletes accept 404.
+- Conduit state store and WebSocket-mode retirement.
 
 Auth:
 
@@ -210,13 +244,15 @@ Integration:
 
 ## 13. Binding versus implementation freedom
 
-Binding: app token refresh/invalidate rules, poller batching and Unknown semantics, poll intervals and all-or-nothing coverage, EventSub lifecycle/backoff, OAuth callback and allowlist semantics, cookie posture, token storage/refresh/clear/wait/Changed, Data Protection key location, subscriber-token path, and push-aware liveness.
+Binding: app token refresh/invalidate rules, poller batching and Unknown semantics, poll intervals and all-or-nothing coverage, EventSub lifecycle/backoff, the transport flag and its WebSocket default, conduit ownership and cleanup rules, OAuth callback and allowlist semantics, cookie posture, token storage/refresh/clear/wait/Changed, Data Protection key location, subscriber-token path, and push-aware liveness.
 
 Freedom: HTTP client wiring, JSON serialization, encryption implementation details, logging, backoff jitter formula, and test harness.
 
 ## 14. Related
 
 - ADR-0003: admin-only Twitch sign-in with server-side token storage.
+- ADR-0006: EventSub conduit transport behind a flag.
+- `docs/research/eventsub-conduits-spike.md`: conduit research, unknowns, and the prototype plan.
 - `docs/runtime-contract.md` for supervisor and channel control.
 - `docs/domain-model.md` for `Unknown` and `StreamStatusObserved`.
 - `docs/reviews/implementation-plan-amendments.md` (A-05, A-06, A-10, C-03).

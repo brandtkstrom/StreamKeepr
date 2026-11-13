@@ -9,6 +9,7 @@ public static class AppDataPaths
     public const string AppDataDirectoryName = ".streamkeepr";
     public const string KeysDirectoryName = "keys";
     public const string AdminTokensFileName = "admin-tokens.json";
+    public const string EventSubConduitFileName = "eventsub-conduit.json";
     public const string ChannelsFileName = "channels.json";
     public const string ProgressFileName = "progress.json";
     public const string ExportsDirectoryName = "exports";
@@ -21,6 +22,9 @@ public static class AppDataPaths
 
     public static string AdminTokensFile(string recordingsRoot) =>
         Path.Combine(AppDataDirectory(recordingsRoot), AdminTokensFileName);
+
+    public static string EventSubConduitFile(string recordingsRoot) =>
+        Path.Combine(AppDataDirectory(recordingsRoot), EventSubConduitFileName);
 
     public static string ChannelsFile(string recordingsRoot) =>
         Path.Combine(AppDataDirectory(recordingsRoot), ChannelsFileName);
