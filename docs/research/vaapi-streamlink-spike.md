@@ -1,22 +1,24 @@
 # Spike: VAAPI acceleration for the Streamlink/FFmpeg recording image
 
-Status: research memo, recommendation **no-go** (2026-11-13)
+Status: research memo, **no-go for the copy-only recorder**; superseded for the product decision by [`live-transcode-vaapi.md`](live-transcode-vaapi.md) (2026-11-13)
 Issue: [#144](https://github.com/brandtkstrom/StreamKeepr/issues/144) "Spike: evaluate VAAPI GPU acceleration for the Streamlink/FFmpeg recording image"
 Binding: no. This memo informs a decision; it changes no code, image, Compose file, or contract. Scope: research only; no production code, Dockerfile, Compose, or test change.
+
+**Owner update (2026-11-13).** Live transcoding is approved for both playback and storage. The no-go below applies only to adding VAAPI to the copy-only recorder. See [`live-transcode-vaapi.md`](live-transcode-vaapi.md) for the live sidecar design and the GO decision.
 
 **Method.** Repository citations are `path:line` at `7b2da86` (branch `docs/vaapi-streamlink-spike`). I read the issue, `Dockerfile`, `FfmpegArgs.cs`, `ExportService.cs`, `ExportPartProbe.cs`, `docs/recorder-contract.md`, both Compose files, `README.md`, and the implementation plan. I pulled `mwader/static-ffmpeg:9.0.2-1` with Docker 29.9.3 on macOS 27.2 arm64 and ran the FFmpeg checks in §3 on arm64 and amd64; the `/dev/dri` check was on this host. I also pulled `mcr.microsoft.com/dotnet/aspnet:10.0.14` (Ubuntu 24.04.5) and measured the amd64 VAAPI package install under `--platform linux/amd64`. No VAAPI encode was run: this host has no `/dev/dri`, and Docker Desktop's Linux VM rejects `--device /dev/dri`. Web sources were fetched on 2026-11-13; the FFmpeg Trac wiki is behind Anubis, so §5 quotes the Wayback snapshot of 2026-01-22 (page last modified 2024-01-28). No credentials, no Twitch API calls, no production edits.
 
 ## 1. Summary and recommendation
 
-**Recommendation: NO-GO for VAAPI in the Stream Keepr image today.** VAAPI has no workload to accelerate in the current product, and the shipped FFmpeg cannot use it even if a GPU were present.
+**Recommendation: NO-GO for VAAPI in the copy-only recorder.** VAAPI has no workload to accelerate in the current recorder, and the shipped FFmpeg cannot use it even if a GPU were present. The owner has since approved a live transcode sidecar; that is a **GO** in [`live-transcode-vaapi.md`](live-transcode-vaapi.md), which keeps the recorder copy-only.
 
 Three independent blockers:
 
-1. **No decode or encode exists.** The recorder sends Streamlink's HLS bytes into FFmpeg and remuxes with `-c copy` (`docs/recorder-contract.md:13`, `src/StreamKeepr/Infrastructure/Media/FfmpegArgs.cs:20-22`). MP4 export also stream-copies (`src/StreamKeepr/Infrastructure/Storage/ExportService.cs:434-443`). No production path decodes, filters, scales, or encodes video. VAAPI only accelerates those stages.
+1. **No decode or encode exists in the recorder or export.** The recorder sends Streamlink's HLS bytes into FFmpeg and remuxes with `-c copy` (`docs/recorder-contract.md:13`, `src/StreamKeepr/Infrastructure/Media/FfmpegArgs.cs:20-22`). MP4 export also stream-copies (`src/StreamKeepr/Infrastructure/Storage/ExportService.cs:434-443`). VAAPI only accelerates decode, filter, or encode stages; the approved live sidecar is a separate transcode path.
 2. **The static FFmpeg cannot load VAAPI drivers.** `mwader/static-ffmpeg:9.0.2-1` is a fully static build; upstream says hardware acceleration is not supported because a static binary cannot load system drivers ([static-ffmpeg §Hardware acceleration][static]). Empirically, its `-hwaccels` lists only `qsv`, never `vaapi`; `-init_hw_device vaapi` fails. See §3.
-3. **A VAAPI-capable image is a product and support change, not a flag.** It needs a dynamically linked FFmpeg, `libva` plus Intel or Mesa drivers, `vainfo`, `/dev/dri` passthrough, non-root device/group handling, and a per-host kernel/driver matrix. Ubuntu 24.04's FFmpeg is 6.1.1, three major release series older than the pinned 9.0.2 (6.x vs 9.x), and its Intel VAAPI driver is amd64/i386 only while the app publishes `linux/amd64,linux/arm64`. The measured amd64 install of `ffmpeg` + `intel-media-va-driver` (free-kernel) + `vainfo` adds 434 MB; replacing the two static binaries (288 MB together) makes the net increase about 146 MB. There is no approved transcode feature; the plan says "stream copy only (no transcoding)" (`docs/plans/streamkeepr-implementation-plan.md:20`).
+3. **A VAAPI-capable image is a product and support change, not a flag.** It needs a dynamically linked FFmpeg, `libva` plus Intel or Mesa drivers, `vainfo`, `/dev/dri` passthrough, non-root device/group handling, and a per-host kernel/driver matrix. Ubuntu 24.04's FFmpeg is 6.1.1, three major release series older than the pinned 9.0.2 (6.x vs 9.x), and its Intel VAAPI driver is amd64/i386 only while the app publishes `linux/amd64,linux/arm64`. The measured amd64 install of `ffmpeg` + `intel-media-va-driver` (free-kernel) + `vainfo` adds 434 MB; replacing the two static binaries (288 MB together) makes the net increase about 146 MB. The owner has now approved a live transcode sidecar, so this cost is accepted for that path; the reason to keep VAAPI out of the recorder is reliability, not the absence of a feature.
 
-**What would change the decision:** an approved feature that genuinely requires transcoding (for example HEVC/AV1 to H.264 for browser playback or export, lower-bitrate proxies, or video thumbnails), plus a benchmark on representative hardware showing software cannot meet the requirement, plus a separate optional image or worker that keeps the default recorder on static FFmpeg and `-c copy`. Until all three exist, doing nothing is the correct change.
+**What would change the decision:** the owner has approved live transcoding for playback and storage; the companion memo records the GO and the prototype gate. A representative-hardware benchmark still decides the live encoder settings, and the separate optional image or worker keeps the default recorder on static FFmpeg and `-c copy`.
 
 ## 2. Current pipeline: no decode or encode to accelerate
 
@@ -269,6 +271,8 @@ Docker Desktop's GPU page says its `--gpus` passthrough is "only available on Wi
 
 ## 7. If a transcode use case appears: benchmark plan
 
+**Update (2026-11-13):** the owner has approved a live transcode use case for playback and storage. The companion memo is the implementation basis. This file-based plan remains the quality/throughput reference; the live prototype there is the gate.
+
 The plausible use cases, in order of product value:
 
 1. **Browser/export compatibility.** The recorder enables `--twitch-supported-codecs h264,h265,av1` (`docs/recorder-contract.md:65`), and the contract accepts that HEVC/AV1 "may produce codecs not supported by every browser" (`docs/recorder-contract.md:158`). A one-time H.264/AAC derivative would address playback without touching the original parts.
@@ -276,7 +280,7 @@ The plausible use cases, in order of product value:
 3. **Thumbnails** from a video frame. A single-frame decode is cheap relative to video transcoding and does not justify a GPU stack by itself.
 4. **Archival re-encode** to a smaller codec. This is lossy and changes the "keep the source" property; it needs a separate product decision.
 
-None of these is approved today. If one is approved, benchmark before choosing VAAPI. A concrete plan:
+The live playback/storage use case is now approved (2026-11-13); the companion memo is the implementation basis. If a different use case is proposed, benchmark before choosing VAAPI. A concrete plan:
 
 | Item | Specification |
 |---|---|
@@ -292,26 +296,29 @@ None of these is approved today. If one is approved, benchmark before choosing V
 
 ## 8. Decision
 
-**NO-GO.** Do not add VAAPI, `libva`, GPU drivers, `/dev/dri`, or device configuration to the Stream Keepr image now.
+**NO-GO for the copy-only recorder.** Do not add VAAPI, `libva`, GPU drivers, `/dev/dri`, or device configuration to the source recorder. The approved live sidecar is covered by [`live-transcode-vaapi.md`](live-transcode-vaapi.md).
 
 | Question | Answer |
 |---|---|
-| Is there a decode/encode workload today? | **No.** Recorder and export are `-c copy`; Streamlink writes HLS bytes |
+| Is there a decode/encode workload in the recorder? | **No.** Recorder and export are `-c copy`; Streamlink writes HLS bytes |
 | Can the current image do VAAPI? | **No.** Static FFmpeg has no `vaapi` hwaccel and cannot load drivers; `-init_hw_device vaapi` fails |
 | Is a VAAPI image cheap? | **No.** Dynamic FFmpeg 6.1.1 (or a custom 9.0.2 build), libva + driver + `vainfo`, +434 MB measured, amd64-only Intel driver, host matrix |
-| Is there an approved transcode feature? | **No.** The plan says stream copy only; HEVC/AV1 playback risk is accepted, not transcoded |
-| Recommendation | **No-go until an approved transcode feature exists and a benchmark justifies it** |
+| Is there an approved transcode feature? | **Yes, as of 2026-11-13:** live H.264 for playback and storage. It belongs in the sidecar, not the recorder |
+| Recommendation | **No-go for the recorder; GO for the live sidecar in the companion memo** |
 
-**Blocking constraint:** the product has no decode/encode stage, and the current FFmpeg cannot load VAAPI. Either alone is enough to stop; together they make the change pure cost.
+**Blocking constraint for the recorder:** the copy path has no decode/encode stage, and the current static FFmpeg cannot load VAAPI. The live sidecar addresses that with a separate image and leaves the recorder untouched.
 
 ### What would change the decision
 
-- An approved feature with a concrete quality/throughput requirement that software cannot meet (for example, browser playback of HEVC/AV1 recordings, or a proxy/export feature).
+The owner has now approved the live playback/storage use case, so the product condition is met. The remaining gates for the live sidecar are the prototype in the companion memo and a hardware benchmark.
+
 - A benchmark on representative hardware showing a real constraint: VAAPI at least 2× faster at equal VMAF, or meeting a hard real-time/CPU budget.
-- A separate optional image or worker that keeps the default image on static FFmpeg 9.0.2 and `-c copy`, with software fallback and no change to the recorder contract.
+- A separate optional image or worker that keeps the default image on static FFmpeg 9.0.2 and `-c copy`, with no change to the recorder contract.
 - Evidence that the target user base has usable Intel/AMD GPUs and `/dev/dri`; today this is unknown.
 
-### If a future go is approved: smallest first slice
+### If a future recorder-path go is approved: smallest first slice
+
+**Superseded for the live requirement.** The owner approved live transcode; see [`live-transcode-vaapi.md`](live-transcode-vaapi.md) §7. This export-only slice remains the fallback if the live-playlist prototype fails.
 
 - Add an **export-only** transcode job behind an off-by-default flag. Do not touch the recorder, the part format, or the recorder contract.
 - Add a `VaapiProbe` that runs once at startup (`vainfo` or a tiny `ffmpeg -init_hw_device vaapi` check) and a `TranscodeService` that uses a dynamic FFmpeg path, `h264_vaapi`, and `libx264` fallback. Write to a temp file and rename atomically; never modify the original parts.
