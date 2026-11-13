@@ -35,9 +35,11 @@ public sealed class EventSubClient(
     private static readonly TimeSpan DefaultKeepalive = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan BurstDuration = TimeSpan.FromMinutes(3);
 
+    // Twitch closes the old connection (4004) 30 s after session_reconnect.
+    private static readonly TimeSpan ReconnectGrace = TimeSpan.FromSeconds(30);
+
     public async Task RunAsync(StreamObservationRoute route, CancellationToken ct)
     {
-        Uri uri = BaseUri;
         TimeSpan backoff = InitialBackoff;
 
         while (!ct.IsCancellationRequested)
@@ -106,7 +108,7 @@ public sealed class EventSubClient(
             var state = new SessionState();
             try
             {
-                await RunSessionAsync(token, route, uri, state, sessionCts.Token);
+                await RunSessionAsync(token, route, BaseUri, state, sessionCts.Token);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -119,7 +121,6 @@ public sealed class EventSubClient(
             catch (EventSubRestartException ex)
             {
                 logger.LogWarning("EventSub restart: {Reason}", ex.Message);
-                state.ReconnectUrl = ex.ReconnectUrl;
             }
             catch (Exception ex)
             {
@@ -138,13 +139,6 @@ public sealed class EventSubClient(
             if (ct.IsCancellationRequested)
                 break;
 
-            if (state.ReconnectUrl is { } reconnect)
-            {
-                uri = reconnect;
-                continue;
-            }
-
-            uri = BaseUri;
             TimeSpan delay = jitter.Apply(backoff);
             backoff = TimeSpan.FromTicks(
                 Math.Min(backoff.Ticks * 2, MaxBackoff.Ticks));
@@ -167,41 +161,174 @@ public sealed class EventSubClient(
         SessionState state,
         CancellationToken ct)
     {
-        await using IEventSubSocket socket = socketFactory.Create();
-        await socket.ConnectAsync(uri, ct);
-        logger.LogInformation("EventSub connected to {Uri}; waiting for session_welcome.", uri);
-
-        while (!ct.IsCancellationRequested)
+        IEventSubSocket socket = socketFactory.Create();
+        ReconnectHandoff? handoff = null;
+        bool socketOpen = true;
+        try
         {
-            string? message;
-            using (var receiveCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
-            using (var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
-            {
-                Task<string?> receive = socket.ReceiveTextAsync(receiveCts.Token);
-                Task timeout = Task.Delay(
-                    state.Keepalive + KeepaliveGrace, clock, timeoutCts.Token);
+            await socket.ConnectAsync(uri, ct);
+            logger.LogInformation("EventSub connected to {Uri}; waiting for session_welcome.", uri);
 
-                Task first = await Task.WhenAny(receive, timeout);
-                if (first == timeout)
+            while (!ct.IsCancellationRequested)
+            {
+                string? message;
+                using (var receiveCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                using (var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
                 {
-                    await receiveCts.CancelAsync();
-                    await ObserveAsync(receive);
-                    throw new EventSubRestartException(
-                        null, "keepalive timeout");
+                    Task<string?>? receive = socketOpen
+                        ? socket.ReceiveTextAsync(receiveCts.Token)
+                        : null;
+
+                    // During a handoff the reconnect grace period replaces the keepalive
+                    // watchdog: Twitch does not promise keepalives on the old socket then.
+                    Task watchdog = handoff?.Deadline
+                        ?? Task.Delay(state.Keepalive + KeepaliveGrace, clock, timeoutCts.Token);
+
+                    // Order matters when several are already complete: drain the old socket
+                    // first, then prefer a finished handoff over an expired deadline.
+                    var waits = new List<Task>(3);
+                    if (receive is not null)
+                        waits.Add(receive);
+                    if (handoff is not null)
+                        waits.Add(handoff.Welcomed);
+                    waits.Add(watchdog);
+
+                    Task first = await Task.WhenAny(waits);
+                    await timeoutCts.CancelAsync();
+                    if (first != receive)
+                    {
+                        if (receive is not null)
+                        {
+                            await receiveCts.CancelAsync();
+                            await ObserveAsync(receive);
+                        }
+
+                        if (handoff is null)
+                            throw new EventSubRestartException("keepalive timeout");
+
+                        if (first != handoff.Welcomed)
+                            throw new EventSubRestartException("reconnect handoff timed out");
+
+                        // Throws when the new socket failed; the session then restarts fresh.
+                        TimeSpan? keepalive = await handoff.Welcomed;
+                        state.Keepalive = keepalive ?? state.Keepalive;
+
+                        IEventSubSocket old = socket;
+                        socket = await handoff.TakeSocketAsync();
+                        socketOpen = true;
+                        await handoff.DisposeAsync();
+                        handoff = null;
+                        await old.DisposeAsync();
+                        logger.LogInformation(
+                            "EventSub reconnect handoff complete; closed the old connection.");
+                        continue;
+                    }
+
+                    message = await receive;
                 }
 
-                await timeoutCts.CancelAsync();
-                message = await receive;
+                if (message is null)
+                {
+                    if (handoff is null)
+                        return;
+
+                    // Twitch closed the old socket first; keep waiting for the new welcome.
+                    socketOpen = false;
+                    continue;
+                }
+
+                Uri? reconnectUrl = await HandleMessageAsync(message, token, route, state, ct);
+                if (reconnectUrl is null)
+                    continue;
+
+                if (handoff is not null)
+                {
+                    logger.LogInformation(
+                        "Ignoring a second session_reconnect during a reconnect handoff.");
+                    continue;
+                }
+
+                handoff = StartHandoff(reconnectUrl, ct);
+                logger.LogInformation(
+                    "EventSub reconnecting to {Uri}; the old connection stays open until session_welcome.",
+                    reconnectUrl);
             }
-
-            if (message is null)
-                return;
-
-            await HandleMessageAsync(message, token, route, state, ct);
+        }
+        finally
+        {
+            if (handoff is not null)
+                await handoff.DisposeAsync();
+            await socket.DisposeAsync();
         }
     }
 
-    private async Task HandleMessageAsync(
+    /// <summary>
+    /// Opens the reconnect socket and waits for its <c>session_welcome</c>, while the caller keeps
+    /// reading the old socket. Subscriptions move with the session, so nothing is re-subscribed.
+    /// </summary>
+    private ReconnectHandoff StartHandoff(Uri reconnectUrl, CancellationToken ct)
+    {
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        try
+        {
+            Task deadline = Task.Delay(ReconnectGrace, clock, cts.Token);
+            IEventSubSocket socket = socketFactory.Create();
+            Task<TimeSpan?> welcomed = ReceiveHandoffWelcomeAsync(socket, reconnectUrl, cts.Token);
+            return new ReconnectHandoff(socket, welcomed, deadline, cts);
+        }
+        catch
+        {
+            cts.Dispose();
+            throw;
+        }
+    }
+
+    /// <returns>The new session's keepalive, or null when the welcome does not state one.</returns>
+    private static async Task<TimeSpan?> ReceiveHandoffWelcomeAsync(
+        IEventSubSocket socket, Uri reconnectUrl, CancellationToken ct)
+    {
+        await socket.ConnectAsync(reconnectUrl, ct);
+        string? message = await socket.ReceiveTextAsync(ct)
+            ?? throw new EventSubRestartException(
+                "reconnect connection closed before session_welcome");
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(message);
+            JsonElement root = document.RootElement;
+            if (root.GetProperty("metadata").GetProperty("message_type").GetString()
+                != "session_welcome")
+            {
+                throw new EventSubRestartException(
+                    "reconnect connection did not start with session_welcome");
+            }
+
+            return ReadWelcome(root.GetProperty("payload")).Keepalive;
+        }
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException
+            or InvalidOperationException)
+        {
+            throw new EventSubRestartException(
+                "reconnect connection sent a malformed session_welcome");
+        }
+    }
+
+    private static (string SessionId, TimeSpan? Keepalive) ReadWelcome(JsonElement payload)
+    {
+        JsonElement session = payload.GetProperty("session");
+        string sessionId = session.GetProperty("id").GetString()!;
+        TimeSpan? keepalive =
+            session.TryGetProperty("keepalive_timeout_seconds", out JsonElement value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt32(out int seconds)
+            && seconds > 0
+                ? TimeSpan.FromSeconds(seconds)
+                : null;
+        return (sessionId, keepalive);
+    }
+
+    /// <returns>The reconnect URL when Twitch sent <c>session_reconnect</c>; otherwise null.</returns>
+    private async Task<Uri?> HandleMessageAsync(
         string message,
         string token,
         StreamObservationRoute route,
@@ -216,7 +343,7 @@ public sealed class EventSubClient(
         catch (JsonException ex)
         {
             logger.LogWarning(ex, "Ignoring malformed EventSub message.");
-            return;
+            return null;
         }
 
         using (document)
@@ -229,47 +356,44 @@ public sealed class EventSubClient(
             switch (messageType)
             {
                 case "session_welcome":
-                    JsonElement session = payload.GetProperty("session");
-                    string sessionId = session.GetProperty("id").GetString()!;
-                    if (session.TryGetProperty("keepalive_timeout_seconds", out JsonElement keepalive)
-                        && keepalive.TryGetInt32(out int seconds)
-                        && seconds > 0)
-                    {
-                        state.Keepalive = TimeSpan.FromSeconds(seconds);
-                    }
-                    else
-                    {
-                        state.Keepalive = DefaultKeepalive;
-                    }
+                    (string sessionId, TimeSpan? keepalive) = ReadWelcome(payload);
+                    state.Keepalive = keepalive ?? DefaultKeepalive;
 
                     int covered = await SubscribeAllAsync(sessionId, token, ct);
                     state.HadSubscriptions |= covered > 0;
-                    break;
+                    return null;
 
                 case "notification":
                     await HandleNotificationAsync(payload, route, ct);
-                    break;
+                    return null;
 
                 case "session_keepalive":
-                    break;
+                    return null;
 
                 case "session_reconnect":
-                    schedule.SetPushStatus(PushStatus.Reconnecting);
+                    // Push coverage is unchanged: the old socket keeps delivering until the
+                    // new one is welcomed, and subscriptions move with the session.
                     string? reconnect = payload.TryGetProperty("session", out JsonElement reconnectSession)
-                        ? reconnectSession.TryGetProperty("reconnect_url", out JsonElement url)
+                        && reconnectSession.TryGetProperty("reconnect_url", out JsonElement url)
                             ? url.GetString()
-                            : null
-                        : null;
-                    throw new EventSubRestartException(
-                        reconnect is null ? null : new Uri(reconnect),
-                        "Twitch requested a session reconnect.");
+                            : null;
+                    if (reconnect is null)
+                    {
+                        schedule.SetPushStatus(PushStatus.Reconnecting);
+                        throw new EventSubRestartException(
+                            "Twitch requested a session reconnect without a reconnect_url.");
+                    }
+
+                    return new Uri(reconnect);
 
                 case "revocation":
                     schedule.SetPushStatus(PushStatus.Reconnecting);
                     logger.LogWarning(
                         "EventSub subscription was revoked; reconnecting.");
-                    throw new EventSubRestartException(null, "subscription revoked");
+                    throw new EventSubRestartException("subscription revoked");
             }
+
+            return null;
         }
     }
 
@@ -293,7 +417,7 @@ public sealed class EventSubClient(
             {
                 schedule.SetPushStatus(PushStatus.Reconnecting);
                 throw new EventSubRestartException(
-                    null, $"subscription request failed for {channel.Login}");
+                    $"subscription request failed for {channel.Login}");
             }
 
             if (online == SubscriptionResult.Active && offline == SubscriptionResult.Active)
@@ -458,7 +582,6 @@ public sealed class EventSubClient(
     {
         public TimeSpan Keepalive { get; set; } = DefaultKeepalive;
         public bool HadSubscriptions { get; set; }
-        public Uri? ReconnectUrl { get; set; }
     }
 
     private enum SubscriptionResult
@@ -468,9 +591,46 @@ public sealed class EventSubClient(
         Failed,
     }
 
-    private sealed class EventSubRestartException(Uri? reconnectUrl, string message)
-        : Exception(message)
+    private sealed class EventSubRestartException(string message) : Exception(message);
+
+    /// <summary>
+    /// A reconnect socket waiting for its <c>session_welcome</c>, bounded by Twitch's grace period.
+    /// It owns the socket until <see cref="TakeSocketAsync"/> hands it over.
+    /// </summary>
+    private sealed class ReconnectHandoff(
+        IEventSubSocket socket,
+        Task<TimeSpan?> welcomed,
+        Task deadline,
+        CancellationTokenSource cts) : IAsyncDisposable
     {
-        public Uri? ReconnectUrl { get; } = reconnectUrl;
+        private IEventSubSocket? _socket = socket;
+
+        public Task<TimeSpan?> Welcomed { get; } = welcomed;
+
+        public Task Deadline { get; } = deadline;
+
+        public async Task<IEventSubSocket> TakeSocketAsync()
+        {
+            await cts.CancelAsync();
+            await ObserveAsync(Deadline);
+            IEventSubSocket taken = _socket
+                ?? throw new InvalidOperationException("The handoff socket was already taken.");
+            _socket = null;
+            return taken;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await cts.CancelAsync();
+            await ObserveAsync(Welcomed);
+            await ObserveAsync(Deadline);
+            if (_socket is not null)
+            {
+                await _socket.DisposeAsync();
+                _socket = null;
+            }
+
+            cts.Dispose();
+        }
     }
 }
