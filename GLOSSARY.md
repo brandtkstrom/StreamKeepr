@@ -5,12 +5,28 @@ Stream Keepr records Twitch streams to disk as HLS and plays them back in a Blaz
 ## Language
 
 **Stream**:
-A live Twitch broadcast, identified by its Twitch stream ID.
-_Avoid_: Video, broadcast, feed
+A live Twitch broadcast (`Broadcast type` = `live`), identified by its Twitch stream ID.
+_Avoid_: Video, feed, non-live broadcast
+
+**Broadcast type**:
+Twitch's classification of an online broadcast: `live`, `playlist`, `watch_party`, `premiere`, or `rerun`.
+_Avoid_: Stream type, event type (use “event.type” only for the wire field)
+
+**Non-live broadcast**:
+An online broadcast whose broadcast type is not `live`; Stream Keepr observes it as Offline for recording.
+_Avoid_: Rerun (unless that specific type is meant), stream
 
 **Channel**:
 A watched Twitch login that Stream Keepr records.
 _Avoid_: User, account, streamer (use “streamer” only for the person in UI copy)
+
+**Resolved channel**:
+A watched channel whose Twitch user ID is known; EventSub can subscribe to it.
+_Avoid_: Eligible channel, linked channel
+
+**Unresolved channel**:
+A watched channel whose Twitch user ID is not known; it stays on polling until the profile is resolved.
+_Avoid_: Unlinked channel, profile-less channel
 
 **Session**:
 One continuous recording of a stream, identified by the stream's start time and stream ID. A session owns one or more parts and a manifest.

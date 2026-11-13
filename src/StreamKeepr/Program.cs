@@ -123,7 +123,7 @@ else
     builder.Services.AddSingleton<IStreamPoller, TwitchStreamPoller>();
     builder.Services.AddSingleton<IEventSubSocketFactory, ClientWebSocketEventSubSocketFactory>();
 
-    // Twitch:EventSubTransport picks the push transport (ADR-0006); polling covers both.
+    // Twitch:EventSubTransport picks the push transport (ADR-0007); polling covers both.
     builder.Services.AddSingleton<IConduitStateStore, ConduitStateStore>();
     builder.Services.AddSingleton<EventSubConduitApi>();
     builder.Services.AddSingleton<IEventSubBinding>(services =>

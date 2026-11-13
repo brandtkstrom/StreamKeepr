@@ -10,9 +10,11 @@ namespace StreamKeepr.Tests.Twitch;
 /// <summary>EventSub WebSocket message builders.</summary>
 internal static class EventSubMessages
 {
-    public static string Welcome(string sessionId, int keepaliveSeconds = 10) =>
-        "{\"metadata\":{\"message_type\":\"session_welcome\"},"
-        + "\"payload\":{\"session\":{\"id\":\"" + sessionId + "\","
+    public static string Welcome(
+        string sessionId, int keepaliveSeconds = 10, string? messageId = null) =>
+        "{\"metadata\":{\"message_type\":\"session_welcome\""
+        + (messageId is null ? "" : ",\"message_id\":\"" + messageId + "\"")
+        + "},\"payload\":{\"session\":{\"id\":\"" + sessionId + "\","
         + "\"keepalive_timeout_seconds\":" + keepaliveSeconds + "}}}";
 
     public static string Reconnect(string url) =>
@@ -22,10 +24,13 @@ internal static class EventSubMessages
     public static string Revoked() =>
         "{\"metadata\":{\"message_type\":\"revocation\"},\"payload\":{}}";
 
-    public static string Notification(string type) =>
-        "{\"metadata\":{\"message_type\":\"notification\"},"
-        + "\"payload\":{\"subscription\":{\"type\":\"" + type + "\"},"
+    public static string Notification(
+        string type, string? messageId = null, string? broadcastType = null) =>
+        "{\"metadata\":{\"message_type\":\"notification\""
+        + (messageId is null ? "" : ",\"message_id\":\"" + messageId + "\"")
+        + "},\"payload\":{\"subscription\":{\"type\":\"" + type + "\"},"
         + "\"event\":{\"id\":\"987\",\"broadcaster_user_id\":\"123\","
+        + (broadcastType is null ? "" : "\"type\":\"" + broadcastType + "\",")
         + "\"started_at\":\"2026-11-10T16:30:00Z\"}}}";
 }
 
@@ -38,6 +43,13 @@ internal sealed class FakeChannelInfoPoller : IStreamPoller
 {
     public ChannelInfo? Info { get; set; }
 
+    public int ChannelInfoCalls { get; private set; }
+
+    public TaskCompletionSource LookupStarted { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public bool HangChannelInfo { get; set; }
+
     public Task RunAsync(
         Func<IReadOnlyList<string>> logins,
         StreamObservationRoute route,
@@ -47,9 +59,16 @@ internal sealed class FakeChannelInfoPoller : IStreamPoller
     public Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct) =>
         Task.FromResult<ChannelProfile?>(null);
 
-    public Task<ChannelInfo?> GetChannelInfoAsync(
-        string broadcasterId, CancellationToken ct) =>
-        Task.FromResult(Info);
+    public async Task<ChannelInfo?> GetChannelInfoAsync(
+        string broadcasterId, CancellationToken ct)
+    {
+        ChannelInfoCalls++;
+        LookupStarted.TrySetResult();
+        if (HangChannelInfo)
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+
+        return Info;
+    }
 
     public void Nudge()
     {
@@ -58,19 +77,23 @@ internal sealed class FakeChannelInfoPoller : IStreamPoller
 
 internal sealed class FakeEventSubSocketFactory : IEventSubSocketFactory
 {
-    private readonly List<TaskCompletionSource<FakeEventSubSocket>> _sockets = [];
+    private readonly List<TaskCompletionSource<FakeEventSubSocket>> _slots = [];
 
-    public FakeEventSubSocket? LastSocket { get; private set; }
+    public List<FakeEventSubSocket> Sockets { get; } = [];
+
+    public FakeEventSubSocket? LastSocket => Sockets.LastOrDefault();
 
     public TaskCompletionSource SocketTwo { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public bool HangOnConnect { get; set; }
 
     private int _created;
 
     public IEventSubSocket Create()
     {
-        var socket = new FakeEventSubSocket();
-        LastSocket = socket;
+        var socket = new FakeEventSubSocket { HangOnConnect = HangOnConnect };
+        Sockets.Add(socket);
         int created = Interlocked.Increment(ref _created);
         Slot(created).TrySetResult(socket);
         if (created == 2)
@@ -83,15 +106,15 @@ internal sealed class FakeEventSubSocketFactory : IEventSubSocketFactory
 
     private TaskCompletionSource<FakeEventSubSocket> Slot(int number)
     {
-        lock (_sockets)
+        lock (_slots)
         {
-            while (_sockets.Count < number)
+            while (_slots.Count < number)
             {
-                _sockets.Add(new TaskCompletionSource<FakeEventSubSocket>(
+                _slots.Add(new TaskCompletionSource<FakeEventSubSocket>(
                     TaskCreationOptions.RunContinuationsAsynchronously));
             }
 
-            return _sockets[number - 1];
+            return _slots[number - 1];
         }
     }
 }
@@ -104,6 +127,9 @@ internal sealed class FakeEventSubSocket : IEventSubSocket
     public TaskCompletionSource Connected { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    public TaskCompletionSource ConnectStarted { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     public TaskCompletionSource Subscribed { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -112,9 +138,15 @@ internal sealed class FakeEventSubSocket : IEventSubSocket
 
     public Uri? ConnectedUri { get; private set; }
 
+    public bool HangOnConnect { get; set; }
+
     public Task ConnectAsync(Uri uri, CancellationToken ct)
     {
         ConnectedUri = uri;
+        ConnectStarted.TrySetResult();
+        if (HangOnConnect)
+            return Task.Delay(Timeout.InfiniteTimeSpan, ct);
+
         Connected.TrySetResult();
         return Task.CompletedTask;
     }

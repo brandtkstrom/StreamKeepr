@@ -6,7 +6,7 @@ using StreamKeepr.Infrastructure.Storage;
 namespace StreamKeepr.Infrastructure.Twitch;
 
 /// <summary>
-/// App-token conduit transport (ADR-0006): one conduit with one WebSocket shard. Subscriptions
+/// App-token conduit transport (ADR-0007): one conduit with one WebSocket shard. Subscriptions
 /// live on the conduit and survive socket replacement, so each session only binds shard 0 to
 /// its WebSocket and reconciles the delta against the watched channels. Admin sign-in and
 /// logout have no effect on it.

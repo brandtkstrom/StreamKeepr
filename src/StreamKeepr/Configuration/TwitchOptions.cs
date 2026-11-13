@@ -26,7 +26,7 @@ public sealed class TwitchOptions
 
     [Range(60, 3600)] public int PollIntervalWithEventSubSeconds { get; set; } = 300;
 
-    // How EventSub push is delivered; see docs/adr/0006-eventsub-conduit-transport.md.
+    // How EventSub push is delivered; see docs/adr/0007-eventsub-conduit-transport.md.
     [EnumDataType(typeof(EventSubTransportMode))]
     public EventSubTransportMode EventSubTransport { get; set; } = EventSubTransportMode.WebSocket;
 }

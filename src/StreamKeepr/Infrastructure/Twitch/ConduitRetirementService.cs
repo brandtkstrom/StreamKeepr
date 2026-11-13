@@ -4,7 +4,7 @@ using StreamKeepr.Configuration;
 namespace StreamKeepr.Infrastructure.Twitch;
 
 /// <summary>
-/// Rollback cleanup (ADR-0006): when the transport flag is <see cref="EventSubTransportMode.WebSocket"/>,
+/// Rollback cleanup (ADR-0007): when the transport flag is <see cref="EventSubTransportMode.WebSocket"/>,
 /// deletes the conduit an earlier Conduit run left behind so its subscriptions stop. Does nothing
 /// in Conduit mode or when no conduit was saved.
 /// </summary>

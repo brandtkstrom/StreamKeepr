@@ -8,9 +8,9 @@ namespace StreamKeepr.Infrastructure.Twitch;
 
 /// <summary>
 /// EventSub client core. It runs the WebSocket session loop (keepalive, reconnect handoff,
-/// backoff), routes notifications to the channel coordinator, and recovers from disconnects.
-/// The <see cref="IEventSubBinding"/> decides how a session authenticates and subscribes:
-/// a user-token WebSocket or a conduit shard.
+/// backoff), dedupes and routes notifications to the channel coordinator, and recovers from
+/// disconnects. The <see cref="IEventSubBinding"/> decides how a session authenticates and
+/// subscribes: a user-token WebSocket or a conduit shard.
 /// </summary>
 public sealed class EventSubClient(
     IEventSubSocketFactory socketFactory,
@@ -31,6 +31,15 @@ public sealed class EventSubClient(
 
     // Twitch closes the old connection (4004) 30 s after session_reconnect.
     private static readonly TimeSpan ReconnectGrace = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ChannelInfoTimeout = TimeSpan.FromSeconds(5);
+
+    private const int RecentMessageIdCapacity = 256;
+
+    // All EventSub message handling is serialized by RunSessionAsync, including
+    // the old/new socket overlap during a reconnect handoff. No lock is needed.
+    private readonly HashSet<string> _recentMessageIds = new(StringComparer.Ordinal);
+    private readonly Queue<string> _recentMessageIdsOrder = new();
 
     public async Task RunAsync(StreamObservationRoute route, CancellationToken ct)
     {
@@ -38,7 +47,6 @@ public sealed class EventSubClient(
 
         while (!ct.IsCancellationRequested)
         {
-            var state = new SessionState();
             IEventSubSessionBinding? session;
             try
             {
@@ -53,51 +61,53 @@ public sealed class EventSubClient(
                 logger.LogWarning(ex, "EventSub could not start a session; polling continues.");
                 schedule.SetPushStatus(PushStatus.Reconnecting);
                 session = null;
-                state.SetupFailed = true;
-            }
-
-            if (session is not null)
-            {
-                // Setup succeeded, but no subscription delivers until the session welcomes us.
-                schedule.SetPushStatus(PushStatus.Reconnecting);
-
-                using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                void Restart() => sessionCts.Cancel();
-
-                channels.SubscriptionsChanged += Restart;
-                binding.RestartRequested += Restart;
-
-                try
-                {
-                    await RunSessionAsync(session, route, BaseUri, state, sessionCts.Token);
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
+                if (!await DelayAsync(NextBackoff(ref backoff), ct))
                     break;
-                }
-                catch (OperationCanceledException) when (sessionCts.IsCancellationRequested)
-                {
-                    // Channel/binding change: reconnect and recompute subscriptions.
-                }
-                catch (EventSubRestartException ex)
-                {
-                    logger.LogWarning("EventSub restart: {Reason}", ex.Message);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "EventSub session failed.");
-                }
-                finally
-                {
-                    channels.SubscriptionsChanged -= Restart;
-                    binding.RestartRequested -= Restart;
-                    schedule.SetPushStatus(PushStatus.Reconnecting);
-                }
-            }
-            else if (!state.SetupFailed)
-            {
-                // The binding already waited (for example for an admin token).
                 continue;
+            }
+
+            if (session is null)
+            {
+                // The binding already waited (for an admin token or a resolved channel).
+                backoff = InitialBackoff;
+                continue;
+            }
+
+            // Setup succeeded, but no subscription delivers until the session welcomes us.
+            schedule.SetPushStatus(PushStatus.Reconnecting);
+
+            using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            void Restart() => sessionCts.Cancel();
+
+            channels.SubscriptionsChanged += Restart;
+            binding.RestartRequested += Restart;
+
+            var state = new SessionState();
+            try
+            {
+                await RunSessionAsync(session, route, BaseUri, state, sessionCts.Token);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (OperationCanceledException) when (sessionCts.IsCancellationRequested)
+            {
+                // Channel/binding change: reconnect and recompute subscriptions.
+            }
+            catch (EventSubRestartException ex)
+            {
+                logger.LogWarning("EventSub restart: {Reason}", ex.Message);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "EventSub session failed.");
+            }
+            finally
+            {
+                channels.SubscriptionsChanged -= Restart;
+                binding.RestartRequested -= Restart;
+                schedule.SetPushStatus(PushStatus.Reconnecting);
             }
 
             if (state.HadSubscriptions)
@@ -106,18 +116,37 @@ public sealed class EventSubClient(
             if (ct.IsCancellationRequested)
                 break;
 
-            TimeSpan delay = jitter.Apply(backoff);
-            backoff = TimeSpan.FromTicks(
-                Math.Min(backoff.Ticks * 2, MaxBackoff.Ticks));
+            // A voluntary restart (channel or binding change) reconnects without backoff.
+            if (sessionCts.IsCancellationRequested)
+            {
+                backoff = InitialBackoff;
+                continue;
+            }
 
-            try
-            {
-                await Task.Delay(delay, clock, ct);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
+            if (!await DelayAsync(NextBackoff(ref backoff), ct))
                 break;
-            }
+        }
+    }
+
+    /// <summary>Returns the jittered delay for this attempt and doubles the base for the next.</summary>
+    private TimeSpan NextBackoff(ref TimeSpan backoff)
+    {
+        TimeSpan delay = jitter.Apply(backoff);
+        backoff = TimeSpan.FromTicks(Math.Min(backoff.Ticks * 2, MaxBackoff.Ticks));
+        return delay;
+    }
+
+    /// <returns>False when <paramref name="ct"/> was cancelled during the delay.</returns>
+    private async Task<bool> DelayAsync(TimeSpan delay, CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(delay, clock, ct);
+            return true;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return false;
         }
     }
 
@@ -133,8 +162,13 @@ public sealed class EventSubClient(
         bool socketOpen = true;
         try
         {
-            await socket.ConnectAsync(uri, ct);
-            logger.LogInformation("EventSub connected to {Uri}; waiting for session_welcome.", uri);
+            using var connectTimeout = new CancellationTokenSource(ConnectTimeout, clock);
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(
+                ct, connectTimeout.Token);
+            await socket.ConnectAsync(uri, connectCts.Token);
+            logger.LogInformation(
+                "EventSub connected to {Uri}; waiting for session_welcome.",
+                uri.GetLeftPart(UriPartial.Path));
 
             while (!ct.IsCancellationRequested)
             {
@@ -162,7 +196,19 @@ public sealed class EventSubClient(
 
                     Task first = await Task.WhenAny(waits);
                     await timeoutCts.CancelAsync();
-                    if (first != receive)
+
+                    if (first == receive)
+                    {
+                        message = await receive;
+                    }
+                    else if (receive is { IsCompletedSuccessfully: true }
+                        && receive.Result is not null)
+                    {
+                        // The old socket delivered a message at the same instant as the
+                        // watchdog; drain it before considering the timeout.
+                        message = receive.Result;
+                    }
+                    else
                     {
                         if (receive is not null)
                         {
@@ -173,7 +219,7 @@ public sealed class EventSubClient(
                         if (handoff is null)
                             throw new EventSubRestartException("keepalive timeout");
 
-                        if (first != handoff.Welcomed)
+                        if (!handoff.Welcomed.IsCompleted)
                             throw new EventSubRestartException("reconnect handoff timed out");
 
                         // Throws when the new socket failed; the session then restarts fresh.
@@ -193,8 +239,6 @@ public sealed class EventSubClient(
                             "EventSub reconnect handoff complete; closed the old connection.");
                         continue;
                     }
-
-                    message = await receive;
                 }
 
                 if (message is null)
@@ -221,7 +265,7 @@ public sealed class EventSubClient(
                 handoff = StartHandoff(reconnectUrl, ct);
                 logger.LogInformation(
                     "EventSub reconnecting to {Uri}; the old connection stays open until session_welcome.",
-                    reconnectUrl);
+                    reconnectUrl.GetLeftPart(UriPartial.Path));
             }
         }
         finally
@@ -234,7 +278,8 @@ public sealed class EventSubClient(
 
     /// <summary>
     /// Opens the reconnect socket and waits for its <c>session_welcome</c>, while the caller keeps
-    /// reading the old socket. The binding decides what the new session needs; WebSocket subscriptions move with it.
+    /// reading the old socket. The binding decides what the new session needs: WebSocket
+    /// subscriptions move with it; a conduit shard is rebound.
     /// </summary>
     private ReconnectHandoff StartHandoff(Uri reconnectUrl, CancellationToken ct)
     {
@@ -245,7 +290,7 @@ public sealed class EventSubClient(
             IEventSubSocket socket = socketFactory.Create();
             Task<(string SessionId, TimeSpan? Keepalive)> welcomed =
                 ReceiveHandoffWelcomeAsync(socket, reconnectUrl, cts.Token);
-            return new ReconnectHandoff(socket, welcomed, deadline, cts);
+            return new ReconnectHandoff(socket, welcomed, deadline, cts, ObserveAsync);
         }
         catch
         {
@@ -257,10 +302,21 @@ public sealed class EventSubClient(
     /// <returns>
     /// The new session's ID and keepalive; the keepalive is null when the welcome does not state one.
     /// </returns>
-    private static async Task<(string SessionId, TimeSpan? Keepalive)> ReceiveHandoffWelcomeAsync(
+    private async Task<(string SessionId, TimeSpan? Keepalive)> ReceiveHandoffWelcomeAsync(
         IEventSubSocket socket, Uri reconnectUrl, CancellationToken ct)
     {
-        await socket.ConnectAsync(reconnectUrl, ct);
+        using var connectTimeout = new CancellationTokenSource(ConnectTimeout, clock);
+        using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(
+            ct, connectTimeout.Token);
+        try
+        {
+            await socket.ConnectAsync(reconnectUrl, connectCts.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new EventSubRestartException("reconnect connect timed out");
+        }
+
         string? message = await socket.ReceiveTextAsync(ct)
             ?? throw new EventSubRestartException(
                 "reconnect connection closed before session_welcome");
@@ -269,14 +325,23 @@ public sealed class EventSubClient(
         {
             using JsonDocument document = JsonDocument.Parse(message);
             JsonElement root = document.RootElement;
-            if (root.GetProperty("metadata").GetProperty("message_type").GetString()
-                != "session_welcome")
+            if (root.ValueKind != JsonValueKind.Object
+                || !TryGetObjectProperty(root, "metadata", out JsonElement metadata)
+                || !TryGetStringProperty(metadata, "message_type", out string? messageType)
+                || messageType != "session_welcome")
             {
                 throw new EventSubRestartException(
                     "reconnect connection did not start with session_welcome");
             }
 
-            return ReadWelcome(root.GetProperty("payload"));
+            if (!TryGetObjectProperty(root, "payload", out JsonElement payload)
+                || !TryReadWelcome(payload, out string sessionId, out TimeSpan? keepalive))
+            {
+                throw new EventSubRestartException(
+                    "reconnect connection sent a malformed session_welcome");
+            }
+
+            return (sessionId, keepalive);
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException
             or InvalidOperationException)
@@ -286,18 +351,52 @@ public sealed class EventSubClient(
         }
     }
 
-    private static (string SessionId, TimeSpan? Keepalive) ReadWelcome(JsonElement payload)
+    private static bool TryGetObjectProperty(
+        JsonElement parent, string name, out JsonElement value)
     {
-        JsonElement session = payload.GetProperty("session");
-        string sessionId = session.GetProperty("id").GetString()!;
-        TimeSpan? keepalive =
-            session.TryGetProperty("keepalive_timeout_seconds", out JsonElement value)
+        value = default;
+        return parent.ValueKind == JsonValueKind.Object
+            && parent.TryGetProperty(name, out value)
+            && value.ValueKind == JsonValueKind.Object;
+    }
+
+    private static bool TryGetStringProperty(
+        JsonElement parent, string name, out string? value)
+    {
+        value = null;
+        if (parent.ValueKind != JsonValueKind.Object
+            || !parent.TryGetProperty(name, out JsonElement element)
+            || element.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        value = element.GetString();
+        return true;
+    }
+
+    private static bool TryReadWelcome(
+        JsonElement payload, out string sessionId, out TimeSpan? keepalive)
+    {
+        sessionId = "";
+        keepalive = null;
+        if (!TryGetObjectProperty(payload, "session", out JsonElement session)
+            || !TryGetStringProperty(session, "id", out string? id)
+            || string.IsNullOrEmpty(id))
+        {
+            return false;
+        }
+
+        sessionId = id;
+        if (session.TryGetProperty("keepalive_timeout_seconds", out JsonElement value)
             && value.ValueKind == JsonValueKind.Number
             && value.TryGetInt32(out int seconds)
-            && seconds > 0
-                ? TimeSpan.FromSeconds(seconds)
-                : null;
-        return (sessionId, keepalive);
+            && seconds > 0)
+        {
+            keepalive = TimeSpan.FromSeconds(seconds);
+        }
+
+        return true;
     }
 
     /// <returns>The reconnect URL when Twitch sent <c>session_reconnect</c>; otherwise null.</returns>
@@ -322,14 +421,39 @@ public sealed class EventSubClient(
         using (document)
         {
             JsonElement root = document.RootElement;
-            string messageType = root.GetProperty("metadata").GetProperty("message_type")
-                .GetString() ?? "";
-            JsonElement payload = root.GetProperty("payload");
+            if (root.ValueKind != JsonValueKind.Object
+                || !TryGetObjectProperty(root, "metadata", out JsonElement metadata)
+                || !TryGetStringProperty(metadata, "message_type", out string? messageType)
+                || string.IsNullOrEmpty(messageType))
+            {
+                logger.LogWarning("Ignoring EventSub message without metadata/message_type.");
+                return null;
+            }
+
+            TryGetStringProperty(metadata, "message_id", out string? messageId);
+            if (TryMarkSeen(messageId))
+            {
+                logger.LogDebug("Ignoring duplicate EventSub message {MessageId}.", messageId);
+                return null;
+            }
+
+            if (!TryGetObjectProperty(root, "payload", out JsonElement payload))
+            {
+                logger.LogWarning(
+                    "Ignoring EventSub {MessageType} without a payload.", messageType);
+                return null;
+            }
 
             switch (messageType)
             {
                 case "session_welcome":
-                    (string sessionId, TimeSpan? keepalive) = ReadWelcome(payload);
+                    if (!TryReadWelcome(payload, out string sessionId, out TimeSpan? keepalive))
+                    {
+                        logger.LogWarning(
+                            "Ignoring EventSub session_welcome without a session id.");
+                        return null;
+                    }
+
                     state.Keepalive = keepalive ?? DefaultKeepalive;
 
                     int covered = await session.OnWelcomeAsync(sessionId, ct);
@@ -347,18 +471,21 @@ public sealed class EventSubClient(
                     // Push coverage is unchanged: the old socket keeps delivering until the
                     // new one is welcomed, and the binding carries subscriptions over
                     // (WebSocket: they move with the session; conduit: the shard is rebound).
-                    string? reconnect = payload.TryGetProperty("session", out JsonElement reconnectSession)
-                        && reconnectSession.TryGetProperty("reconnect_url", out JsonElement url)
-                            ? url.GetString()
+                    string? reconnect = TryGetObjectProperty(
+                            payload, "session", out JsonElement reconnectSession)
+                        && TryGetStringProperty(
+                            reconnectSession, "reconnect_url", out string? reconnectUrl)
+                            ? reconnectUrl
                             : null;
-                    if (reconnect is null)
+                    if (!Uri.TryCreate(reconnect, UriKind.Absolute, out Uri? reconnectUri)
+                        || reconnectUri.Scheme != "wss")
                     {
-                        schedule.SetPushStatus(PushStatus.Reconnecting);
-                        throw new EventSubRestartException(
-                            "Twitch requested a session reconnect without a reconnect_url.");
+                        logger.LogWarning(
+                            "EventSub session_reconnect had an invalid reconnect_url.");
+                        throw new EventSubRestartException("invalid reconnect URL");
                     }
 
-                    return new Uri(reconnect);
+                    return reconnectUri;
 
                 case "revocation":
                     session.OnRevocation(payload);
@@ -372,12 +499,28 @@ public sealed class EventSubClient(
     private async Task HandleNotificationAsync(
         JsonElement payload, StreamObservationRoute route, CancellationToken ct)
     {
-        string type = payload.GetProperty("subscription").GetProperty("type").GetString() ?? "";
+        string? type = null;
+        if (!TryGetObjectProperty(payload, "subscription", out JsonElement subscription)
+            || !TryGetStringProperty(subscription, "type", out type)
+            || string.IsNullOrEmpty(type))
+        {
+            logger.LogWarning("Ignoring EventSub notification without a subscription type.");
+            return;
+        }
+
         if (type is not ("stream.online" or "stream.offline"))
             return;
 
-        JsonElement @event = payload.GetProperty("event");
-        string userId = @event.GetProperty("broadcaster_user_id").GetString() ?? "";
+        string? userId = null;
+        if (!TryGetObjectProperty(payload, "event", out JsonElement @event)
+            || !TryGetStringProperty(@event, "broadcaster_user_id", out userId)
+            || string.IsNullOrEmpty(userId))
+        {
+            logger.LogWarning(
+                "Ignoring EventSub {Type} notification without a broadcaster user id.", type);
+            return;
+        }
+
         ChannelEntry? channel = channels.Snapshot
             .FirstOrDefault(entry => entry.UserId == userId);
         if (channel is null)
@@ -385,9 +528,31 @@ public sealed class EventSubClient(
 
         if (type == "stream.online")
         {
-            string streamId = @event.TryGetProperty("id", out JsonElement idElement)
-                ? idElement.GetString() ?? ""
-                : "";
+            string? broadcastType = null;
+            TryGetStringProperty(@event, "type", out broadcastType);
+            if (!string.Equals(broadcastType, "live", StringComparison.Ordinal))
+            {
+                if (string.IsNullOrEmpty(broadcastType))
+                {
+                    logger.LogWarning(
+                        "EventSub stream.online for {Login} had no broadcast type; treating it as offline.",
+                        channel.Login);
+                }
+                else
+                {
+                    logger.LogInformation(
+                        "EventSub stream.online for {Login} had broadcast type {Type}; treating it as offline.",
+                        channel.Login,
+                        broadcastType);
+                }
+
+                await RouteAsync(route, channel.Login, new StreamObservation.Offline(), ct);
+                schedule.Burst(BurstDuration);
+                return;
+            }
+
+            TryGetStringProperty(@event, "id", out string? streamIdValue);
+            string streamId = streamIdValue ?? "";
             if (!TwitchStreamId.IsNumeric(streamId))
             {
                 logger.LogWarning(
@@ -395,27 +560,42 @@ public sealed class EventSubClient(
                 return;
             }
 
-            DateTimeOffset started = @event.TryGetProperty("started_at", out JsonElement startedElement)
-                && DateTimeOffset.TryParse(
-                    startedElement.GetString(),
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeUniversal,
-                    out DateTimeOffset parsed)
+            TryGetStringProperty(@event, "started_at", out string? startedText);
+            DateTimeOffset started = DateTimeOffset.TryParse(
+                startedText,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal,
+                out DateTimeOffset parsed)
                     ? parsed
                     : clock.GetUtcNow();
 
             ChannelInfo? info;
             try
             {
-                info = await poller.GetChannelInfoAsync(userId, ct);
+                using var lookupTimeout = new CancellationTokenSource(
+                    ChannelInfoTimeout, clock);
+                using var lookupCts = CancellationTokenSource.CreateLinkedTokenSource(
+                    ct, lookupTimeout.Token);
+                info = await poller.GetChannelInfoAsync(userId, lookupCts.Token);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                logger.LogWarning(
+                    "EventSub channel lookup timed out for {Login}.", channel.Login);
+                info = null;
+            }
+            catch (Exception ex)
             {
                 logger.LogWarning(ex, "EventSub channel lookup failed for {Login}.", channel.Login);
                 info = null;
             }
 
-            await route(
+            await RouteAsync(
+                route,
                 channel.Login,
                 new StreamObservation.Live(
                     new LiveStream(
@@ -428,13 +608,50 @@ public sealed class EventSubClient(
         }
         else
         {
-            await route(channel.Login, new StreamObservation.Offline(), ct);
+            await RouteAsync(route, channel.Login, new StreamObservation.Offline(), ct);
         }
 
         schedule.Burst(BurstDuration);
     }
 
-    private static async Task ObserveAsync(Task task)
+    private async Task RouteAsync(
+        StreamObservationRoute route,
+        string login,
+        StreamObservation observation,
+        CancellationToken ct)
+    {
+        try
+        {
+            await route(login, observation, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "EventSub route failed for {Login}.", login);
+        }
+    }
+
+    /// <returns>True when the ID was already seen; otherwise records it and returns false.</returns>
+    private bool TryMarkSeen(string? messageId)
+    {
+        if (string.IsNullOrEmpty(messageId))
+            return false;
+
+        if (_recentMessageIds.Add(messageId))
+        {
+            _recentMessageIdsOrder.Enqueue(messageId);
+            while (_recentMessageIdsOrder.Count > RecentMessageIdCapacity)
+                _recentMessageIds.Remove(_recentMessageIdsOrder.Dequeue());
+            return false;
+        }
+
+        return true;
+    }
+
+    private async Task ObserveAsync(Task task)
     {
         try
         {
@@ -445,7 +662,7 @@ public sealed class EventSubClient(
         }
         catch (Exception ex)
         {
-            _ = ex;
+            logger.LogDebug(ex, "EventSub socket operation failed while being observed.");
         }
     }
 
@@ -453,7 +670,6 @@ public sealed class EventSubClient(
     {
         public TimeSpan Keepalive { get; set; } = DefaultKeepalive;
         public bool HadSubscriptions { get; set; }
-        public bool SetupFailed { get; set; }
     }
 
     /// <summary>
@@ -464,7 +680,8 @@ public sealed class EventSubClient(
         IEventSubSocket socket,
         Task<(string SessionId, TimeSpan? Keepalive)> welcomed,
         Task deadline,
-        CancellationTokenSource cts) : IAsyncDisposable
+        CancellationTokenSource cts,
+        Func<Task, Task> observe) : IAsyncDisposable
     {
         private IEventSubSocket? _socket = socket;
 
@@ -475,7 +692,7 @@ public sealed class EventSubClient(
         public async Task<IEventSubSocket> TakeSocketAsync()
         {
             await cts.CancelAsync();
-            await ObserveAsync(Deadline);
+            await observe(Deadline);
             IEventSubSocket taken = _socket
                 ?? throw new InvalidOperationException("The handoff socket was already taken.");
             _socket = null;
@@ -485,8 +702,8 @@ public sealed class EventSubClient(
         public async ValueTask DisposeAsync()
         {
             await cts.CancelAsync();
-            await ObserveAsync(Welcomed);
-            await ObserveAsync(Deadline);
+            await observe(Welcomed);
+            await observe(Deadline);
             if (_socket is not null)
             {
                 await _socket.DisposeAsync();

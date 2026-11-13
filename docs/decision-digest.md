@@ -123,7 +123,7 @@ This is the single handoff for the full application specification. It records th
 - App token: client-credentials cache, refresh 5 minutes early, 401 invalidate/retry once, then `Unknown`.
 - Poller: 100-login `/helix/streams` batches; absent = Offline; any batch failure = Unknown; `/helix/channels` for metadata; `/helix/users` for profile/UserId at add/seed.
 - Poll schedule: 30 s normal, 300 s with full push coverage, 10 s burst for 3 minutes after a notification, nudge on add/resume; any recording/waiting forces the short interval.
-- EventSub: user token, `stream.online`/`stream.offline` for every watched channel with a `UserId`, all-or-nothing coverage, 409 = active, reconnect with backoff, revocation/reconnect, keepalive timeout, polling fallback. Optional conduit transport (ADR-0006): app token, one saved conduit with one shard, reconcile on welcome, independent of admin sign-in.
+- EventSub: user token, `stream.online`/`stream.offline` for every resolved channel, all-or-nothing coverage; 409 verified against the current session; 429 capacity keeps the covered subset and `PartialCoverage`; forced token refresh on 401; keepalive timeout; message-ID dedupe; concurrent reconnect handoff without resubscribe; revocation/reconnect; polling fallback. The WebSocket cost cap yields about five fully covered channels; more channels stay on the 30 s poll. Optional conduit transport (ADR-0007): app token, one saved conduit with one shard, reconcile on welcome, independent of admin sign-in; the WebSocket rules above apply to WebSocket mode.
 - OAuth: `AspNet.Security.OAuth.Twitch`, callback `/signin-twitch`, no extra scopes, local-only return URLs, cookie `sk-auth` (HttpOnly, SameSite=Lax, 7-day sliding, secure under HTTPS), logout POST with antiforgery.
 - Allowlist: non-empty restricts sign-in; empty admits every successfully authenticated Twitch user and logs a startup warning (E-13). Viewing/recording stay open.
 - Admin token store: encrypted access/refresh tokens under `.streamkeepr/admin-tokens.json`, Data Protection keys under `.streamkeepr/keys`, refresh/rotation, clear on logout, `WaitForTokenAsync`; EventSub uses it only. Subscriber-only streams use a manual Streamlink browser token, not the admin token.
@@ -209,7 +209,8 @@ This is the single handoff for the full application specification. It records th
 | [ADR-0003 Admin token auth](adr/0003-admin-token-auth.md) | Admin-only Twitch OAuth; server-side encrypted token store; Data Protection keys; EventSub only while a token exists. |
 | [ADR-0004 Retention non-goal](adr/0004-retention-non-goal.md) | No retention automation/options; manual delete; `MinFreeGb` still stops recording. |
 | [ADR-0005 Part 1 buildability](adr/0005-part1-part2-buildability.md) | Part 1 includes a minimal Blazor shell so the backend foundation builds/runs; full UI remains Part 2. |
-| [ADR-0006 EventSub conduit transport](adr/0006-eventsub-conduit-transport.md) | `Twitch:EventSubTransport` = `WebSocket` (default) or `Conduit`; conduit mode uses the app token, one conduit and shard, and does not depend on admin sign-in. |
+| [ADR-0006 EventSub reconnect handoff](adr/0006-eventsub-reconnect-handoff.md) | Keep the old socket until the new welcome; drain both; skip resubscribe; dedupe the overlap. |
+| [ADR-0007 EventSub conduit transport](adr/0007-eventsub-conduit-transport.md) | `Twitch:EventSubTransport` = `WebSocket` (default) or `Conduit`; conduit mode uses the app token, one conduit and shard, and does not depend on admin sign-in. |
 
 ## 7. Plan amendment ledger
 

@@ -1,6 +1,6 @@
 # Spike: EventSub conduits for Stream Keepr
 
-Status: research memo, decided 2026-11-13. GO: the owner chose the minimum first slice behind `Twitch:EventSubTransport` (default `WebSocket`), push that continues after logout in conduit mode, and keeping `No admin token` for WebSocket mode. See ADR-0006. The live prototype (§6.2) is still to run before the flag is enabled.
+Status: research memo, decided 2026-11-13. GO: the owner chose the minimum first slice behind `Twitch:EventSubTransport` (default `WebSocket`), push that continues after logout in conduit mode, and keeping `No admin token` for WebSocket mode. See ADR-0007. The live prototype (§6.2) is still to run before the flag is enabled.
 Issue: #131 "Spike: research EventSub conduit requirements and StreamKeepr viability"
 Binding: no. This memo informs a decision; it changes no contract. Adoption would amend `docs/twitch-auth-contract.md` and ADR-0003, which needs owner approval.
 
