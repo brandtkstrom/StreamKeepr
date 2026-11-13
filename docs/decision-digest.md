@@ -53,6 +53,7 @@ This is the single handoff for the full application specification. It records th
 - A capture-schedule feature; the schedule button is a stub (E-02).
 - Streamer group stop/resume menus and player title-strip stop controls (E-23).
 - Per-user progress or per-user playback preferences.
+- Public hosting, multi-tenant deployment, or third-party distribution support; the project scope is private home use (`#152`).
 
 ## 3. Decision ledger — every ticket
 
@@ -75,6 +76,7 @@ This is the single handoff for the full application specification. It records th
 | [#16](https://github.com/brandtkstrom/StreamKeepr/issues/16) Player, stats, and resume | One-time player/stats skeleton with JS-owned hls.js and controls; no autoplay; live edge at `liveSyncPosition` with one target-duration safety and explicit follow; live→VOD via ENDLIST; VOD→live reopen reloads at position; 15 s/pause/pagehide progress with live skip and near-end clear; direct resume; `sk-player` volume/mute/speed; 2 s/20 stats with copy JSON and native fallback; static Source quality (E-20); Chrome-channel E2E (E-21). | [Player](player-contract.md) |
 | [#17](https://github.com/brandtkstrom/StreamKeepr/issues/17) Details, export, delete, auth UX, and settings | Details/chapters/absolute copy; inline export row with `FindByRecording` rehydration, one MP4, Cancel/Download/Retry, non-retryable incompatible parts (E-22); delete dialog with lease/live/unknown handling and next-item navigation; Twitch connect/expired/error/return-URL/logout-antiforgery UX; public `/settings` with account, push summary, add/remove/stop/resume; schedule stub; stop/resume surfaces reduced to Settings + details (E-23). | [Details/auth/settings](details-auth-settings-contract.md) |
 | [#18](https://github.com/brandtkstrom/StreamKeepr/issues/18) Decision digest and post-implementation review criteria | This digest is the single `to-spec` entry point; it links every ticket, contract, ADR, and amendment; records accepted risks/open items; defines the post-implementation criteria, evidence, gates, and gap reporting. | This file |
+| [#152](https://github.com/brandtkstrom/StreamKeepr/issues/152) Private-home-use project scope | StreamKeepr is a personal project for private home use. Public hosting, multi-tenant deployment, and third-party distribution are outside the support scope. The MIT license is unchanged; the statement describes intent and support, not a license restriction. | [README](../README.md), [Security](../SECURITY.md), [Hosting](hosting-contract.md) |
 
 ## 4. Backend decisions
 

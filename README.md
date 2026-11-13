@@ -2,6 +2,12 @@
 
 StreamKeepr records Twitch streams to disk as HLS and plays them back in a Blazor web app.
 
+## Project scope
+
+StreamKeepr is a personal project intended for private home use. It is not designed, tested, or supported for public hosting, multi-tenant use, or third-party distribution. The MIT license permits reuse, but the project's intent and support scope are private. Do not expose it to the public internet without your own hardening.
+
+The deployment guidance in this repository assumes a trusted operator and a private home or LAN environment. See [`SECURITY.md`](SECURITY.md) and [`deploy/README.md`](deploy/README.md).
+
 ## Running the real app
 
 The app in `src/StreamKeepr` validates its configuration at startup, so the real recorder needs Twitch app credentials and a writable recordings root. For local development:
