@@ -19,6 +19,7 @@ public static class PlaylistStitcher
     private const string DiscontinuityTag = "#EXT-X-DISCONTINUITY";
     private const string ProgramDateTimeTag = "#EXT-X-PROGRAM-DATE-TIME:";
     private const string ExtInfTag = "#EXTINF:";
+    private const string MapUriPrefix = "#EXT-X-MAP:URI=\"";
 
     private static readonly string[] PartHeaderTags =
     [
@@ -151,6 +152,38 @@ public static class PlaylistStitcher
         return chapters;
     }
 
+    /// <summary>
+    /// The init segment and media segment that cover <paramref name="offsetSeconds"/> on the
+    /// playlist timeline. Returns null when the offset is negative or past the last segment, the
+    /// playlist is malformed, the segment has no <c>#EXT-X-MAP</c>, or either name is not a plain
+    /// file name next to the playlist (a playlist never points a reader elsewhere).
+    /// </summary>
+    public static SegmentFiles? SegmentAt(string playlist, double offsetSeconds)
+    {
+        ArgumentNullException.ThrowIfNull(playlist);
+        if (!double.IsFinite(offsetSeconds) || offsetSeconds < 0)
+            return null;
+        if (!TryParseSegments(playlist, out var segments))
+            return null;
+
+        double end = 0;
+        foreach (var segment in segments)
+        {
+            end += segment.Duration;
+            if (offsetSeconds >= end)
+                continue;
+
+            return segment.Map is { } map && IsPlainFileName(map) && IsPlainFileName(segment.Uri)
+                ? new SegmentFiles(map, segment.Uri)
+                : null;
+        }
+
+        return null;
+    }
+
+    private static bool IsPlainFileName(string name) =>
+        name.Length > 0 && Path.GetFileName(name) == name && name is not ("." or "..");
+
     // Keeps every line through the last segment URI, so a half-written trailing #EXTINF is dropped.
     private static List<string> BodyLines(string playlist)
     {
@@ -200,6 +233,7 @@ public static class PlaylistStitcher
         segments = [];
         double? duration = null;
         DateTimeOffset? start = null;
+        string? map = null;
 
         foreach (var raw in playlist.Split('\n'))
         {
@@ -207,7 +241,12 @@ public static class PlaylistStitcher
             if (line.Length == 0)
                 continue;
 
-            if (line.StartsWith(ProgramDateTimeTag, StringComparison.Ordinal))
+            if (line.StartsWith(MapUriPrefix, StringComparison.Ordinal))
+            {
+                int close = line.IndexOf('"', MapUriPrefix.Length);
+                map = close > MapUriPrefix.Length ? line[MapUriPrefix.Length..close] : null;
+            }
+            else if (line.StartsWith(ProgramDateTimeTag, StringComparison.Ordinal))
             {
                 if (!DateTimeOffset.TryParse(
                         line.AsSpan(ProgramDateTimeTag.Length),
@@ -240,7 +279,7 @@ public static class PlaylistStitcher
                 if (duration is not { } segmentDuration)
                     return false;
 
-                segments.Add(new Segment(segmentDuration, start));
+                segments.Add(new Segment(segmentDuration, start, line, map));
                 duration = null;
             }
         }
@@ -251,5 +290,8 @@ public static class PlaylistStitcher
     private static bool IsPartHeader(string line) =>
         PartHeaderTags.Any(tag => line.StartsWith(tag, StringComparison.Ordinal));
 
-    private readonly record struct Segment(double Duration, DateTimeOffset? Start);
+    private readonly record struct Segment(double Duration, DateTimeOffset? Start, string Uri, string? Map);
 }
+
+/// <summary>An init segment and one media segment, as plain file names in the session folder.</summary>
+public sealed record SegmentFiles(string Init, string Media);

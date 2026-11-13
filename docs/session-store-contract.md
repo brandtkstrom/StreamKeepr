@@ -6,7 +6,7 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 
 ## 1. Scope and boundary
 
-The session store owns the on-disk session manifest, part stitching, startup recovery, the in-memory recording library, and disk-space checks. The recorder owns part files; the store owns `session.json`, `index.m3u8`, `thumb.jpg`, and library summaries. The store never runs Streamlink/FFmpeg and never changes domain state.
+The session store owns the on-disk session manifest, part stitching, startup recovery, the in-memory recording library, and disk-space checks. The recorder owns part files; the store owns `session.json`, `index.m3u8`, `thumb.jpg`, and library summaries. The store never runs Streamlink/FFmpeg and never changes domain state. `ThumbnailService` grabs thumbnail frames with FFmpeg and hands each image to the store (§7).
 
 ## 2. Manifest
 
@@ -56,7 +56,7 @@ public sealed record SessionManifest(
 - Atomicity relies on a local POSIX filesystem (the Docker volume). Network filesystems are not supported.
 - A failed rename leaves the previous complete file and a `.tmp`; recovery deletes stale `.tmp` files.
 - No fsync is required. A host power loss may lose the last metadata update; media files remain the source of truth.
-- Thumbnail writes are best-effort and atomic. If the write fails, log it; `HasThumbnail` stays false and the library may update when the write completes.
+- Thumbnails are best-effort, atomic, and written once. `ThumbnailService` writes the image under `.streamkeepr/thumbnails/` on the same volume; `SaveThumbnailAsync` renames it into place. An existing `thumb.jpg` is never replaced, because `/media` serves it as immutable. If a grab fails, log it; `HasThumbnail` stays false.
 
 ## 4. Locking
 
@@ -72,7 +72,7 @@ public sealed record SessionManifest(
 | Recovery finalize | yes | Calls `FinalizeAsync`. |
 | `StitchLiveAsync` | cache miss only | A cache hit is lock-free. A cache miss takes the lock, reads part playlists, and rebuilds the cache. |
 | `TryLoadAsync` | startup only | Recovery runs before channel loops; no contention. |
-| Thumbnail write | no | Atomic, best-effort; does not read or modify the manifest. |
+| `SaveThumbnailAsync` | yes | Checks the manifest still exists, renames the image to `thumb.jpg` without overwrite, updates the library. Never modifies the manifest. |
 
 Rules:
 
@@ -141,12 +141,21 @@ The supervisor maps `Unfinished` to `Idle.Resume` and `Finished` to `Idle.Finish
 
 ## 7. Session operations
 
-- `OpenAsync(session, live)`: under the lock, if `session.json` exists, reopen; otherwise create the directory, write manifest v1 with the first metadata entry, upsert the library, and start the best-effort thumbnail write.
+- `OpenAsync(session, live)`: under the lock, if `session.json` exists, reopen; otherwise create the directory, write manifest v1 with the first metadata entry, and upsert the library.
 - `ReopenAsync(session)`: under the lock, set `Status = Recording`, clear `EndedAt`/`DurationSeconds`/`SizeBytes`, delete `index.m3u8`, write the manifest, upsert the library, invalidate the live cache.
-- `AppendMetadataAsync(session, live)`: under the lock, read the manifest; if the latest title and game are unchanged, return after ensuring a thumbnail exists. Otherwise append a metadata change, write the manifest, upsert the library with live counts and chapters.
+- `AppendMetadataAsync(session, live)`: under the lock, read the manifest; if the latest title and game are unchanged, return. Otherwise append a metadata change, write the manifest, upsert the library with live counts and chapters.
 - `FinalizeAsync(session)`: under the lock, collect non-empty part playlists in numeric order. If none, delete the session directory and remove the library entry. Otherwise stitch final, write `index.m3u8` atomically, set `Status = Complete`, `EndedAt`, `DurationSeconds`, `SizeBytes`, write the manifest, upsert the library with counts/chapters, and remove the live cache.
 - `DeleteAsync(session)`: remove the library entry first, take the lock, delete the directory, remove the live cache and lock entry. Export leases are checked by the caller.
 - `StitchLiveAsync(dir)`: cache hit or lock + rebuild as above.
+- `SaveThumbnailAsync(dir, image)`: under the lock, if `session.json` is missing (deleted) or `thumb.jpg` exists, delete the image and return false; otherwise rename it to `thumb.jpg` and upsert the library.
+
+### 7.1 Thumbnails (decision E-01: frame grab)
+
+- `ThumbnailService` is a singleton `BackgroundService` registered after the supervisor. At start it clears `.streamkeepr/thumbnails/`, then sweeps the library once it is loaded and every minute after that. Sweeps never overlap; one FFmpeg runs at a time.
+- Each recording without a thumbnail is a candidate. A finished recording uses the frame at `min(5 min, duration / 2)`. A recording still in progress waits until it has more than 5 minutes of media, then uses 5 minutes.
+- The position is mapped onto the stitched playlist (`StitchLiveAsync`) with `PlaylistStitcher.SegmentAt`, which returns that segment's `#EXT-X-MAP` init file and media file as plain names in the session folder.
+- FFmpeg decodes the first video frame of `concat:init_NNN.mp4|pNNN_XXXXX.m4s` (no HLS demuxing or seeking), scales it to at most 640 px wide without upscaling, and writes a JPEG. Recorded segments are independent, so the first frame is a keyframe. One grab is capped at 30 s.
+- A grab failure is logged and retried on the next sweep, up to 3 attempts per recording per process lifetime.
 
 ## 8. Recording library
 
@@ -192,7 +201,8 @@ public sealed record RecordingSummary(
 | Stitch races finalize | Lock/cache; a Complete manifest serves the finalized index. |
 | Delete races stitch | Library entry removed first; in-flight requests return 404/410. |
 | Delete races export | Export lease refuses deletion (F10). |
-| Thumbnail fails | Log; no thumbnail; recording unaffected. |
+| Thumbnail fails | Log; no thumbnail; retried up to 3 times per process lifetime; recording unaffected. |
+| Delete races a thumbnail grab | The delete holds the session lock; `SaveThumbnailAsync` finds no manifest and discards the image. |
 | Disk full | `DiskGuard` stops the part; retry/cooldown; finalize may fail and be retried by recovery. |
 | Part number reaches 1000 | Hard error; the session finalizes with the existing parts. |
 

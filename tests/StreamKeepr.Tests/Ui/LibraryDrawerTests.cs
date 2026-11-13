@@ -53,6 +53,32 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
+    public void Rows_show_the_thumbnail_image_when_one_exists_and_the_placeholder_icon_otherwise()
+    {
+        var view = new TestLibraryView
+        {
+            StreamerItems = [Streamer("alpha", "Alpha", recording: false, count: 2, last: Now)],
+        };
+        view.RecordingsByLogin["alpha"] =
+        [
+            Recording("r1", "alpha", RecordingState.Saved, Now) with { ThumbnailUrl = "/media/alpha/r1/thumb.jpg" },
+            Recording("r2", "alpha", RecordingState.Saved, Now.AddHours(-2)),
+        ];
+
+        using BunitContext context = CreateContext(view);
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        var image = cut.Find("a[data-recording-id='r1'] .sk-thumb img");
+        Assert.Equal("/media/alpha/r1/thumb.jpg", image.GetAttribute("src"));
+        Assert.Equal("", image.GetAttribute("alt"));
+        Assert.Equal("lazy", image.GetAttribute("loading"));
+        Assert.Empty(cut.FindAll("a[data-recording-id='r1'] .sk-thumb .sk-icon"));
+
+        Assert.Empty(cut.FindAll("a[data-recording-id='r2'] .sk-thumb img"));
+        Assert.Single(cut.FindAll("a[data-recording-id='r2'] .sk-thumb .sk-icon"));
+    }
+
+    [Fact]
     public void Renders_status_chips_except_saved()
     {
         var view = new TestLibraryView
