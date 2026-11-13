@@ -38,6 +38,13 @@ public sealed class EventSubClient(
     // Twitch closes the old connection (4004) 30 s after session_reconnect.
     private static readonly TimeSpan ReconnectGrace = TimeSpan.FromSeconds(30);
 
+    private const int RecentMessageIdCapacity = 256;
+
+    // All EventSub message handling is serialized by RunSessionAsync, including
+    // the old/new socket overlap during a reconnect handoff. No lock is needed.
+    private readonly HashSet<string> _recentMessageIds = new(StringComparer.Ordinal);
+    private readonly Queue<string> _recentMessageIdsOrder = new();
+
     public async Task RunAsync(StreamObservationRoute route, CancellationToken ct)
     {
         TimeSpan backoff = InitialBackoff;
@@ -303,7 +310,14 @@ public sealed class EventSubClient(
                     "reconnect connection did not start with session_welcome");
             }
 
-            return ReadWelcome(root.GetProperty("payload")).Keepalive;
+            if (!TryReadWelcome(
+                    root.GetProperty("payload"), out _, out TimeSpan? keepalive))
+            {
+                throw new EventSubRestartException(
+                    "reconnect connection sent a malformed session_welcome");
+            }
+
+            return keepalive;
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException
             or InvalidOperationException)
@@ -313,18 +327,29 @@ public sealed class EventSubClient(
         }
     }
 
-    private static (string SessionId, TimeSpan? Keepalive) ReadWelcome(JsonElement payload)
+    private static bool TryReadWelcome(
+        JsonElement payload, out string sessionId, out TimeSpan? keepalive)
     {
-        JsonElement session = payload.GetProperty("session");
-        string sessionId = session.GetProperty("id").GetString()!;
-        TimeSpan? keepalive =
-            session.TryGetProperty("keepalive_timeout_seconds", out JsonElement value)
+        sessionId = "";
+        keepalive = null;
+        if (!payload.TryGetProperty("session", out JsonElement session)
+            || session.ValueKind != JsonValueKind.Object
+            || !session.TryGetProperty("id", out JsonElement idElement)
+            || idElement.GetString() is not { Length: > 0 } id)
+        {
+            return false;
+        }
+
+        sessionId = id;
+        if (session.TryGetProperty("keepalive_timeout_seconds", out JsonElement value)
             && value.ValueKind == JsonValueKind.Number
             && value.TryGetInt32(out int seconds)
-            && seconds > 0
-                ? TimeSpan.FromSeconds(seconds)
-                : null;
-        return (sessionId, keepalive);
+            && seconds > 0)
+        {
+            keepalive = TimeSpan.FromSeconds(seconds);
+        }
+
+        return true;
     }
 
     /// <returns>The reconnect URL when Twitch sent <c>session_reconnect</c>; otherwise null.</returns>
@@ -349,14 +374,40 @@ public sealed class EventSubClient(
         using (document)
         {
             JsonElement root = document.RootElement;
-            string messageType = root.GetProperty("metadata").GetProperty("message_type")
-                .GetString() ?? "";
-            JsonElement payload = root.GetProperty("payload");
+            if (!root.TryGetProperty("metadata", out JsonElement metadata)
+                || !metadata.TryGetProperty("message_type", out JsonElement messageTypeElement))
+            {
+                logger.LogWarning("Ignoring EventSub message without metadata/message_type.");
+                return null;
+            }
+
+            string messageType = messageTypeElement.GetString() ?? "";
+            string? messageId = metadata.TryGetProperty("message_id", out JsonElement messageIdElement)
+                ? messageIdElement.GetString()
+                : null;
+            if (IsDuplicateMessage(messageId))
+            {
+                logger.LogDebug("Ignoring duplicate EventSub message {MessageId}.", messageId);
+                return null;
+            }
+
+            if (!root.TryGetProperty("payload", out JsonElement payload))
+            {
+                logger.LogWarning(
+                    "Ignoring EventSub {MessageType} without a payload.", messageType);
+                return null;
+            }
 
             switch (messageType)
             {
                 case "session_welcome":
-                    (string sessionId, TimeSpan? keepalive) = ReadWelcome(payload);
+                    if (!TryReadWelcome(payload, out string sessionId, out TimeSpan? keepalive))
+                    {
+                        logger.LogWarning(
+                            "Ignoring EventSub session_welcome without a session id.");
+                        return null;
+                    }
+
                     state.Keepalive = keepalive ?? DefaultKeepalive;
 
                     int covered = await SubscribeAllAsync(sessionId, token, ct);
@@ -377,19 +428,33 @@ public sealed class EventSubClient(
                         && reconnectSession.TryGetProperty("reconnect_url", out JsonElement url)
                             ? url.GetString()
                             : null;
-                    if (reconnect is null)
+                    if (!Uri.TryCreate(reconnect, UriKind.Absolute, out Uri? reconnectUri)
+                        || reconnectUri.Scheme != "wss")
                     {
-                        schedule.SetPushStatus(PushStatus.Reconnecting);
-                        throw new EventSubRestartException(
-                            "Twitch requested a session reconnect without a reconnect_url.");
+                        logger.LogWarning(
+                            "EventSub session_reconnect had an invalid reconnect_url.");
+                        throw new EventSubRestartException("invalid reconnect URL");
                     }
 
-                    return new Uri(reconnect);
+                    return reconnectUri;
 
                 case "revocation":
+                    string? revokedType = null;
+                    string? revokedStatus = null;
+                    if (payload.TryGetProperty("subscription", out JsonElement subscription)
+                        && subscription.ValueKind == JsonValueKind.Object)
+                    {
+                        if (subscription.TryGetProperty("type", out JsonElement revokedTypeElement))
+                            revokedType = revokedTypeElement.GetString();
+                        if (subscription.TryGetProperty("status", out JsonElement revokedStatusElement))
+                            revokedStatus = revokedStatusElement.GetString();
+                    }
+
                     schedule.SetPushStatus(PushStatus.Reconnecting);
                     logger.LogWarning(
-                        "EventSub subscription was revoked; reconnecting.");
+                        "EventSub subscription {Type} was revoked ({Status}); reconnecting.",
+                        revokedType ?? "unknown",
+                        revokedStatus ?? "unknown");
                     throw new EventSubRestartException("subscription revoked");
             }
 
@@ -565,12 +630,35 @@ public sealed class EventSubClient(
     private async Task HandleNotificationAsync(
         JsonElement payload, StreamObservationRoute route, CancellationToken ct)
     {
-        string type = payload.GetProperty("subscription").GetProperty("type").GetString() ?? "";
+        if (!payload.TryGetProperty("subscription", out JsonElement subscription)
+            || subscription.ValueKind != JsonValueKind.Object
+            || !subscription.TryGetProperty("type", out JsonElement typeElement))
+        {
+            logger.LogWarning("Ignoring EventSub notification without a subscription type.");
+            return;
+        }
+
+        string type = typeElement.GetString() ?? "";
         if (type is not ("stream.online" or "stream.offline"))
             return;
 
-        JsonElement @event = payload.GetProperty("event");
-        string userId = @event.GetProperty("broadcaster_user_id").GetString() ?? "";
+        if (!payload.TryGetProperty("event", out JsonElement @event)
+            || @event.ValueKind != JsonValueKind.Object
+            || !@event.TryGetProperty("broadcaster_user_id", out JsonElement userIdElement))
+        {
+            logger.LogWarning(
+                "Ignoring EventSub {Type} notification without a broadcaster user id.", type);
+            return;
+        }
+
+        string userId = userIdElement.GetString() ?? "";
+        if (userId.Length == 0)
+        {
+            logger.LogWarning(
+                "Ignoring EventSub {Type} notification with an empty broadcaster user id.", type);
+            return;
+        }
+
         ChannelEntry? channel = channels.Snapshot
             .FirstOrDefault(entry => entry.UserId == userId);
         if (channel is null)
@@ -608,7 +696,8 @@ public sealed class EventSubClient(
                 info = null;
             }
 
-            await route(
+            await RouteAsync(
+                route,
                 channel.Login,
                 new StreamObservation.Live(
                     new LiveStream(
@@ -621,10 +710,46 @@ public sealed class EventSubClient(
         }
         else
         {
-            await route(channel.Login, new StreamObservation.Offline(), ct);
+            await RouteAsync(route, channel.Login, new StreamObservation.Offline(), ct);
         }
 
         schedule.Burst(BurstDuration);
+    }
+
+    private async Task RouteAsync(
+        StreamObservationRoute route,
+        string login,
+        StreamObservation observation,
+        CancellationToken ct)
+    {
+        try
+        {
+            await route(login, observation, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "EventSub route failed for {Login}.", login);
+        }
+    }
+
+    private bool IsDuplicateMessage(string? messageId)
+    {
+        if (string.IsNullOrEmpty(messageId))
+            return false;
+
+        if (_recentMessageIds.Add(messageId))
+        {
+            _recentMessageIdsOrder.Enqueue(messageId);
+            while (_recentMessageIdsOrder.Count > RecentMessageIdCapacity)
+                _recentMessageIds.Remove(_recentMessageIdsOrder.Dequeue());
+            return false;
+        }
+
+        return true;
     }
 
     private static async Task ObserveAsync(Task task)

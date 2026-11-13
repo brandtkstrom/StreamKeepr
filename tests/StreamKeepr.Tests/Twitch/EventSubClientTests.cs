@@ -195,6 +195,170 @@ public sealed class EventSubClientTests : IDisposable
     }
 
     [Fact]
+    public async Task Duplicate_notification_id_is_ignored()
+    {
+        var observations = Channel.CreateUnbounded<(string Login, StreamObservation Observation)>();
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync(
+            (login, observation, _) =>
+            {
+                observations.Writer.TryWrite((login, observation));
+                return ValueTask.CompletedTask;
+            },
+            stop.Token);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1"));
+        await _socketFactory.LastSocket.Subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        _socketFactory.LastSocket.Push(Notification("stream.online", messageId: "same"));
+        await observations.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+
+        _socketFactory.LastSocket.Push(Notification("stream.online", messageId: "same"));
+        _socketFactory.LastSocket.Push(Notification("stream.offline", messageId: "other"));
+
+        (_, StreamObservation observation) = await observations.Reader.ReadAsync()
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsType<StreamObservation.Offline>(observation);
+        Assert.Single(_socketFactory.Sockets);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Malformed_notification_does_not_restart_the_session()
+    {
+        var observations = Channel.CreateUnbounded<(string Login, StreamObservation Observation)>();
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync(
+            (login, observation, _) =>
+            {
+                observations.Writer.TryWrite((login, observation));
+                return ValueTask.CompletedTask;
+            },
+            stop.Token);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1"));
+        await _socketFactory.LastSocket.Subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        _socketFactory.LastSocket.Push(
+            "{\"metadata\":{\"message_type\":\"notification\",\"message_id\":\"bad\"},"
+            + "\"payload\":{\"subscription\":{\"type\":\"stream.online\"}}}");
+        _socketFactory.LastSocket.Push(Notification("stream.offline", messageId: "ok"));
+
+        (_, StreamObservation observation) = await observations.Reader.ReadAsync()
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsType<StreamObservation.Offline>(observation);
+        Assert.Single(_socketFactory.Sockets);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Malformed_reconnect_url_falls_back_to_a_fresh_base_session()
+    {
+        _httpHandler.Handler = _ =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.Accepted));
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1"));
+        await _socketFactory.LastSocket.Subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        _socketFactory.LastSocket.Push(Reconnect("not a url"));
+        await _socketFactory.SocketTwo.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(
+            new Uri("wss://eventsub.wss.twitch.tv/ws"),
+            _socketFactory.LastSocket!.ConnectedUri);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Route_failure_does_not_restart_the_session()
+    {
+        var observations = Channel.CreateUnbounded<(string Login, StreamObservation Observation)>();
+        int routeCalls = 0;
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync(
+            (login, observation, _) =>
+            {
+                if (Interlocked.Increment(ref routeCalls) == 1)
+                    throw new InvalidOperationException("route failed");
+
+                observations.Writer.TryWrite((login, observation));
+                return ValueTask.CompletedTask;
+            },
+            stop.Token);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1"));
+        await _socketFactory.LastSocket.Subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        _socketFactory.LastSocket.Push(Notification("stream.online", messageId: "1"));
+        _socketFactory.LastSocket.Push(Notification("stream.offline", messageId: "2"));
+
+        (_, StreamObservation observation) = await observations.Reader.ReadAsync()
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsType<StreamObservation.Offline>(observation);
+        Assert.Single(_socketFactory.Sockets);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Duplicate_welcome_id_does_not_subscribe_twice()
+    {
+        int posts = 0;
+        var subscribed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _httpHandler.Handler = _ =>
+        {
+            if (Interlocked.Increment(ref posts) == 2)
+                subscribed.TrySetResult();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Accepted));
+        };
+
+        var observations = Channel.CreateUnbounded<(string Login, StreamObservation Observation)>();
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync(
+            (login, observation, _) =>
+            {
+                observations.Writer.TryWrite((login, observation));
+                return ValueTask.CompletedTask;
+            },
+            stop.Token);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1", messageId: "welcome-1"));
+        await subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        _socketFactory.LastSocket.Push(Welcome("session-1", messageId: "welcome-1"));
+        _socketFactory.LastSocket.Push(Notification("stream.offline", messageId: "offline-1"));
+
+        await observations.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(2, posts);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public async Task Unauthorized_subscription_refreshes_once_and_reuses_the_new_token()
     {
         var requests = new List<string>();
@@ -604,9 +768,11 @@ public sealed class EventSubClientTests : IDisposable
             _clock,
             NullLogger<EventSubClient>.Instance);
 
-    private static string Welcome(string sessionId, int keepaliveSeconds = 10) =>
-        "{\"metadata\":{\"message_type\":\"session_welcome\"},"
-        + "\"payload\":{\"session\":{\"id\":\"" + sessionId + "\","
+    private static string Welcome(
+        string sessionId, int keepaliveSeconds = 10, string? messageId = null) =>
+        "{\"metadata\":{\"message_type\":\"session_welcome\""
+        + (messageId is null ? "" : ",\"message_id\":\"" + messageId + "\"")
+        + "},\"payload\":{\"session\":{\"id\":\"" + sessionId + "\","
         + "\"keepalive_timeout_seconds\":" + keepaliveSeconds + "}}}";
 
     private static string Reconnect(string url) =>
@@ -616,10 +782,13 @@ public sealed class EventSubClientTests : IDisposable
     private static string Revoked() =>
         "{\"metadata\":{\"message_type\":\"revocation\"},\"payload\":{}}";
 
-    private static string Notification(string type) =>
-        "{\"metadata\":{\"message_type\":\"notification\"},"
-        + "\"payload\":{\"subscription\":{\"type\":\"" + type + "\"},"
+    private static string Notification(
+        string type, string? messageId = null, string? streamType = null) =>
+        "{\"metadata\":{\"message_type\":\"notification\""
+        + (messageId is null ? "" : ",\"message_id\":\"" + messageId + "\"")
+        + "},\"payload\":{\"subscription\":{\"type\":\"" + type + "\"},"
         + "\"event\":{\"id\":\"987\",\"broadcaster_user_id\":\"123\","
+        + (streamType is null ? "" : "\"type\":\"" + streamType + "\",")
         + "\"started_at\":\"2026-11-10T16:30:00Z\"}}}";
 
     private sealed class NoJitter : IRetryJitter
