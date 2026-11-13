@@ -227,6 +227,14 @@ The proxy job should reuse the bounded process/stop/watchdog logic where it fits
 
 ## 7. Prototype and implementation slices
 
+**Prototype status (2026-11-13).** Disposable harness on branch `prototype/live-transcode` (commit `e249b8c`, not merged). The software gate passed locally:
+
+- FFmpeg followed the stitched EVENT playlist from part 1 into part 2 across `#EXT-X-DISCONTINUITY` and a new `#EXT-X-MAP`;
+- produced six H.264/AAC fMP4 segments with an ENDLIST (11.77 s);
+- left the source part files unchanged.
+
+The first harness run exposed a fixture issue, not a production finding: independently generated parts had out-of-order `#EXT-X-PROGRAM-DATE-TIME`. Real recorder parts are sequential; with sequential fixture times the output duration is correct. Intel/AMD VAAPI and NVIDIA NVENC rows are **UNVERIFIED** on the macOS host; run `./prototype/live-transcode/run.sh vaapi|nvidia|all` on hardware. The harness is disposable and must not be merged.
+
 **Slice 0 — prototype gate (1-1.5 days, disposable).** Feed a dynamic FFmpeg a live stitched playlist from a fake recording with two parts and a discontinuity; verify the five gate conditions in §2.1. Run the encoder matrix:
 
 - Intel VAAPI: `vainfo` shows iHD, then a short `h264_vaapi` encode with `/dev/dri/renderD128`.
