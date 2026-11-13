@@ -1,16 +1,23 @@
 using System.Net.WebSockets;
 using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace StreamKeepr.Infrastructure.Twitch;
 
-public sealed class ClientWebSocketEventSubSocketFactory : IEventSubSocketFactory
+public sealed class ClientWebSocketEventSubSocketFactory(
+    TimeProvider clock,
+    ILogger<ClientWebSocketEventSubSocket> logger) : IEventSubSocketFactory
 {
-    public IEventSubSocket Create() => new ClientWebSocketEventSubSocket();
+    public IEventSubSocket Create() => new ClientWebSocketEventSubSocket(clock, logger);
 }
 
 /// <summary>Production EventSub socket over <see cref="ClientWebSocket"/>.</summary>
-public sealed class ClientWebSocketEventSubSocket : IEventSubSocket
+public sealed class ClientWebSocketEventSubSocket(
+    TimeProvider clock,
+    ILogger<ClientWebSocketEventSubSocket> logger) : IEventSubSocket
 {
+    private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(3);
+
     private readonly ClientWebSocket _socket = new();
 
     public Task ConnectAsync(Uri uri, CancellationToken ct) =>
@@ -26,7 +33,13 @@ public sealed class ClientWebSocketEventSubSocket : IEventSubSocket
                 new ArraySegment<byte>(buffer), ct);
 
             if (result.MessageType == WebSocketMessageType.Close)
+            {
+                logger.LogWarning(
+                    "EventSub socket closed with status {Status}: {Description}",
+                    result.CloseStatus,
+                    result.CloseStatusDescription);
                 return null;
+            }
 
             if (result.MessageType == WebSocketMessageType.Binary)
             {
@@ -58,14 +71,22 @@ public sealed class ClientWebSocketEventSubSocket : IEventSubSocket
     {
         if (_socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
         {
+            using var closeTimeout = new CancellationTokenSource(CloseTimeout, clock);
             try
             {
                 await _socket.CloseAsync(
-                    WebSocketCloseStatus.NormalClosure, "shutdown", CancellationToken.None);
+                    WebSocketCloseStatus.NormalClosure, "shutdown", closeTimeout.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                logger.LogDebug(
+                    "EventSub socket close timed out; aborting the connection.");
+                _socket.Abort();
             }
             catch (WebSocketException)
             {
                 // The peer may already be gone.
+                _socket.Abort();
             }
         }
 

@@ -62,16 +62,19 @@ public sealed class TwitchTokenProvider(
 
 - WebSocket `wss://eventsub.wss.twitch.tv/ws`; a user token is required to create subscriptions, but `stream.online` and `stream.offline` need **no extra scope**.
 - No token: `schedule.SetPushStatus(PushStatus.NoAdminToken)`, wait for a token, polling carries the app.
-- On `session_welcome`: subscribe `stream.online` and `stream.offline` for every watched channel with a `UserId`.
-- `409 Conflict` means the subscription already exists; count it as active. Any other refusal logs and leaves that channel uncovered.
-- Coverage becomes true only when every watched channel has both subscriptions. A channel add/remove or `UserId` change restarts the session and recomputes coverage.
-- Keepalive silence is `keepalive_timeout + 10 s`. `revocation` logs and reconnects.
-- `session_reconnect` hands off without a gap: connect to Twitch’s `reconnect_url` as is, keep reading and routing notifications on the old socket, and close the old socket only when the new one sends `session_welcome`. Subscriptions move with the session, so the new welcome does **not** re-subscribe, and push coverage stays as it was. While the handoff is pending, Twitch’s 30 s reconnect grace replaces the old socket’s keepalive watchdog. If the new socket closes, fails, or sends no welcome within 30 s, both sockets close and a fresh session starts at the base URL and re-subscribes (normal backoff). A `session_reconnect` without a `reconnect_url` restarts the same way.
-- A notification routes `StreamStatusObserved` to the channel and calls `schedule.Burst(3 minutes)`; polling every 10 s confirms Helix.
-- Reconnect uses exponential backoff with jitter: 5 s, 10 s, …, capped at 5 minutes, reset after a `session_welcome` with at least one active subscription.
-- Token/HTTP failures during subscription are logged; the client reconnects with backoff; polling continues.
+- Open a session only when at least one watched channel is **resolved** (has a `UserId`). With no resolved channel, set `PollingOnly` when no channels are watched or `PartialCoverage` when watched channels remain unresolved, and wait for `SubscriptionsChanged`/`Changed`; do not open a socket.
+- On `session_welcome`: subscribe `stream.online` and `stream.offline` for every resolved channel, stopping at the first capacity refusal. `409 Conflict` is active only when a follow-up `GET /helix/eventsub/subscriptions?user_id=` confirms an enabled websocket subscription for the same type and condition on **this** session; otherwise the channel is uncovered. Do not delete another session's subscription.
+- `429` is capacity, not a transient failure: stop the subscription pass, keep the session and the subscriptions already created, and leave the remaining channels on polling. Log Twitch's response message so cost, 300-subscription, 3-connection, and duplicate-limit causes are distinguishable. Do not delete a successfully created `stream.online` because its `stream.offline` was refused.
+- Coverage becomes true only when every watched channel has both subscriptions. With the WebSocket cost cap, complete coverage is expected only for about five channels (`stream.online` + `stream.offline` cost 2 per unauthorized broadcaster; `max_total_cost` is 10); more watched channels means `PartialCoverage` by design, 30 s polling, and the 90 s health budget. Cover the first N resolved channels in persisted channel order; the rest stay on polling. A channel add/remove or `UserId` change restarts the session and recomputes coverage.
+- `401` during a subscription request: force one admin-token refresh and retry the request once. A second `401` is logged as an auth/configuration error and fails the session; do not refresh again. A refresh failure clears the token. The 409 verification GET uses the same one-refresh policy.
+- Keepalive silence is `keepalive_timeout + 10 s`. `revocation` logs the subscription type and status and reconnects.
+- `session_reconnect`: keep the old socket open, connect the replacement, and continue routing old-socket notifications until the replacement sends `session_welcome`; then adopt it, close the old socket, and do **not** re-create subscriptions (the replacement inherits them). A failed handoff falls back to a fresh base-URL session with normal backoff and resubscription. A channel/token change or revocation during the handoff cancels both and starts a fresh base session. Deduplicate all messages by `metadata.message_id` with a bounded recent-ID set (256, across sessions).
+- A notification routes `StreamStatusObserved` to the channel and calls `schedule.Burst(3 minutes)`; polling every 10 s confirms Helix. Only a `stream.online` whose `event.type` is `live` becomes `Live`; other broadcast types (`playlist`, `watch_party`, `premiere`, `rerun`) route `Offline`. Malformed messages are logged and skipped; a per-notification route failure is logged and does not tear down the session.
+- Reconnect uses exponential backoff with jitter: 5 s, 10 s, …, capped at 5 minutes, reset after a `session_welcome` with at least one active subscription. A successful in-place reconnect handoff is not a new session and does not back off; a voluntary channel/token restart reconnects immediately.
+- Transient token/HTTP failures during subscription are logged; the client reconnects with backoff; polling continues.
 - `IAdminTokenStore.Changed` cancels and reconnects the session on sign-in or logout, so push starts/stops promptly.
-- `LiveFromNotificationAsync` uses `/channels` for current title/game; the thumbnail is saved by the next poll.
+- `LiveFromNotificationAsync` uses `/channels` for current title/game, with a short timeout; on timeout or failure the Live observation carries empty metadata and the next poll fills it. The thumbnail is saved by the next poll.
+- Connect, reconnect-welcome, subscription-request, `/channels`, and socket-close operations are bounded (10 s connect, 30 s reconnect welcome, 10 s subscription request, 5 s `/channels`, 2–5 s close) so a dead peer cannot stall the loop or shutdown.
 
 ## 6. Admin sign-in
 
@@ -112,6 +115,7 @@ public interface IAdminTokenStore
 {
     event Action? Changed;
     ValueTask<string?> GetAsync(CancellationToken ct);
+    ValueTask<string?> RefreshAsync(CancellationToken ct);
     Task SaveAsync(AdminToken token, CancellationToken ct);
     Task ClearAsync(CancellationToken ct);
     Task WaitForTokenAsync(CancellationToken ct);
@@ -121,6 +125,7 @@ public interface IAdminTokenStore
 - File: `/recordings/.streamkeepr/admin-tokens.json`, encrypted with Data Protection, atomic write, Unix mode `0600`.
 - Data Protection keys: `/recordings/.streamkeepr/keys`, persisted before the first token save. Losing the key ring makes existing tokens unreadable; clear and re-authenticate.
 - `GetAsync` returns null when no token exists; refreshes near expiry with the refresh token and saves the rotated pair. A refresh failure clears the token and returns null.
+- `RefreshAsync` forces a refresh even when the token is not near expiry. No token returns null without an HTTP call. Success persists the rotated pair and does **not** raise `Changed` (otherwise EventSub would cancel the session it is trying to repair). Failure clears the token, raises `Changed` once, and returns null. EventSub uses it once on a subscription `401`; a second `401` is an auth/configuration error, not another refresh.
 - `SaveAsync` replaces the stored token; the most recent admin sign-in wins. Log the login, never the token.
 - `ClearAsync` deletes the token and raises `Changed`; EventSub reconnects and falls back to polling.
 - `WaitForTokenAsync` completes when a token is available; it remains waiting after a clear.
@@ -190,7 +195,9 @@ Poll schedule:
 
 EventSub:
 
-- No token → wait; welcome → subscriptions; 409 counts active; refusal → uncovered; coverage all-or-nothing; notification routing and burst; reconnect URL; reconnect handoff keeps the old socket until the new welcome, routes old-socket notifications meanwhile, and does not re-subscribe; handoff close or 30 s timeout falls back to a fresh session; keepalive timeout; revocation; exponential backoff/reset; token changed → reconnect; channel change → restart.
+- No token → wait; no resolved channel → no socket and `PollingOnly`/`PartialCoverage`; welcome → subscriptions; 409 session verification (matching, stale, GET failure, 401); 429 capacity → keep the session and partial coverage, no reconnect; refusal → uncovered; coverage all-or-nothing and the ~5-channel cap.
+- Notification routing and burst; non-live `stream.online` → Offline; `/channels` timeout falls back to empty metadata; message-ID dedupe; malformed message and route isolation.
+- Reconnect handoff (old socket drained until new welcome, no resubscribe, revocation/channel/token abort, failed handoff base fallback); keepalive timeout; revocation; 401 force-refresh/one retry; connect/subscription/close timeouts; exponential backoff/reset; voluntary restart immediate; token changed → reconnect; channel change → restart.
 
 Auth:
 
@@ -198,7 +205,7 @@ Auth:
 
 Token store:
 
-- Encrypt/decrypt; atomic write; `0600`; refresh rotation; clear; wait; `Changed`; key-ring loss; multiple sign-ins latest wins; no token leakage.
+- Encrypt/decrypt; atomic write; `0600`; refresh rotation; forced `RefreshAsync` success (no `Changed`) and failure (clear + `Changed`); no token; clear; wait; `Changed`; key-ring loss; multiple sign-ins latest wins; no token leakage.
 
 Subscriber token:
 
@@ -206,7 +213,7 @@ Subscriber token:
 
 Integration:
 
-- Sign in → EventSub coverage → logout → polling; no token at startup → polling; partial refusal → 30 s polling; restart with persisted tokens and keys.
+- Sign in → EventSub coverage → logout → polling; no token at startup → polling; no resolved channels → polling without a socket; partial refusal/429 → 30 s polling; reconnect handoff without resubscribe; restart with persisted tokens and keys.
 
 ## 13. Binding versus implementation freedom
 

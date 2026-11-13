@@ -52,6 +52,8 @@ public sealed class TwitchAdminSessionValidatorTests
 
         public ValueTask<string?> GetAsync(CancellationToken ct) => ValueTask.FromResult(token);
 
+        public ValueTask<string?> RefreshAsync(CancellationToken ct) => ValueTask.FromResult(token);
+
         public Task SaveAsync(AdminToken token, CancellationToken ct) => Task.CompletedTask;
 
         public Task ClearAsync(CancellationToken ct) => Task.CompletedTask;
