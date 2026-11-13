@@ -20,7 +20,7 @@
     {
       "name": "AppShell",
       "group": "Layout",
-      "summary": "The full StreamKeepr screen: top app bar, library drawer on the left, and the player column with the stats panel and recording details stacked beneath the play…"
+      "summary": "The full StreamKeepr screen: top app bar, library drawer on the left, and the player column with the recording details and stats panel stacked beneath the play…"
     },
     {
       "name": "Buttons",
@@ -35,12 +35,12 @@
     {
       "name": "RecordingDetails",
       "group": "Playback",
-      "summary": "A collapsible card under the stats panel with the recording's title, streamer, category, size and the actions for it."
+      "summary": "A collapsible card above the stats panel with the recording's title, streamer, category, size and the actions for it."
     },
     {
       "name": "StatsPanel",
       "group": "Playback",
-      "summary": "A collapsible \"Stats for nerds\" panel directly under the player, showing playback (video) and network statistics side by side."
+      "summary": "A collapsible \"Stats for nerds\" panel below the recording details, showing playback (video) and network statistics side by side."
     },
     {
       "name": "StatusChip",

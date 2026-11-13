@@ -1,6 +1,6 @@
 # StatsPanel
 
-A collapsible "Stats for nerds" panel directly under the player, showing playback (video) and network statistics side by side.
+A collapsible "Stats for nerds" panel below the recording details, showing playback (video) and network statistics side by side.
 
 - Toggle with the switch in its header or the player's `query_stats` button; collapsed it is a single 48px row, so the player keeps the space.
 - Two columns: **Video** (series colour `primary`) and **Network** (series colour `tertiary`). Each has two stat tiles — label `label-medium`, value `stat-hero` — with a 20-sample sparkline (one series, 2px line, hover crosshair + value tooltip), then a key/value list in `stat-value`.

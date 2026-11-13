@@ -1,10 +1,10 @@
 # AppShell
 
-The full StreamKeepr screen: top app bar, library drawer on the left, and the player column with the stats panel and recording details stacked beneath the player.
+The full StreamKeepr screen: top app bar, library drawer on the left, and the player column with the recording details and stats panel stacked beneath the player.
 
-**Structure.** `.sk-shell` (column) → `.sk-appbar` → `.sk-shell-body` (row) → `.sk-drawer#sk-drawer` + `main.sk-main` → `.sk-main-inner` (max 1100px, centred) → `.sk-player`, `#sk-stats`, recording details.
+**Structure.** `.sk-shell` (column) → `.sk-appbar` → `.sk-shell-body` (row) → `.sk-drawer#sk-drawer` + `main.sk-main` → `.sk-main-inner` (max 1100px, centred) → `.sk-player`, recording details, `#sk-stats`.
 
-**Order in the player column is fixed:** player first, then Stats for nerds (directly below, so numbers sit next to the picture they describe), then Recording details.
+**Order in the player column is fixed:** player first, then Recording details, then Stats for nerds at the bottom.
 
 **Maximise the video.** Every surface around the player collapses:
 - Menu button in the app bar → drawer collapses to the 72px rail (`.sk-drawer.rail`).

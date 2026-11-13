@@ -3,7 +3,7 @@ StreamKeepr is a personal DVR for Twitch: it captures streams to disk as HLS pla
 ## Layout
 
 - Three regions, always in this arrangement: the **top app bar** (64px, `app-bar-height`), the **library drawer** on the left (`drawer-width`, 320px) and the **player column** on the right. See the `AppShell` component for the full screen.
-- The player column stacks, top to bottom: `VideoPlayer` → `StatsPanel` → `RecordingDetails`. The player always comes first and takes the full column width at 16:9; never place anything above it.
+- The player column stacks, top to bottom: `VideoPlayer` → `RecordingDetails` → `StatsPanel`. The player always comes first and takes the full column width at 16:9; never place anything above it.
 - Maximise viewing area with collapse, not with scrolling: the drawer collapses to a 72px rail (`rail-width`) of streamer avatars and hides entirely in theater mode; Stats for nerds and Recording details each collapse to a 48px header. Remember those choices per viewer.
 - The player column's content is capped at 1100px and centred; gutters are `space-6` on the outside, `space-3` between stacked panels.
 - Below 960px wide the drawer becomes a modal drawer over `scrim` with `elevation-3`; below 600px stats tiles stack in one column.
@@ -85,8 +85,8 @@ No text font is bundled: `--font-sans` and `--font-mono` resolve to the system m
 
 **Components** (`api/components/<Comp>.md`, 9)
 
-- **Layout**: `AppShell` — The full StreamKeepr screen: top app bar, library drawer on the left, and the player column with the stats panel and recording details stacked beneath the play… · `TopAppBar` — The 64px bar across the top: menu (drawer) toggle, the StreamKeepr wordmark, recording search, disk space, schedule, settings and the Twitch auth control
+- **Layout**: `AppShell` — The full StreamKeepr screen: top app bar, library drawer on the left, and the player column with the recording details and stats panel stacked beneath the play… · `TopAppBar` — The 64px bar across the top: menu (drawer) toggle, the StreamKeepr wordmark, recording search, disk space, schedule, settings and the Twitch auth control
 - **Actions**: `Buttons` — Material 3 buttons, icon buttons and filter chips used across StreamKeepr · `TwitchAuthButton` — The control that connects a Twitch account, enabling features that need it (following list, live notifications, auto-record of followed channels, subscriber-on…
 - **Navigation**: `LibraryDrawer` — The left pane listing recordings grouped by streamer, newest first at every level
-- **Playback**: `RecordingDetails` — A collapsible card under the stats panel with the recording's title, streamer, category, size and the actions for it · `StatsPanel` — A collapsible "Stats for nerds" panel directly under the player, showing playback (video) and network statistics side by side · `VideoPlayer` — The primary component: a 16:9 HLS player with an overlay title strip and a control bar
+- **Playback**: `RecordingDetails` — A collapsible card above the stats panel with the recording's title, streamer, category, size and the actions for it · `StatsPanel` — A collapsible "Stats for nerds" panel below the recording details, showing playback (video) and network statistics side by side · `VideoPlayer` — The primary component: a 16:9 HLS player with an overlay title strip and a control bar
 - **Status**: `StatusChip` — Small uppercase chips that state a recording's condition in words, with colour as a second cue

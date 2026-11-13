@@ -37,8 +37,8 @@ Use the design system's `.sk-shell` structure:
     main.sk-main
       .sk-main-inner (max 1100px, centred)
         player slot
-        stats slot
         details slot
+        stats slot
 ```
 
 - Top app bar: menu toggle, type-only wordmark linking to `/` with REC dot, search slot, storage meter, schedule stub, settings, auth slot last.
@@ -47,7 +47,7 @@ Use the design system's `.sk-shell` structure:
 - The main column has 24px (`--space-6`) top padding below the app bar on every route, breakpoint, and theater mode; it scrolls with the content.
 - Drawer: expanded 320px, rail 72px, hidden. The menu toggles expanded ↔ rail. Theater hides the drawer and sets the main column to `surface-container-lowest`.
 - Below 960px the drawer is modal over `scrim` with `elevation-3`, opened from the menu; below 600px stats tiles stack (stats implementation later).
-- The player column order is fixed: player → stats → details. The layout provides slots/placeholders; the feature tickets fill them.
+- The player column order is fixed: player → details → stats. The layout provides slots/placeholders; the feature tickets fill them.
 - Collapse/expand is 300ms with the design-system easing; honor `prefers-reduced-motion`.
 - Every interactive element has the 2px `primary` focus ring; use `sk-` classes and role tokens only.
 
