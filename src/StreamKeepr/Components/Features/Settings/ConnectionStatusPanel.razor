@@ -1,0 +1,146 @@
+@using Microsoft.Extensions.Diagnostics.HealthChecks
+@implements IDisposable
+@inject IConnectionStatusView Connection
+@inject TimeProvider Clock
+@inject ILogger<ConnectionStatusPanel> Logger
+
+@* Spec: docs/details-auth-settings-contract.md §8 (issue #148). Admin-only: the view throws
+   when signed out, and the panel then renders nothing. *@
+@if (_status is { } status)
+{
+    <section class="sk-panel sk-settings-section" aria-labelledby="sk-settings-connection" data-connection-status>
+        <h2 id="sk-settings-connection">Connection status</h2>
+        <dl class="sk-connection-status">
+            <dt>Service health</dt>
+            <dd data-health="@status.Health">
+                <StatusChip Status="@HealthChip(status.Health)" Label="@status.Health.ToString()" />
+                @if (!string.IsNullOrWhiteSpace(status.HealthDescription))
+                {
+                    <span class="detail">@status.HealthDescription</span>
+                }
+            </dd>
+
+            <dt>Transport</dt>
+            <dd data-transport>@status.Transport</dd>
+
+            <dt>Connection</dt>
+            <dd>
+                @{ (StatusChipKind chip, string label, string? icon) = ConnectionChip(status.Connection); }
+                <StatusChip Status="@chip" Label="@label" Icon="@icon" data-connection="@status.Connection" />
+            </dd>
+
+            @if (status.Connection == EventSubConnection.Connected)
+            {
+                bool full = FullyCovered(status);
+                <dt>Coverage</dt>
+                <dd>
+                    <StatusChip Status="@(full ? StatusChipKind.Saved : StatusChipKind.Partial)"
+                                Label="@($"{status.Covered} of {status.Watched} channels")"
+                                data-coverage="@(full ? "full" : "partial")" />
+                </dd>
+            }
+
+            <dt>Last message</dt>
+            <dd data-last-message>@Format.Ago(status.LastMessageAt, status.Now)</dd>
+
+            <dt>Last poll</dt>
+            <dd data-last-poll>
+                <span data-poll-attempt>@Format.Ago(status.LastPollAt, status.Now)</span>
+                @if (status.LastSuccessfulPollAt is { } succeeded && succeeded < status.LastPollAt)
+                {
+                    <span class="detail" data-poll-success>last successful @Format.Ago(status.LastSuccessfulPollAt, status.Now)</span>
+                }
+            </dd>
+
+            <dt>Twitch API</dt>
+            <dd data-api-time>@Format.Milliseconds(status.ApiRoundTrip)</dd>
+
+            <dt>Poll interval</dt>
+            <dd data-poll-interval>@Format.Every(status.PollInterval)</dd>
+        </dl>
+
+        @if (status.Connection == EventSubConnection.Connected && !FullyCovered(status))
+        {
+            <p class="sk-settings-note" data-coverage-note>
+                <span class="sk-icon" aria-hidden="true">schedule</span>
+                <span>All channels are polled @Format.Every(status.UncoveredPollInterval).ToLowerInvariant() until every channel is covered.</span>
+            </p>
+        }
+    </section>
+}
+
+@code {
+    // Relative times and liveness change every few seconds without raising Changed.
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(5);
+
+    private ConnectionStatus? _status;
+    private ITimer? _timer;
+    private bool _disposed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Connection.Changed += OnChanged;
+        _timer = Clock.CreateTimer(_ => OnChanged(), null, RefreshInterval, RefreshInterval);
+        await RefreshAsync();
+    }
+
+    private static bool FullyCovered(ConnectionStatus status) => status.Covered == status.Watched;
+
+    internal static StatusChipKind HealthChip(HealthStatus health) => health switch
+    {
+        HealthStatus.Healthy => StatusChipKind.Saved,
+        HealthStatus.Degraded => StatusChipKind.Partial,
+        _ => StatusChipKind.Error,
+    };
+
+    // "Off" is neutral, not a success: it reuses the outlined chip with a dash instead of the check.
+    internal static (StatusChipKind Chip, string Label, string? Icon) ConnectionChip(
+        EventSubConnection connection) => connection switch
+    {
+        EventSubConnection.Connected => (StatusChipKind.Saved, "Connected", null),
+        EventSubConnection.Reconnecting => (StatusChipKind.Reconnecting, "Reconnecting", null),
+        EventSubConnection.WaitingForAdmin => (StatusChipKind.Partial, "Waiting for admin sign-in", null),
+        _ => (StatusChipKind.Saved, "Off", "remove"),
+    };
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            _status = await Connection.GetAsync(CancellationToken.None);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            // The session ended under the page; the shell re-renders the signed-out branch.
+            Logger.LogDebug(ex, "Connection status hidden: the circuit is no longer signed in.");
+            _status = null;
+        }
+        catch (ObjectDisposedException) when (_disposed)
+        {
+            // A timer tick raced the circuit ending.
+        }
+    }
+
+    private void OnChanged()
+    {
+        if (_disposed)
+            return;
+
+        _ = InvokeAsync(async () =>
+        {
+            if (_disposed)
+                return;
+            await RefreshAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+        _timer?.Dispose();
+        Connection.Changed -= OnChanged;
+    }
+}

@@ -25,6 +25,8 @@ public sealed class WebSocketEventSubBinding(
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan SubscriptionRequestTimeout = TimeSpan.FromSeconds(10);
 
+    public string Transport => nameof(EventSubTransportMode.WebSocket);
+
     public event Action? RestartRequested
     {
         add => adminTokens.Changed += value;
@@ -89,10 +91,8 @@ public sealed class WebSocketEventSubBinding(
                 return;
 
             IReadOnlyList<ChannelEntry> snapshot = channels.Snapshot;
-            schedule.SetPushStatus(
-                snapshot.Count == 0
-                    ? PushStatus.PollingOnly
-                    : PushStatus.PartialCoverage);
+            // Nothing is subscribed: PollingOnly with no channels, else PartialCoverage.
+            schedule.SetPushStatus(PushStatus.FromCoverage([], snapshot.Count, sessionOpen: false));
 
             await signal.Task.WaitAsync(ct);
         }
@@ -107,7 +107,7 @@ public sealed class WebSocketEventSubBinding(
         string sessionId, string token, CancellationToken ct)
     {
         ChannelEntry[] watched = channels.Snapshot.ToArray();
-        int covered = 0;
+        var covered = new List<string>();
 
         string currentToken = token;
         foreach (ChannelEntry channel in watched)
@@ -154,19 +154,19 @@ public sealed class WebSocketEventSubBinding(
             if (online.Result == SubscriptionResult.Active
                 && offline.Result == SubscriptionResult.Active)
             {
-                covered++;
+                covered.Add(channel.Login);
             }
         }
 
-        if (covered == 0 && watched.Length == 0)
+        if (watched.Length == 0)
             logger.LogInformation("EventSub has no watched channels to cover.");
 
         schedule.SetPushStatus(PushStatus.FromCoverage(covered, watched.Length));
         logger.LogInformation(
             "EventSub push coverage: {Covered}/{Total} channels.",
-            covered,
+            covered.Count,
             watched.Length);
-        return covered;
+        return covered.Count;
     }
 
     private async Task<SubscriptionAttempt> SubscribeAsync(

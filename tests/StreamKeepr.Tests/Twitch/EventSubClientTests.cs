@@ -665,6 +665,8 @@ public sealed class EventSubClientTests : IDisposable
         Assert.False(_schedule.IsPushConnected);
         Assert.Single(_socketFactory.Sockets);
         Assert.Equal(3, posts);
+        Assert.Equal(["streamer"], _schedule.Push.CoveredLogins);
+        Assert.Equal(2, _schedule.Push.Watched);
 
         stop.Cancel();
         await run.WaitAsync(TimeSpan.FromSeconds(5));
@@ -708,6 +710,7 @@ public sealed class EventSubClientTests : IDisposable
 
         await partial.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Null(_socketFactory.LastSocket);
+        Assert.False(_schedule.Push.HasSession);
 
         await _channels.SetProfileAsync(
             "unresolved", "999", "Unresolved", null, CancellationToken.None);
@@ -1312,6 +1315,35 @@ public sealed class EventSubClientTests : IDisposable
     }
 
     [Fact]
+    public async Task Every_message_including_keepalives_records_the_last_message_time()
+    {
+        Channel<string> bodies = RecordSubscriptionBodies();
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+        Assert.Null(_schedule.LastEventSubMessageAt);
+
+        await WelcomeOnSocketAsync(1, "session-1");
+        await ReadAsync(bodies, 2);
+        Assert.Equal(_clock.GetUtcNow(), _schedule.LastEventSubMessageAt);
+
+        _clock.Advance(TimeSpan.FromSeconds(8));
+        FakeEventSubSocket socket = await _socketFactory.SocketAsync(1);
+        DateTimeOffset expected = _clock.GetUtcNow();
+        socket.Push(
+            "{\"metadata\":{\"message_type\":\"session_keepalive\"},\"payload\":{}}");
+        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+        while (_schedule.LastEventSubMessageAt != expected)
+        {
+            Assert.True(DateTime.UtcNow < deadline, "keepalive was not recorded");
+            await Task.Delay(10);
+        }
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public async Task Adding_a_channel_subscribes_every_channel_on_the_new_session()
     {
         Channel<string> bodies = RecordSubscriptionBodies();
@@ -1429,7 +1461,7 @@ public sealed class EventSubClientTests : IDisposable
             TaskCreationOptions.RunContinuationsAsynchronously);
         void OnChanged()
         {
-            if (_schedule.Push != expected)
+            if (_schedule.Push.State != expected.State)
                 return;
 
             _schedule.Changed -= OnChanged;
@@ -1437,7 +1469,7 @@ public sealed class EventSubClientTests : IDisposable
         }
 
         _schedule.Changed += OnChanged;
-        if (_schedule.Push == expected)
+        if (_schedule.Push.State == expected.State)
         {
             _schedule.Changed -= OnChanged;
             reached.TrySetResult();

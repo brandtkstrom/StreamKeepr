@@ -140,6 +140,8 @@ public sealed class ConduitRetirementTests : IDisposable
 
     private sealed class IdleEventSubClient : IEventSubClient
     {
+        public string Transport => "Test";
+
         public Task RunAsync(StreamObservationRoute route, CancellationToken ct) =>
             Task.Delay(Timeout.InfiniteTimeSpan, ct);
     }

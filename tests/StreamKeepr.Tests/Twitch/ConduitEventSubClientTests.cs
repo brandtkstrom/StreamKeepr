@@ -239,6 +239,8 @@ public sealed class ConduitEventSubClientTests : IDisposable
         await WaitForPushAsync(PushState.PartialCoverage);
 
         Assert.False(_schedule.IsPushConnected);
+        Assert.Equal(["streamer"], _schedule.Push.CoveredLogins);
+        Assert.Equal(2, _schedule.Push.Watched);
     }
 
     [Fact]
@@ -316,11 +318,32 @@ public sealed class ConduitEventSubClientTests : IDisposable
         FakeEventSubSocket socket = await _sockets.SocketAsync(1);
         socket.Push(ConduitRevoked("stream.online", "123"));
         await WaitForPushAsync(PushState.PartialCoverage);
+        Assert.Empty(_schedule.Push.CoveredLogins);
+        Assert.Equal(1, _schedule.Push.Watched);
 
         // A later message on the same socket proves the session kept running.
         socket.Push(Notification("stream.offline"));
         await routed.Task.WaitAsync(Wait);
         Assert.False(_sockets.SocketAsync(2).IsCompleted);
+    }
+
+    [Fact]
+    public async Task Revocation_without_a_broadcaster_trusts_no_coverage_until_the_next_session()
+    {
+        AddChannel("other", "456");
+        await using Running run = Start();
+        await WelcomeAsync("session-1");
+        await WaitForPushAsync(PushState.Connected);
+
+        FakeEventSubSocket socket = await _sockets.SocketAsync(1);
+        socket.Push(
+            "{\"metadata\":{\"message_type\":\"revocation\"},"
+            + "\"payload\":{\"subscription\":{\"type\":\"stream.online\",\"status\":\"authorization_revoked\"}}}");
+        await WaitForPushAsync(PushState.PartialCoverage);
+
+        Assert.Empty(_schedule.Push.CoveredLogins);
+        Assert.Equal(2, _schedule.Push.Watched);
+        Assert.True(_schedule.Push.HasSession);
     }
 
     [Fact]
@@ -341,6 +364,7 @@ public sealed class ConduitEventSubClientTests : IDisposable
         await routed.Task.WaitAsync(Wait);
 
         Assert.True(_schedule.IsPushConnected);
+        Assert.Equal(["streamer"], _schedule.Push.CoveredLogins);
     }
 
     [Fact]

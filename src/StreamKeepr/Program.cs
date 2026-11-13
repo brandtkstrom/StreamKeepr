@@ -163,7 +163,7 @@ if (!mock)
     builder.Services.AddHostedService<ConduitRetirementService>();
 
 builder.Services.AddHealthChecks()
-       .AddCheck<DvrHealthCheck>("dvr", tags: ["live", "ready"])
+       .AddCheck<DvrHealthCheck>(DvrHealthCheck.Name, tags: ["live", "ready"])
        .AddCheck<DiskSpaceHealthCheck>("disk", tags: ["ready"])
        .AddCheck<LibraryLoadedHealthCheck>("library", tags: ["ready"]);
 
@@ -203,6 +203,7 @@ builder.Services.AddScoped<LibraryView>();
 builder.Services.AddScoped<ILibraryView>(services => services.GetRequiredService<LibraryView>());
 builder.Services.AddScoped<SnackbarService>();
 builder.Services.AddScoped<IChannelsView, ChannelsView>();
+builder.Services.AddScoped<IConnectionStatusView, ConnectionStatusView>();
 
 builder.Services.AddRazorComponents()
        .AddInteractiveServerComponents();

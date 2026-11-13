@@ -91,10 +91,35 @@ public interface IChannelsView : IDisposable
 - Scoped and signed-in. `All` and every method throw `UnauthorizedAccessException` when the circuit has no authenticated admin. Components use `AuthorizeView`/`RequiresTwitch` for display; the service enforces.
 - `All` lists watched channels.
 - `State`: Recording when the active job is running; Reconnecting when the manifest is Recording without a job; Paused when the pause flag is set; CoolingDown when the reducer is cooling down; Watching otherwise.
-- `PushConnected` is `PollSchedule.IsPushConnected` (all watched channels covered). `PushReason` is `EventSub connected`, `No admin token`, `Partial coverage`, `EventSub reconnecting`, or `Polling only`. `No admin token` occurs only with the WebSocket transport (ADR-0007).
+- `PushConnected` is per channel: true when `PushStatus.Covers(login)` (this channel has both `stream.online` and `stream.offline`). It does not mean the poller uses the 300 s interval; that still needs every channel covered.
+- `PushReason`: `EventSub connected` for a covered channel. With a live session (`Connected`/`Partial coverage`), an uncovered channel reads `User ID not resolved yet` when it has no `UserId`, otherwise `Not subscribed: refused or over capacity`. Without a session every channel shares the session reason: `No admin token` (WebSocket transport only, ADR-0007), `EventSub reconnecting`, or `Polling only`.
 - `AddAsync` delegates to `IChannelControl.AddChannelAsync`, which validates the login through Helix and resolves the profile. Unknown/invalid logins throw `ArgumentException`/`InvalidOperationException` with a user-safe message.
 - `RemoveAsync` finalizes the open session and keeps recordings. `StopAsync` persists `Paused` and routes `StopRequested`. `ResumeAsync` clears `Paused`, routes `ResumeRequested`, and nudges the poller.
 - `Changed` fires on `ChannelStore.Changed`, `DvrStatus.Changed`, and push-status changes; throttle to 500 ms.
+
+## 3a. Connection status view
+
+```csharp
+public enum EventSubConnection { Connected, Reconnecting, WaitingForAdmin, Off }
+
+public sealed record ConnectionStatus(
+    string Transport, EventSubConnection Connection, int Covered, int Watched,
+    HealthStatus Health, string? HealthDescription, DateTimeOffset Now,
+    DateTimeOffset? LastMessageAt, DateTimeOffset LastPollAt, DateTimeOffset? LastSuccessfulPollAt,
+    TimeSpan? ApiRoundTrip, TimeSpan? PollInterval, TimeSpan UncoveredPollInterval);
+
+public interface IConnectionStatusView : IDisposable
+{
+    event Action? Changed;
+    Task<ConnectionStatus> GetAsync(CancellationToken ct);
+}
+```
+
+- Scoped and signed-in; `GetAsync` throws `UnauthorizedAccessException` without an authenticated admin.
+- `Transport` is `IEventSubClient.Transport`. `Connection`: `Connected` for push state Connected or Partial coverage, `Reconnecting`, `WaitingForAdmin` for No admin token, `Off` for Polling only.
+- `Covered`/`Watched` come from `PushStatus`. Health is the `dvr` health check (`DvrHealthCheck.Name`) through `HealthCheckService`; a throwing check reports Unhealthy, “Health check failed.”
+- Liveness comes from `PollSchedule`: `LastEventSubMessageAt`, `LastPollAt` (any attempt), `LastSuccessfulPollAt` (the same instant as `LastPollAt` when that poll succeeded) and `LastApiRoundTrip` (Helix time of the last successful poll that made requests), and `CurrentInterval` (the last wait's choice).
+- `Changed` fires on push-status changes (500 ms throttle) and immediately on sign-in changes. Liveness values never raise it; the panel re-reads every 5 s.
 
 ## 4. Progress store
 

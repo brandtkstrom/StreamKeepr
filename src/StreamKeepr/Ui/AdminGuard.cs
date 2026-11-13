@@ -11,6 +11,6 @@ internal static class AdminGuard
     {
         ClaimsPrincipal? user = state.IsCompletedSuccessfully ? state.Result.User : null;
         if (user?.Identity?.IsAuthenticated != true)
-            throw new UnauthorizedAccessException("Connect Twitch to manage channels.");
+            throw new UnauthorizedAccessException("An admin must be signed in with Twitch.");
     }
 }

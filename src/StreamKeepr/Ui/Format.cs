@@ -49,6 +49,32 @@ public static class Format
         return localWhen.ToString("ddd, MMM d", CultureInfo.InvariantCulture);
     }
 
+    /// <summary>A short relative time such as "8 s ago"; "Never" when <paramref name="when"/> is null.</summary>
+    public static string Ago(DateTimeOffset? when, DateTimeOffset now)
+    {
+        if (when is null)
+            return "Never";
+
+        double seconds = (now - when.Value).TotalSeconds;
+        return seconds < 1 ? "just now"
+            : seconds < 60 ? string.Create(CultureInfo.InvariantCulture, $"{(long)seconds} s ago")
+            : seconds < 3600 ? string.Create(CultureInfo.InvariantCulture, $"{(long)(seconds / 60)} min ago")
+            : string.Create(CultureInfo.InvariantCulture, $"{(long)(seconds / 3600)} h ago");
+    }
+
+    /// <summary>A round trip in whole milliseconds, for example "180 ms".</summary>
+    public static string Milliseconds(TimeSpan? value) =>
+        value is { } time
+            ? string.Create(CultureInfo.InvariantCulture, $"{Math.Round(time.TotalMilliseconds):N0} ms")
+            : "—";
+
+    /// <summary>A poll cadence, for example "Every 30 s" or "Every 5 min".</summary>
+    public static string Every(TimeSpan? interval) =>
+        interval is not { } value ? "—"
+        : value.TotalSeconds >= 60 && value.TotalSeconds % 60 == 0
+            ? string.Create(CultureInfo.InvariantCulture, $"Every {(long)value.TotalMinutes} min")
+            : string.Create(CultureInfo.InvariantCulture, $"Every {(long)value.TotalSeconds} s");
+
     public static string Bytes(long? bytes)
     {
         if (bytes is null || bytes < 0)

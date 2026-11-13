@@ -41,6 +41,8 @@ public sealed class EventSubClient(
     private readonly HashSet<string> _recentMessageIds = new(StringComparer.Ordinal);
     private readonly Queue<string> _recentMessageIdsOrder = new();
 
+    public string Transport => binding.Transport;
+
     public async Task RunAsync(StreamObservationRoute route, CancellationToken ct)
     {
         TimeSpan backoff = InitialBackoff;
@@ -240,6 +242,9 @@ public sealed class EventSubClient(
                         continue;
                     }
                 }
+
+                if (message is not null)
+                    schedule.EventSubMessageReceived();
 
                 if (message is null)
                 {

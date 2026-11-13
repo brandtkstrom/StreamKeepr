@@ -153,8 +153,18 @@ public sealed class ChannelsView : IChannelsView
             IsWatched: true,
             entry.Paused,
             StateOf(entry, snapshot, openSessions.Contains(entry.Login)),
-            push.Connected,
-            push.Reason);
+            push.Covers(entry.Login),
+            PushReason(entry, push));
+
+    /// <summary>
+    /// Why this channel does or does not have push. With a live session the answer is per
+    /// channel; otherwise every channel shares the session's reason.
+    /// </summary>
+    internal static string PushReason(ChannelEntry entry, PushStatus push) =>
+        push.Covers(entry.Login) ? PushStatus.ConnectedReason
+        : entry.UserId is null && push.State == PushState.PartialCoverage ? "User ID not resolved yet"
+        : !push.HasSession ? push.Reason
+        : "Not subscribed: refused or over capacity";
 
     private void RequireAdmin()
     {

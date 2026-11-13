@@ -57,4 +57,39 @@ public sealed class FormatTests
         Assert.Equal("Today", Format.DayHeader(new DateTimeOffset(2026, 3, 8, 6, 59, 0, TimeSpan.Zero), now, zone));
         Assert.Equal("Yesterday", Format.DayHeader(new DateTimeOffset(2026, 3, 7, 6, 0, 0, TimeSpan.Zero), now, zone));
     }
+
+    [Theory]
+    [InlineData(null, "Never")]
+    [InlineData(0.4, "just now")]
+    [InlineData(8.9, "8 s ago")]
+    [InlineData(59.0, "59 s ago")]
+    [InlineData(60.0, "1 min ago")]
+    [InlineData(3599.0, "59 min ago")]
+    [InlineData(7200.0, "2 h ago")]
+    [InlineData(-5.0, "just now")]
+    public void Ago_is_a_short_relative_time(double? secondsAgo, string expected)
+    {
+        var now = new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero);
+        DateTimeOffset? when = secondsAgo is { } seconds ? now.AddSeconds(-seconds) : null;
+
+        Assert.Equal(expected, Format.Ago(when, now));
+    }
+
+    [Theory]
+    [InlineData(null, "—")]
+    [InlineData(0.0, "0 ms")]
+    [InlineData(180.4, "180 ms")]
+    [InlineData(1500.0, "1,500 ms")]
+    public void Milliseconds_rounds_a_round_trip(double? milliseconds, string expected) =>
+        Assert.Equal(
+            expected,
+            Format.Milliseconds(milliseconds is { } ms ? TimeSpan.FromMilliseconds(ms) : null));
+
+    [Theory]
+    [InlineData(null, "—")]
+    [InlineData(10, "Every 10 s")]
+    [InlineData(300, "Every 5 min")]
+    [InlineData(90, "Every 90 s")]
+    public void Every_names_a_poll_cadence(int? seconds, string expected) =>
+        Assert.Equal(expected, Format.Every(seconds is { } s ? TimeSpan.FromSeconds(s) : null));
 }
