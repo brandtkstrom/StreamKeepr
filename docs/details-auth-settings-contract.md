@@ -12,7 +12,7 @@ The backend contract wins over the plan's F10-T3: export is **always one MP4**. 
 
 ## 2. Recording details card
 
-- `RecordingDetails.razor` is a normal Blazor component, rendered under the stats panel on `/r/{id}`. It uses the `Collapsible` primitive and `UiPreferences.DetailsOpen` (default open); the collapsed header is 48 px and shows “Recording details” plus the start date.
+- `RecordingDetails.razor` is a normal Blazor component, rendered above the stats panel on `/r/{id}`. It uses the `Collapsible` primitive and `UiPreferences.DetailsOpen` (default open); the collapsed header is 48 px and shows “Recording details” plus the start date.
 - The body shows:
   - title (`headline-small`);
   - a meta row with the streamer login and avatar/initials, category (or “No category”), full start date/time in the viewer's zone, and counts in the form `1,342 segments · 3 parts · 9.8 GB`; `SizeBytes` is omitted or shown as `—` while Recording/Reconnecting;

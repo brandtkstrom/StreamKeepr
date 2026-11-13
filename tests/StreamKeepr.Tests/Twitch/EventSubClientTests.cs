@@ -318,10 +318,144 @@ public sealed class EventSubClientTests : IDisposable
 
         _socketFactory.LastSocket.Push(Reconnect("wss://reconnect.example/ws"));
         await _socketFactory.SocketTwo.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await _socketFactory.LastSocket.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Equal(
             new Uri("wss://reconnect.example/ws"),
             _socketFactory.LastSocket.ConnectedUri);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Reconnect_keeps_the_old_socket_until_the_new_welcome_and_keeps_subscriptions()
+    {
+        var subscriptionBodies = new List<string>();
+        var subscribed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _httpHandler.Handler = async request =>
+        {
+            string body = await request.Content!.ReadAsStringAsync();
+            lock (subscriptionBodies)
+            {
+                subscriptionBodies.Add(body);
+                if (subscriptionBodies.Count == 2)
+                    subscribed.TrySetResult();
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.Accepted);
+        };
+
+        var observations = Channel.CreateUnbounded<StreamObservation>();
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync(
+            (_, observation, _) =>
+            {
+                observations.Writer.TryWrite(observation);
+                return ValueTask.CompletedTask;
+            },
+            stop.Token);
+
+        FakeEventSubSocket oldSocket = await _socketFactory.SocketAsync(1)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await oldSocket.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        oldSocket.Push(Welcome("session-1"));
+        await subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        oldSocket.Push(Reconnect("wss://reconnect.example/ws"));
+        FakeEventSubSocket newSocket = await _socketFactory.SocketAsync(2)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await newSocket.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Twitch keeps delivering on the old socket until the new one says welcome.
+        Assert.False(oldSocket.Disposed.Task.IsCompleted, "old socket closed before the new welcome");
+        Assert.True(_schedule.IsPushConnected);
+        oldSocket.Push(Notification("stream.online"));
+        Assert.IsType<StreamObservation.Live>(
+            await observations.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.False(oldSocket.Disposed.Task.IsCompleted, "old socket closed before the new welcome");
+
+        newSocket.Push(Welcome("session-2"));
+        await oldSocket.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Messages are handled in order, so a re-subscribe on the new welcome would
+        // have happened before this notification is routed.
+        newSocket.Push(Notification("stream.offline"));
+        Assert.IsType<StreamObservation.Offline>(
+            await observations.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+
+        lock (subscriptionBodies)
+        {
+            Assert.Equal(2, subscriptionBodies.Count);
+            Assert.DoesNotContain(
+                subscriptionBodies, body => body.Contains("session-2", StringComparison.Ordinal));
+        }
+
+        Assert.True(_schedule.IsPushConnected);
+        Assert.False(newSocket.Disposed.Task.IsCompleted);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Reconnect_socket_closing_before_welcome_falls_back_to_a_fresh_session()
+    {
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        FakeEventSubSocket oldSocket = await _socketFactory.SocketAsync(1)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await oldSocket.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        oldSocket.Push(Welcome("session-1"));
+        await oldSocket.Subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        oldSocket.Push(Reconnect("wss://reconnect.example/ws"));
+        FakeEventSubSocket newSocket = await _socketFactory.SocketAsync(2)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await newSocket.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        newSocket.Close();
+
+        FakeEventSubSocket fresh = await _socketFactory.SocketAsync(3)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await fresh.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(new Uri("wss://eventsub.wss.twitch.tv/ws"), fresh.ConnectedUri);
+        Assert.True(oldSocket.Disposed.Task.IsCompleted);
+        Assert.True(newSocket.Disposed.Task.IsCompleted);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Reconnect_without_a_new_welcome_in_30_seconds_falls_back_to_a_fresh_session()
+    {
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        FakeEventSubSocket oldSocket = await _socketFactory.SocketAsync(1)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await oldSocket.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        oldSocket.Push(Welcome("session-1"));
+        await oldSocket.Subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        oldSocket.Push(Reconnect("wss://reconnect.example/ws"));
+        FakeEventSubSocket newSocket = await _socketFactory.SocketAsync(2)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await newSocket.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        _clock.Advance(TimeSpan.FromSeconds(31));
+
+        FakeEventSubSocket fresh = await _socketFactory.SocketAsync(3)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await fresh.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(new Uri("wss://eventsub.wss.twitch.tv/ws"), fresh.ConnectedUri);
+        Assert.True(oldSocket.Disposed.Task.IsCompleted);
+        Assert.True(newSocket.Disposed.Task.IsCompleted);
 
         stop.Cancel();
         await run.WaitAsync(TimeSpan.FromSeconds(5));
@@ -644,6 +778,8 @@ public sealed class EventSubClientTests : IDisposable
 
     private sealed class FakeEventSubSocketFactory : IEventSubSocketFactory
     {
+        private readonly List<TaskCompletionSource<FakeEventSubSocket>> _slots = [];
+
         public List<FakeEventSubSocket> Sockets { get; } = [];
 
         public FakeEventSubSocket? LastSocket => Sockets.LastOrDefault();
@@ -657,9 +793,28 @@ public sealed class EventSubClientTests : IDisposable
         {
             var socket = new FakeEventSubSocket();
             Sockets.Add(socket);
-            if (Interlocked.Increment(ref _created) == 2)
+            int created = Interlocked.Increment(ref _created);
+            Slot(created).TrySetResult(socket);
+            if (created == 2)
                 SocketTwo.TrySetResult();
             return socket;
+        }
+
+        /// <summary>Completes when the <paramref name="number"/>th socket (1-based) is created.</summary>
+        public Task<FakeEventSubSocket> SocketAsync(int number) => Slot(number).Task;
+
+        private TaskCompletionSource<FakeEventSubSocket> Slot(int number)
+        {
+            lock (_slots)
+            {
+                while (_slots.Count < number)
+                {
+                    _slots.Add(new TaskCompletionSource<FakeEventSubSocket>(
+                        TaskCreationOptions.RunContinuationsAsynchronously));
+                }
+
+                return _slots[number - 1];
+            }
         }
     }
 
@@ -674,6 +829,9 @@ public sealed class EventSubClientTests : IDisposable
         public TaskCompletionSource Subscribed { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        public TaskCompletionSource Disposed { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public Uri? ConnectedUri { get; private set; }
 
         public Task ConnectAsync(Uri uri, CancellationToken ct)
@@ -685,7 +843,12 @@ public sealed class EventSubClientTests : IDisposable
 
         public async Task<string?> ReceiveTextAsync(CancellationToken ct)
         {
-            string message = await _messages.Reader.ReadAsync(ct);
+            if (!await _messages.Reader.WaitToReadAsync(ct)
+                || !_messages.Reader.TryRead(out string? message))
+            {
+                return null;
+            }
+
             if (Interlocked.Increment(ref _received) == 1)
                 Subscribed.TrySetResult();
             return message;
@@ -693,9 +856,13 @@ public sealed class EventSubClientTests : IDisposable
 
         public void Push(string message) => _messages.Writer.TryWrite(message);
 
+        /// <summary>Simulates Twitch closing the socket: pending and later receives return null.</summary>
+        public void Close() => _messages.Writer.TryComplete();
+
         public ValueTask DisposeAsync()
         {
             _messages.Writer.TryComplete();
+            Disposed.TrySetResult();
             return ValueTask.CompletedTask;
         }
     }

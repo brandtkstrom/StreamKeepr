@@ -228,8 +228,8 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             await page.Locator("[data-sk='spark-bitrate'] polyline.line").GetAttributeAsync("stroke"));
         Assert.Equal("var(--tertiary)", await line.GetAttributeAsync("stroke"));
 
-        LocatorBoundingBoxResult sparkBox = (await bufferSpark.BoundingBoxAsync())!;
-        await page.Mouse.MoveAsync(sparkBox.X + sparkBox.Width / 2, sparkBox.Y + sparkBox.Height / 2);
+        // The stats panel sits below the details card; hover scrolls it into view first.
+        await bufferSpark.HoverAsync();
         Assert.Contains("s ago ·", await page.Locator("[data-sk='tip-buffer']").InnerTextAsync());
         Assert.Equal(
             "visible",

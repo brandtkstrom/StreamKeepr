@@ -77,10 +77,10 @@ public sealed class AppShellDocumentTests
         Assert.Contains("data-slot=\"details\"", html);
         Assert.True(
             html.IndexOf("data-slot=\"player\"", StringComparison.Ordinal) <
-            html.IndexOf("data-slot=\"stats\"", StringComparison.Ordinal));
-        Assert.True(
-            html.IndexOf("data-slot=\"stats\"", StringComparison.Ordinal) <
             html.IndexOf("data-slot=\"details\"", StringComparison.Ordinal));
+        Assert.True(
+            html.IndexOf("data-slot=\"details\"", StringComparison.Ordinal) <
+            html.IndexOf("data-slot=\"stats\"", StringComparison.Ordinal));
     }
 
     [Fact]

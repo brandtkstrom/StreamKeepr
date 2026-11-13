@@ -74,7 +74,7 @@ public sealed class TwitchTokenProvider(
 - Transient token/HTTP failures during subscription are logged; the client reconnects with backoff; polling continues.
 - `IAdminTokenStore.Changed` cancels and reconnects the session on sign-in or logout, so push starts/stops promptly.
 - `LiveFromNotificationAsync` uses `/channels` for current title/game, with a short timeout; on timeout or failure the Live observation carries empty metadata and the next poll fills it. The thumbnail is saved by the next poll.
-- Connect, reconnect-welcome, subscription-request, `/channels`, and socket-close operations are bounded (10 s connect/handshake/subscription, 5 s `/channels`, 2–5 s close) so a dead peer cannot stall the loop or shutdown.
+- Connect, reconnect-welcome, subscription-request, `/channels`, and socket-close operations are bounded (10 s connect, 30 s reconnect welcome, 10 s subscription request, 5 s `/channels`, 2–5 s close) so a dead peer cannot stall the loop or shutdown.
 
 ## 6. Admin sign-in
 

@@ -159,7 +159,7 @@ This is the single handoff for the full application specification. It records th
 
 - One Web project; Blazor Web App .NET 10, global Interactive Server with prerender; static `App.razor` (HeadOutlet, ImportMap, template reconnect, CSS), interactive `Routes`.
 - Routes `/` and `/r/{id}`; library query `q`/`state`/`sort` in the URL with defaults; unknown id shows a message and link.
-- `.sk-shell`: top app bar (menu, wordmark/REC dot, search, storage meter, schedule stub, settings, auth last), drawer 320/72/hidden, theater, main max 1100, player → stats → details. Breakpoints 960/600.
+- `.sk-shell`: top app bar (menu, wordmark/REC dot, search, storage meter, schedule stub, settings, auth last), drawer 320/72/hidden, theater, main max 1100, player → details → stats. Breakpoints 960/600.
 - `UiPreferences` scoped from versioned `sk-ui` cookie (4 KB/50 cap; defaults expanded/theater off/stats closed/details open); `ViewerClock` from `sk-tz` IANA with UTC fallback and one post-circuit sync.
 - `LibraryView` scoped over the backend services; 500 ms `Changed`; shell uses it for REC dot/storage.
 - Primitives: Button, IconButton, Icon, Chip, StatusChip, Avatar, Collapsible, Switch, Menu, Tooltip, Dialog, Snackbar; `RequiresTwitch` visible-but-inert; `/dev/components` Development-only.

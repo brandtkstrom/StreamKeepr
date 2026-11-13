@@ -32,24 +32,26 @@ else
     </section>
 }
 
-@* The player column keeps its fixed order. The same VideoPlayer instance survives recording
-   changes and swaps the source in JS. *@
+@* The player column keeps its fixed order (player, details, stats). The same VideoPlayer
+   instance survives recording changes and swaps the source in JS. *@
 <div data-slot="player" data-selected-recording="@Selected?.Id">
     @if (Selected is { } playing)
     {
         <VideoPlayer Recording="playing" StatsOpen="@Preferences.StatsOpen" />
     }
 </div>
-<div data-slot="stats">
-    @if (Selected is { } statRecording)
-    {
-        <StatsPanel Recording="statRecording" />
-    }
-</div>
+
 <div data-slot="details">
     @if (Selected is { } detailed)
     {
         <RecordingDetails Recording="detailed" />
+    }
+</div>
+
+<div data-slot="stats">
+    @if (Selected is { } statRecording)
+    {
+        <StatsPanel Recording="statRecording"/>
     }
 </div>
 
