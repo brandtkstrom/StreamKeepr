@@ -12,7 +12,7 @@ namespace StreamKeepr.Infrastructure.Twitch;
 /// <summary>
 /// Persists the admin Twitch token in the private app-data folder, encrypted with
 /// Data Protection and replaced atomically with owner-only permissions. Tokens
-/// leave the store only through <see cref="GetAsync"/>.
+/// leave the store only through <see cref="GetAsync"/> and <see cref="RefreshAsync"/>.
 /// </summary>
 public sealed class AdminTokenStore(
     IDataProtectionProvider dataProtection,
@@ -53,19 +53,10 @@ public sealed class AdminTokenStore(
             {
                 if (token.ExpiresAt - clock.GetUtcNow() <= RefreshWindow)
                 {
-                    var refreshed = await RefreshTokenAsync(token, ct);
-                    if (refreshed is null)
-                    {
-                        TryClearLocked();
-                        cleared = true;
-                    }
-                    else
-                    {
-                        PersistLocked(refreshed);
-                        _token = refreshed;
-                        accessToken = refreshed.AccessToken;
-                        logger.LogInformation("Refreshed the admin Twitch token for {Login}.", refreshed.Login);
-                    }
+                    (string? refreshedAccess, bool refreshCleared) =
+                        await RefreshAndPersistLockedAsync(token, ct);
+                    accessToken = refreshedAccess;
+                    cleared |= refreshCleared;
                 }
                 else
                 {
@@ -97,20 +88,10 @@ public sealed class AdminTokenStore(
 
             if (token is not null)
             {
-                var refreshed = await RefreshTokenAsync(token, ct);
-                if (refreshed is null)
-                {
-                    TryClearLocked();
-                    cleared = true;
-                }
-                else
-                {
-                    PersistLocked(refreshed);
-                    _token = refreshed;
-                    accessToken = refreshed.AccessToken;
-                    logger.LogInformation(
-                        "Refreshed the admin Twitch token for {Login}.", refreshed.Login);
-                }
+                (string? refreshedAccess, bool refreshCleared) =
+                    await RefreshAndPersistLockedAsync(token, ct);
+                accessToken = refreshedAccess;
+                cleared |= refreshCleared;
             }
         }
         finally
@@ -256,6 +237,23 @@ public sealed class AdminTokenStore(
             TryDeleteTokenFile();
             return (null, true);
         }
+    }
+
+    private async Task<(string? AccessToken, bool Cleared)> RefreshAndPersistLockedAsync(
+        AdminToken token, CancellationToken ct)
+    {
+        AdminToken? refreshed = await RefreshTokenAsync(token, ct);
+        if (refreshed is null)
+        {
+            TryClearLocked();
+            return (null, true);
+        }
+
+        PersistLocked(refreshed);
+        _token = refreshed;
+        logger.LogInformation(
+            "Refreshed the admin Twitch token for {Login}.", refreshed.Login);
+        return (refreshed.AccessToken, false);
     }
 
     private async Task<AdminToken?> RefreshTokenAsync(AdminToken token, CancellationToken ct)

@@ -256,6 +256,22 @@ public sealed class AdminTokenStoreTests
     }
 
     [Fact]
+    public async Task RefreshAsync_propagates_cancellation()
+    {
+        using var harness = new Harness(_ => throw UnexpectedRequest());
+        await harness.Store.SaveAsync(
+            AdminTokenStoreTestData.Token(T0.AddHours(2)),
+            CancellationToken.None);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => harness.Store.RefreshAsync(cts.Token).AsTask());
+        Assert.Empty(harness.Handler.Requests);
+    }
+
+    [Fact]
     public async Task Corrupt_token_file_is_logged_cleared_and_returns_null()
     {
         using var harness = new Harness(_ => throw UnexpectedRequest());

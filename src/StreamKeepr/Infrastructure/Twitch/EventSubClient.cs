@@ -320,7 +320,7 @@ public sealed class EventSubClient(
             Task deadline = Task.Delay(ReconnectGrace, clock, cts.Token);
             IEventSubSocket socket = socketFactory.Create();
             Task<TimeSpan?> welcomed = ReceiveHandoffWelcomeAsync(socket, reconnectUrl, cts.Token);
-            return new ReconnectHandoff(socket, welcomed, deadline, cts);
+            return new ReconnectHandoff(socket, welcomed, deadline, cts, ObserveAsync);
         }
         catch
         {
@@ -353,15 +353,17 @@ public sealed class EventSubClient(
         {
             using JsonDocument document = JsonDocument.Parse(message);
             JsonElement root = document.RootElement;
-            if (root.GetProperty("metadata").GetProperty("message_type").GetString()
-                != "session_welcome")
+            if (root.ValueKind != JsonValueKind.Object
+                || !TryGetObjectProperty(root, "metadata", out JsonElement metadata)
+                || !TryGetStringProperty(metadata, "message_type", out string? messageType)
+                || messageType != "session_welcome")
             {
                 throw new EventSubRestartException(
                     "reconnect connection did not start with session_welcome");
             }
 
-            if (!TryReadWelcome(
-                    root.GetProperty("payload"), out _, out TimeSpan? keepalive))
+            if (!TryGetObjectProperty(root, "payload", out JsonElement payload)
+                || !TryReadWelcome(payload, out _, out TimeSpan? keepalive))
             {
                 throw new EventSubRestartException(
                     "reconnect connection sent a malformed session_welcome");
@@ -377,15 +379,38 @@ public sealed class EventSubClient(
         }
     }
 
+    private static bool TryGetObjectProperty(
+        JsonElement parent, string name, out JsonElement value)
+    {
+        value = default;
+        return parent.ValueKind == JsonValueKind.Object
+            && parent.TryGetProperty(name, out value)
+            && value.ValueKind == JsonValueKind.Object;
+    }
+
+    private static bool TryGetStringProperty(
+        JsonElement parent, string name, out string? value)
+    {
+        value = null;
+        if (parent.ValueKind != JsonValueKind.Object
+            || !parent.TryGetProperty(name, out JsonElement element)
+            || element.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        value = element.GetString();
+        return true;
+    }
+
     private static bool TryReadWelcome(
         JsonElement payload, out string sessionId, out TimeSpan? keepalive)
     {
         sessionId = "";
         keepalive = null;
-        if (!payload.TryGetProperty("session", out JsonElement session)
-            || session.ValueKind != JsonValueKind.Object
-            || !session.TryGetProperty("id", out JsonElement idElement)
-            || idElement.GetString() is not { Length: > 0 } id)
+        if (!TryGetObjectProperty(payload, "session", out JsonElement session)
+            || !TryGetStringProperty(session, "id", out string? id)
+            || string.IsNullOrEmpty(id))
         {
             return false;
         }
@@ -424,24 +449,23 @@ public sealed class EventSubClient(
         using (document)
         {
             JsonElement root = document.RootElement;
-            if (!root.TryGetProperty("metadata", out JsonElement metadata)
-                || !metadata.TryGetProperty("message_type", out JsonElement messageTypeElement))
+            if (root.ValueKind != JsonValueKind.Object
+                || !TryGetObjectProperty(root, "metadata", out JsonElement metadata)
+                || !TryGetStringProperty(metadata, "message_type", out string? messageType)
+                || string.IsNullOrEmpty(messageType))
             {
                 logger.LogWarning("Ignoring EventSub message without metadata/message_type.");
                 return null;
             }
 
-            string messageType = messageTypeElement.GetString() ?? "";
-            string? messageId = metadata.TryGetProperty("message_id", out JsonElement messageIdElement)
-                ? messageIdElement.GetString()
-                : null;
-            if (IsDuplicateMessage(messageId))
+            TryGetStringProperty(metadata, "message_id", out string? messageId);
+            if (TryMarkSeen(messageId))
             {
                 logger.LogDebug("Ignoring duplicate EventSub message {MessageId}.", messageId);
                 return null;
             }
 
-            if (!root.TryGetProperty("payload", out JsonElement payload))
+            if (!TryGetObjectProperty(root, "payload", out JsonElement payload))
             {
                 logger.LogWarning(
                     "Ignoring EventSub {MessageType} without a payload.", messageType);
@@ -474,9 +498,11 @@ public sealed class EventSubClient(
                 case "session_reconnect":
                     // Push coverage is unchanged: the old socket keeps delivering until the
                     // new one is welcomed, and subscriptions move with the session.
-                    string? reconnect = payload.TryGetProperty("session", out JsonElement reconnectSession)
-                        && reconnectSession.TryGetProperty("reconnect_url", out JsonElement url)
-                            ? url.GetString()
+                    string? reconnect = TryGetObjectProperty(
+                            payload, "session", out JsonElement reconnectSession)
+                        && TryGetStringProperty(
+                            reconnectSession, "reconnect_url", out string? reconnectUrl)
+                            ? reconnectUrl
                             : null;
                     if (!Uri.TryCreate(reconnect, UriKind.Absolute, out Uri? reconnectUri)
                         || reconnectUri.Scheme != "wss")
@@ -491,13 +517,11 @@ public sealed class EventSubClient(
                 case "revocation":
                     string? revokedType = null;
                     string? revokedStatus = null;
-                    if (payload.TryGetProperty("subscription", out JsonElement subscription)
-                        && subscription.ValueKind == JsonValueKind.Object)
+                    if (TryGetObjectProperty(
+                            payload, "subscription", out JsonElement subscription))
                     {
-                        if (subscription.TryGetProperty("type", out JsonElement revokedTypeElement))
-                            revokedType = revokedTypeElement.GetString();
-                        if (subscription.TryGetProperty("status", out JsonElement revokedStatusElement))
-                            revokedStatus = revokedStatusElement.GetString();
+                        TryGetStringProperty(subscription, "type", out revokedType);
+                        TryGetStringProperty(subscription, "status", out revokedStatus);
                     }
 
                     schedule.SetPushStatus(PushStatus.Reconnecting);
@@ -736,22 +760,34 @@ public sealed class EventSubClient(
 
             HelixEventSubSubscriptionsResponse? payload = await response.Content.ReadFromJsonAsync(
                 TwitchJsonContext.Default.HelixEventSubSubscriptionsResponse, ct);
-            bool matched = payload?.Data?.Any(subscription =>
+            HelixEventSubSubscription[] candidates = payload?.Data?
+                .Where(subscription =>
+                    string.Equals(subscription.Type, type, StringComparison.Ordinal)
+                    && subscription.Condition is { } condition
+                    && string.Equals(condition.BroadcasterUserId, userId, StringComparison.Ordinal))
+                .ToArray() ?? [];
+
+            bool matched = candidates.Any(subscription =>
                 string.Equals(subscription.Status, "enabled", StringComparison.Ordinal)
-                && string.Equals(subscription.Type, type, StringComparison.Ordinal)
-                && subscription.Condition is { } condition
-                && string.Equals(condition.BroadcasterUserId, userId, StringComparison.Ordinal)
                 && subscription.Transport is { } transport
                 && string.Equals(transport.Method, "websocket", StringComparison.Ordinal)
-                && string.Equals(transport.SessionId, sessionId, StringComparison.Ordinal)) == true;
+                && string.Equals(transport.SessionId, sessionId, StringComparison.Ordinal));
 
             if (!matched)
             {
+                string existing = candidates.Length == 0
+                    ? "none"
+                    : string.Join(
+                        ", ",
+                        candidates.Select(subscription =>
+                            $"{subscription.Id} ({subscription.Status}, " +
+                            $"session {subscription.Transport?.SessionId ?? "unknown"})"));
                 logger.LogWarning(
-                    "EventSub 409 for {Type} for user {UserId} is not owned by session {SessionId}; leaving the channel uncovered.",
+                    "EventSub 409 for {Type} for user {UserId} is not owned by session {SessionId}; existing: {Existing}",
                     type,
                     userId,
-                    sessionId);
+                    sessionId,
+                    existing);
             }
 
             return (matched, false);
@@ -866,32 +902,25 @@ public sealed class EventSubClient(
     private async Task HandleNotificationAsync(
         JsonElement payload, StreamObservationRoute route, CancellationToken ct)
     {
-        if (!payload.TryGetProperty("subscription", out JsonElement subscription)
-            || subscription.ValueKind != JsonValueKind.Object
-            || !subscription.TryGetProperty("type", out JsonElement typeElement))
+        string? type = null;
+        if (!TryGetObjectProperty(payload, "subscription", out JsonElement subscription)
+            || !TryGetStringProperty(subscription, "type", out type)
+            || string.IsNullOrEmpty(type))
         {
             logger.LogWarning("Ignoring EventSub notification without a subscription type.");
             return;
         }
 
-        string type = typeElement.GetString() ?? "";
         if (type is not ("stream.online" or "stream.offline"))
             return;
 
-        if (!payload.TryGetProperty("event", out JsonElement @event)
-            || @event.ValueKind != JsonValueKind.Object
-            || !@event.TryGetProperty("broadcaster_user_id", out JsonElement userIdElement))
+        string? userId = null;
+        if (!TryGetObjectProperty(payload, "event", out JsonElement @event)
+            || !TryGetStringProperty(@event, "broadcaster_user_id", out userId)
+            || string.IsNullOrEmpty(userId))
         {
             logger.LogWarning(
                 "Ignoring EventSub {Type} notification without a broadcaster user id.", type);
-            return;
-        }
-
-        string userId = userIdElement.GetString() ?? "";
-        if (userId.Length == 0)
-        {
-            logger.LogWarning(
-                "Ignoring EventSub {Type} notification with an empty broadcaster user id.", type);
             return;
         }
 
@@ -902,12 +931,11 @@ public sealed class EventSubClient(
 
         if (type == "stream.online")
         {
-            string? streamType = @event.TryGetProperty("type", out JsonElement streamTypeElement)
-                ? streamTypeElement.GetString()
-                : null;
-            if (!string.Equals(streamType, "live", StringComparison.Ordinal))
+            string? broadcastType = null;
+            TryGetStringProperty(@event, "type", out broadcastType);
+            if (!string.Equals(broadcastType, "live", StringComparison.Ordinal))
             {
-                if (streamType is null)
+                if (string.IsNullOrEmpty(broadcastType))
                 {
                     logger.LogWarning(
                         "EventSub stream.online for {Login} had no broadcast type; treating it as offline.",
@@ -918,7 +946,7 @@ public sealed class EventSubClient(
                     logger.LogInformation(
                         "EventSub stream.online for {Login} had broadcast type {Type}; treating it as offline.",
                         channel.Login,
-                        streamType);
+                        broadcastType);
                 }
 
                 await RouteAsync(route, channel.Login, new StreamObservation.Offline(), ct);
@@ -926,9 +954,8 @@ public sealed class EventSubClient(
                 return;
             }
 
-            string streamId = @event.TryGetProperty("id", out JsonElement idElement)
-                ? idElement.GetString() ?? ""
-                : "";
+            TryGetStringProperty(@event, "id", out string? streamIdValue);
+            string streamId = streamIdValue ?? "";
             if (!TwitchStreamId.IsNumeric(streamId))
             {
                 logger.LogWarning(
@@ -936,12 +963,12 @@ public sealed class EventSubClient(
                 return;
             }
 
-            DateTimeOffset started = @event.TryGetProperty("started_at", out JsonElement startedElement)
-                && DateTimeOffset.TryParse(
-                    startedElement.GetString(),
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeUniversal,
-                    out DateTimeOffset parsed)
+            TryGetStringProperty(@event, "started_at", out string? startedText);
+            DateTimeOffset started = DateTimeOffset.TryParse(
+                startedText,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal,
+                out DateTimeOffset parsed)
                     ? parsed
                     : clock.GetUtcNow();
 
@@ -1010,7 +1037,8 @@ public sealed class EventSubClient(
         }
     }
 
-    private bool IsDuplicateMessage(string? messageId)
+    /// <returns>True when the ID was already seen; otherwise records it and returns false.</returns>
+    private bool TryMarkSeen(string? messageId)
     {
         if (string.IsNullOrEmpty(messageId))
             return false;
@@ -1026,7 +1054,7 @@ public sealed class EventSubClient(
         return true;
     }
 
-    private static async Task ObserveAsync(Task task)
+    private async Task ObserveAsync(Task task)
     {
         try
         {
@@ -1035,9 +1063,9 @@ public sealed class EventSubClient(
         catch (OperationCanceledException)
         {
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // The session already failed or timed out for another reason.
+            logger.LogDebug(ex, "EventSub socket operation failed while being observed.");
         }
     }
 
@@ -1068,7 +1096,8 @@ public sealed class EventSubClient(
         IEventSubSocket socket,
         Task<TimeSpan?> welcomed,
         Task deadline,
-        CancellationTokenSource cts) : IAsyncDisposable
+        CancellationTokenSource cts,
+        Func<Task, Task> observe) : IAsyncDisposable
     {
         private IEventSubSocket? _socket = socket;
 
@@ -1079,7 +1108,7 @@ public sealed class EventSubClient(
         public async Task<IEventSubSocket> TakeSocketAsync()
         {
             await cts.CancelAsync();
-            await ObserveAsync(Deadline);
+            await observe(Deadline);
             IEventSubSocket taken = _socket
                 ?? throw new InvalidOperationException("The handoff socket was already taken.");
             _socket = null;
@@ -1089,8 +1118,8 @@ public sealed class EventSubClient(
         public async ValueTask DisposeAsync()
         {
             await cts.CancelAsync();
-            await ObserveAsync(Welcomed);
-            await ObserveAsync(Deadline);
+            await observe(Welcomed);
+            await observe(Deadline);
             if (_socket is not null)
             {
                 await _socket.DisposeAsync();
