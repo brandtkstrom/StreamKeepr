@@ -11,7 +11,16 @@
    data-recording-id="@Recording.Id"
    data-state="@StateName">
     <span class="sk-thumb @(IsRecording ? "live" : null)">
-        <Icon Name="movie" />
+        @if (Recording.ThumbnailUrl is string thumbnail)
+        {
+            @* Decorative: the title next to it names the recording. Lazy, so a long library
+               only fetches the images scrolled into view. *@
+            <img src="@thumbnail" alt="" loading="lazy" decoding="async" />
+        }
+        else
+        {
+            <Icon Name="movie" />
+        }
         <span class="dur">@Format.Timecode(Recording.DurationSec)</span>
         @if (Recording.ResumeSec is double resume)
         {

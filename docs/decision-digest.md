@@ -270,7 +270,7 @@ The register holds the plan-line evidence and the full finding text. This table 
 
 | ID | Decision | Status | Evidence / artifact |
 |---|---|---|---|
-| E-01 | Thumbnail strategy: Helix live preview vs frame grab. | **Open** | Digest §8.2; `backend-ui-contract.md` keeps `ThumbnailUrl` nullable |
+| E-01 | Thumbnail strategy: Helix live preview vs frame grab. | **Resolved: FFmpeg frame grab** from recorded media (2026-11-13) | `session-store-contract.md` §7.1; `ThumbnailUrl` stays nullable until a grab succeeds |
 | E-02 | Schedule button. | **Resolved: stub with snackbar** | `details-auth-settings-contract.md` §8 |
 | E-03 | Retention automation/defaults. | Accept (non-goal) | ADR-0004 |
 | E-04 | Allowlist logins and viewing without sign-in. | **Resolved semantics**: empty = open admin (E-13); viewing public; exact values deployment config | `twitch-auth-contract.md` §6 |
@@ -317,14 +317,13 @@ The register holds the plan-line evidence and the full finding text. This table 
 | Native Safari/fullscreen/PiP not tested on a device | Not deterministic in CI, and no iOS device is available | Unit tests with stubs only; manual pass dropped on 2026-11-12 (#108); checklist kept in `docs/manual/` |
 | Export file survives recording deletion | Export is a derived artifact; 24 h cleanup | Documented; delete dialog does not promise otherwise |
 | Export jobs are in-memory | Process-wide service; restart loses jobs | Completed file may remain; user can re-export |
-| Thumbnail strategy undecided | No source chosen yet | `ThumbnailUrl` nullable; spec must not assume Helix vs frame grab |
+| No thumbnail for the first 5 minutes of a live recording | The frame grab waits for 5 minutes of media to skip intro screens | `ThumbnailUrl` null until then; rows show the placeholder icon |
 | Exact allowlist values | Deployment-specific | Config; empty = open admin; E-13 |
 
 ### 8.2 Open items (explicit, non-blocking unless stated)
 
 | Item | Status | Owner / impact |
 |---|---|---|
-| Thumbnail strategy: Helix live preview vs a frame grab from the recording | Open product choice | Backend UI; `ThumbnailUrl` nullable, so the spec can proceed but must not assume a source |
 | Exact `Auth:AllowedTwitchLogins` values | Deployment config | Operator; semantics fixed (empty = open admin); set for shared networks |
 | Subscriber-token rotation UI in Settings | Deferred | Auth/settings; manual secret works today |
 | Quality menu/preference | Deferred until a multi-variant master playlist exists | Player; E-20 |
@@ -424,7 +423,7 @@ Produce one specification that:
 2. Carries the backend contracts in implementation order: architecture/migration, domain/reducer, recorder, session store, runtime, Twitch/auth, hosting, backend UI, testing.
 3. Carries the frontend feature-area contracts: foundation/shell, library, player/stats/resume, details/export/delete/auth/settings.
 4. Preserves the binding amendments A-01–A-11, B-01–B-07, C-01–C-06, the resolved D-01–D-06 frontend gaps, and the accepted/deferred E items with their artifacts.
-5. Keeps the open items explicit; do not invent a thumbnail source or an allowlist value.
+5. Keeps the open items explicit; do not invent an allowlist value.
 6. Includes acceptance criteria, scenario tests, security/a11y/performance gates, and the post-implementation review above.
 7. Keeps the 63 frontend task slices out; `to-tickets` follows the spec.
 

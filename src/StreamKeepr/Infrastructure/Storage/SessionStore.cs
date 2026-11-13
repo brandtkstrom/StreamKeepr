@@ -163,6 +163,39 @@ public sealed class SessionStore(
     }
 
     /// <summary>
+    /// Moves a finished thumbnail image into the session as <c>thumb.jpg</c> and refreshes the
+    /// library. The thumbnail is written once and never replaced, because <c>/media</c> serves it
+    /// as immutable. <paramref name="imagePath"/> must be on the recordings volume so the move is a
+    /// rename. The image is consumed either way: returns false (and deletes it) when the session
+    /// no longer exists or already has a thumbnail.
+    /// </summary>
+    public async Task<bool> SaveThumbnailAsync(string sessionDir, string imagePath, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(imagePath);
+        string directory = Normalize(sessionDir);
+        string target = Path.Combine(directory, ThumbnailFileName);
+        var gate = LockFor(directory);
+        await gate.WaitAsync(ct);
+        try
+        {
+            // A delete holds this lock while it removes the folder, so the check is race-free.
+            if (!File.Exists(Path.Combine(directory, ManifestFileName)) || File.Exists(target))
+            {
+                File.Delete(imagePath);
+                return false;
+            }
+
+            File.Move(imagePath, target, overwrite: false);
+            await UpsertLibraryAsync(directory, ct);
+            return true;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>
     /// Serves the playlist for a recording session: a cache hit is lock-free; a cache miss reads
     /// the parts under the session lock. A Complete session always returns the finalized index.
     /// Returns null when the session has no readable manifest or finalized index.
