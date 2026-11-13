@@ -1,10 +1,5 @@
 using System.Globalization;
-using System.Net;
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text.Json;
-using Microsoft.Extensions.Options;
-using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
@@ -12,19 +7,18 @@ using StreamKeepr.Infrastructure.Storage;
 namespace StreamKeepr.Infrastructure.Twitch;
 
 /// <summary>
-/// EventSub WebSocket client. It waits for an admin token, subscribes stream.online/offline
-/// for every watched channel with a user ID, drives all-or-nothing push coverage, routes
-/// notifications to the channel coordinator, and recovers from disconnects and revocations.
+/// EventSub client core. It runs the WebSocket session loop (keepalive, reconnect handoff,
+/// backoff), routes notifications to the channel coordinator, and recovers from disconnects.
+/// The <see cref="IEventSubBinding"/> decides how a session authenticates and subscribes:
+/// a user-token WebSocket or a conduit shard.
 /// </summary>
 public sealed class EventSubClient(
     IEventSubSocketFactory socketFactory,
-    IHttpClientFactory httpFactory,
-    IAdminTokenStore adminTokens,
+    IEventSubBinding binding,
     ChannelStore channels,
     IStreamPoller poller,
     PollSchedule schedule,
     IRetryJitter jitter,
-    IOptions<TwitchOptions> options,
     TimeProvider clock,
     ILogger<EventSubClient> logger) : IEventSubClient
 {
@@ -44,93 +38,66 @@ public sealed class EventSubClient(
 
         while (!ct.IsCancellationRequested)
         {
-            string? token;
-            try
-            {
-                token = await adminTokens.GetAsync(ct);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogWarning(ex, "Could not read the admin token; polling continues.");
-                schedule.SetPushStatus(PushStatus.Reconnecting);
-                try
-                {
-                    await Task.Delay(InitialBackoff, clock, ct);
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    break;
-                }
-
-                continue;
-            }
-
-            if (token is null)
-            {
-                schedule.SetPushStatus(PushStatus.NoAdminToken);
-                try
-                {
-                    await adminTokens.WaitForTokenAsync(ct);
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    logger.LogWarning(ex, "Waiting for the admin token failed; polling continues.");
-                    try
-                    {
-                        await Task.Delay(InitialBackoff, clock, ct);
-                    }
-                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                    {
-                        break;
-                    }
-                }
-
-                continue;
-            }
-
-            // The token exists, but no subscription is active until the session welcomes us.
-            schedule.SetPushStatus(PushStatus.Reconnecting);
-
-            using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            void Restart() => sessionCts.Cancel();
-
-            channels.SubscriptionsChanged += Restart;
-            adminTokens.Changed += Restart;
-
             var state = new SessionState();
+            IEventSubSessionBinding? session;
             try
             {
-                await RunSessionAsync(token, route, BaseUri, state, sessionCts.Token);
+                session = await binding.BeginSessionAsync(ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 break;
-            }
-            catch (OperationCanceledException) when (sessionCts.IsCancellationRequested)
-            {
-                // Channel/token change: reconnect and recompute subscriptions.
-            }
-            catch (EventSubRestartException ex)
-            {
-                logger.LogWarning("EventSub restart: {Reason}", ex.Message);
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "EventSub session failed.");
-            }
-            finally
-            {
-                channels.SubscriptionsChanged -= Restart;
-                adminTokens.Changed -= Restart;
+                logger.LogWarning(ex, "EventSub could not start a session; polling continues.");
                 schedule.SetPushStatus(PushStatus.Reconnecting);
+                session = null;
+                state.SetupFailed = true;
+            }
+
+            if (session is not null)
+            {
+                // Setup succeeded, but no subscription delivers until the session welcomes us.
+                schedule.SetPushStatus(PushStatus.Reconnecting);
+
+                using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                void Restart() => sessionCts.Cancel();
+
+                channels.SubscriptionsChanged += Restart;
+                binding.RestartRequested += Restart;
+
+                try
+                {
+                    await RunSessionAsync(session, route, BaseUri, state, sessionCts.Token);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (OperationCanceledException) when (sessionCts.IsCancellationRequested)
+                {
+                    // Channel/binding change: reconnect and recompute subscriptions.
+                }
+                catch (EventSubRestartException ex)
+                {
+                    logger.LogWarning("EventSub restart: {Reason}", ex.Message);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "EventSub session failed.");
+                }
+                finally
+                {
+                    channels.SubscriptionsChanged -= Restart;
+                    binding.RestartRequested -= Restart;
+                    schedule.SetPushStatus(PushStatus.Reconnecting);
+                }
+            }
+            else if (!state.SetupFailed)
+            {
+                // The binding already waited (for example for an admin token).
+                continue;
             }
 
             if (state.HadSubscriptions)
@@ -155,7 +122,7 @@ public sealed class EventSubClient(
     }
 
     private async Task RunSessionAsync(
-        string token,
+        IEventSubSessionBinding session,
         StreamObservationRoute route,
         Uri uri,
         SessionState state,
@@ -210,8 +177,11 @@ public sealed class EventSubClient(
                             throw new EventSubRestartException("reconnect handoff timed out");
 
                         // Throws when the new socket failed; the session then restarts fresh.
-                        TimeSpan? keepalive = await handoff.Welcomed;
+                        (string newSessionId, TimeSpan? keepalive) = await handoff.Welcomed;
                         state.Keepalive = keepalive ?? state.Keepalive;
+
+                        // Bind the new session while the old socket is still open.
+                        await session.OnReconnectedAsync(newSessionId, ct);
 
                         IEventSubSocket old = socket;
                         socket = await handoff.TakeSocketAsync();
@@ -237,7 +207,7 @@ public sealed class EventSubClient(
                     continue;
                 }
 
-                Uri? reconnectUrl = await HandleMessageAsync(message, token, route, state, ct);
+                Uri? reconnectUrl = await HandleMessageAsync(message, session, route, state, ct);
                 if (reconnectUrl is null)
                     continue;
 
@@ -264,7 +234,7 @@ public sealed class EventSubClient(
 
     /// <summary>
     /// Opens the reconnect socket and waits for its <c>session_welcome</c>, while the caller keeps
-    /// reading the old socket. Subscriptions move with the session, so nothing is re-subscribed.
+    /// reading the old socket. The binding decides what the new session needs; WebSocket subscriptions move with it.
     /// </summary>
     private ReconnectHandoff StartHandoff(Uri reconnectUrl, CancellationToken ct)
     {
@@ -273,7 +243,8 @@ public sealed class EventSubClient(
         {
             Task deadline = Task.Delay(ReconnectGrace, clock, cts.Token);
             IEventSubSocket socket = socketFactory.Create();
-            Task<TimeSpan?> welcomed = ReceiveHandoffWelcomeAsync(socket, reconnectUrl, cts.Token);
+            Task<(string SessionId, TimeSpan? Keepalive)> welcomed =
+                ReceiveHandoffWelcomeAsync(socket, reconnectUrl, cts.Token);
             return new ReconnectHandoff(socket, welcomed, deadline, cts);
         }
         catch
@@ -283,8 +254,10 @@ public sealed class EventSubClient(
         }
     }
 
-    /// <returns>The new session's keepalive, or null when the welcome does not state one.</returns>
-    private static async Task<TimeSpan?> ReceiveHandoffWelcomeAsync(
+    /// <returns>
+    /// The new session's ID and keepalive; the keepalive is null when the welcome does not state one.
+    /// </returns>
+    private static async Task<(string SessionId, TimeSpan? Keepalive)> ReceiveHandoffWelcomeAsync(
         IEventSubSocket socket, Uri reconnectUrl, CancellationToken ct)
     {
         await socket.ConnectAsync(reconnectUrl, ct);
@@ -303,7 +276,7 @@ public sealed class EventSubClient(
                     "reconnect connection did not start with session_welcome");
             }
 
-            return ReadWelcome(root.GetProperty("payload")).Keepalive;
+            return ReadWelcome(root.GetProperty("payload"));
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException
             or InvalidOperationException)
@@ -330,7 +303,7 @@ public sealed class EventSubClient(
     /// <returns>The reconnect URL when Twitch sent <c>session_reconnect</c>; otherwise null.</returns>
     private async Task<Uri?> HandleMessageAsync(
         string message,
-        string token,
+        IEventSubSessionBinding session,
         StreamObservationRoute route,
         SessionState state,
         CancellationToken ct)
@@ -359,7 +332,7 @@ public sealed class EventSubClient(
                     (string sessionId, TimeSpan? keepalive) = ReadWelcome(payload);
                     state.Keepalive = keepalive ?? DefaultKeepalive;
 
-                    int covered = await SubscribeAllAsync(sessionId, token, ct);
+                    int covered = await session.OnWelcomeAsync(sessionId, ct);
                     state.HadSubscriptions |= covered > 0;
                     return null;
 
@@ -372,7 +345,8 @@ public sealed class EventSubClient(
 
                 case "session_reconnect":
                     // Push coverage is unchanged: the old socket keeps delivering until the
-                    // new one is welcomed, and subscriptions move with the session.
+                    // new one is welcomed, and the binding carries subscriptions over
+                    // (WebSocket: they move with the session; conduit: the shard is rebound).
                     string? reconnect = payload.TryGetProperty("session", out JsonElement reconnectSession)
                         && reconnectSession.TryGetProperty("reconnect_url", out JsonElement url)
                             ? url.GetString()
@@ -387,114 +361,11 @@ public sealed class EventSubClient(
                     return new Uri(reconnect);
 
                 case "revocation":
-                    schedule.SetPushStatus(PushStatus.Reconnecting);
-                    logger.LogWarning(
-                        "EventSub subscription was revoked; reconnecting.");
-                    throw new EventSubRestartException("subscription revoked");
+                    session.OnRevocation(payload);
+                    return null;
             }
 
             return null;
-        }
-    }
-
-    private async Task<int> SubscribeAllAsync(
-        string sessionId, string token, CancellationToken ct)
-    {
-        ChannelEntry[] watched = channels.Snapshot.ToArray();
-        int covered = 0;
-
-        foreach (ChannelEntry channel in watched)
-        {
-            if (channel.UserId is null)
-                continue;
-
-            SubscriptionResult online = await SubscribeAsync(
-                sessionId, token, channel, "stream.online", ct);
-            SubscriptionResult offline = await SubscribeAsync(
-                sessionId, token, channel, "stream.offline", ct);
-
-            if (online == SubscriptionResult.Failed || offline == SubscriptionResult.Failed)
-            {
-                schedule.SetPushStatus(PushStatus.Reconnecting);
-                throw new EventSubRestartException(
-                    $"subscription request failed for {channel.Login}");
-            }
-
-            if (online == SubscriptionResult.Active && offline == SubscriptionResult.Active)
-                covered++;
-        }
-
-        if (covered == 0 && watched.Length == 0)
-            logger.LogInformation("EventSub has no watched channels to cover.");
-
-        schedule.SetPushStatus(
-            watched.Length == 0 ? PushStatus.PollingOnly
-            : covered == watched.Length ? PushStatus.AllConnected
-            : PushStatus.PartialCoverage);
-        logger.LogInformation(
-            "EventSub push coverage: {Covered}/{Total} channels.",
-            covered,
-            watched.Length);
-        return covered;
-    }
-
-    private async Task<SubscriptionResult> SubscribeAsync(
-        string sessionId,
-        string token,
-        ChannelEntry channel,
-        string type,
-        CancellationToken ct)
-    {
-        var body = new EventSubSubscriptionRequest(
-            type,
-            "1",
-            new EventSubCondition(channel.UserId!),
-            new EventSubTransport("websocket", sessionId));
-
-        try
-        {
-            using HttpClient http = httpFactory.CreateClient(TwitchHttpClients.Helix);
-            using var request = new HttpRequestMessage(
-                HttpMethod.Post, "helix/eventsub/subscriptions")
-            {
-                Content = JsonContent.Create(
-                    body, TwitchJsonContext.Default.EventSubSubscriptionRequest),
-            };
-            request.Headers.Add("Client-Id", options.Value.ClientId);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-            using HttpResponseMessage response = await http.SendAsync(request, ct);
-            if (response.StatusCode == HttpStatusCode.Conflict || response.IsSuccessStatusCode)
-                return SubscriptionResult.Active;
-
-            if (response.StatusCode == HttpStatusCode.Unauthorized
-                || response.StatusCode == HttpStatusCode.TooManyRequests
-                || (int)response.StatusCode >= 500)
-            {
-                logger.LogWarning(
-                    "EventSub subscription {Type} for {Login} failed with HTTP {Status}.",
-                    type,
-                    channel.Login,
-                    (int)response.StatusCode);
-                return SubscriptionResult.Failed;
-            }
-
-            logger.LogWarning(
-                "EventSub subscription {Type} for {Login} was refused with HTTP {Status}.",
-                type,
-                channel.Login,
-                (int)response.StatusCode);
-            return SubscriptionResult.Refused;
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(
-                ex, "EventSub subscription {Type} for {Login} failed.", type, channel.Login);
-            return SubscriptionResult.Failed;
         }
     }
 
@@ -582,16 +453,8 @@ public sealed class EventSubClient(
     {
         public TimeSpan Keepalive { get; set; } = DefaultKeepalive;
         public bool HadSubscriptions { get; set; }
+        public bool SetupFailed { get; set; }
     }
-
-    private enum SubscriptionResult
-    {
-        Active,
-        Refused,
-        Failed,
-    }
-
-    private sealed class EventSubRestartException(string message) : Exception(message);
 
     /// <summary>
     /// A reconnect socket waiting for its <c>session_welcome</c>, bounded by Twitch's grace period.
@@ -599,13 +462,13 @@ public sealed class EventSubClient(
     /// </summary>
     private sealed class ReconnectHandoff(
         IEventSubSocket socket,
-        Task<TimeSpan?> welcomed,
+        Task<(string SessionId, TimeSpan? Keepalive)> welcomed,
         Task deadline,
         CancellationTokenSource cts) : IAsyncDisposable
     {
         private IEventSubSocket? _socket = socket;
 
-        public Task<TimeSpan?> Welcomed { get; } = welcomed;
+        public Task<(string SessionId, TimeSpan? Keepalive)> Welcomed { get; } = welcomed;
 
         public Task Deadline { get; } = deadline;
 

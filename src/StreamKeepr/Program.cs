@@ -122,6 +122,7 @@ else
     builder.Services.AddSingleton<TwitchTokenProvider>();
     builder.Services.AddSingleton<IStreamPoller, TwitchStreamPoller>();
     builder.Services.AddSingleton<IEventSubSocketFactory, ClientWebSocketEventSubSocketFactory>();
+    builder.Services.AddSingleton<IEventSubBinding, WebSocketEventSubBinding>();
     builder.Services.AddSingleton<IEventSubClient, EventSubClient>();
 }
 
