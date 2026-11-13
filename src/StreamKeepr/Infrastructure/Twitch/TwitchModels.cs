@@ -46,3 +46,17 @@ internal sealed record EventSubCondition(
 internal sealed record EventSubTransport(
     [property: JsonPropertyName("method")] string Method,
     [property: JsonPropertyName("session_id")] string SessionId);
+
+internal sealed record HelixEventSubSubscriptionsResponse(
+    [property: JsonPropertyName("data")] List<HelixEventSubSubscription>? Data);
+
+internal sealed record HelixEventSubSubscription(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("condition")] EventSubCondition? Condition,
+    [property: JsonPropertyName("transport")] HelixEventSubSubscriptionTransport? Transport);
+
+internal sealed record HelixEventSubSubscriptionTransport(
+    [property: JsonPropertyName("method")] string Method,
+    [property: JsonPropertyName("session_id")] string? SessionId);

@@ -607,22 +607,7 @@ public sealed class EventSubClient(
         if (attempt.Result != SubscriptionResult.Unauthorized)
             return attempt;
 
-        string? refreshed;
-        try
-        {
-            refreshed = await adminTokens.RefreshAsync(ct);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(
-                ex, "EventSub admin-token refresh failed for {Login}.", channel.Login);
-            return attempt with { Result = SubscriptionResult.Failed };
-        }
-
+        string? refreshed = await RefreshAdminTokenAsync(channel.Login, ct);
         if (refreshed is null)
         {
             logger.LogWarning(
@@ -642,6 +627,130 @@ public sealed class EventSubClient(
         }
 
         return retry;
+    }
+
+    private async Task<string?> RefreshAdminTokenAsync(string login, CancellationToken ct)
+    {
+        try
+        {
+            return await adminTokens.RefreshAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex, "EventSub admin-token refresh failed for {Login}.", login);
+            return null;
+        }
+    }
+
+    private async Task<SubscriptionAttempt> VerifyConflictAsync(
+        string sessionId,
+        string token,
+        ChannelEntry channel,
+        string type,
+        CancellationToken ct)
+    {
+        (bool matched, bool unauthorized) = await QuerySessionOwnershipAsync(
+            token, channel.UserId!, sessionId, type, ct);
+
+        if (unauthorized)
+        {
+            string? refreshed = await RefreshAdminTokenAsync(channel.Login, ct);
+            if (refreshed is null)
+                return new SubscriptionAttempt(SubscriptionResult.Failed, token);
+
+            token = refreshed;
+            (matched, unauthorized) = await QuerySessionOwnershipAsync(
+                token, channel.UserId!, sessionId, type, ct);
+            if (unauthorized)
+            {
+                logger.LogError(
+                    "EventSub 409 verification for {Type} for {Login} still returned 401 after a forced token refresh.",
+                    type,
+                    channel.Login);
+                return new SubscriptionAttempt(SubscriptionResult.Failed, token);
+            }
+        }
+
+        return new SubscriptionAttempt(
+            matched ? SubscriptionResult.Active : SubscriptionResult.Refused,
+            token);
+    }
+
+    private async Task<(bool Matched, bool Unauthorized)> QuerySessionOwnershipAsync(
+        string token,
+        string userId,
+        string sessionId,
+        string type,
+        CancellationToken ct)
+    {
+        try
+        {
+            using HttpClient http = httpFactory.CreateClient(TwitchHttpClients.Helix);
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"helix/eventsub/subscriptions?user_id={Uri.EscapeDataString(userId)}");
+            request.Headers.Add("Client-Id", options.Value.ClientId);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var requestTimeout = new CancellationTokenSource(
+                SubscriptionRequestTimeout, clock);
+            using var requestCts = CancellationTokenSource.CreateLinkedTokenSource(
+                ct, requestTimeout.Token);
+            using HttpResponseMessage response = await http.SendAsync(request, requestCts.Token);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+                return (false, true);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning(
+                    "EventSub 409 verification for {Type} for user {UserId} failed with HTTP {Status}; leaving the channel uncovered.",
+                    type,
+                    userId,
+                    (int)response.StatusCode);
+                return (false, false);
+            }
+
+            HelixEventSubSubscriptionsResponse? payload = await response.Content.ReadFromJsonAsync(
+                TwitchJsonContext.Default.HelixEventSubSubscriptionsResponse, ct);
+            bool matched = payload?.Data?.Any(subscription =>
+                string.Equals(subscription.Status, "enabled", StringComparison.Ordinal)
+                && string.Equals(subscription.Type, type, StringComparison.Ordinal)
+                && subscription.Condition is { } condition
+                && string.Equals(condition.BroadcasterUserId, userId, StringComparison.Ordinal)
+                && subscription.Transport is { } transport
+                && string.Equals(transport.Method, "websocket", StringComparison.Ordinal)
+                && string.Equals(transport.SessionId, sessionId, StringComparison.Ordinal)) == true;
+
+            if (!matched)
+            {
+                logger.LogWarning(
+                    "EventSub 409 for {Type} for user {UserId} is not owned by session {SessionId}; leaving the channel uncovered.",
+                    type,
+                    userId,
+                    sessionId);
+            }
+
+            return (matched, false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "EventSub 409 verification for {Type} for user {UserId} failed; leaving the channel uncovered.",
+                type,
+                userId);
+            return (false, false);
+        }
     }
 
     private async Task<SubscriptionAttempt> SendSubscriptionAsync(
@@ -674,8 +783,11 @@ public sealed class EventSubClient(
             using var requestCts = CancellationTokenSource.CreateLinkedTokenSource(
                 ct, requestTimeout.Token);
             using HttpResponseMessage response = await http.SendAsync(request, requestCts.Token);
-            if (response.StatusCode == HttpStatusCode.Conflict || response.IsSuccessStatusCode)
+            if (response.IsSuccessStatusCode)
                 return new SubscriptionAttempt(SubscriptionResult.Active, token);
+
+            if (response.StatusCode == HttpStatusCode.Conflict)
+                return await VerifyConflictAsync(sessionId, token, channel, type, ct);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
                 return new SubscriptionAttempt(SubscriptionResult.Unauthorized, token);

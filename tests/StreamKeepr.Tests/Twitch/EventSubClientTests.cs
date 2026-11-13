@@ -87,28 +87,116 @@ public sealed class EventSubClientTests : IDisposable
     }
 
     [Fact]
-    public async Task Conflict_counts_as_covered_but_other_refusals_do_not()
+    public async Task Conflict_counts_as_covered_when_the_current_session_owns_it()
     {
-        var conflict = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        int count = 0;
+        int posts = 0;
         _httpHandler.Handler = request =>
         {
-            if (Interlocked.Increment(ref count) == 2)
-                conflict.TrySetResult();
+            if (request.Method == HttpMethod.Get)
+                return Task.FromResult(SubscriptionsResponse("session-1"));
+
+            Interlocked.Increment(ref posts);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict));
         };
 
         EventSubClient client = CreateClient();
         using var stop = new CancellationTokenSource();
         Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
-        Task coverageChanged = NextCoverageAsync();
+        Task allConnected = NextStatusAsync(PushStatus.AllConnected);
 
         await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
         _socketFactory.LastSocket!.Push(Welcome("session-1"));
-        await conflict.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await coverageChanged.WaitAsync(TimeSpan.FromSeconds(5));
+        await allConnected.WaitAsync(TimeSpan.FromSeconds(5));
+
         Assert.True(_schedule.IsPushConnected);
+        Assert.Equal(2, posts);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Conflict_on_a_stale_session_leaves_the_channel_uncovered()
+    {
+        _httpHandler.Handler = request =>
+        {
+            if (request.Method == HttpMethod.Get)
+                return Task.FromResult(SubscriptionsResponse("old-session"));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict));
+        };
+
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+        Task partial = NextStatusAsync(PushStatus.PartialCoverage);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket!.Push(Welcome("session-1"));
+        await partial.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(_schedule.IsPushConnected);
+        Assert.Single(_socketFactory.Sockets);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Conflict_verification_failure_leaves_the_channel_uncovered()
+    {
+        _httpHandler.Handler = request =>
+        {
+            if (request.Method == HttpMethod.Get)
+                return Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.InternalServerError));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict));
+        };
+
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+        Task partial = NextStatusAsync(PushStatus.PartialCoverage);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket!.Push(Welcome("session-1"));
+        await partial.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(_schedule.IsPushConnected);
+        Assert.Single(_socketFactory.Sockets);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Conflict_verification_401_refreshes_once_and_retries()
+    {
+        _httpHandler.Handler = request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                string auth = request.Headers.Authorization?.Parameter ?? "";
+                return Task.FromResult(auth == "admin-token"
+                    ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                    : SubscriptionsResponse("session-1"));
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict));
+        };
+
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+        Task allConnected = NextStatusAsync(PushStatus.AllConnected);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket!.Push(Welcome("session-1"));
+        await allConnected.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(_schedule.IsPushConnected);
+        Assert.Equal(1, _tokens.RefreshCount);
 
         stop.Cancel();
         await run.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1056,6 +1144,23 @@ public sealed class EventSubClientTests : IDisposable
         + "\"event\":{\"id\":\"987\",\"broadcaster_user_id\":\"123\","
         + (streamType is null ? "" : "\"type\":\"" + streamType + "\",")
         + "\"started_at\":\"2026-11-10T16:30:00Z\"}}}";
+
+    private static HttpResponseMessage SubscriptionsResponse(string sessionId) =>
+        new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                "{\"data\":["
+                + SubscriptionJson("sub-online", "stream.online", sessionId) + ","
+                + SubscriptionJson("sub-offline", "stream.offline", sessionId)
+                + "]}",
+                Encoding.UTF8,
+                "application/json"),
+        };
+
+    private static string SubscriptionJson(string id, string type, string sessionId) =>
+        "{\"id\":\"" + id + "\",\"status\":\"enabled\",\"type\":\"" + type + "\","
+        + "\"condition\":{\"broadcaster_user_id\":\"123\"},"
+        + "\"transport\":{\"method\":\"websocket\",\"session_id\":\"" + sessionId + "\"}}";
 
     private sealed class NoJitter : IRetryJitter
     {
