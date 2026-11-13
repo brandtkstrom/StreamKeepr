@@ -56,33 +56,22 @@ public sealed class SettingsPageTests
 
 
     [Fact]
-    public void Push_status_and_each_channel_badge_reflect_the_channel_view()
+    public void Connection_status_replaces_push_status_and_each_badge_is_per_channel()
     {
         using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
         channels.Items =
         [
             new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected"),
-            new("bob", "Bob", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected"),
+            new("bob", "Bob", null, true, false, ChannelRuntimeState.Watching, false, "User ID not resolved yet"),
         ];
 
-        IRenderedComponent<ChannelSettings> connected = context.Render<ChannelSettings>();
+        IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
 
-        Assert.Equal("Push notifications on", connected.Find("[data-push-status]").TextContent);
-        Assert.Equal(2, connected.FindAll("[data-push='connected']").Count);
-
-        using BunitContext pollingContext = CreateContext(out TestChannelsView polling, signedIn: true);
-        polling.Items =
-        [
-            new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, false, "No admin token"),
-        ];
-
-        IRenderedComponent<ChannelSettings> notConnected = pollingContext.Render<ChannelSettings>();
-
-        Assert.Equal(
-            "Polling only — No admin token",
-            notConnected.Find("[data-push-status]").TextContent);
-        Assert.Single(notConnected.FindAll("[data-push='polling']"));
-        Assert.Contains("No admin token", notConnected.Find("[data-push='polling']").GetAttribute("title"));
+        Assert.Equal("Connection status", cut.Find("[data-connection-status] h2").TextContent);
+        Assert.Empty(cut.FindAll("[data-push-status]"));
+        Assert.Equal("ann", cut.Find("[data-push='connected']").Closest("[data-channel]")!.GetAttribute("data-channel"));
+        Assert.Equal("bob", cut.Find("[data-push='polling']").Closest("[data-channel]")!.GetAttribute("data-channel"));
+        Assert.Contains("User ID not resolved yet", cut.Find("[data-push='polling']").GetAttribute("title"));
     }
 
     [Fact]
@@ -255,6 +244,15 @@ public sealed class SettingsPageTests
         context.Services.AddSingleton<AntiforgeryStateProvider>(new FixedAntiforgery());
         channels = new TestChannelsView();
         context.Services.AddSingleton<IChannelsView>(channels);
+        context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider());
+        context.Services.AddSingleton<IConnectionStatusView>(new TestConnectionStatusView
+        {
+            Status = new ConnectionStatus(
+                "WebSocket", EventSubConnection.Connected, 2, 2,
+                Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy, "2 channels watched.",
+                DateTimeOffset.UnixEpoch, null, DateTimeOffset.UnixEpoch, null, null, null,
+                TimeSpan.FromSeconds(30)),
+        });
 
         BunitAuthorizationContext auth = context.AddAuthorization();
         if (signedIn)

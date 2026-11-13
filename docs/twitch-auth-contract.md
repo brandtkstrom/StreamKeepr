@@ -57,8 +57,8 @@ public sealed class TwitchTokenProvider(
 - Poller interval: burst 10 s; otherwise `IsPushConnected ? withPush : normal`.
 - Any channel recording or waiting to retry forces the short interval.
 - Partial coverage is not “push connected”: if any watched channel lacks a subscription, poll every 30 s.
-- `LastPollAt` updates after each tick; health uses it.
-- `SetPushStatus(PushStatus)` updates coverage and carries the reason: `EventSub connected`, `No admin token`, `Partial coverage`, `EventSub reconnecting`, or `Polling only`.
+- `LastPollAt` updates after each tick; health uses it. `Polled(succeeded, roundTrip)` also stamps `LastSuccessfulPollAt` with the same instant when every `/streams` batch succeeded (or there was nothing to poll), and records `LastApiRoundTrip` when Helix was called. `EventSubMessageReceived()` records `LastEventSubMessageAt` for every EventSub message, keepalives included. `CurrentInterval` is the interval the last wait chose. None of these raise `Changed`.
+- `SetPushStatus(PushStatus)` updates coverage and carries the reason: `EventSub connected`, `No admin token`, `Partial coverage`, `EventSub reconnecting`, or `Polling only`. A status from `PushStatus.FromCoverage(coveredLogins, watched)` also carries `CoveredLogins` and `Watched`, so the UI can show per-channel push and “N of M”. Statuses compare by state, watched count, and covered set.
 
 ## 5. EventSub
 

@@ -17,6 +17,8 @@ public sealed class MockEventSubClient(
 {
     private static readonly TimeSpan BurstDuration = TimeSpan.FromSeconds(10);
 
+    public string Transport => "Mock";
+
     public async Task RunAsync(StreamObservationRoute route, CancellationToken ct)
     {
         // The Mock profile is a working fake EventSub: push arrives through MockTwitch.
@@ -44,9 +46,11 @@ public sealed class MockEventSubClient(
         }
     }
 
-    private void UpdatePushStatus() =>
-        schedule.SetPushStatus(
-            channels.Snapshot.Count == 0
-                ? PushStatus.PollingOnly
-                : PushStatus.AllConnected);
+    // Every watched channel counts as covered: mock pushes need no subscriptions.
+    private void UpdatePushStatus()
+    {
+        IReadOnlyList<ChannelEntry> watched = channels.Snapshot;
+        schedule.SetPushStatus(PushStatus.FromCoverage(
+            watched.Select(channel => channel.Login), watched.Count));
+    }
 }

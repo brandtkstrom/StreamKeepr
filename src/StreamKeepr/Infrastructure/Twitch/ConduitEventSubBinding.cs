@@ -23,6 +23,8 @@ public sealed class ConduitEventSubBinding(
     // make the next session create (and leak) another conduit.
     private string? _conduitId;
 
+    public string Transport => nameof(EventSubTransportMode.Conduit);
+
     /// <summary>Never raised: the app token does not depend on admin sign-in.</summary>
     public event Action? RestartRequested
     {
@@ -137,19 +139,21 @@ public sealed class ConduitEventSubBinding(
             active.UnionWith(ConduitSubscriptionPlan.For(userIds, after.Subscriptions).Active);
         }
 
-        int covered = watched.Count(channel =>
-            channel.UserId is { } id && ConduitSubscriptionPlan.Covers(active, id));
+        string[] covered = watched
+            .Where(channel => channel.UserId is { } id && ConduitSubscriptionPlan.Covers(active, id))
+            .Select(channel => channel.Login)
+            .ToArray();
         schedule.SetPushStatus(PushStatus.FromCoverage(covered, watched.Length));
         logger.LogInformation(
             "EventSub conduit push coverage: {Covered}/{Total} channels "
             + "(created {Created}, deleted {Deleted}; cost before changes {TotalCost}/{MaxTotalCost}).",
-            covered,
+            covered.Length,
             watched.Length,
             plan.ToCreate.Count,
             plan.ToDelete.Count,
             current.TotalCost,
             current.MaxTotalCost);
-        return covered;
+        return covered.Length;
     }
 
     private async Task RebindAsync(string conduitId, string sessionId, CancellationToken ct)
@@ -189,11 +193,21 @@ public sealed class ConduitEventSubBinding(
             broadcasterId,
             status);
 
-        // Without a broadcaster ID we cannot tell which channel lost push, so assume a watched one.
-        bool watched = broadcasterId is null
-            || channels.Snapshot.Any(channel => channel.UserId == broadcasterId);
-        if (watched && schedule.IsPushConnected)
-            schedule.SetPushStatus(PushStatus.PartialCoverage);
+        PushStatus current = schedule.Push;
+        ChannelEntry? revoked = broadcasterId is null
+            ? null
+            : channels.Snapshot.FirstOrDefault(channel => channel.UserId == broadcasterId);
+        if (revoked is not null && current.Covers(revoked.Login))
+        {
+            schedule.SetPushStatus(PushStatus.FromCoverage(
+                current.CoveredLogins.Where(login => login != revoked.Login), current.Watched));
+        }
+        else if (broadcasterId is null && current.Covered > 0)
+        {
+            // Without a broadcaster ID we cannot tell which channel lost push, so trust none of
+            // them until the next session reconciles; polling already covers every channel.
+            schedule.SetPushStatus(PushStatus.FromCoverage([], current.Watched));
+        }
     }
 
     private static string? ReadString(JsonElement element, string name) =>

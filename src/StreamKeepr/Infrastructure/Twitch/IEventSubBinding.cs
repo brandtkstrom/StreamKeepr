@@ -9,6 +9,9 @@ namespace StreamKeepr.Infrastructure.Twitch;
 /// </summary>
 public interface IEventSubBinding
 {
+    /// <summary>The transport name for display, for example "WebSocket" or "Conduit".</summary>
+    string Transport { get; }
+
     /// <summary>Raised when the running session must restart for a binding-specific reason.</summary>
     event Action? RestartRequested;
 

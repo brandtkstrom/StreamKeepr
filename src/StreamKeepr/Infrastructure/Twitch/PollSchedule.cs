@@ -12,31 +12,78 @@ public enum PushState
     Connected,
 }
 
-/// <summary>One immutable push-status snapshot for the UI and health checks.</summary>
+/// <summary>
+/// One immutable push-status snapshot for the UI and health checks: the reason, how many
+/// channels are watched, and which of them (by login) have both push subscriptions.
+/// Equality compares the state, the watched count, and the covered set by value.
+/// </summary>
 public sealed record PushStatus(PushState State)
 {
+    private static readonly IReadOnlySet<string> None =
+        new HashSet<string>(StringComparer.Ordinal);
+
     public static PushStatus PollingOnly { get; } = new(PushState.PollingOnly);
     public static PushStatus NoAdminToken { get; } = new(PushState.NoAdminToken);
     public static PushStatus Reconnecting { get; } = new(PushState.EventSubReconnecting);
     public static PushStatus PartialCoverage { get; } = new(PushState.PartialCoverage);
     public static PushStatus AllConnected { get; } = new(PushState.Connected);
 
+    /// <summary>Logins with active stream.online and stream.offline subscriptions.</summary>
+    public IReadOnlySet<string> CoveredLogins { get; init; } = None;
+
+    /// <summary>Watched channels when coverage was last computed; 0 when unknown.</summary>
+    public int Watched { get; init; }
+
+    public int Covered => CoveredLogins.Count;
+
+    /// <summary>The reason a fully covered channel reports.</summary>
+    public const string ConnectedReason = "EventSub connected";
+
     public bool Connected => State == PushState.Connected;
 
+    /// <summary>
+    /// An EventSub session is up and has reported coverage (full or partial). False when
+    /// coverage was computed without a socket, for example while no channel is resolved.
+    /// </summary>
+    public bool HasSession =>
+        _sessionOpen && State is PushState.Connected or PushState.PartialCoverage;
+
+    private bool _sessionOpen = true;
+
+    public bool Covers(string login) => CoveredLogins.Contains(login);
+
     /// <summary>All-or-nothing coverage (contract §4): connected only when every watched channel is covered.</summary>
-    public static PushStatus FromCoverage(int covered, int watched)
+    /// <param name="sessionOpen">False when no EventSub socket is open (nothing could be subscribed).</param>
+    public static PushStatus FromCoverage(
+        IEnumerable<string> coveredLogins, int watched, bool sessionOpen = true)
     {
-        ArgumentOutOfRangeException.ThrowIfNegative(covered);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(covered, watched);
-        return watched == 0 ? PollingOnly
-            : covered == watched ? AllConnected
-            : PartialCoverage;
+        ArgumentNullException.ThrowIfNull(coveredLogins);
+        var covered = new HashSet<string>(coveredLogins, StringComparer.Ordinal);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(covered.Count, watched);
+        PushState state = watched == 0 ? PushState.PollingOnly
+            : covered.Count == watched ? PushState.Connected
+            : PushState.PartialCoverage;
+        return new PushStatus(state)
+        {
+            CoveredLogins = covered,
+            Watched = watched,
+            _sessionOpen = sessionOpen,
+        };
     }
+
+    public bool Equals(PushStatus? other) =>
+        other is not null
+        && State == other.State
+        && Watched == other.Watched
+        && HasSession == other.HasSession
+        && CoveredLogins.SetEquals(other.CoveredLogins);
+
+    public override int GetHashCode() => HashCode.Combine(State, Watched, Covered);
 
     /// <summary>The stable user-facing reason from backend-for-UI contract §3.</summary>
     public string Reason => State switch
     {
-        PushState.Connected => "EventSub connected",
+        PushState.Connected => ConnectedReason,
         PushState.NoAdminToken => "No admin token",
         PushState.PartialCoverage => "Partial coverage",
         PushState.EventSubReconnecting => "EventSub reconnecting",
@@ -58,6 +105,12 @@ public sealed class PollSchedule(TimeProvider clock)
     private volatile PushStatus _push = PushStatus.PollingOnly;
     private long _lastPollTicks = clock.GetUtcNow().UtcTicks;
     private long _burstUntilTicks;
+
+    // Liveness detail for the Settings page. 0 means "not yet"; none of these raise Changed.
+    private long _lastEventSubMessageTicks;
+    private long _lastSuccessfulPollTicks;
+    private long _lastApiRoundTripTicks = -1;
+    private long _currentIntervalTicks;
 
     public PushStatus Push => _push;
 
@@ -98,8 +151,50 @@ public sealed class PollSchedule(TimeProvider clock)
         Nudge();
     }
 
-    public void Polled() =>
-        Interlocked.Exchange(ref _lastPollTicks, clock.GetUtcNow().UtcTicks);
+    /// <summary>
+    /// A poll attempt finished. Health uses <see cref="LastPollAt"/> for liveness. A successful
+    /// poll (every Helix <c>/streams</c> batch answered, or nothing to ask) also stamps
+    /// <see cref="LastSuccessfulPollAt"/> with the same instant; <paramref name="roundTrip"/> is
+    /// the Helix time when requests were made.
+    /// </summary>
+    public void Polled(bool succeeded = true, TimeSpan? roundTrip = null)
+    {
+        if (roundTrip is { } elapsed)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(elapsed, TimeSpan.Zero);
+            Interlocked.Exchange(ref _lastApiRoundTripTicks, elapsed.Ticks);
+        }
+
+        long now = clock.GetUtcNow().UtcTicks;
+        if (succeeded)
+            Interlocked.Exchange(ref _lastSuccessfulPollTicks, now);
+        Interlocked.Exchange(ref _lastPollTicks, now);
+    }
+
+    /// <summary>Any EventSub message arrived, keepalives included.</summary>
+    public void EventSubMessageReceived() =>
+        Interlocked.Exchange(ref _lastEventSubMessageTicks, clock.GetUtcNow().UtcTicks);
+
+    public DateTimeOffset? LastSuccessfulPollAt => At(ref _lastSuccessfulPollTicks);
+
+    public DateTimeOffset? LastEventSubMessageAt => At(ref _lastEventSubMessageTicks);
+
+    /// <summary>Round trip of the last fully successful poll's Helix requests.</summary>
+    public TimeSpan? LastApiRoundTrip =>
+        Interlocked.Read(ref _lastApiRoundTripTicks) is var ticks and >= 0
+            ? TimeSpan.FromTicks(ticks)
+            : null;
+
+    /// <summary>The interval the most recent <see cref="WaitAsync"/> chose; null before the first.</summary>
+    public TimeSpan? CurrentInterval =>
+        Interlocked.Read(ref _currentIntervalTicks) is var ticks and > 0
+            ? TimeSpan.FromTicks(ticks)
+            : null;
+
+    private static DateTimeOffset? At(ref long ticks) =>
+        Interlocked.Read(ref ticks) is var value and > 0
+            ? new DateTimeOffset(value, TimeSpan.Zero)
+            : null;
 
     /// <summary>
     /// Waits for the next tick. <paramref name="withPush"/> is used only when all channels
@@ -117,6 +212,7 @@ public sealed class PollSchedule(TimeProvider clock)
                 : _push.Connected
                     ? withPush
                     : normal;
+        Interlocked.Exchange(ref _currentIntervalTicks, interval.Ticks);
 
         using var timeout = new CancellationTokenSource(interval, clock);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);

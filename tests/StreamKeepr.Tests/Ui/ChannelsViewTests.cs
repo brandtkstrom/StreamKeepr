@@ -92,10 +92,10 @@ public sealed class ChannelsViewTests : IDisposable
     }
 
     [Fact]
-    public async Task Every_channel_reports_the_global_push_status_and_reason()
+    public async Task Without_a_session_every_channel_reports_the_global_reason()
     {
         using ChannelsView view = await CreateAsync(signedIn: true);
-        await _channels.AddAsync("ann", default);
+        await _channels.AddAsync(new ChannelEntry("ann", UserId: "1"), default);
 
         Assert.False(view.All.Single().PushConnected);
         Assert.Equal("Polling only", view.All.Single().PushReason);
@@ -104,15 +104,30 @@ public sealed class ChannelsViewTests : IDisposable
         Assert.False(view.All.Single().PushConnected);
         Assert.Equal("No admin token", view.All.Single().PushReason);
 
-        _schedule.SetPushStatus(PushStatus.PartialCoverage);
-        Assert.Equal("Partial coverage", view.All.Single().PushReason);
-
         _schedule.SetPushStatus(PushStatus.Reconnecting);
+        Assert.False(view.All.Single().PushConnected);
         Assert.Equal("EventSub reconnecting", view.All.Single().PushReason);
+    }
 
-        _schedule.SetPushStatus(PushStatus.AllConnected);
-        Assert.True(view.All.Single().PushConnected);
-        Assert.Equal("EventSub connected", view.All.Single().PushReason);
+    [Fact]
+    public async Task Push_is_per_channel_once_a_session_reports_coverage()
+    {
+        using ChannelsView view = await CreateAsync(signedIn: true);
+        await _channels.AddAsync(new ChannelEntry("ann", UserId: "1", DisplayName: "Ann"), default);
+        await _channels.AddAsync(new ChannelEntry("bob", UserId: "2", DisplayName: "Bob"), default);
+        await _channels.AddAsync(new ChannelEntry("cat", DisplayName: "Cat"), default);
+
+        _schedule.SetPushStatus(PushStatus.FromCoverage(["ann"], watched: 3));
+
+        ChannelView[] all = view.All.ToArray();
+        Assert.Equal([true, false, false], all.Select(channel => channel.PushConnected));
+        Assert.Equal(
+            ["EventSub connected", "Not subscribed: refused or over capacity", "User ID not resolved yet"],
+            all.Select(channel => channel.PushReason));
+
+        // WebSocket mode waiting for a resolved channel: no socket, and the reason says why.
+        _schedule.SetPushStatus(PushStatus.FromCoverage([], watched: 3, sessionOpen: false));
+        Assert.Equal("User ID not resolved yet", view.All.Single(channel => channel.Login == "cat").PushReason);
     }
 
     [Fact]

@@ -19,6 +19,9 @@ public sealed class DvrHealthCheck(
     IOptions<RecorderOptions> recorder,
     TimeProvider clock) : IHealthCheck
 {
+    /// <summary>The registration name; the Settings page reads this check by name.</summary>
+    public const string Name = "dvr";
+
     public Task<HealthCheckResult> CheckHealthAsync(
         HealthCheckContext context, CancellationToken cancellationToken = default)
     {

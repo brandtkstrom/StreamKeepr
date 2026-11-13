@@ -296,6 +296,7 @@ public sealed class HelixPollerTests
             schedule,
             status,
             options,
+            clock,
             NullLogger<TwitchStreamPoller>.Instance);
 
         using var stop = new CancellationTokenSource();
@@ -352,7 +353,67 @@ public sealed class HelixPollerTests
         await run.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    [Fact]
+    public async Task A_successful_poll_records_its_round_trip_and_a_failed_one_does_not()
+    {
+        var clock = new FakeTimeProvider(
+            new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
+        var schedule = new PollSchedule(clock);
+        int polls = 0;
+        var handler = new StubHandler(request =>
+        {
+            if (request.RequestUri!.Host == "id.twitch.tv")
+                return Task.FromResult(Token());
+
+            if (Interlocked.Increment(ref polls) == 1)
+            {
+                clock.Advance(TimeSpan.FromMilliseconds(180));
+                return Task.FromResult(Streams("""{"data":[]}"""));
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        });
+        TwitchStreamPoller poller = CreatePoller(handler, clock, schedule);
+
+        using var stop = new CancellationTokenSource();
+        Task run = poller.RunAsync(
+            () => ["streamer"],
+            (_, _, _) => ValueTask.CompletedTask,
+            stop.Token);
+
+        await WaitUntilAsync(() => schedule.LastSuccessfulPollAt is not null);
+        DateTimeOffset succeededAt = schedule.LastSuccessfulPollAt!.Value;
+        Assert.Equal(TimeSpan.FromMilliseconds(180), schedule.LastApiRoundTrip);
+
+        clock.Advance(TimeSpan.FromSeconds(60));
+        await WaitUntilAsync(() => schedule.LastPollAt > succeededAt);
+        Assert.True(Volatile.Read(ref polls) >= 2, "the second poll reached Helix");
+        Assert.Equal(succeededAt, schedule.LastSuccessfulPollAt);
+        Assert.Equal(TimeSpan.FromMilliseconds(180), schedule.LastApiRoundTrip);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "condition not met within 5 s");
+            await Task.Delay(10);
+        }
+    }
+
     private static TwitchStreamPoller CreatePoller(StubHandler handler)
+    {
+        var clock = new FakeTimeProvider(
+            new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
+        return CreatePoller(handler, clock, new PollSchedule(clock));
+    }
+
+    private static TwitchStreamPoller CreatePoller(
+        StubHandler handler, FakeTimeProvider clock, PollSchedule schedule)
     {
         var factory = new StubHttpClientFactory(handler);
         var options = Options.Create(new TwitchOptions
@@ -361,15 +422,13 @@ public sealed class HelixPollerTests
             ClientSecret = "client-secret",
             PollIntervalSeconds = 60,
         });
-        var clock = new FakeTimeProvider(
-            new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
-
         return new TwitchStreamPoller(
             factory,
             new TwitchTokenProvider(factory, options, clock),
-            new PollSchedule(clock),
+            schedule,
             new DvrStatus(),
             options,
+            clock,
             NullLogger<TwitchStreamPoller>.Instance);
     }
 

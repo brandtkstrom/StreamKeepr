@@ -5,10 +5,7 @@
 @inject ILogger<ChannelSettings> Logger
 
 @* Rendered only for a signed-in admin. ChannelsView enforces the same rule on every call. *@
-<section class="sk-panel sk-settings-section" aria-labelledby="sk-settings-push">
-    <h2 id="sk-settings-push">Push status</h2>
-    <p class="body-medium" role="status" data-push-status>@PushStatusText</p>
-</section>
+<ConnectionStatusPanel />
 
 <section class="sk-panel sk-settings-section" aria-labelledby="sk-settings-channels">
     <h2 id="sk-settings-channels">Channels</h2>
@@ -163,22 +160,6 @@
     private ChannelView? _stop;
 
     private bool CanAdd => !_adding && !string.IsNullOrWhiteSpace(_login);
-
-    private string PushStatusText
-    {
-        get
-        {
-            if (_channels.Count == 0)
-                return "No channels watched.";
-
-            string? reason = _channels
-                .FirstOrDefault(channel => !channel.PushConnected)?.PushReason;
-            if (reason is null)
-                return "Push notifications on";
-
-            return $"Polling only — {reason}";
-        }
-    }
 
     private bool IsBusy(string login) =>
         _stopping.Contains(login) || _resuming.Contains(login);

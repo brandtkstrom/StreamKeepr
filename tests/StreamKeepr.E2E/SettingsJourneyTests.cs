@@ -17,7 +17,11 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
         await rows.First.WaitForAsync();
         Assert.True(await rows.CountAsync() >= 4, "the seeded channels are listed");
         Assert.Equal(0, await page.Locator("[data-channel='mock_wren']").CountAsync());
-        Assert.Equal("Push notifications on", await page.Locator("[data-push-status]").InnerTextAsync());
+        Assert.Equal("Mock", await page.Locator("[data-transport]").InnerTextAsync());
+        Assert.Equal(
+            "Connected",
+            await page.Locator("[data-connection]").GetAttributeAsync("data-connection"));
+        Assert.Equal("full", await page.Locator("[data-coverage]").GetAttributeAsync("data-coverage"));
         Assert.Equal(
             await rows.CountAsync(),
             await page.Locator("[data-push='connected']").CountAsync());

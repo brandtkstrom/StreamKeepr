@@ -19,6 +19,7 @@ public sealed class TwitchStreamPoller(
     PollSchedule schedule,
     DvrStatus status,
     IOptions<TwitchOptions> options,
+    TimeProvider clock,
     ILogger<TwitchStreamPoller> logger) : IStreamPoller
 {
     public async Task RunAsync(
@@ -39,10 +40,19 @@ public sealed class TwitchStreamPoller(
                     .Distinct(StringComparer.Ordinal)
                     .ToArray();
 
+                bool succeeded = true;
+                TimeSpan? roundTrip = null;
                 if (channels.Count > 0)
                 {
+                    long started = clock.GetTimestamp();
                     IReadOnlyDictionary<string, StreamObservation> observed =
                         await ObserveAsync(channels, ct);
+
+                    // Unknown only comes from a failed batch; the round trip is for the UI.
+                    succeeded = observed.Values.All(
+                        observation => observation is not StreamObservation.Unknown);
+                    if (succeeded)
+                        roundTrip = clock.GetElapsedTime(started);
 
                     foreach ((string login, StreamObservation observation) in observed)
                         await route(login, observation, ct);
@@ -52,7 +62,7 @@ public sealed class TwitchStreamPoller(
                     snapshot => snapshot.State is DvrState.Recording
                         or DvrState.WaitingToRetry);
 
-                schedule.Polled();
+                schedule.Polled(succeeded, roundTrip);
                 await schedule.WaitAsync(
                     normal, recording ? normal : withPush, ct);
             }

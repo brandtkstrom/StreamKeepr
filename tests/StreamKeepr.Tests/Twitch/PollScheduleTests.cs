@@ -136,11 +136,114 @@ public sealed class PollScheduleTests
     [InlineData(1, 2, PushState.PartialCoverage)]
     [InlineData(2, 2, PushState.Connected)]
     public void Coverage_is_all_or_nothing(int covered, int watched, PushState expected) =>
-        Assert.Equal(expected, PushStatus.FromCoverage(covered, watched).State);
+        Assert.Equal(expected, PushStatus.FromCoverage(Logins(covered), watched).State);
 
     [Fact]
     public void Coverage_rejects_more_covered_than_watched() =>
-        Assert.Throws<ArgumentOutOfRangeException>(() => PushStatus.FromCoverage(3, 2));
+        Assert.Throws<ArgumentOutOfRangeException>(() => PushStatus.FromCoverage(Logins(3), 2));
+
+    [Fact]
+    public void Coverage_carries_which_channels_are_covered()
+    {
+        PushStatus status = PushStatus.FromCoverage(["ann", "bob"], watched: 3);
+
+        Assert.Equal(2, status.Covered);
+        Assert.Equal(3, status.Watched);
+        Assert.True(status.Covers("ann"));
+        Assert.False(status.Covers("cat"));
+        Assert.False(PushStatus.Reconnecting.Covers("ann"));
+    }
+
+    [Fact]
+    public void Push_statuses_compare_by_state_counts_and_covered_channels()
+    {
+        Assert.Equal(PushStatus.FromCoverage(["ann", "bob"], 2), PushStatus.FromCoverage(["bob", "ann"], 2));
+        Assert.Equal(
+            PushStatus.FromCoverage(["ann"], 2).GetHashCode(),
+            PushStatus.FromCoverage(["ann"], 2).GetHashCode());
+        Assert.NotEqual(PushStatus.FromCoverage(["ann"], 2), PushStatus.FromCoverage(["bob"], 2));
+        Assert.NotEqual(PushStatus.FromCoverage(["ann"], 1), PushStatus.AllConnected);
+        Assert.NotEqual(
+            PushStatus.FromCoverage([], 2, sessionOpen: false), PushStatus.FromCoverage([], 2));
+    }
+
+    [Fact]
+    public void Coverage_without_an_open_socket_has_no_session()
+    {
+        Assert.True(PushStatus.FromCoverage([], 2).HasSession);
+        Assert.False(PushStatus.FromCoverage([], 2, sessionOpen: false).HasSession);
+        Assert.Equal(
+            PushState.PartialCoverage, PushStatus.FromCoverage([], 2, sessionOpen: false).State);
+        Assert.False(PushStatus.Reconnecting.HasSession);
+    }
+
+    [Fact]
+    public void Liveness_timestamps_are_recorded_without_raising_changed()
+    {
+        var clock = NewClock();
+        var schedule = new PollSchedule(clock);
+        int changes = 0;
+        schedule.Changed += () => changes++;
+
+        Assert.Null(schedule.LastEventSubMessageAt);
+        Assert.Null(schedule.LastSuccessfulPollAt);
+        Assert.Null(schedule.LastApiRoundTrip);
+
+        clock.Advance(TimeSpan.FromSeconds(5));
+        schedule.EventSubMessageReceived();
+        Assert.Equal(clock.GetUtcNow(), schedule.LastEventSubMessageAt);
+
+        clock.Advance(TimeSpan.FromSeconds(5));
+        schedule.Polled(succeeded: false);
+        Assert.Equal(clock.GetUtcNow(), schedule.LastPollAt);
+        Assert.Null(schedule.LastSuccessfulPollAt);
+
+        clock.Advance(TimeSpan.FromSeconds(5));
+        schedule.Polled(succeeded: true, roundTrip: TimeSpan.FromMilliseconds(180));
+        Assert.Equal(schedule.LastPollAt, schedule.LastSuccessfulPollAt);
+        Assert.Equal(TimeSpan.FromMilliseconds(180), schedule.LastApiRoundTrip);
+
+        // Nothing to ask Helix: a success that keeps the previous round trip.
+        clock.Advance(TimeSpan.FromSeconds(5));
+        schedule.Polled();
+        Assert.Equal(clock.GetUtcNow(), schedule.LastSuccessfulPollAt);
+        Assert.Equal(TimeSpan.FromMilliseconds(180), schedule.LastApiRoundTrip);
+        Assert.Equal(0, changes);
+    }
+
+    [Fact]
+    public void A_negative_round_trip_is_rejected() =>
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new PollSchedule(NewClock()).Polled(roundTrip: TimeSpan.FromMilliseconds(-1)));
+
+    [Fact]
+    public async Task Current_interval_reports_the_cadence_the_last_wait_chose()
+    {
+        var clock = NewClock();
+        var schedule = new PollSchedule(clock);
+        Assert.Null(schedule.CurrentInterval);
+
+        Task wait = schedule.WaitAsync(Normal, WithPush, CancellationToken.None);
+        Assert.Equal(Normal, schedule.CurrentInterval);
+        schedule.Nudge();
+        await wait.WaitAsync(TimeSpan.FromSeconds(1));
+
+        schedule.SetPushStatus(PushStatus.FromCoverage(["ann"], 1));
+        wait = schedule.WaitAsync(Normal, WithPush, CancellationToken.None);
+        Assert.Equal(WithPush, schedule.CurrentInterval);
+        schedule.Nudge();
+        await wait.WaitAsync(TimeSpan.FromSeconds(1));
+
+        schedule.Burst(TimeSpan.FromMinutes(3));
+        await Task.Yield();
+        wait = schedule.WaitAsync(Normal, WithPush, CancellationToken.None);
+        Assert.Equal(TimeSpan.FromSeconds(10), schedule.CurrentInterval);
+        schedule.Nudge();
+        await wait.WaitAsync(TimeSpan.FromSeconds(1));
+    }
+
+    private static string[] Logins(int count) =>
+        Enumerable.Range(0, count).Select(i => $"channel{i}").ToArray();
 
     private static FakeTimeProvider NewClock() =>
         new(new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));

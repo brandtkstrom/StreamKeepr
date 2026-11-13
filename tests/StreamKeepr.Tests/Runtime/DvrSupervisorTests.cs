@@ -102,6 +102,8 @@ public sealed class DvrSupervisorTests
 
     private sealed class NoopEventSubClient : IEventSubClient
     {
+        public string Transport => "Test";
+
         public async Task RunAsync(StreamObservationRoute route, CancellationToken ct)
         {
             try
