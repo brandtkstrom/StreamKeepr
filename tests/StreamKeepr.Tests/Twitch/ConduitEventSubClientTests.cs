@@ -150,6 +150,85 @@ public sealed class ConduitEventSubClientTests : IDisposable
     }
 
     [Fact]
+    public async Task Adding_a_channel_subscribes_it_and_keeps_existing_subscriptions()
+    {
+        await using Running run = Start();
+        await WelcomeAsync("session-1");
+        await WaitForPushAsync(PushState.Connected);
+        string[] before = _twitch.Subscriptions.Select(s => s.Id).ToArray();
+
+        AddChannel("second", "456");
+        await WelcomeAsync("session-2", socketNumber: 2);
+        await WaitForPushAsync(PushState.Connected);
+
+        Assert.Equal(
+            ["stream.offline/123", "stream.offline/456", "stream.online/123", "stream.online/456"],
+            _twitch.Subscriptions.Select(s => $"{s.Type}/{s.UserId}").Order());
+        Assert.Subset(_twitch.Subscriptions.Select(s => s.Id).ToHashSet(), before.ToHashSet());
+        Assert.Empty(_twitch.RequestsMatching(HttpMethod.Delete, "helix/eventsub/subscriptions"));
+        Assert.Equal("session-2", _twitch.ShardSessions[Assert.Single(_twitch.Conduits)]);
+    }
+
+    [Fact]
+    public async Task Removing_a_channel_deletes_only_its_subscriptions()
+    {
+        AddChannel("second", "456");
+        await using Running run = Start();
+        await WelcomeAsync("session-1");
+        await WaitForPushAsync(PushState.Connected);
+        int createsBefore = _twitch.RequestsMatching(HttpMethod.Post, "helix/eventsub/subscriptions").Length;
+
+        await _channels.RemoveAsync("second", CancellationToken.None);
+        await WelcomeAsync("session-2", socketNumber: 2);
+        await WaitForPushAsync(PushState.Connected);
+
+        Assert.Equal(
+            ["stream.offline/123", "stream.online/123"],
+            _twitch.Subscriptions.Select(s => $"{s.Type}/{s.UserId}").Order());
+        Assert.Equal(2, _twitch.RequestsMatching(HttpMethod.Delete, "helix/eventsub/subscriptions").Length);
+        Assert.Equal(
+            createsBefore,
+            _twitch.RequestsMatching(HttpMethod.Post, "helix/eventsub/subscriptions").Length);
+    }
+
+    [Fact]
+    public async Task Removing_the_last_channel_deletes_everything_and_falls_back_to_polling()
+    {
+        await using Running run = Start();
+        await WelcomeAsync("session-1");
+        await WaitForPushAsync(PushState.Connected);
+
+        await _channels.RemoveAsync("streamer", CancellationToken.None);
+        await WelcomeAsync("session-2", socketNumber: 2);
+        await WaitForPushAsync(PushState.PollingOnly);
+
+        Assert.Empty(_twitch.Subscriptions);
+        Assert.Single(_twitch.Conduits);
+    }
+
+    [Fact]
+    public async Task A_channel_is_subscribed_once_its_user_id_resolves()
+    {
+        await using Running run = Start();
+        await WelcomeAsync("session-1");
+        await WaitForPushAsync(PushState.Connected);
+
+        // Added by login only: not coverable until Helix resolves the user ID.
+        await _channels.AddAsync("second", CancellationToken.None);
+        await WelcomeAsync("session-2", socketNumber: 2);
+        await WaitForPushAsync(PushState.PartialCoverage);
+        Assert.DoesNotContain(_twitch.Subscriptions, s => s.UserId == "456");
+
+        await _channels.SetProfileAsync("second", "456", "Second", null, CancellationToken.None);
+        await WelcomeAsync("session-3", socketNumber: 3);
+        await WaitForPushAsync(PushState.Connected);
+
+        Assert.Equal(
+            ["stream.offline/456", "stream.online/456"],
+            _twitch.Subscriptions.Where(s => s.UserId == "456").Select(s => $"{s.Type}/{s.UserId}").Order());
+    }
+
+    [Fact]
     public async Task A_refused_channel_leaves_partial_coverage()
     {
         AddChannel("other", "456");
@@ -365,9 +444,9 @@ public sealed class ConduitEventSubClientTests : IDisposable
         _channels.AddAsync(new ChannelEntry(login, UserId: userId, DisplayName: login), CancellationToken.None)
             .GetAwaiter().GetResult();
 
-    private async Task WelcomeAsync(string sessionId)
+    private async Task WelcomeAsync(string sessionId, int socketNumber = 1)
     {
-        FakeEventSubSocket socket = await _sockets.SocketAsync(1).WaitAsync(Wait);
+        FakeEventSubSocket socket = await _sockets.SocketAsync(socketNumber).WaitAsync(Wait);
         await socket.Connected.Task.WaitAsync(Wait);
         socket.Push(Welcome(sessionId));
     }
