@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Components.Authorization;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
@@ -46,20 +45,16 @@ public interface IChannelsView : IDisposable
 
 public sealed class ChannelsView : IChannelsView
 {
-    private static readonly TimeSpan Throttle = TimeSpan.FromMilliseconds(500);
-
     private readonly ChannelStore _channels;
     private readonly DvrStatus _status;
     private readonly RecordingLibrary _library;
     private readonly IChannelControl _control;
     private readonly PollSchedule _schedule;
     private readonly AuthenticationStateProvider _auth;
-    private readonly TimeProvider _clock;
-    private readonly object _gate = new();
+    private readonly ThrottledSignal _throttle;
 
     private volatile Task<AuthenticationState> _authState;
-    private ITimer? _timer;
-    private bool _disposed;
+    private int _disposed;
 
     public ChannelsView(
         ChannelStore channels,
@@ -76,7 +71,8 @@ public sealed class ChannelsView : IChannelsView
         _control = control;
         _schedule = schedule;
         _auth = auth;
-        _clock = clock;
+        _throttle = new ThrottledSignal(clock);
+        _throttle.Fired += OnThrottleFired;
 
         _authState = auth.GetAuthenticationStateAsync();
         _auth.AuthenticationStateChanged += OnAuthenticationStateChanged;
@@ -162,11 +158,8 @@ public sealed class ChannelsView : IChannelsView
 
     private void RequireAdmin()
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        Task<AuthenticationState> state = _authState;
-        ClaimsPrincipal? user = state.IsCompletedSuccessfully ? state.Result.User : null;
-        if (user?.Identity?.IsAuthenticated != true)
-            throw new UnauthorizedAccessException("Connect Twitch to manage channels.");
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        AdminGuard.Require(_authState);
     }
 
     private void OnAuthenticationStateChanged(Task<AuthenticationState> state)
@@ -175,40 +168,16 @@ public sealed class ChannelsView : IChannelsView
         Changed?.Invoke();
     }
 
-    private void OnSourceChanged()
-    {
-        lock (_gate)
-        {
-            if (_disposed || _timer is not null)
-                return;
+    private void OnSourceChanged() => _throttle.Signal();
 
-            _timer = _clock.CreateTimer(_ => Flush(), null, Throttle, Timeout.InfiniteTimeSpan);
-        }
-    }
-
-    private void Flush()
-    {
-        lock (_gate)
-        {
-            _timer?.Dispose();
-            _timer = null;
-            if (_disposed)
-                return;
-        }
-
-        Changed?.Invoke();
-    }
+    private void OnThrottleFired() => Changed?.Invoke();
 
     public void Dispose()
     {
-        lock (_gate)
-        {
-            if (_disposed)
-                return;
-            _disposed = true;
-            _timer?.Dispose();
-            _timer = null;
-        }
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+        _throttle.Fired -= OnThrottleFired;
+        _throttle.Dispose();
 
         _auth.AuthenticationStateChanged -= OnAuthenticationStateChanged;
         _channels.Changed -= OnSourceChanged;
