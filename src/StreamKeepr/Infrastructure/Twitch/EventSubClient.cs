@@ -63,7 +63,7 @@ public sealed class EventSubClient(
             {
                 break;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex)
             {
                 logger.LogWarning(ex, "Could not read the admin token; polling continues.");
                 schedule.SetPushStatus(PushStatus.Reconnecting);
@@ -90,7 +90,7 @@ public sealed class EventSubClient(
                 {
                     break;
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+                catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Waiting for the admin token failed; polling continues.");
                     try
@@ -164,6 +164,12 @@ public sealed class EventSubClient(
             if (ct.IsCancellationRequested)
                 break;
 
+            if (sessionCts.IsCancellationRequested)
+            {
+                backoff = InitialBackoff;
+                continue;
+            }
+
             TimeSpan delay = jitter.Apply(backoff);
             backoff = TimeSpan.FromTicks(
                 Math.Min(backoff.Ticks * 2, MaxBackoff.Ticks));
@@ -195,7 +201,9 @@ public sealed class EventSubClient(
             using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(
                 ct, connectTimeout.Token);
             await socket.ConnectAsync(uri, connectCts.Token);
-            logger.LogInformation("EventSub connected to {Uri}; waiting for session_welcome.", uri);
+            logger.LogInformation(
+                "EventSub connected to {Uri}; waiting for session_welcome.",
+                uri.GetLeftPart(UriPartial.Path));
 
             while (!ct.IsCancellationRequested)
             {
@@ -223,7 +231,19 @@ public sealed class EventSubClient(
 
                     Task first = await Task.WhenAny(waits);
                     await timeoutCts.CancelAsync();
-                    if (first != receive)
+
+                    if (first == receive)
+                    {
+                        message = await receive;
+                    }
+                    else if (receive is { IsCompletedSuccessfully: true }
+                        && receive.Result is not null)
+                    {
+                        // The old socket delivered a message at the same instant as the
+                        // watchdog; drain it before considering the timeout.
+                        message = receive.Result;
+                    }
+                    else
                     {
                         if (receive is not null)
                         {
@@ -234,7 +254,7 @@ public sealed class EventSubClient(
                         if (handoff is null)
                             throw new EventSubRestartException("keepalive timeout");
 
-                        if (first != handoff.Welcomed)
+                        if (!handoff.Welcomed.IsCompleted)
                             throw new EventSubRestartException("reconnect handoff timed out");
 
                         // Throws when the new socket failed; the session then restarts fresh.
@@ -251,8 +271,6 @@ public sealed class EventSubClient(
                             "EventSub reconnect handoff complete; closed the old connection.");
                         continue;
                     }
-
-                    message = await receive;
                 }
 
                 if (message is null)
@@ -279,7 +297,7 @@ public sealed class EventSubClient(
                 handoff = StartHandoff(reconnectUrl, ct);
                 logger.LogInformation(
                     "EventSub reconnecting to {Uri}; the old connection stays open until session_welcome.",
-                    reconnectUrl);
+                    reconnectUrl.GetLeftPart(UriPartial.Path));
             }
         }
         finally
@@ -1017,9 +1035,9 @@ public sealed class EventSubClient(
         catch (OperationCanceledException)
         {
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            _ = ex;
+            // The session already failed or timed out for another reason.
         }
     }
 

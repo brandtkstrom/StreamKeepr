@@ -33,7 +33,13 @@ public sealed class ClientWebSocketEventSubSocket(
                 new ArraySegment<byte>(buffer), ct);
 
             if (result.MessageType == WebSocketMessageType.Close)
+            {
+                logger.LogWarning(
+                    "EventSub socket closed with status {Status}: {Description}",
+                    result.CloseStatus,
+                    result.CloseStatusDescription);
                 return null;
+            }
 
             if (result.MessageType == WebSocketMessageType.Binary)
             {

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Threading.Channels;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -9,6 +10,7 @@ using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
+using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Twitch;
 
@@ -342,6 +344,75 @@ public sealed class EventSubClientTests : IDisposable
 
         stop.Cancel();
         await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Voluntary_channel_change_reconnects_without_backoff()
+    {
+        var jitter = new FixedDelayJitter(TimeSpan.FromSeconds(30));
+        EventSubClient client = CreateClient(jitter);
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1"));
+        await _socketFactory.LastSocket.Subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await _channels.AddAsync(
+            new ChannelEntry("second", UserId: "456", DisplayName: "Second"),
+            CancellationToken.None);
+
+        await _socketFactory.SocketTwo.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Token_store_cancellation_does_not_stop_the_loop()
+    {
+        var store = new OnceCanceledTokenStore();
+        EventSubClient client = CreateClient(tokens: store);
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        await store.FirstGet.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _clock.Advance(TimeSpan.FromSeconds(5));
+
+        FakeEventSubSocket socket = await _socketFactory.SocketAsync(1)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await socket.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(store.Calls >= 2);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Reconnect_url_query_is_not_logged()
+    {
+        using var logs = new ListLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(logs));
+        EventSubClient client = CreateClient(
+            logger: loggerFactory.CreateLogger<EventSubClient>());
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1"));
+        await _socketFactory.LastSocket.Subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        _socketFactory.LastSocket.Push(
+            Reconnect("wss://reconnect.example/ws?session_id=secret"));
+        await _socketFactory.SocketAsync(2).WaitAsync(TimeSpan.FromSeconds(5));
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+
+        string text = string.Join('\n', logs.Messages);
+        Assert.DoesNotContain("session_id=secret", text, StringComparison.Ordinal);
+        Assert.Contains("wss://reconnect.example/ws", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1109,7 +1180,8 @@ public sealed class EventSubClientTests : IDisposable
         IRetryJitter? jitter = null,
         IEventSubSocketFactory? socketFactory = null,
         IAdminTokenStore? tokens = null,
-        IHttpClientFactory? httpFactory = null) =>
+        IHttpClientFactory? httpFactory = null,
+        ILogger<EventSubClient>? logger = null) =>
         new(
             socketFactory ?? _socketFactory,
             httpFactory ?? _httpFactory,
@@ -1120,7 +1192,7 @@ public sealed class EventSubClientTests : IDisposable
             jitter ?? new NoJitter(),
             Options.Create(new TwitchOptions { ClientId = "client-id" }),
             _clock,
-            NullLogger<EventSubClient>.Instance);
+            logger ?? NullLogger<EventSubClient>.Instance);
 
     private static string Welcome(
         string sessionId, int keepaliveSeconds = 10, string? messageId = null) =>
@@ -1176,6 +1248,11 @@ public sealed class EventSubClientTests : IDisposable
             Bases.Add(baseDelay);
             return TimeSpan.Zero;
         }
+    }
+
+    private sealed class FixedDelayJitter(TimeSpan delay) : IRetryJitter
+    {
+        public TimeSpan Apply(TimeSpan baseDelay) => delay;
     }
 
     private sealed class ClosingSocketFactory : IEventSubSocketFactory
@@ -1261,6 +1338,39 @@ public sealed class EventSubClientTests : IDisposable
         public void Nudge()
         {
         }
+    }
+
+    private sealed class OnceCanceledTokenStore : IAdminTokenStore
+    {
+        private int _calls;
+
+        public int Calls => _calls;
+
+        public TaskCompletionSource FirstGet { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public event Action? Changed { add { } remove { } }
+
+        public ValueTask<string?> GetAsync(CancellationToken ct)
+        {
+            if (Interlocked.Increment(ref _calls) == 1)
+            {
+                FirstGet.TrySetResult();
+                throw new OperationCanceledException("internal token-store timeout");
+            }
+
+            return ValueTask.FromResult<string?>("admin-token");
+        }
+
+        public ValueTask<string?> RefreshAsync(CancellationToken ct) =>
+            ValueTask.FromResult<string?>(null);
+
+        public Task SaveAsync(AdminToken token, CancellationToken ct) => Task.CompletedTask;
+
+        public Task ClearAsync(CancellationToken ct) => Task.CompletedTask;
+
+        public Task WaitForTokenAsync(CancellationToken ct) =>
+            Task.Delay(Timeout.InfiniteTimeSpan, ct);
     }
 
     private sealed class ScriptedTokenStore : IAdminTokenStore
