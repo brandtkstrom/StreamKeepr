@@ -4,7 +4,7 @@ Status: research memo, **no-go for the copy-only recorder**; superseded for the 
 Issue: [#144](https://github.com/brandtkstrom/StreamKeepr/issues/144) "Spike: evaluate VAAPI GPU acceleration for the Streamlink/FFmpeg recording image"
 Binding: no. This memo informs a decision; it changes no code, image, Compose file, or contract. Scope: research only; no production code, Dockerfile, Compose, or test change.
 
-**Owner update (2026-11-13).** Live transcoding is approved for both playback and storage. The no-go below applies only to adding VAAPI to the copy-only recorder. See [`live-transcode-vaapi.md`](live-transcode-vaapi.md) for the live sidecar design and the GO decision.
+**Owner update (2026-11-13).** Live transcoding is approved for both playback and storage, with GPU support for Intel, NVIDIA, and AMD. The no-go below applies only to adding a GPU encoder to the copy-only recorder. See [`live-transcode-vaapi.md`](live-transcode-vaapi.md) for the live sidecar design and the GO decision; it covers Intel/AMD VAAPI and NVIDIA NVENC. This memo remains the VAAPI feasibility evidence.
 
 **Method.** Repository citations are `path:line` at `7b2da86` (branch `docs/vaapi-streamlink-spike`). I read the issue, `Dockerfile`, `FfmpegArgs.cs`, `ExportService.cs`, `ExportPartProbe.cs`, `docs/recorder-contract.md`, both Compose files, `README.md`, and the implementation plan. I pulled `mwader/static-ffmpeg:9.0.2-1` with Docker 29.9.3 on macOS 27.2 arm64 and ran the FFmpeg checks in §3 on arm64 and amd64; the `/dev/dri` check was on this host. I also pulled `mcr.microsoft.com/dotnet/aspnet:10.0.14` (Ubuntu 24.04.5) and measured the amd64 VAAPI package install under `--platform linux/amd64`. No VAAPI encode was run: this host has no `/dev/dri`, and Docker Desktop's Linux VM rejects `--device /dev/dri`. Web sources were fetched on 2026-11-13; the FFmpeg Trac wiki is behind Anubis, so §5 quotes the Wayback snapshot of 2026-01-22 (page last modified 2024-01-28). No credentials, no Twitch API calls, no production edits.
 
@@ -71,6 +71,8 @@ The `mwader/static-ffmpeg` README has a section titled "Hardware acceleration (V
 > Hardware acceleration needs a driver that belongs to the system and is loaded when ffmpeg runs. A fully static binary cannot load anything, so the two do not go together. This does not depend on the GPU or its vendor.
 
 Source: [static-ffmpeg README][static], fetched 2026-11-13. The same section says ffmpeg still runs on the hardware, but encodes and decodes in software, and recommends a dynamically linked distribution build for hardware acceleration.
+
+**NVENC/NVDEC is also unavailable in this static build.** Its `-encoders` list has no `h264_nvenc`/`hevc_nvenc`, and its configuration has no `--enable-nvenc`/`--enable-nvdec`. A fully static binary has the same driver-loading limitation for NVIDIA. The live design uses a dynamic Ubuntu FFmpeg with NVENC; see the companion memo.
 
 ### Empirical check
 
