@@ -65,7 +65,8 @@ public sealed class TwitchTokenProvider(
 - On `session_welcome`: subscribe `stream.online` and `stream.offline` for every watched channel with a `UserId`.
 - `409 Conflict` means the subscription already exists; count it as active. Any other refusal logs and leaves that channel uncovered.
 - Coverage becomes true only when every watched channel has both subscriptions. A channel add/remove or `UserId` change restarts the session and recomputes coverage.
-- Keepalive silence is `keepalive_timeout + 10 s`. `session_reconnect` uses Twitch’s reconnect URL. `revocation` logs and reconnects.
+- Keepalive silence is `keepalive_timeout + 10 s`. `revocation` logs and reconnects.
+- `session_reconnect` hands off without a gap: connect to Twitch’s `reconnect_url` as is, keep reading and routing notifications on the old socket, and close the old socket only when the new one sends `session_welcome`. Subscriptions move with the session, so the new welcome does **not** re-subscribe, and push coverage stays as it was. While the handoff is pending, Twitch’s 30 s reconnect grace replaces the old socket’s keepalive watchdog. If the new socket closes, fails, or sends no welcome within 30 s, both sockets close and a fresh session starts at the base URL and re-subscribes (normal backoff). A `session_reconnect` without a `reconnect_url` restarts the same way.
 - A notification routes `StreamStatusObserved` to the channel and calls `schedule.Burst(3 minutes)`; polling every 10 s confirms Helix.
 - Reconnect uses exponential backoff with jitter: 5 s, 10 s, …, capped at 5 minutes, reset after a `session_welcome` with at least one active subscription.
 - Token/HTTP failures during subscription are logged; the client reconnects with backoff; polling continues.
@@ -189,7 +190,7 @@ Poll schedule:
 
 EventSub:
 
-- No token → wait; welcome → subscriptions; 409 counts active; refusal → uncovered; coverage all-or-nothing; notification routing and burst; reconnect URL; keepalive timeout; revocation; exponential backoff/reset; token changed → reconnect; channel change → restart.
+- No token → wait; welcome → subscriptions; 409 counts active; refusal → uncovered; coverage all-or-nothing; notification routing and burst; reconnect URL; reconnect handoff keeps the old socket until the new welcome, routes old-socket notifications meanwhile, and does not re-subscribe; handoff close or 30 s timeout falls back to a fresh session; keepalive timeout; revocation; exponential backoff/reset; token changed → reconnect; channel change → restart.
 
 Auth:
 
