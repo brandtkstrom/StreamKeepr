@@ -92,6 +92,58 @@ public sealed class ProgressStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task A_capture_finishing_drops_positions_within_thirty_seconds_of_its_final_end()
+    {
+        _library.Upsert(Finished("near", durationSeconds: 500, recording: true));
+        _library.Upsert(Finished("edge", durationSeconds: 500, recording: true));
+        _library.Upsert(Finished("kept", durationSeconds: 500, recording: true));
+        _library.MarkLoaded();
+        using ProgressStore store = await CreateAsync();
+        await store.SetAsync("near", 590, CancellationToken.None);
+        await store.SetAsync("edge", 570, CancellationToken.None);
+        await store.SetAsync("kept", 569.5, CancellationToken.None);
+        int changes = 0;
+        store.Changed += () => changes++;
+
+        _library.Upsert(Finished("near", durationSeconds: 600));
+        _library.Upsert(Finished("edge", durationSeconds: 600));
+        _library.Upsert(Finished("kept", durationSeconds: 600));
+
+        Assert.Null(store.Get("near"));
+        Assert.Null(store.Get("edge"));
+        Assert.Equal(569.5, store.Get("kept"));
+        Assert.Equal(2, changes);
+    }
+
+    [Fact]
+    public async Task A_capture_still_recording_keeps_positions_near_its_current_end()
+    {
+        _library.Upsert(Finished("live", durationSeconds: 600, recording: true));
+        _library.MarkLoaded();
+        using ProgressStore store = await CreateAsync();
+        await store.SetAsync("live", 590, CancellationToken.None);
+
+        _library.Upsert(Finished("live", durationSeconds: 610, recording: true));
+
+        Assert.Equal(590, store.Get("live"));
+    }
+
+    [Fact]
+    public async Task A_stored_position_near_the_end_of_a_session_recovered_as_finished_is_dropped_at_startup()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+        await File.WriteAllTextAsync(FilePath, """{"near":590,"kept":100}""");
+        _library.Upsert(Finished("near", durationSeconds: 600));
+        _library.Upsert(Finished("kept", durationSeconds: 600));
+        _library.MarkLoaded();
+
+        using ProgressStore store = await CreateAsync();
+
+        Assert.Null(store.Get("near"));
+        Assert.Equal(100, store.Get("kept"));
+    }
+
+    [Fact]
     public async Task Writes_are_batched_to_at_most_one_every_ten_seconds()
     {
         _library.Upsert(Finished("r1", durationSeconds: 600));

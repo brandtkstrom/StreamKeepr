@@ -25,7 +25,7 @@ public interface IProgressStore
 /// Keeps positions in memory and persists them to <c>.streamkeepr/progress.json</c>. Writes
 /// are atomic, at most one every <see cref="WriteInterval"/>, plus a flush on shutdown. A finished
 /// recording's position within <see cref="EndMargin"/> of the end clears it; a live recording's
-/// position is kept wherever it is.
+/// position is kept wherever it is until the capture finishes, when the same margin applies.
 /// </summary>
 public sealed class ProgressStore : IProgressStore, IHostedService, IDisposable
 {
@@ -238,6 +238,9 @@ public sealed class ProgressStore : IProgressStore, IHostedService, IDisposable
     }
 
     // Delete removes the recording from the library first, so pruning here clears its entry.
+    // A capture that finishes applies the end margin suspended while it was live: a position
+    // left within EndMargin of the final end is dropped, as SetAsync would for a finished
+    // recording. A finished duration never shrinks, so checking every change is that rule.
     private void OnLibraryChanged()
     {
         if (!_library.IsLoaded)
@@ -245,7 +248,16 @@ public sealed class ProgressStore : IProgressStore, IHostedService, IDisposable
 
         _ = Apply(positions =>
         {
-            string[] gone = positions.Keys.Where(id => _library.Find(id) is null).ToArray();
+            string[] gone = positions
+                .Where(entry => _library.Find(entry.Key) switch
+                {
+                    null => true,
+                    { IsRecording: false, DurationSeconds: double duration } =>
+                        double.IsFinite(duration) && entry.Value >= duration - EndMargin,
+                    _ => false,
+                })
+                .Select(entry => entry.Key)
+                .ToArray();
             foreach (string id in gone)
                 positions.Remove(id);
             return gone.Length > 0;

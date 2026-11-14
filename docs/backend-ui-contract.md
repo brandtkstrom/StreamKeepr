@@ -149,7 +149,7 @@ public interface IProgressStore
 - File: `/recordings/.streamkeepr/progress.json`, a JSON map of recording id to position.
 - Load at startup; corrupt/missing file logs and starts empty.
 - In-memory reads; atomic writes at most every 10 s and on graceful shutdown; no write per keystroke.
-- `SetAsync` validates the recording exists. For a finished recording it clamps to `[0, duration]` and clears positions within 30 s of the end. For a recording still being captured it only clamps the lower bound to 0: the live edge sits inside the 30 s margin and the library's duration trails the player's, so neither the margin nor the upper clamp applies. Unknown id is a no-op for in-process callers; the HTTP endpoint returns 404.
+- `SetAsync` validates the recording exists. For a finished recording it clamps to `[0, duration]` and clears positions within 30 s of the end. For a recording still being captured it only clamps the lower bound to 0: the live edge sits inside the 30 s margin and the library's duration trails the player's, so neither the margin nor the upper clamp applies. When the capture finishes, a position within 30 s of the final end is dropped (and so is one loaded at startup for a session recovered as finished), so the finished recording opens at 0. Unknown id is a no-op for in-process callers; the HTTP endpoint returns 404.
 - `ClearAsync` removes the entry; delete also clears it.
 - `Changed` fires per update; `ILibraryView` throttles resume-bar updates.
 - `PUT /api/recordings/{id}/progress` is public (viewing is open). Body `{ positionSec }`; 204 on success; 400 for a non-finite or negative position; 404 for an unknown recording. `Cache-Control: no-store`.
