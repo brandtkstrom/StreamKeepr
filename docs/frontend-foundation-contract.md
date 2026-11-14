@@ -47,7 +47,7 @@ Use the design system's `.sk-shell` structure:
 - The main column has 24px (`--space-6`) top padding below the app bar on every route, breakpoint, and theater mode; it scrolls with the content.
 - Drawer: expanded 320px, rail 72px, hidden. The menu toggles expanded ↔ rail. Theater hides the drawer and sets the main column to `surface-container-lowest`.
 - Below 960px the drawer is modal over `scrim` with `elevation-3`, opened from the menu; below 600px stats tiles stack (stats implementation later).
-- The player column order is fixed: player → details → stats. The player slot is wrapped in `.sk-player-row`; an optional chat pane is its second child. The row is two columns at ≥960 px and stacks below 960 px. The recording main column may grow to 1280 px while chat is open; the library stays at 1100 px.
+- The player column order is fixed: player → details → stats. The player slot is wrapped in `.sk-player-row`; an optional chat pane is its second child. The row is two columns at ≥960 px and stacks below 960 px. In two columns the open pane takes the player's height (at least 240 px) and its log scrolls; messages never grow the row, so the sync footer stays put. Stacked, the pane sizes to its content up to 50vh. Short chat is anchored to the bottom of the log and grows upward. The recording main column may grow to 1280 px while chat is open; the library stays at 1100 px.
 - Collapse/expand is 300ms with the design-system easing; honor `prefers-reduced-motion`.
 - Every interactive element has the 2px `primary` focus ring; use `sk-` classes and role tokens only.
 
@@ -140,6 +140,7 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 - `UiPreferences`/`ViewerClock` call `prefs.js` through `IJSRuntime`; no JS reads or writes layout state directly.
 - `Editor`/player modules load later; hls.js is imported only by the player module, never by the shell.
 - `ChatPane.razor.js` owns the chat log, polling, auto-scroll, and sync controls; it listens to `sk:playhead` and never crosses the circuit for time updates.
+- Chat scrollback persists while playback runs on. A seek back, a seek more than 120 s ahead, a sync change, or a seek before the kept rows fetches a fresh window from 30 s before the playhead, then backfills earlier chat in 120 s chunks until the log overflows, the chat starts, a chunk hits the limit, or it reaches 30 minutes back. Otherwise each fetch continues from what is loaded: live panes poll every 0.5 s, and a complete recording reads ahead when the playhead is within 30 s of the loaded end. The log keeps the newest 1000 rows; older rows drop off the top.
 - `<ImportMap />` is kept; no CDN and no Node at runtime.
 - Anything changing more than once a second stays in JS (player/stats/scrubbing/pointer); shell state crosses the circuit only on user actions.
 

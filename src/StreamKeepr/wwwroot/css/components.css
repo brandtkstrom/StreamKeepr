@@ -255,12 +255,17 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-player-row { display: flex; align-items: stretch; gap: var(--space-3); min-width: 0; }
 .sk-player-row > [data-slot="player"] { flex: 1; min-width: 0; }
 .sk-player-row > [data-slot="player"] > .sk-player { width: 100%; }
+/* `contain: size` keeps the log's rows out of the row's height, so the stretched pane takes
+   the player's height and the log scrolls; without it every new message grows the pane and
+   pushes the sync footer down the page. */
 .sk-chat {
   width: 44px; flex: none; display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  contain: size;
   background: var(--surface-container-low); border: 1px solid var(--outline-variant);
   border-radius: var(--radius-md); color: var(--on-surface);
 }
-.sk-chat[data-open="true"] { width: 320px; }
+/* A narrow desktop player can be short; keep room for a few rows. */
+.sk-chat[data-open="true"] { width: 320px; min-height: 240px; }
 .sk-chat-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2); border-bottom: 1px solid var(--outline-variant); }
 .sk-chat-toggle {
   display: flex; align-items: center; gap: var(--space-2); min-width: 0; width: 100%;
@@ -282,6 +287,9 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
   display: flex; flex-direction: column; gap: 2px; font: var(--text-body-small);
   overscroll-behavior: contain; scrollbar-width: thin;
 }
+/* Anchor short chat to the bottom so it grows upward. An auto margin, unlike
+   `justify-content: flex-end`, collapses to zero once the log overflows, so it stays scrollable. */
+.sk-chat-log > :first-child { margin-top: auto; }
 .sk-chat-log:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .sk-chat-row { line-height: 1.35; }
 .sk-chat-row.action .sk-chat-text { font-style: italic; }
@@ -309,7 +317,8 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 
 @media (max-width: 959.98px) {
   .sk-player-row { flex-direction: column; }
-  .sk-chat, .sk-chat[data-open="true"] { width: 100%; max-height: 50vh; }
+  /* Stacked under the player, the pane sizes to its content up to half the viewport. */
+  .sk-chat, .sk-chat[data-open="true"] { width: 100%; max-height: 50vh; min-height: 0; contain: none; }
   .sk-chat[data-open="false"] { max-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
