@@ -11,13 +11,14 @@ namespace StreamKeepr.Tests.Ui;
 
 public sealed class ChatPaneTests
 {
+    private const string Module = "./Components/Features/Chat/ChatPane.razor.js";
+
     [Fact]
     public void Renders_a_collapsed_accessible_pane()
     {
         using BunitContext context = HomePlayerTests.CreateContext(
             out BunitJSModuleInterop module, out TestLibraryView _);
-        context.JSInterop.SetupModule("./Components/Features/Chat/ChatPane.razor.js").Mode =
-            JSRuntimeMode.Loose;
+        context.JSInterop.SetupModule(Module).Mode = JSRuntimeMode.Loose;
 
         IRenderedComponent<ChatPane> cut = context.Render<ChatPane>(parameters => parameters
             .Add(component => component.Recording, WithChat())
@@ -35,8 +36,7 @@ public sealed class ChatPaneTests
     {
         using BunitContext context = HomePlayerTests.CreateContext(
             out BunitJSModuleInterop module, out TestLibraryView _);
-        context.JSInterop.SetupModule("./Components/Features/Chat/ChatPane.razor.js").Mode =
-            JSRuntimeMode.Loose;
+        context.JSInterop.SetupModule(Module).Mode = JSRuntimeMode.Loose;
         IRenderedComponent<ChatPane> cut = context.Render<ChatPane>(parameters => parameters
             .Add(component => component.Recording, WithChat())
             .Add(component => component.Open, false));
@@ -56,8 +56,7 @@ public sealed class ChatPaneTests
     {
         using BunitContext context = HomePlayerTests.CreateContext(
             out BunitJSModuleInterop _, out TestLibraryView view);
-        context.JSInterop.SetupModule("./Components/Features/Chat/ChatPane.razor.js").Mode =
-            JSRuntimeMode.Loose;
+        context.JSInterop.SetupModule(Module).Mode = JSRuntimeMode.Loose;
         context.Services.AddSingleton(Options.Create(new ChatOptions { Enabled = enabled }));
         view.FindById["r1"] = VideoPlayerTests.Recording("r1", "First") with
         {
@@ -70,6 +69,42 @@ public sealed class ChatPaneTests
         Assert.Equal(expected, cut.FindAll("[data-sk-chat]").Count == 1);
     }
 
+    [Fact]
+    public async Task A_live_library_refresh_does_not_reload_the_same_recording()
+    {
+        using BunitContext context = HomePlayerTests.CreateContext(
+            out BunitJSModuleInterop module, out TestLibraryView _);
+        module = context.JSInterop.SetupModule(Module);
+        module.Mode = JSRuntimeMode.Loose;
+
+        IRenderedComponent<ChatPane> cut = context.Render<ChatPane>(parameters => parameters
+            .Add(component => component.Recording, LiveRecording(1))
+            .Add(component => component.Open, true));
+        Assert.Single(module.Invocations, call => call.Identifier == "init");
+        Assert.DoesNotContain(module.Invocations, call => call.Identifier == "load");
+
+        // The scoped LibraryView rebuilds a new instance every 500 ms while live because
+        // DurationSec changes; the pane must not reapply the summary's stale HasChat.
+        await cut.InvokeAsync(() => cut.Render(parameters => parameters
+            .Add(component => component.Recording, LiveRecording(2))
+            .Add(component => component.Open, true)));
+        Assert.DoesNotContain(module.Invocations, call => call.Identifier == "load");
+
+        // A real meaningful change still reloads the module.
+        await cut.InvokeAsync(() => cut.Render(parameters => parameters
+            .Add(component => component.Recording, LiveRecording(3, hasChat: true))
+            .Add(component => component.Open, true)));
+        Assert.Single(module.Invocations, call => call.Identifier == "load");
+    }
+
     private static RecordingView WithChat() =>
         VideoPlayerTests.Recording("r1", "First") with { HasChat = true };
+
+    private static RecordingView LiveRecording(int durationSec, bool hasChat = false) =>
+        VideoPlayerTests.Recording("r1", "First") with
+        {
+            State = RecordingState.Recording,
+            DurationSec = durationSec,
+            HasChat = hasChat,
+        };
 }

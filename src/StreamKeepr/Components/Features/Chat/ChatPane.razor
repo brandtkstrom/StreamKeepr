@@ -75,7 +75,13 @@
         if (_module is null || _loaded is null)
             return;
 
-        if (!ReferenceEquals(_loaded, Recording))
+        // A live library rebuild creates a new RecordingView on every throttled tick because
+        // DurationSec changes. Loading the module on every instance would reapply the stale
+        // summary HasChat (false until the library is resummarized) over the API's live value,
+        // making the status and sync controls flap. Reload only when a meaningful field changes.
+        if (!string.Equals(_loaded.Id, Recording.Id, StringComparison.Ordinal) ||
+            _loaded.State != Recording.State ||
+            _loaded.HasChat != Recording.HasChat)
         {
             _loaded = Recording;
             _open = Open;

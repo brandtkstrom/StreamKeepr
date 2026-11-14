@@ -175,7 +175,11 @@ export function createChatPane(root, {
   async function load(next) {
     if (disposed || !next) return;
     const changed = view?.recordingId !== next.recordingId;
+    const hadChat = view?.hasChat === true;
     view = next;
+    // A session's chat log can appear while the recording is live, but it never disappears.
+    // Keep a true value when a stale summary payload says false, and keep status in step.
+    if (!changed && hadChat) view = { ...next, hasChat: true };
     open = Boolean(next.open);
     if (changed) {
       resetWindow();
@@ -303,7 +307,10 @@ export function createChatPane(root, {
       return;
     }
     if (view.state === "starting") {
-      status("Waiting for chat…", "starting");
+      // The timeline can be briefly unreadable during a live part transition. Once a chat
+      // log exists the connection is up; do not call that "waiting".
+      status(view.hasChat === true ? "Chat connected" : "Waiting for chat…",
+        view.hasChat === true ? "live" : "starting");
       return;
     }
     if (view.hasChat === false) {
