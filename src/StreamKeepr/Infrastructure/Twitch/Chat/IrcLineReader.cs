@@ -34,7 +34,8 @@ public static class IrcLineReader
                     continue;
 
                 int length = i - start;
-                if (!dropping && length > 0)
+                // A frame may start with the LF that ends a line buffered from the last frame.
+                if (!dropping && (length > 0 || pending.Length > 0))
                 {
                     pending.Write(buffer, start, length);
                     string line = Encoding.UTF8.GetString(pending.GetBuffer(), 0, (int)pending.Length)
