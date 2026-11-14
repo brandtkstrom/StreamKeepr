@@ -36,8 +36,6 @@ public sealed class ChatOptions
 
     [Range(1, 60)] public int RegistrationTimeoutSeconds { get; set; } = 15;
 
-    [Range(30, 3600)] public int IdleTimeoutSeconds { get; set; } = 300;
-
     [Range(10, 3600)] public int ReconnectMaxSeconds { get; set; } = 300;
 
     [Range(1, long.MaxValue)] public long MaxBytesPerSession { get; set; } = 512L * 1024 * 1024;

@@ -28,23 +28,11 @@ public sealed class MockChatSource(
     private readonly ConcurrentDictionary<string, double> _mediaEnd = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, long> _joinedAt = new(StringComparer.Ordinal);
     private int _state = (int)ChatConnectionState.Idle;
-    private long _lastMessageAt;
     private int _counter;
 
     public ChatConnectionState State => (ChatConnectionState)Volatile.Read(ref this._state);
 
     public string Source => "mock";
-
-    public DateTimeOffset? LastMessageAt
-    {
-        get
-        {
-            long at = Volatile.Read(ref this._lastMessageAt);
-            return at > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(at) : null;
-        }
-    }
-
-    public event Action? Changed;
 
     public async ValueTask JoinAsync(string channel, CancellationToken ct)
     {
@@ -90,7 +78,6 @@ public sealed class MockChatSource(
                         this.RememberMedia(channel);
 
                     ChatMessage message = this.NextMessage(channel);
-                    Interlocked.Exchange(ref this._lastMessageAt, message.AtMs);
                     this._events.Writer.TryWrite(new ChatSourceEvent.MessageEvent(message));
 
                     if (this._counter % 12 == 0)
@@ -190,7 +177,6 @@ public sealed class MockChatSource(
         {
             logger.LogDebug("Mock chat state {Previous} -> {State}.",
                 (ChatConnectionState)previous, state);
-            this.Changed?.Invoke();
         }
     }
 

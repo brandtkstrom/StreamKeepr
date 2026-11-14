@@ -35,7 +35,6 @@ public sealed class IrcChatClient(
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private int _state = (int)ChatConnectionState.Disabled;
     private int _tokenDisabled;
-    private long _lastMessageAt;
 
     public ChatConnectionState State => (ChatConnectionState)Volatile.Read(ref this._state);
 
@@ -44,17 +43,6 @@ public sealed class IrcChatClient(
         : ChatLogStore.AnonymousSource;
 
     private bool UseToken => options.Value.HasToken && Volatile.Read(ref this._tokenDisabled) == 0;
-
-    public DateTimeOffset? LastMessageAt
-    {
-        get
-        {
-            long at = Volatile.Read(ref this._lastMessageAt);
-            return at > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(at) : null;
-        }
-    }
-
-    public event Action? Changed;
 
     public async ValueTask JoinAsync(string channel, CancellationToken ct)
     {
@@ -257,12 +245,6 @@ public sealed class IrcChatClient(
 
                 foreach (ChatSourceEvent evt in parser.Parse(message))
                 {
-                    if (evt is ChatSourceEvent.MessageEvent)
-                    {
-                        Interlocked.Exchange(
-                            ref this._lastMessageAt, evt.AtMs);
-                    }
-
                     this._events.Writer.TryWrite(evt);
                 }
             }
@@ -355,7 +337,6 @@ public sealed class IrcChatClient(
         logger.LogInformation(
             "Twitch IRC state {Previous} -> {State}.",
             (ChatConnectionState)previous, state);
-        this.Changed?.Invoke();
     }
 
     private static bool IsAuthFailure(string? text) =>
