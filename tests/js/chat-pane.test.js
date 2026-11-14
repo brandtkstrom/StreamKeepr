@@ -239,6 +239,35 @@ describe("chat replay pane", () => {
     pane.dispose();
   });
 
+  it("keeps a captured live chat visible when a stale summary payload arrives", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, { storage: storage() });
+
+    await pane.load({ ...VIEW, open: false, state: "recording", hasChat: true });
+    expect(document.querySelector("[data-sk='chat-sync']").hidden).toBe(false);
+
+    await pane.load({ ...VIEW, open: false, state: "recording", hasChat: false });
+    expect(document.querySelector("[data-sk='chat-sync']").hidden).toBe(false);
+    expect(document.querySelector("[data-sk='chat-state']").textContent)
+      .toBe("Chat connected");
+
+    pane.dispose();
+  });
+
+  it("does not call a live timeline gap 'waiting for chat' once chat exists", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, { storage: storage() });
+
+    await pane.load({ ...VIEW, open: false, state: "starting", hasChat: true });
+    expect(document.querySelector("[data-sk='chat-state']").textContent)
+      .toBe("Chat connected");
+    expect(document.querySelector("[data-sk='chat-sync']").hidden).toBe(false);
+
+    pane.dispose();
+  });
+
   it("keeps a live poll inside the endpoint's 600 s window", async () => {
     vi.useFakeTimers();
     document.body.innerHTML = MARKUP;
