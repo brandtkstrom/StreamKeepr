@@ -90,6 +90,9 @@ export function createChatPane(root, {
   let paused = true;
   let loaded = false;
   let loadedTo = 0;
+  // The window last requested; a playhead outside it needs a new window even mid-load.
+  let windowFrom = 0;
+  let windowTo = 0;
   let loading = false;
   let retryAt = 0;
   let retryDelay = RETRY_MIN_MS;
@@ -162,6 +165,8 @@ export function createChatPane(root, {
     gaps = [];
     loaded = false;
     loadedTo = 0;
+    windowFrom = 0;
+    windowTo = 0;
     lastRenderKey = "";
     following = true;
     newCount = 0;
@@ -197,8 +202,10 @@ export function createChatPane(root, {
       if (!open || disposed || paused || document.hidden || loading) return;
       if (Date.now() < retryAt) return;
       if (!view || view.state === "complete" || view.state === "unavailable") return;
-      const from = Math.max(0, loadedTo - 5);
-      const to = Math.max(currentTime + 10, currentTime + WINDOW_AFTER_SEC);
+      // Overlap the last load by 5 s, but never reach further back than a fresh window would,
+      // so the request stays inside the endpoint's window cap.
+      const from = Math.max(0, loadedTo - 5, currentTime - WINDOW_BEFORE_SEC);
+      const to = currentTime + WINDOW_AFTER_SEC;
       if (to <= from) return;
       void fetchWindow(from, to);
     }, POLL_MS);
@@ -216,6 +223,8 @@ export function createChatPane(root, {
     const to = Math.max(from + 1, Number(toSec) || from + WINDOW_AFTER_SEC);
     controller?.abort();
     controller = new AbortController();
+    windowFrom = from;
+    windowTo = to;
     const request = controller;
     loading = true;
     el["chat-log"]?.setAttribute("aria-busy", "true");
@@ -473,6 +482,13 @@ export function createChatPane(root, {
     const previous = currentTime;
     currentTime = Number.isFinite(detail.time) ? detail.time : 0;
     paused = Boolean(detail.paused);
+    if (currentTime < windowFrom || currentTime > windowTo) {
+      // A seek away from the requested window, including one during the first load.
+      resetWindow();
+      loadCurrentWindow({ replace: true });
+      return;
+    }
+
     if (!loaded) {
       loadCurrentWindow();
       return;

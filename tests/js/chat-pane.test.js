@@ -217,4 +217,61 @@ describe("chat replay pane", () => {
 
     pane.dispose();
   });
+
+  it("refetches around a seek that lands while the first window is loading", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pending = [];
+    const fetch = vi.fn((url, { signal }) => new Promise((resolve) => {
+      pending.push({ url, signal, resolve });
+    }));
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW });
+    playhead(1800);
+    playhead(1800.25);
+    await flush();
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(pending[0].signal.aborted).toBe(true);
+    expect(Number(pending[1].url.searchParams.get("fromSec"))).toBe(1770);
+
+    pane.dispose();
+  });
+
+  it("keeps a live poll inside the endpoint's 600 s window", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = vi.fn(async (url) => ({
+      ok: true,
+      json: async () => ({
+        v: 1, recordingId: "r1", state: "recording", hasChat: true, source: "mock",
+        leadInSec: 12, fromSec: Number(url.searchParams.get("fromSec")),
+        toSec: Number(url.searchParams.get("toSec")), syncOffsetSec: 0,
+        messages: [], gaps: [], hasMoreBefore: false, hasMoreAfter: false,
+      }),
+    }));
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, state: "recording" });
+    await vi.advanceTimersByTimeAsync(0);
+    document.dispatchEvent(new CustomEvent("sk:playhead", {
+      detail: { recordingId: "r1", time: 100, duration: 4000, paused: false },
+    }));
+    await vi.advanceTimersByTimeAsync(0);
+    // Play on to t = 3000 in small steps, as a viewer at the live edge would.
+    for (let t = 101; t <= 3000; t += 1) {
+      document.dispatchEvent(new CustomEvent("sk:playhead", {
+        detail: { recordingId: "r1", time: t, duration: 4000, paused: false },
+      }));
+    }
+    await vi.advanceTimersByTimeAsync(600);
+
+    const [url] = fetch.mock.calls.at(-1);
+    const width = Number(url.searchParams.get("toSec")) - Number(url.searchParams.get("fromSec"));
+    expect(width).toBeLessThanOrEqual(600);
+
+    pane.dispose();
+  });
 });
