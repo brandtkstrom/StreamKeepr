@@ -1,17 +1,4 @@
-namespace StreamKeepr.Infrastructure.Twitch.Chat;
-
-/// <summary>The IRC capture connection state, logged on each transition.</summary>
-public enum ChatConnectionState
-{
-    Disabled,
-    Idle,
-    Connecting,
-    Registering,
-    Joining,
-    Live,
-    Backoff,
-    Unavailable,
-}
+namespace StreamKeepr.Infrastructure.Storage;
 
 public sealed record ChatBadge(string Set, string Version, string? Info);
 
@@ -42,7 +29,10 @@ public sealed record ChatMessage(
     bool Action,
     string Text);
 
-/// <summary>One event from the chat source; the log store decides how to persist it.</summary>
+/// <summary>
+/// One event from a chat source; the log store decides how to persist it. This is the chat
+/// log's input contract, so it lives in Storage and every source depends on it (ADR 0010).
+/// </summary>
 public abstract record ChatSourceEvent(string Channel, long AtMs)
 {
     public sealed record MessageEvent(ChatMessage Message)
@@ -78,7 +68,7 @@ public abstract record ChatSourceEvent(string Channel, long AtMs)
     public sealed record Gap(string Channel, long AtMs, long FromMs, long ToMs, string Reason)
         : ChatSourceEvent(Channel, AtMs);
 
-    /// <summary>Events lost because the capture queue was full; see <see cref="ChatEventQueue"/>.</summary>
+    /// <summary>Events lost because the source's capture queue was full.</summary>
     public sealed record Dropped(string Channel, long AtMs, long FromMs, long ToMs, int Count)
         : ChatSourceEvent(Channel, AtMs);
 }

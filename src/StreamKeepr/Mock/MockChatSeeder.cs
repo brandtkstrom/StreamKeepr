@@ -2,7 +2,6 @@ using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Storage;
-using StreamKeepr.Infrastructure.Twitch.Chat;
 
 namespace StreamKeepr.Mock;
 

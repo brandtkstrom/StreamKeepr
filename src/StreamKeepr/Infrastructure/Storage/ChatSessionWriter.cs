@@ -1,6 +1,5 @@
 using System.Text;
 using StreamKeepr.Configuration;
-using StreamKeepr.Infrastructure.Twitch.Chat;
 
 namespace StreamKeepr.Infrastructure.Storage;
 

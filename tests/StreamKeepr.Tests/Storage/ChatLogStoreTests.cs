@@ -4,7 +4,6 @@ using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Storage;
-using StreamKeepr.Infrastructure.Twitch.Chat;
 
 namespace StreamKeepr.Tests.Storage;
 

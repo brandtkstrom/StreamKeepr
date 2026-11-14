@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
-using StreamKeepr.Infrastructure.Twitch.Chat;
 
 namespace StreamKeepr.Infrastructure.Storage;
 

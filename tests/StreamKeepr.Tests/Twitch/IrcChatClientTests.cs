@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Runtime;
+using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch.Chat;
 using StreamKeepr.Tests.Hosting;
 
