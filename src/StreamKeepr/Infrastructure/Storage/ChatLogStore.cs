@@ -164,7 +164,7 @@ public sealed class ChatLogStore(
         return events;
     }
 
-    public IReadOnlyList<string> BucketFiles(string sessionDirectory)
+    public static IReadOnlyList<string> BucketFiles(string sessionDirectory)
     {
         string directory = ChatDirectory(sessionDirectory);
         if (!Directory.Exists(directory))
@@ -569,22 +569,16 @@ public sealed class ChatLogStore(
                     }
                 }
 
-                var deletes = events
-                    .Where(e => e.Kind == "delete" && e.TargetId is not null)
-                    .Select(e => e.TargetId!)
-                    .ToHashSet(StringComparer.Ordinal);
-                var clearAll = events.Where(e => e.Kind == "clear_all").Select(e => e.At).ToArray();
-                var clearUser = events.Where(e => e.Kind == "clear_user").ToArray();
-                if (deletes.Count == 0 && clearAll.Length == 0 && clearUser.Length == 0)
+                ChatTombstones tombstones = ChatTombstones.From(events);
+                if (tombstones.IsEmpty)
                     return;
 
+                // Pass 1 finds every removed message, so a reply in any bucket can be redacted
+                // regardless of the order buckets are rewritten in.
+                var buckets = new List<(string Path, List<StoredChatMessage> Kept)>();
                 var removedIds = new HashSet<string>(StringComparer.Ordinal);
                 int removed = 0;
-                int redacted = 0;
-                int keptTotal = 0;
-                long lastAt = 0;
-
-                foreach (string bucketPath in this.BucketFiles(directory))
+                foreach (string bucketPath in BucketFiles(sessionDirectory))
                 {
                     var kept = new List<StoredChatMessage>();
                     foreach (string line in File.ReadLines(bucketPath))
@@ -592,16 +586,7 @@ public sealed class ChatLogStore(
                         if (TryDeserializeLine<StoredChatMessage>(line) is not { } message)
                             continue;
 
-                        bool drop = deletes.Contains(message.Id) ||
-                                    clearAll.Any(at => message.At <= at) ||
-                                    clearUser.Any(clear => clear.At >= message.At &&
-                                        ((clear.TargetUid is not null &&
-                                          string.Equals(clear.TargetUid, message.UserId,
-                                              StringComparison.Ordinal)) ||
-                                         (clear.TargetLogin is not null &&
-                                          string.Equals(clear.TargetLogin, message.Login,
-                                              StringComparison.OrdinalIgnoreCase))));
-                        if (drop)
+                        if (tombstones.Removes(message))
                         {
                             removedIds.Add(message.Id);
                             removed++;
@@ -611,14 +596,19 @@ public sealed class ChatLogStore(
                         kept.Add(message);
                     }
 
+                    buckets.Add((bucketPath, kept));
+                }
+
+                int redacted = 0;
+                int keptTotal = 0;
+                long lastAt = 0;
+                foreach ((string bucketPath, List<StoredChatMessage> kept) in buckets)
+                {
                     for (int i = 0; i < kept.Count; i++)
                     {
-                        StoredChatMessage message = kept[i];
-                        if (message.Reply is not null &&
-                            (deletes.Contains(message.Reply.Id) ||
-                             removedIds.Contains(message.Reply.Id)))
+                        if (tombstones.RedactsReply(kept[i], removedIds))
                         {
-                            kept[i] = message with { Reply = null };
+                            kept[i] = kept[i] with { Reply = null };
                             redacted++;
                         }
                     }
@@ -638,7 +628,7 @@ public sealed class ChatLogStore(
                 }
 
                 var keptEvents = events
-                    .Where(e => e.Kind is not ("delete" or "clear_user" or "clear_all"))
+                    .Where(e => !ChatEventKinds.IsTombstone(e.Kind))
                     .ToList();
                 keptEvents.Add(new StoredChatEvent(
                     FormatVersion, "purged", clock.GetUtcNow().ToUnixTimeMilliseconds(),
@@ -675,12 +665,6 @@ public sealed class ChatLogStore(
                     summary.Id);
             }
         }
-
-        private IEnumerable<string> BucketFiles(string directory) =>
-            Directory.EnumerateFiles(directory, "*.jsonl")
-                .Where(path => !string.Equals(
-                    Path.GetFileName(path), EventsFileName, StringComparison.Ordinal))
-                .ToArray();
 
         private static string BucketName(long atMs, int bucketMinutes)
         {

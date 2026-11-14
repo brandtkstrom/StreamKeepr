@@ -52,23 +52,11 @@ public sealed class ChatReader(
         double offset = Math.Clamp(syncOffsetSec, -30, 30);
 
         IReadOnlyList<StoredChatEvent> events = store.ReadEvents(directory);
-        var deletes = events
-            .Where(e => e.Kind == "delete" && e.TargetId is not null)
-            .Select(e => e.TargetId!)
-            .ToHashSet(StringComparer.Ordinal);
-        long[] clearAll = events
-            .Where(e => e.Kind == "clear_all")
-            .Select(e => e.At)
-            .ToArray();
-        StoredChatEvent[] clearUser = events
-            .Where(e => e.Kind == "clear_user")
-            .ToArray();
+        ChatTombstones tombstones = ChatTombstones.From(events);
 
-        var messages = new List<ChatQueryMessage>();
+        var candidates = new List<StoredChatMessage>();
+        var removedIds = new HashSet<string>(StringComparer.Ordinal);
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        bool hasMoreBefore = false;
-        bool hasMoreAfter = false;
-
         foreach (string bucketPath in this.BucketFiles(directory, timeline, from, to, bucketSeconds))
         {
             foreach (StoredChatMessage message in store.ReadMessages(bucketPath))
@@ -76,41 +64,49 @@ public sealed class ChatReader(
                 if (!string.IsNullOrEmpty(message.Id) && !seen.Add(message.Id))
                     continue;
 
-                if (IsCleared(message, deletes, clearAll, clearUser))
-                    continue;
-
-                double? mapped = timeline.MapToMedia(message.At);
-                if (mapped is null)
-                    continue;
-
-                double media = Math.Max(0, mapped.Value + offset);
-                if (media < from)
-                {
-                    hasMoreBefore = true;
-                    continue;
-                }
-
-                if (media > to)
-                {
-                    hasMoreAfter = true;
-                    continue;
-                }
-
-                messages.Add(new ChatQueryMessage(
-                    message.Id,
-                    Math.Round(media, 3),
-                    message.At,
-                    message.UserId,
-                    message.Login,
-                    message.Display,
-                    message.Color,
-                    message.Badges,
-                    message.Text,
-                    message.Emotes,
-                    message.Bits,
-                    message.Reply,
-                    message.Action));
+                if (tombstones.Removes(message))
+                    removedIds.Add(message.Id);
+                else
+                    candidates.Add(message);
             }
+        }
+
+        var messages = new List<ChatQueryMessage>();
+        bool hasMoreBefore = false;
+        bool hasMoreAfter = false;
+        foreach (StoredChatMessage message in candidates)
+        {
+            double? mapped = timeline.MapToMedia(message.At);
+            if (mapped is null)
+                continue;
+
+            double media = Math.Max(0, mapped.Value + offset);
+            if (media < from)
+            {
+                hasMoreBefore = true;
+                continue;
+            }
+
+            if (media > to)
+            {
+                hasMoreAfter = true;
+                continue;
+            }
+
+            messages.Add(new ChatQueryMessage(
+                message.Id,
+                Math.Round(media, 3),
+                message.At,
+                message.UserId,
+                message.Login,
+                message.Display,
+                message.Color,
+                message.Badges,
+                message.Text,
+                message.Emotes,
+                message.Bits,
+                tombstones.RedactsReply(message, removedIds) ? null : message.Reply,
+                message.Action));
         }
 
         messages.Sort((left, right) =>
@@ -157,38 +153,6 @@ public sealed class ChatReader(
             gaps,
             hasMoreBefore,
             hasMoreAfter);
-    }
-
-    private static bool IsCleared(
-        StoredChatMessage message,
-        HashSet<string> deletes,
-        long[] clearAll,
-        StoredChatEvent[] clearUser)
-    {
-        if (deletes.Contains(message.Id))
-            return true;
-
-        foreach (long at in clearAll)
-        {
-            if (message.At <= at)
-                return true;
-        }
-
-        foreach (StoredChatEvent clear in clearUser)
-        {
-            if (message.At > clear.At)
-                continue;
-
-            bool uidMatches = clear.TargetUid is not null &&
-                              string.Equals(clear.TargetUid, message.UserId, StringComparison.Ordinal);
-            bool loginMatches = clear.TargetLogin is not null &&
-                                string.Equals(clear.TargetLogin, message.Login,
-                                    StringComparison.OrdinalIgnoreCase);
-            if (uidMatches || loginMatches)
-                return true;
-        }
-
-        return false;
     }
 
     private IReadOnlyList<string> BucketFiles(

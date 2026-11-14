@@ -105,6 +105,71 @@ public sealed class ChatLogStoreTests : IDisposable
     }
 
     [Fact]
+    public void Purge_redacts_a_quote_of_a_banned_author_whose_message_was_never_captured()
+    {
+        var options = new ChatOptions { PurgeDeletedText = ChatPurgeMode.OnFinalize };
+        (ChatLogStore store, _, RecordingSummary summary) = this.Create(options);
+        string directory = store.SessionDirectory(summary);
+        this.WritePlaylist(directory);
+        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.Append("chan", Message(summary, "a", 3, "first"));
+        store.Append(
+            "chan", Message(summary, "r", 5, "reply", replyId: "before-capture", replyText: "bob secret"));
+        store.Append("chan", new ChatSourceEvent.Clear("chan", At(summary, 9), "7", "bob"));
+        store.CloseSession(summary.Id, finalize: true);
+
+        string raw = string.Concat(MessageBuckets(directory).Select(File.ReadAllText));
+        Assert.DoesNotContain("bob secret", raw, StringComparison.Ordinal);
+        Assert.Contains("\"id\":\"r\"", raw, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Purge_redacts_a_reply_in_a_later_bucket_whose_parent_was_cleared()
+    {
+        var options = new ChatOptions { PurgeDeletedText = ChatPurgeMode.OnFinalize };
+        (ChatLogStore store, _, RecordingSummary summary) = this.Create(options);
+        string directory = store.SessionDirectory(summary);
+        this.WritePlaylist(directory);
+        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+
+        // Parent and ban in the first 10-minute bucket; replies in the next three buckets.
+        store.Append("chan", Message(summary, "p", 3, "parent text", login: "bob", userId: "7"));
+        store.Append("chan", new ChatSourceEvent.Clear("chan", At(summary, 4), "7", "bob"));
+        foreach (int minutes in new[] { 11, 21, 31 })
+        {
+            store.Append("chan", Message(
+                summary, $"r{minutes}", minutes * 60, "reply", replyId: "p", replyText: "parent text"));
+        }
+
+        store.CloseSession(summary.Id, finalize: true);
+
+        string[] buckets = MessageBuckets(directory);
+        Assert.Equal(3, buckets.Length);
+        foreach (string bucket in buckets)
+            Assert.DoesNotContain("parent text", File.ReadAllText(bucket), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Query_hides_a_quote_of_a_deleted_message_even_when_purge_is_off()
+    {
+        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = this.Create(
+            new ChatOptions());
+        string directory = store.SessionDirectory(summary);
+        this.WritePlaylist(directory);
+        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.Append("chan", Message(summary, "a", 3, "first"));
+        store.Append("chan", Message(summary, "b", 6, "second", replyId: "a", replyText: "first"));
+        store.Append("chan", new ChatSourceEvent.Delete("chan", At(summary, 7), "a"));
+        store.CloseSession(summary.Id, finalize: true);
+
+        ChatQueryResult result = reader.Query(summary, 0, 20, 300, 0);
+
+        ChatQueryMessage reply = Assert.Single(result.Messages);
+        Assert.Equal("b", reply.Id);
+        Assert.Null(reply.Reply);
+    }
+
+    [Fact]
     public void Has_chat_is_false_before_the_first_event_and_true_after_finalize()
     {
         var options = new ChatOptions();
@@ -164,16 +229,18 @@ public sealed class ChatLogStoreTests : IDisposable
         int offsetSeconds,
         string text,
         string? replyId = null,
-        string? replyText = null)
+        string? replyText = null,
+        string login = "alice",
+        string userId = "42")
     {
         var message = new ChatMessage(
             id,
             summary.Channel,
             At(summary, offsetSeconds),
             AtIsLocal: false,
-            UserId: "42",
-            Login: "alice",
-            DisplayName: "Alice",
+            UserId: userId,
+            Login: login,
+            DisplayName: login,
             Color: "#00FF00",
             Badges: [],
             Emotes: [],
@@ -185,6 +252,11 @@ public sealed class ChatLogStoreTests : IDisposable
             Text: text);
         return new ChatSourceEvent.MessageEvent(message);
     }
+
+    private static string[] MessageBuckets(string sessionDirectory) =>
+        Directory.GetFiles(ChatLogStore.ChatDirectory(sessionDirectory), "*.jsonl")
+            .Where(path => !path.EndsWith("events.jsonl", StringComparison.Ordinal))
+            .ToArray();
 
     private static long At(RecordingSummary summary, int offsetSeconds) =>
         Pdt.AddSeconds(offsetSeconds - 12).ToUnixTimeMilliseconds();

@@ -58,6 +58,25 @@ internal sealed record StoredChatMeta(
     [property: JsonPropertyName("purgedAt")] DateTimeOffset? PurgedAt,
     [property: JsonPropertyName("purgedDeletedText")] bool? PurgedDeletedText);
 
+/// <summary>The <c>kind</c> values written to <c>events.jsonl</c>.</summary>
+internal static class ChatEventKinds
+{
+    public const string Delete = "delete";
+    public const string ClearAll = "clear_all";
+    public const string ClearUser = "clear_user";
+    public const string RoomState = "roomstate";
+    public const string Notice = "notice";
+    public const string Reconnect = "reconnect";
+    public const string Gap = "gap";
+    public const string Dropped = "dropped";
+    public const string Truncated = "truncated";
+    public const string End = "end";
+    public const string Purged = "purged";
+
+    /// <summary>Kinds that carry removed text; the purge drops them once applied.</summary>
+    public static bool IsTombstone(string kind) => kind is Delete or ClearUser or ClearAll;
+}
+
 /// <summary>One persisted non-message chat event.</summary>
 internal sealed record StoredChatEvent(
     [property: JsonPropertyName("v")] int Version,
