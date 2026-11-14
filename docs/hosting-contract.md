@@ -8,6 +8,8 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 
 The hosting layer owns the ASP.NET Core pipeline, media serving, health checks, Data Protection, startup preflight, the Docker image, and Compose. It does not own recording, poller, session-store, or auth logic; those contracts are referenced.
 
+**Support scope:** StreamKeepr is a personal project for private home use. Public hosting, multi-tenant deployment, and third-party distribution are outside the supported scope. The security model assumes a trusted operator and a private home or LAN environment; see `README.md` and `SECURITY.md`. The deployment examples are guidance for that posture, not a public-hosting commitment.
+
 ## 2. Host and middleware order
 
 ```text

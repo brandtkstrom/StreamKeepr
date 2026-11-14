@@ -14,8 +14,57 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Docs-only pull requests skip the build/test jobs. The jobs are skipped with a
+  # job-level `if` instead of a workflow-level `paths-ignore` because the main
+  # branch ruleset requires these checks: a skipped job satisfies a required
+  # check, while a workflow that never runs leaves it pending forever.
+  # Downstream jobs run unless this job reports code=false, so a failure here
+  # fails safe (jobs run) instead of skipping, which would count as passing.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+
+    steps:
+      - name: Check for changes outside docs/
+        id: filter
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Include the old path of renamed files so moving a file out of
+          # docs/ (or into it) still counts as a code change.
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)')
+          echo "Changed files:"
+          echo "$files"
+
+          if grep --quiet --invert-match '^docs/' <<<"$files"; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Only docs/ changed; skipping build and test jobs."
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   dotnet:
     name: Build and test
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 20
 
@@ -75,6 +124,8 @@ jobs:
 
   js:
     name: JS lint and test
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 10
 
@@ -104,6 +155,8 @@ jobs:
 
   docker:
     name: Docker image
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 20
 
@@ -218,6 +271,8 @@ jobs:
 
   e2e:
     name: E2E (Mock profile)
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 25
 
@@ -292,6 +347,8 @@ jobs:
 
   compose:
     name: Compose deployment
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 30
 

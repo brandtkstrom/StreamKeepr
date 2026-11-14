@@ -13,6 +13,7 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 | `ChannelStore` | Singleton | `channels.json`, the watched-channel snapshot, pause flag, profile fields |
 | `SessionStore` | Singleton | `session.json`, `index.m3u8`, thumbnails, session locks |
 | `RecordingLibrary` | Singleton | In-memory recording summaries and `Changed` |
+| `ThumbnailService` | Singleton `BackgroundService` | Thumbnail frame grabs (FFmpeg) and `.streamkeepr/thumbnails/` scratch files |
 | `DvrStatus` | Singleton | Read-only runtime snapshots for UI and health |
 | `RecorderJob` | Transient worker per part | Streamlink/FFmpeg processes and part files |
 | `TwitchStreamPoller` / `EventSubClient` | Singletons, supervised | Observations and push notifications |

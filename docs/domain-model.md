@@ -242,7 +242,7 @@ A part that reaches `HealthyPart` resets `Streak` even though it still retries w
 - the title or game differs, or
 - `Latest.ThumbnailUrl` is null and the incoming thumbnail is non-null.
 
-A non-null thumbnail changing to another non-null thumbnail does not emit. The session store saves a thumbnail once; title and game changes become chapters.
+A non-null thumbnail changing to another non-null thumbnail does not emit. Title and game changes become chapters. The Helix preview URL is not stored; recording thumbnails are grabbed from recorded media (E-01, `session-store-contract.md` §7.1).
 
 ## 9. Command ordering
 

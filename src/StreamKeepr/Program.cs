@@ -105,6 +105,7 @@ builder.Services.AddSingleton<ExportService>();
 builder.Services.AddSingleton<IExportService>(services => services.GetRequiredService<ExportService>());
 builder.Services.AddSingleton<IProgressStore>(services => services.GetRequiredService<ProgressStore>());
 builder.Services.AddSingleton<RecoveryService>();
+builder.Services.AddSingleton<ThumbnailService>();
 builder.Services.AddSingleton<RecorderJob>();
 builder.Services.AddSingleton<IRecorder>(services => services.GetRequiredService<RecorderJob>());
 
@@ -180,6 +181,8 @@ builder.Services.AddStreamKeeprDataProtection();
 
 // The supervisor starts only after preflight and the key-ring check have succeeded.
 builder.Services.AddHostedService(services => services.GetRequiredService<DvrSupervisor>());
+// Grabs thumbnails from recorded media; registered after the supervisor so recovery has run.
+builder.Services.AddHostedService(services => services.GetRequiredService<ThumbnailService>());
 
 // Start the chat source before the capture reconciler; both are non-fatal to recording.
 if (mock)
