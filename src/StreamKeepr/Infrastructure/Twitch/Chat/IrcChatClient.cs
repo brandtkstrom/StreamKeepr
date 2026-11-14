@@ -24,54 +24,45 @@ public sealed class IrcChatClient(
     /// <summary>Anonymous auth or capability rejection is not transient; retry slowly.</summary>
     private static readonly TimeSpan AuthRetryDelay = TimeSpan.FromMinutes(1);
 
-    private readonly ChatEventQueue _events = new();
-
-    private readonly ConcurrentDictionary<string, byte> _joined = new(StringComparer.Ordinal);
+    private readonly ChatSourceChannels _channels = new(options.Value.MaxChannels);
     private readonly ConcurrentDictionary<string, byte> _sent = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private int _state = (int)ChatConnectionState.Disabled;
     private int _tokenDisabled;
 
     public string Source => UseToken
-        ? ChatLogStore.TokenSource
-        : ChatLogStore.AnonymousSource;
+        ? ChatSources.Token
+        : ChatSources.Anonymous;
 
     private bool UseToken => options.Value.HasToken && Volatile.Read(ref _tokenDisabled) == 0;
 
     public ValueTask JoinAsync(string channel, CancellationToken ct)
     {
-        string login = TwitchLogin.Normalize(channel);
-        if (!TwitchLogin.IsValid(login))
-            return ValueTask.CompletedTask;
-
-        if (_joined.Count >= options.Value.MaxChannels &&
-            !_joined.ContainsKey(login))
+        if (_channels.Join(channel, out string login) == ChatJoinResult.LimitReached)
         {
             logger.LogWarning(
                 "Chat join limit of {Limit} channels reached; {Channel} is not joined.",
-                options.Value.MaxChannels, login);
-            return ValueTask.CompletedTask;
+                _channels.MaxChannels, login);
         }
 
-        _joined[login] = 0;
         return ValueTask.CompletedTask;
     }
 
     public ValueTask PartAsync(string channel, CancellationToken ct)
     {
-        _joined.TryRemove(TwitchLogin.Normalize(channel), out _);
+        _channels.Part(channel);
         return ValueTask.CompletedTask;
     }
 
     public IAsyncEnumerable<ChatSourceEvent> ReadAllAsync(CancellationToken ct) =>
-        _events.ReadAllAsync(ct);
+        _channels.ReadAllAsync(ct);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!options.Value.Enabled)
         {
             SetState(ChatConnectionState.Disabled);
-            _events.Complete();
+            _channels.Complete();
             return;
         }
 
@@ -133,7 +124,7 @@ public sealed class IrcChatClient(
         finally
         {
             SetState(ChatConnectionState.Idle);
-            _events.Complete();
+            _channels.Complete();
         }
     }
 
@@ -227,7 +218,7 @@ public sealed class IrcChatClient(
 
                 foreach (ChatSourceEvent evt in parser.Parse(message))
                 {
-                    _events.Write(evt);
+                    _channels.Write(evt);
                 }
             }
         }
@@ -259,14 +250,14 @@ public sealed class IrcChatClient(
         while (!ct.IsCancellationRequested)
         {
             bool sentAny = false;
-            foreach (string channel in _joined.Keys)
+            foreach (string channel in _channels.Joined)
             {
                 if (_sent.ContainsKey(channel))
                     continue;
 
                 await SendAsync(socket, $"JOIN #{channel}", ct);
                 _sent[channel] = 0;
-                _events.Write(new ChatSourceEvent.Joined(
+                _channels.Write(new ChatSourceEvent.Joined(
                     channel, clock.GetUtcNow().ToUnixTimeMilliseconds()));
                 sentAny = true;
                 await Task.Delay(TimeSpan.FromMilliseconds(options.Value.JoinIntervalMs), clock, ct);
@@ -275,7 +266,7 @@ public sealed class IrcChatClient(
 
             foreach (string channel in _sent.Keys)
             {
-                if (_joined.ContainsKey(channel))
+                if (_channels.Contains(channel))
                     continue;
 
                 await SendAsync(socket, $"PART #{channel}", ct);
@@ -303,9 +294,9 @@ public sealed class IrcChatClient(
     private void EmitDisconnected()
     {
         long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
-        foreach (string channel in _joined.Keys)
+        foreach (string channel in _channels.Joined)
         {
-            _events.Write(new ChatSourceEvent.Disconnected(channel, now));
+            _channels.Write(new ChatSourceEvent.Disconnected(channel, now));
         }
     }
 
@@ -341,7 +332,7 @@ public sealed class IrcChatClient(
 
     public ValueTask DisposeAsync()
     {
-        _events.Complete();
+        _channels.Complete();
         _sendGate.Dispose();
         return ValueTask.CompletedTask;
     }

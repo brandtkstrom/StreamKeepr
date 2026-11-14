@@ -4,7 +4,6 @@ using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Storage;
-using StreamKeepr.Infrastructure.Twitch.Chat;
 
 namespace StreamKeepr.Tests.Storage;
 
@@ -33,7 +32,7 @@ public sealed class ChatLogStoreTests : IDisposable
             new ChatOptions());
         string directory = store.SessionDirectory(summary);
         WritePlaylist(directory);
-        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.OpenSession(summary, ChatSources.Anonymous);
         store.Append("chan", Message(summary, "a", offsetSeconds: 3, "first"));
         store.Append("chan", Message(summary, "b", offsetSeconds: 8, "second"));
         store.CloseSession(summary.Id, finalize: true);
@@ -56,7 +55,7 @@ public sealed class ChatLogStoreTests : IDisposable
             new ChatOptions());
         string directory = store.SessionDirectory(summary);
         WritePlaylist(directory);
-        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.OpenSession(summary, ChatSources.Anonymous);
         store.Append("chan", Message(summary, "a", 3, "first"));
         store.Append("chan", Message(summary, "b", 6, "second"));
         store.Append("chan", new ChatSourceEvent.Delete("chan", At(summary, 7), "b"));
@@ -74,7 +73,7 @@ public sealed class ChatLogStoreTests : IDisposable
         (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(options);
         string directory = store.SessionDirectory(summary);
         WritePlaylist(directory);
-        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.OpenSession(summary, ChatSources.Anonymous);
         store.Append("chan", Message(summary, "a", 3, "first"));
         store.Append("chan", Message(summary, "b", 6, "second"));
         store.Append("chan", Message(summary, "c", 9, "third", replyId: "b", replyText: "second"));
@@ -84,7 +83,7 @@ public sealed class ChatLogStoreTests : IDisposable
         store.Append("chan", new ChatSourceEvent.Delete("chan", At(summary, 12), "missing"));
         store.CloseSession(summary.Id, finalize: true);
 
-        string chatDirectory = ChatLogStore.ChatDirectory(directory);
+        string chatDirectory = ChatLogLayout.ChatDirectory(directory);
         string bucket = Assert.Single(
             Directory.GetFiles(chatDirectory, "*.jsonl"),
             path => !path.EndsWith("events.jsonl", StringComparison.Ordinal));
@@ -112,7 +111,7 @@ public sealed class ChatLogStoreTests : IDisposable
         (ChatLogStore store, _, RecordingSummary summary) = Create(options);
         string directory = store.SessionDirectory(summary);
         WritePlaylist(directory);
-        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.OpenSession(summary, ChatSources.Anonymous);
         store.Append("chan", Message(summary, "a", 3, "first"));
         store.Append(
             "chan", Message(summary, "r", 5, "reply", replyId: "before-capture", replyText: "bob secret"));
@@ -131,7 +130,7 @@ public sealed class ChatLogStoreTests : IDisposable
         (ChatLogStore store, _, RecordingSummary summary) = Create(options);
         string directory = store.SessionDirectory(summary);
         WritePlaylist(directory);
-        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.OpenSession(summary, ChatSources.Anonymous);
 
         // Parent and ban in the first 10-minute bucket; replies in the next three buckets.
         store.Append("chan", Message(summary, "p", 3, "parent text", login: "bob", userId: "7"));
@@ -157,7 +156,7 @@ public sealed class ChatLogStoreTests : IDisposable
             new ChatOptions());
         string directory = store.SessionDirectory(summary);
         WritePlaylist(directory);
-        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.OpenSession(summary, ChatSources.Anonymous);
         store.Append("chan", Message(summary, "a", 3, "first"));
         store.Append("chan", Message(summary, "b", 6, "second", replyId: "a", replyText: "first"));
         store.Append("chan", new ChatSourceEvent.Delete("chan", At(summary, 7), "a"));
@@ -177,7 +176,7 @@ public sealed class ChatLogStoreTests : IDisposable
             new ChatOptions());
         string directory = store.SessionDirectory(summary);
         WritePlaylist(directory);
-        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.OpenSession(summary, ChatSources.Anonymous);
         store.Append("chan", Message(summary, "a", 2, "first"));
         store.Append("chan", new ChatSourceEvent.Dropped(
             "chan", At(summary, 6), At(summary, 3), At(summary, 6), Count: 40));
@@ -195,7 +194,7 @@ public sealed class ChatLogStoreTests : IDisposable
         (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(options);
         string directory = store.SessionDirectory(summary);
         WritePlaylist(directory);
-        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.OpenSession(summary, ChatSources.Anonymous);
         store.Append("chan", Message(summary, "a", 2, "first"));
 
         // The cap trips on "b", so nothing after the last stored message ("a", at 2 s) survives.
@@ -218,7 +217,7 @@ public sealed class ChatLogStoreTests : IDisposable
         string directory = store.SessionDirectory(summary);
         WritePlaylist(directory);
         WritePlaylist(directory, part: 2, pdt: Pdt.AddSeconds(60 + 90));
-        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.OpenSession(summary, ChatSources.Anonymous);
         store.Append("chan", Message(summary, "a", 55, "before the outage"));
         store.Append("chan", Message(summary, "lost", 100, "while nothing was recorded"));
         store.Append("chan", Message(summary, "b", 60 + 90 + 5, "after the outage"));
@@ -240,7 +239,7 @@ public sealed class ChatLogStoreTests : IDisposable
             new ChatOptions { BucketMinutes = minutes });
         string directory = store.SessionDirectory(summary);
         WritePlaylist(directory);
-        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.OpenSession(summary, ChatSources.Anonymous);
         store.Append("chan", Message(summary, "a", 3, "first"));
         store.Append("chan", Message(summary, "b", 50, "second"));
         store.CloseSession(summary.Id, finalize: true);
@@ -258,7 +257,7 @@ public sealed class ChatLogStoreTests : IDisposable
         string directory = store.SessionDirectory(summary);
         WritePlaylist(directory);
         WritePlaylist(directory, part: 2, pdt: Pdt.AddSeconds(60 + 90));
-        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.OpenSession(summary, ChatSources.Anonymous);
         store.Append("chan", new ChatSourceEvent.Gap(
             "chan", At(summary, 100), At(summary, 50), At(summary, 100), "irc-disconnected"));
         store.CloseSession(summary.Id, finalize: true);
@@ -276,7 +275,7 @@ public sealed class ChatLogStoreTests : IDisposable
         (ChatLogStore store, _, RecordingSummary summary) = Create(options);
         string directory = store.SessionDirectory(summary);
         WritePlaylist(directory);
-        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.OpenSession(summary, ChatSources.Anonymous);
         store.Append("chan", Message(summary, "a", 3, "first"));
         store.Append("chan", Message(summary, "b", 6, "second"));
         File.AppendAllText(MessageBuckets(directory).Single(), "{not json\n");
@@ -295,13 +294,13 @@ public sealed class ChatLogStoreTests : IDisposable
         (ChatLogStore store, _, RecordingSummary summary) = Create(options);
         string directory = store.SessionDirectory(summary);
 
-        Assert.False(ChatLogStore.HasChat(directory, NullLogger.Instance));
+        Assert.False(ChatLogLayout.HasChat(directory, NullLogger.Instance));
 
-        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.OpenSession(summary, ChatSources.Anonymous);
         store.Append("chan", Message(summary, "a", 3, "first"));
         store.CloseSession(summary.Id, finalize: true);
 
-        Assert.True(ChatLogStore.HasChat(directory, NullLogger.Instance));
+        Assert.True(ChatLogLayout.HasChat(directory, NullLogger.Instance));
     }
 
     private (ChatLogStore, ChatReader, RecordingSummary) Create(ChatOptions options)
@@ -373,7 +372,7 @@ public sealed class ChatLogStoreTests : IDisposable
     }
 
     private static string[] MessageBuckets(string sessionDirectory) =>
-        Directory.GetFiles(ChatLogStore.ChatDirectory(sessionDirectory), "*.jsonl")
+        Directory.GetFiles(ChatLogLayout.ChatDirectory(sessionDirectory), "*.jsonl")
             .Where(path => !path.EndsWith("events.jsonl", StringComparison.Ordinal))
             .ToArray();
 

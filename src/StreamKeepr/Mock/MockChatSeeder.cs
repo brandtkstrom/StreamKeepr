@@ -2,7 +2,6 @@ using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Storage;
-using StreamKeepr.Infrastructure.Twitch.Chat;
 
 namespace StreamKeepr.Mock;
 
@@ -28,7 +27,7 @@ public sealed class MockChatSeeder(
             }
 
             string playlist = Path.Combine(directory, PartFiles.Playlist(1));
-            if (!File.Exists(playlist) || ChatLogStore.HasChat(directory, logger))
+            if (!File.Exists(playlist) || ChatLogLayout.HasChat(directory, logger))
                 continue;
 
             DateTimeOffset? pdt = PlaylistStitcher.FirstProgramDateTime(
@@ -36,7 +35,7 @@ public sealed class MockChatSeeder(
             if (pdt is null)
                 continue;
 
-            store.OpenSession(summary, ChatLogStore.MockSource);
+            store.OpenSession(summary, ChatSources.Mock);
             long baseAt = pdt.Value.AddSeconds(-options.Value.LeadInSeconds)
                 .ToUnixTimeMilliseconds();
             Append(store, summary.Channel, baseAt, 5, "seed-1", "Welcome to the Mock stream",

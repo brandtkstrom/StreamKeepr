@@ -15,9 +15,7 @@ public sealed class MockChatSource(
     TimeProvider clock,
     ILogger<MockChatSource> logger) : BackgroundService, IChatSource
 {
-    private readonly ChatEventQueue _events = new();
-
-    private readonly ConcurrentDictionary<string, byte> _joined = new(StringComparer.Ordinal);
+    private readonly ChatSourceChannels _channels = new();
     private readonly ConcurrentDictionary<string, long> _baseAt = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, double> _partEnd = new(StringComparer.Ordinal);
     private static readonly TimeSpan MessageInterval = TimeSpan.FromMilliseconds(500);
@@ -30,30 +28,26 @@ public sealed class MockChatSource(
 
     private int _counter;
 
-    public string Source => ChatLogStore.MockSource;
+    public string Source => ChatSources.Mock;
 
     public ValueTask JoinAsync(string channel, CancellationToken ct)
     {
-        string login = TwitchLogin.Normalize(channel);
-        if (!TwitchLogin.IsValid(login))
-            return ValueTask.CompletedTask;
+        if (_channels.Join(channel, out string login) == ChatJoinResult.Joined)
+            RememberMedia(login);
 
-        _joined[login] = 0;
-        RememberMedia(login);
         return ValueTask.CompletedTask;
     }
 
     public ValueTask PartAsync(string channel, CancellationToken ct)
     {
-        string login = TwitchLogin.Normalize(channel);
-        _joined.TryRemove(login, out _);
+        string login = _channels.Part(channel);
         _baseAt.TryRemove(login, out _);
         _partEnd.TryRemove(login, out _);
         return ValueTask.CompletedTask;
     }
 
     public IAsyncEnumerable<ChatSourceEvent> ReadAllAsync(CancellationToken ct) =>
-        _events.ReadAllAsync(ct);
+        _channels.ReadAllAsync(ct);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -62,17 +56,17 @@ public sealed class MockChatSource(
         {
             while (await timer.WaitForNextTickAsync(stoppingToken))
             {
-                foreach (string channel in _joined.Keys)
+                foreach (string channel in _channels.Joined)
                 {
                     // A live capture keeps growing, so follow its edge every tick.
                     RememberMedia(channel);
 
                     ChatMessage message = NextMessage(channel);
-                    _events.Write(new ChatSourceEvent.MessageEvent(message));
+                    _channels.Write(new ChatSourceEvent.MessageEvent(message));
 
                     if (_counter % DeleteEvery == 0)
                     {
-                        _events.Write(new ChatSourceEvent.Delete(
+                        _channels.Write(new ChatSourceEvent.Delete(
                             channel, message.AtMs, message.Id));
                     }
                 }
@@ -84,7 +78,7 @@ public sealed class MockChatSource(
         }
         finally
         {
-            _events.Complete();
+            _channels.Complete();
         }
     }
 
@@ -170,7 +164,7 @@ public sealed class MockChatSource(
 
     public ValueTask DisposeAsync()
     {
-        _events.Complete();
+        _channels.Complete();
         return ValueTask.CompletedTask;
     }
 }

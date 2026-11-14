@@ -7,7 +7,6 @@ using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Storage;
-using StreamKeepr.Infrastructure.Twitch.Chat;
 
 namespace StreamKeepr.Tests.Hosting;
 
@@ -58,7 +57,7 @@ public sealed class ChatEndpointTests : IDisposable
             "#EXTM3U\n#EXT-X-TARGETDURATION:2\n" +
             $"#EXT-X-PROGRAM-DATE-TIME:{Now:O}\n" +
             "#EXTINF:60.000000,\nsegment.m4s\n");
-        _store.OpenSession(_summary, ChatLogStore.AnonymousSource);
+        _store.OpenSession(_summary, ChatSources.Anonymous);
         _store.Append("chan", new ChatSourceEvent.MessageEvent(new ChatMessage(
             "m1", "chan", Now.AddSeconds(-7).ToUnixTimeMilliseconds(), false, "42",
             "alice", "Alice", null, [], [], null, null, false, "hello")));

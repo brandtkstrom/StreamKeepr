@@ -1,3 +1,5 @@
+using StreamKeepr.Infrastructure.Storage;
+
 namespace StreamKeepr.Infrastructure.Twitch.Chat;
 
 /// <summary>The capture service's view of a chat transport. The IRC and Mock sources share it.</summary>

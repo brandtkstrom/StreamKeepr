@@ -31,12 +31,12 @@ public sealed class ChatReader(
         }
         catch (ArgumentException)
         {
-            return Empty(summary, fromSec, toSec, syncOffsetSec, ChatStates.Unavailable, false, ChatStates.NoSource);
+            return Empty(summary, fromSec, toSec, syncOffsetSec, ChatStates.Unavailable, false, ChatSources.None);
         }
 
         StoredChatMeta? meta = store.ReadMeta(directory);
-        bool hasChat = ChatLogStore.HasChat(directory, logger);
-        string source = meta?.Source ?? ChatStates.NoSource;
+        bool hasChat = ChatLogLayout.HasChat(directory, logger);
+        string source = meta?.Source ?? ChatSources.None;
         int leadIn = meta?.LeadInSec ?? options.Value.LeadInSeconds;
         int bucketSeconds = meta?.BucketSeconds is > 0
             ? meta.BucketSeconds
@@ -188,18 +188,18 @@ public sealed class ChatReader(
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach ((DateTimeOffset rangeFrom, DateTimeOffset rangeTo) in timeline.WallRanges(from, to))
         {
-            DateTimeOffset start = ChatLogStore.BucketStart(rangeFrom, bucketSeconds)
+            DateTimeOffset start = ChatLogLayout.BucketStart(rangeFrom, bucketSeconds)
                 .AddSeconds(-bucketSeconds);
-            DateTimeOffset end = ChatLogStore.BucketStart(rangeTo, bucketSeconds)
+            DateTimeOffset end = ChatLogLayout.BucketStart(rangeTo, bucketSeconds)
                 .AddSeconds(bucketSeconds);
             for (DateTimeOffset bucket = start; bucket <= end;
                  bucket = bucket.AddSeconds(bucketSeconds))
             {
-                names.Add(ChatLogStore.BucketFileName(bucket, bucketSeconds));
+                names.Add(ChatLogLayout.BucketFileName(bucket, bucketSeconds));
             }
         }
 
-        return ChatLogStore.BucketFiles(directory, logger)
+        return ChatLogLayout.BucketFiles(directory, logger)
             .Where(path => names.Contains(Path.GetFileName(path)))
             .ToArray();
     }

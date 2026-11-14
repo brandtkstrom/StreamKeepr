@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.Extensions.Time.Testing;
+using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch.Chat;
 
 namespace StreamKeepr.Tests.Twitch;
