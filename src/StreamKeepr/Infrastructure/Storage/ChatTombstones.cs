@@ -35,15 +35,13 @@ internal sealed class ChatTombstones
     public bool Removes(StoredChatMessage message)
     {
         ArgumentNullException.ThrowIfNull(message);
-        if (_deletes.Contains(message.Id) || _clearAll.Any(at => message.At <= at))
-            return true;
-
-        return _clearUser.Any(clear =>
-            message.At <= clear.At &&
-            ((clear.TargetUid is not null &&
-              string.Equals(clear.TargetUid, message.UserId, StringComparison.Ordinal)) ||
-             (clear.TargetLogin is not null &&
-              string.Equals(clear.TargetLogin, message.Login, StringComparison.OrdinalIgnoreCase))));
+        return _deletes.Contains(message.Id) ||
+               ClearedAll(message.At) ||
+               _clearUser.Any(clear =>
+                   message.At <= clear.At &&
+                   ((clear.TargetUid is not null &&
+                     string.Equals(clear.TargetUid, message.UserId, StringComparison.Ordinal)) ||
+                    TargetsLogin(clear, message.Login)));
     }
 
     /// <summary>
@@ -58,15 +56,16 @@ internal sealed class ChatTombstones
         if (message.Reply is not { } reply)
             return false;
 
-        if (_deletes.Contains(reply.Id) || removedIds.Contains(reply.Id) ||
-            _clearAll.Any(at => message.At <= at))
-        {
-            return true;
-        }
-
-        return reply.Login is not null && _clearUser.Any(clear =>
-            message.At <= clear.At &&
-            clear.TargetLogin is not null &&
-            string.Equals(clear.TargetLogin, reply.Login, StringComparison.OrdinalIgnoreCase));
+        return _deletes.Contains(reply.Id) ||
+               removedIds.Contains(reply.Id) ||
+               ClearedAll(message.At) ||
+               _clearUser.Any(clear => message.At <= clear.At && TargetsLogin(clear, reply.Login));
     }
+
+    private bool ClearedAll(long at) => _clearAll.Any(clearedAt => at <= clearedAt);
+
+    private static bool TargetsLogin(StoredChatEvent clear, string? login) =>
+        login is not null &&
+        clear.TargetLogin is not null &&
+        string.Equals(clear.TargetLogin, login, StringComparison.OrdinalIgnoreCase);
 }

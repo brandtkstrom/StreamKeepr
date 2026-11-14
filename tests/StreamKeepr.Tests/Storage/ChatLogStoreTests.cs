@@ -270,6 +270,25 @@ public sealed class ChatLogStoreTests : IDisposable
     }
 
     [Fact]
+    public void Purge_leaves_a_bucket_with_an_unreadable_row_untouched()
+    {
+        var options = new ChatOptions { PurgeDeletedText = ChatPurgeMode.OnFinalize };
+        (ChatLogStore store, _, RecordingSummary summary) = Create(options);
+        string directory = store.SessionDirectory(summary);
+        WritePlaylist(directory);
+        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.Append("chan", Message(summary, "a", 3, "first"));
+        store.Append("chan", Message(summary, "b", 6, "second"));
+        File.AppendAllText(MessageBuckets(directory).Single(), "{not json\n");
+        store.Append("chan", new ChatSourceEvent.Delete("chan", At(summary, 7), "b"));
+        store.CloseSession(summary.Id, finalize: true);
+
+        string raw = File.ReadAllText(MessageBuckets(directory).Single());
+        Assert.Contains("{not json", raw, StringComparison.Ordinal);
+        Assert.Contains("second", raw, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Has_chat_is_false_before_the_first_event_and_true_after_finalize()
     {
         var options = new ChatOptions();

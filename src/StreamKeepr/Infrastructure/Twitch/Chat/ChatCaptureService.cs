@@ -151,7 +151,7 @@ public sealed class ChatCaptureService(
             return;
 
         store.Append(channel, new ChatSourceEvent.Gap(
-            channel, clock.GetUtcNow().ToUnixTimeMilliseconds(), fromMs, toMs, "irc-disconnected"));
+            channel, clock.GetUtcNow().ToUnixTimeMilliseconds(), fromMs, toMs, ChatGapReasons.IrcDisconnected));
     }
 
     private async Task ReconcileAsync(CancellationToken ct)

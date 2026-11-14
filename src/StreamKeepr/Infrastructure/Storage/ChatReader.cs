@@ -31,16 +31,16 @@ public sealed class ChatReader(
         }
         catch (ArgumentException)
         {
-            return Empty(summary, fromSec, toSec, syncOffsetSec, ChatStates.Unavailable, false, "none");
+            return Empty(summary, fromSec, toSec, syncOffsetSec, ChatStates.Unavailable, false, ChatStates.NoSource);
         }
 
         StoredChatMeta? meta = store.ReadMeta(directory);
         bool hasChat = ChatLogStore.HasChat(directory, logger);
-        string source = meta?.Source ?? "none";
+        string source = meta?.Source ?? ChatStates.NoSource;
         int leadIn = meta?.LeadInSec ?? options.Value.LeadInSeconds;
         int bucketSeconds = meta?.BucketSeconds is > 0
             ? meta.BucketSeconds
-            : options.Value.BucketMinutes * 60;
+            : options.Value.BucketSeconds;
 
         ChatTimeline timeline = ChatTimeline.Build(directory, leadIn, logger);
         if (!timeline.HasParts)

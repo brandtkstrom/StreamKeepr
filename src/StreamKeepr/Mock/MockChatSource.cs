@@ -105,13 +105,14 @@ public sealed class MockChatSource(
         try
         {
             // The newest part holds the live edge; a reconnect starts a new part.
-            int newest = Directory.EnumerateFiles(directory, "p*.m3u8")
-                .Select(path => PartFiles.TryParsePlaylist(Path.GetFileName(path), out int part)
+            int newest = Directory.EnumerateFiles(directory, PartFiles.PlaylistGlob)
+                .Select(path => PartFiles.TryParsePlaylist(Path.GetFileName(path), out int part) &&
+                                PartFiles.IsValidPart(part)
                     ? part
                     : 0)
                 .DefaultIfEmpty(0)
                 .Max();
-            if (newest < 1)
+            if (!PartFiles.IsValidPart(newest))
                 return;
 
             string playlist = File.ReadAllText(Path.Combine(directory, PartFiles.Playlist(newest)));

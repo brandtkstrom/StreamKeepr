@@ -37,9 +37,10 @@ public sealed class ChatTimeline
         var files = new List<(int Part, string Path)>();
         try
         {
-            foreach (string path in Directory.EnumerateFiles(sessionDirectory, "p*.m3u8"))
+            foreach (string path in Directory.EnumerateFiles(sessionDirectory, PartFiles.PlaylistGlob))
             {
-                if (PartFiles.TryParsePlaylist(Path.GetFileName(path), out int part) && part >= 1)
+                if (PartFiles.TryParsePlaylist(Path.GetFileName(path), out int part) &&
+                    PartFiles.IsValidPart(part))
                     files.Add((part, path));
             }
         }

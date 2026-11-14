@@ -68,6 +68,19 @@ public static class ChatStates
     public const string Recording = "recording";
     public const string Complete = "complete";
     public const string Unavailable = "unavailable";
+
+    /// <summary>Pane-only: a live recording whose stream is reconnecting.</summary>
+    public const string Reconnecting = "reconnecting";
+
+    /// <summary>The <c>source</c> reported when a recording has no chat log.</summary>
+    public const string NoSource = "none";
+}
+
+/// <summary>The <c>reason</c> values written on <c>gap</c> and <c>dropped</c> events.</summary>
+public static class ChatGapReasons
+{
+    public const string IrcDisconnected = "irc-disconnected";
+    public const string QueueFull = "queue-full";
 }
 
 /// <summary>The <c>kind</c> values written to <c>events.jsonl</c>.</summary>

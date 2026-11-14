@@ -233,6 +233,34 @@ public sealed class ChatLogStore(
         }
     }
 
+    /// <summary>
+    /// Parses a finished log for a rewrite. A malformed line throws instead of being skipped,
+    /// so the purge never deletes a row it could not read.
+    /// </summary>
+    private static List<T> ParseLinesStrict<T>(string path)
+    {
+        var items = new List<T>();
+        int lineNumber = 0;
+        foreach (string line in File.ReadLines(path))
+        {
+            lineNumber++;
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+
+            try
+            {
+                if (JsonSerializer.Deserialize<T>(line, Json) is { } item)
+                    items.Add(item);
+            }
+            catch (JsonException ex)
+            {
+                throw new JsonException($"Line {lineNumber} of {path} is not valid chat JSON.", ex);
+            }
+        }
+
+        return items;
+    }
+
     private static T? TryReadJson<T>(string path, ILogger logger)
     {
         try
@@ -351,7 +379,7 @@ public sealed class ChatLogStore(
                             From = dropped.FromMs,
                             To = dropped.ToMs,
                             Count = dropped.Count,
-                            Reason = "queue-full",
+                            Reason = ChatGapReasons.QueueFull,
                         },
                     _ => null,
                 };
@@ -422,7 +450,7 @@ public sealed class ChatLogStore(
             }
 
             string bucketPath = Path.Combine(_directory, BucketFileName(
-                DateTimeOffset.FromUnixTimeMilliseconds(message.AtMs), options.BucketMinutes * 60));
+                DateTimeOffset.FromUnixTimeMilliseconds(message.AtMs), options.BucketSeconds));
             if (_bucketPath != bucketPath || _bucket is null)
             {
                 _bucket?.Dispose();
@@ -504,7 +532,7 @@ public sealed class ChatLogStore(
                 previous?.StartedAt ?? summary.StartedAt,
                 finalize ? clock.GetUtcNow() : previous?.EndedAt,
                 options.LeadInSeconds,
-                options.BucketMinutes * 60,
+                options.BucketSeconds,
                 _lastMessageAt > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(_lastMessageAt) : null,
                 _messageCount,
                 _truncated,
@@ -537,9 +565,9 @@ public sealed class ChatLogStore(
 
             try
             {
-                // Strict reads: a bucket that cannot be read fully must not be rewritten.
+                // Strict reads, all before any rewrite: an unreadable log is left as it is.
                 List<StoredChatEvent> events = File.Exists(EventsPath)
-                    ? ParseLines<StoredChatEvent>(File.ReadLines(EventsPath), EventsPath, logger).ToList()
+                    ? ParseLinesStrict<StoredChatEvent>(EventsPath)
                     : [];
                 ChatTombstones tombstones = ChatTombstones.From(events);
                 if (tombstones.IsEmpty)
@@ -553,8 +581,7 @@ public sealed class ChatLogStore(
                 foreach (string bucketPath in BucketFiles(sessionDirectory, logger))
                 {
                     var kept = new List<StoredChatMessage>();
-                    foreach (StoredChatMessage message in ParseLines<StoredChatMessage>(
-                                 File.ReadLines(bucketPath), bucketPath, logger))
+                    foreach (StoredChatMessage message in ParseLinesStrict<StoredChatMessage>(bucketPath))
                     {
                         if (tombstones.Removes(message))
                         {

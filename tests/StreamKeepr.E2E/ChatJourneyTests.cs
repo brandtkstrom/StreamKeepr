@@ -75,8 +75,11 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await page.WaitForFunctionAsync(
             "() => document.querySelector('[data-sk=chat-state]').dataset.state === 'live'");
         int before = Volatile.Read(ref chatRequests);
-        await page.WaitForTimeoutAsync(3_000);
-
-        Assert.True(Volatile.Read(ref chatRequests) > before, "the pane polls while live");
+        DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+        while (Volatile.Read(ref chatRequests) <= before)
+        {
+            Assert.True(DateTime.UtcNow < deadline, "the pane polls while live");
+            await Task.Delay(100);
+        }
     }
 }

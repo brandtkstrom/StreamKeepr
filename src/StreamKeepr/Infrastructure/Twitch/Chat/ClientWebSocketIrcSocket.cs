@@ -13,11 +13,14 @@ public sealed class ClientWebSocketIrcSocket : IIrcSocket
 {
     private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(3);
 
+    /// <summary>WebSocket pings keep NAT and proxies from idling out a quiet chat.</summary>
+    private static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(30);
+
     private readonly ClientWebSocket _socket = new();
 
     public async Task ConnectAsync(Uri uri, CancellationToken ct)
     {
-        _socket.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
+        _socket.Options.KeepAliveInterval = KeepAliveInterval;
         await _socket.ConnectAsync(uri, ct);
     }
 

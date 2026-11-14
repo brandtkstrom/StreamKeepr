@@ -444,7 +444,7 @@ public sealed class SessionStore(
         if (!Directory.Exists(directory))
             return parts;
 
-        foreach (string path in Directory.EnumerateFiles(directory, "p*.m3u8"))
+        foreach (string path in Directory.EnumerateFiles(directory, PartFiles.PlaylistGlob))
         {
             if (!PartFiles.TryParsePlaylist(Path.GetFileName(path), out int part))
             {
@@ -454,7 +454,7 @@ public sealed class SessionStore(
                 continue;
             }
 
-            if (part is >= 1 and <= 999)
+            if (PartFiles.IsValidPart(part))
                 parts.Add((part, path));
             else
                 logger.LogWarning("Ignoring part playlist {File}; part numbers start at 1.", path);

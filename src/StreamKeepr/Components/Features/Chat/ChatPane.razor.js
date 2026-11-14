@@ -55,10 +55,10 @@ function readOffset(storage, recordingId, maxOffset) {
   return Number.isFinite(value) ? clamp(value, -maxOffset, maxOffset) : 0;
 }
 
-function writeOffset(storage, recordingId, value) {
+function writeOffset(storage, recordingId, value, maxOffset) {
   try {
     const offsets = readOffsets(storage);
-    offsets[recordingId] = value;
+    offsets[recordingId] = clamp(value, -maxOffset, maxOffset);
     const entries = Object.entries(offsets).slice(-100);
     storage?.setItem("sk-chat", JSON.stringify({ v: 1, offsets: Object.fromEntries(entries) }));
   } catch {
@@ -386,7 +386,7 @@ export function createChatPane(root, {
 
   function appendGap(gap) {
     // `seconds` is wall-clock time; a gap between parts is a single point on the media timeline.
-    const seconds = Math.max(1, Math.round(Number(gap.seconds ?? gap.to - gap.from)));
+    const seconds = Math.max(1, Math.round(Number(gap.seconds)));
     const row = document.createElement("div");
     row.className = "sk-chat-gap";
     row.textContent = `Chat unavailable for ${seconds}s`;
@@ -508,7 +508,7 @@ export function createChatPane(root, {
   function setSync(value) {
     if (!view) return;
     syncOffset = clamp(value, -view.maxSyncOffsetSec, view.maxSyncOffsetSec);
-    writeOffset(storage, view.recordingId, syncOffset);
+    writeOffset(storage, view.recordingId, syncOffset, view.maxSyncOffsetSec);
     updateSync();
     resetWindow();
     loadCurrentWindow({ replace: true });

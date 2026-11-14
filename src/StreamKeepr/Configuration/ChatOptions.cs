@@ -42,5 +42,7 @@ public sealed class ChatOptions
 
     public ChatPurgeMode PurgeDeletedText { get; set; } = ChatPurgeMode.Off;
 
+    public int BucketSeconds => BucketMinutes * 60;
+
     public bool HasToken => !string.IsNullOrWhiteSpace(TwitchUserOAuthToken);
 }

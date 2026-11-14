@@ -12,7 +12,15 @@ public static class PartFiles
     private static readonly Regex PlaylistName = new(
         @"^p(?<part>\d{3})\.m3u8$", RegexOptions.CultureInvariant);
 
+    public const int FirstPart = 1;
+    public const int LastPart = 999;
+
+    /// <summary>Enumeration glob for part playlists; filter matches with <see cref="TryParsePlaylist"/>.</summary>
+    public const string PlaylistGlob = "p*.m3u8";
+
     public static string Playlist(int part) => $"p{part:D3}.m3u8";
+
+    public static bool IsValidPart(int part) => part is >= FirstPart and <= LastPart;
 
     /// <summary>
     /// Parses a part playlist name such as <c>p001.m3u8</c>. Callers apply their own range

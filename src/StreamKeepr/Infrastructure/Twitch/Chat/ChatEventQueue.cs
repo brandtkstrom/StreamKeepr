@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 
@@ -140,7 +141,7 @@ public sealed class ChatEventQueue
             }
         }
 
-        public bool TryPeek(string channel, out ChatSourceEvent? next)
+        public bool TryPeek(string channel, [NotNullWhen(true)] out ChatSourceEvent? next)
         {
             next = _items.First?.Value switch
             {

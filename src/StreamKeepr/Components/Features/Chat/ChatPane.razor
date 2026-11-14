@@ -130,9 +130,9 @@
         open,
         state = recording.State switch
         {
-            RecordingState.Recording => "recording",
-            RecordingState.Reconnecting => "reconnecting",
-            _ => "complete",
+            RecordingState.Recording => ChatStates.Recording,
+            RecordingState.Reconnecting => ChatStates.Reconnecting,
+            _ => ChatStates.Complete,
         },
         hasChat = recording.HasChat,
         // The endpoint's limits are the source of truth; the module only applies them.
