@@ -306,7 +306,8 @@ public sealed class LibraryView : ILibraryView
             summary.PlaylistUrl,
             // Live captures open at the live edge, so only finished recordings resume.
             ResumeSec: summary.IsRecording ? null : progress.Get(summary.Id),
-            summary.Chapters);
+            summary.Chapters,
+            summary.HasChat);
     }
 
     private static StreamerView BuildStreamer(

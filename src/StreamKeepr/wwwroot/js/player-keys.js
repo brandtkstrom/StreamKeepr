@@ -32,6 +32,8 @@ export function playerAction(event, doc = document) {
   if (isEditable(target) || overlayOpen(doc, target)) return null;
 
   const element = target instanceof Element ? target : null;
+  if (element?.closest("[data-sk-chat]")) return null;
+
   if (event.key === " " || event.key.toLowerCase() === "k") {
     // Native activation wins on buttons and links.
     if (element?.closest("button, a[href], [role='button'], [role='switch']")) return null;

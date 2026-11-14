@@ -1,0 +1,178 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject UiPreferences Preferences
+@inject ILogger<ChatPane> Logger
+
+@* Rendered once. ChatPane.razor.js owns the log, polling, sync controls, and auto-scroll;
+   Blazor never re-renders the pane after init. The toggle is JS-owned for the same reason. *@
+<aside class="sk-chat"
+       data-sk-chat
+       data-open="@(Open ? "true" : "false")"
+       aria-label="Chat replay"
+       @ref="_root">
+    <header class="sk-chat-head">
+        <button type="button"
+                class="sk-chat-toggle"
+                data-sk="chat-toggle"
+                aria-expanded="@(Open ? "true" : "false")"
+                aria-keyshortcuts="C"
+                aria-controls="@_bodyId"
+                aria-label="@(Open ? "Collapse chat" : "Open chat")">
+            <span class="sk-icon" aria-hidden="true">chat</span>
+            <span class="sk-chat-title" aria-hidden="true">Chat</span>
+        </button>
+        <span class="sk-chat-state" data-sk="chat-state" role="status" aria-live="polite">Loading chat…</span>
+    </header>
+
+    <div id="@_bodyId" class="sk-chat-body" data-sk="chat-body" inert="@(Open ? null : "inert")">
+        <div class="sk-chat-log"
+             data-sk="chat-log"
+             role="log"
+             aria-live="off"
+             aria-label="Chat replay"
+             tabindex="0"></div>
+
+        <div class="sk-chat-footer">
+            <div class="sk-chat-sync" data-sk="chat-sync" hidden>
+                <span class="sk-chat-sync-label">Sync</span>
+                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-back2" aria-label="Shift chat 2 seconds earlier">−2 s</button>
+                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-back1" aria-label="Shift chat 1 second earlier">−1 s</button>
+                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-reset" aria-label="Reset chat sync">Reset</button>
+                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-forward1" aria-label="Shift chat 1 second later">+1 s</button>
+                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-forward2" aria-label="Shift chat 2 seconds later">+2 s</button>
+                <span class="sk-chat-sync-value" data-sk="chat-sync-value">0.0 s</span>
+            </div>
+            <button type="button" class="sk-chat-jump" data-sk="chat-jump" hidden>Jump to current time</button>
+            <span class="sk-chat-notice" data-sk="chat-notice" role="status" aria-live="polite"></span>
+        </div>
+    </div>
+</aside>
+
+@code {
+    private const string ModulePath = "./Components/Features/Chat/ChatPane.razor.js";
+
+    private readonly string _bodyId = $"sk-chat-{Guid.NewGuid():N}";
+    private ElementReference _root;
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<ChatPane>? _self;
+    private RecordingView? _loaded;
+    private bool _open;
+    private bool _ready;
+    private bool _disposed;
+
+    [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
+
+    [Parameter] public bool Open { get; set; }
+
+    protected override bool ShouldRender() => !_ready;
+
+    protected override void OnInitialized() => _open = Open;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_module is null || _loaded is null)
+            return;
+
+        if (!ReferenceEquals(_loaded, Recording))
+        {
+            _loaded = Recording;
+            _open = Open;
+            await InvokeModuleAsync("load", _root, ToPayload(Recording, Open));
+            return;
+        }
+
+        if (_open != Open)
+        {
+            _open = Open;
+            await InvokeModuleAsync("setOpen", _root, _open);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _disposed)
+            return;
+
+        _ready = true;
+        _self = DotNetObjectReference.Create(this);
+        try
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
+            _loaded = Recording;
+            if (_disposed)
+            {
+                await _module.DisposeAsync();
+                return;
+            }
+
+            await _module.InvokeVoidAsync("init", _root, _self, ToPayload(Recording, _open));
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "The chat pane module could not be initialized.");
+        }
+    }
+
+    /// <summary>Persists a toggle already applied by the JS module.</summary>
+    [JSInvokable]
+    public async Task SetChatOpen(bool open)
+    {
+        _open = open;
+        Preferences.SetChatOpen(open);
+        await Preferences.PersistAsync();
+    }
+
+    private object ToPayload(RecordingView recording, bool open) => new
+    {
+        recordingId = recording.Id,
+        open,
+        state = recording.State switch
+        {
+            RecordingState.Recording => "recording",
+            RecordingState.Reconnecting => "reconnecting",
+            _ => "complete",
+        },
+        hasChat = recording.HasChat,
+    };
+
+    private async Task InvokeModuleAsync(string identifier, params object[] args)
+    {
+        if (_module is null)
+            return;
+
+        try
+        {
+            await _module.InvokeVoidAsync(identifier, args);
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, so there is no browser state left to update.
+        }
+        catch (JSException ex)
+        {
+            Logger.LogDebug(ex, "Chat pane call {Identifier} failed.", identifier);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        if (_module is not null)
+        {
+            await InvokeModuleAsync("dispose", _root);
+            try
+            {
+                await _module.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit is gone, so there is no module left to release.
+            }
+        }
+
+        _self?.Dispose();
+    }
+}

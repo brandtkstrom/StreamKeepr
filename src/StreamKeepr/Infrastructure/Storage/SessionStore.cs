@@ -253,7 +253,8 @@ public sealed class SessionStore(
             PartCount: parts.Count,
             SegmentCount: PlaylistStitcher.SegmentCount(playlist),
             HasThumbnail: File.Exists(Path.Combine(directory, ThumbnailFileName)),
-            Chapters: PlaylistStitcher.Chapters(playlist, manifest.Metadata));
+            Chapters: PlaylistStitcher.Chapters(playlist, manifest.Metadata),
+            HasChat: ChatLogStore.HasChat(directory));
     }
 
     /// <summary>

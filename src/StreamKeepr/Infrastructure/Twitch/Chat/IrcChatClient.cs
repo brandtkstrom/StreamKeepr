@@ -1,0 +1,390 @@
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
+using System.Threading.Channels;
+using Microsoft.Extensions.Options;
+using StreamKeepr.Configuration;
+using StreamKeepr.Infrastructure.Runtime;
+using StreamKeepr.Infrastructure.Storage;
+
+namespace StreamKeepr.Infrastructure.Twitch.Chat;
+
+/// <summary>
+/// A read-only Twitch IRC client. Chat is a live tap: it reconnects and re-joins channels but
+/// cannot replay messages missed while disconnected.
+/// </summary>
+public sealed class IrcChatClient(
+    IIrcSocketFactory sockets,
+    TwitchChatParser parser,
+    IOptions<ChatOptions> options,
+    IRetryJitter jitter,
+    TimeProvider clock,
+    ILogger<IrcChatClient> logger) : BackgroundService, IChatSource
+{
+    private static readonly Uri Endpoint = new("wss://irc-ws.chat.twitch.tv:443");
+    private static readonly TimeSpan MinimumBackoff = TimeSpan.FromSeconds(5);
+
+    private readonly Channel<ChatSourceEvent> _events = Channel.CreateUnbounded<ChatSourceEvent>(
+        new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false,
+        });
+
+    private readonly ConcurrentDictionary<string, byte> _joined = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, byte> _sent = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _sendGate = new(1, 1);
+    private int _state = (int)ChatConnectionState.Disabled;
+    private int _tokenDisabled;
+    private long _lastMessageAt;
+
+    public ChatConnectionState State => (ChatConnectionState)Volatile.Read(ref this._state);
+
+    public string Source => this.UseToken
+        ? ChatLogStore.TokenSource
+        : ChatLogStore.AnonymousSource;
+
+    private bool UseToken => options.Value.HasToken && Volatile.Read(ref this._tokenDisabled) == 0;
+
+    public DateTimeOffset? LastMessageAt
+    {
+        get
+        {
+            long at = Volatile.Read(ref this._lastMessageAt);
+            return at > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(at) : null;
+        }
+    }
+
+    public event Action? Changed;
+
+    public async ValueTask JoinAsync(string channel, CancellationToken ct)
+    {
+        string login = TwitchLogin.Normalize(channel);
+        if (!TwitchLogin.IsValid(login))
+            return;
+
+        if (this._joined.Count >= options.Value.MaxChannels &&
+            !this._joined.ContainsKey(login))
+        {
+            logger.LogWarning(
+                "Chat join limit of {Limit} channels reached; {Channel} is not joined.",
+                options.Value.MaxChannels, login);
+            return;
+        }
+
+        this._joined[login] = 0;
+    }
+
+    public ValueTask PartAsync(string channel, CancellationToken ct)
+    {
+        this._joined.TryRemove(TwitchLogin.Normalize(channel), out _);
+        return ValueTask.CompletedTask;
+    }
+
+    public async IAsyncEnumerable<ChatSourceEvent> ReadAllAsync(
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        await foreach (ChatSourceEvent evt in this._events.Reader.ReadAllAsync(ct))
+            yield return evt;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        if (!options.Value.Enabled)
+        {
+            this.SetState(ChatConnectionState.Disabled);
+            this._events.Writer.TryComplete();
+            return;
+        }
+
+        if (options.Value.HasToken && !TwitchLogin.IsValid(
+                TwitchLogin.Normalize(options.Value.TwitchLogin)))
+        {
+            logger.LogError("Chat:TwitchLogin is required and must be valid when a chat token is set.");
+            this.SetState(ChatConnectionState.Unavailable);
+            this._events.Writer.TryComplete();
+            return;
+        }
+
+        TimeSpan backoff = MinimumBackoff;
+        try
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                bool immediate = false;
+                bool connected = false;
+                try
+                {
+                    connected = await this.RunConnectionAsync(stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (IrcReconnectException)
+                {
+                    immediate = true;
+                }
+                catch (IrcAuthException ex)
+                {
+                    logger.LogWarning("Twitch IRC authentication failed: {Reason}", ex.Message);
+                    if (this.UseToken)
+                    {
+                        Interlocked.Exchange(ref this._tokenDisabled, 1);
+                        logger.LogWarning("Falling back to anonymous Twitch IRC capture.");
+                        continue;
+                    }
+
+                    this.SetState(ChatConnectionState.Unavailable);
+                    await Task.Delay(TimeSpan.FromMinutes(1), clock, stoppingToken);
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Twitch IRC connection failed; reconnecting.");
+                }
+
+                await this.EmitReconnectAsync(stoppingToken);
+
+                if (connected)
+                    backoff = MinimumBackoff;
+
+                if (!immediate)
+                {
+                    this.SetState(ChatConnectionState.Backoff);
+                    TimeSpan delay = jitter.Apply(backoff);
+                    logger.LogInformation("Twitch IRC reconnecting in {Delay}.", delay);
+                    await Task.Delay(delay, clock, stoppingToken);
+                    backoff = TimeSpan.FromSeconds(Math.Min(
+                        backoff.TotalSeconds * 2,
+                        options.Value.ReconnectMaxSeconds));
+                }
+            }
+        }
+        finally
+        {
+            this.SetState(ChatConnectionState.Idle);
+            this._events.Writer.TryComplete();
+        }
+    }
+
+    private async Task<bool> RunConnectionAsync(CancellationToken ct)
+    {
+        this.SetState(ChatConnectionState.Connecting);
+        await using IIrcSocket socket = sockets.Create();
+
+        using (var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+        {
+            connectCts.CancelAfter(TimeSpan.FromSeconds(options.Value.ConnectTimeoutSeconds));
+            await socket.ConnectAsync(Endpoint, connectCts.Token);
+        }
+
+        this.SetState(ChatConnectionState.Registering);
+        bool useToken = this.UseToken;
+        string nick = useToken
+            ? TwitchLogin.Normalize(options.Value.TwitchLogin)
+            : NewAnonymousNick();
+
+        await this.SendAsync(socket, "CAP LS 302", ct);
+        if (useToken)
+            await this.SendAsync(socket, $"PASS oauth:{options.Value.TwitchUserOAuthToken}", ct);
+        await this.SendAsync(socket, $"NICK {nick}", ct);
+        await this.SendAsync(socket, $"USER {nick} 0 * :{nick}", ct);
+        await this.SendAsync(socket, "CAP REQ :twitch.tv/tags twitch.tv/commands", ct);
+        await this.SendAsync(socket, "CAP END", ct);
+
+        this._sent.Clear();
+        using var registration = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        registration.CancelAfter(TimeSpan.FromSeconds(options.Value.RegistrationTimeoutSeconds));
+
+        using var joins = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task? joinPump = null;
+        bool welcomed = false;
+
+        try
+        {
+            await foreach (string line in IrcLineReader.ReadLinesAsync(
+                               socket, registration.Token))
+            {
+                if (!IrcMessageParser.TryParse(line, out IrcMessage? message) || message is null)
+                {
+                    logger.LogDebug("Skipping malformed IRC line.");
+                    continue;
+                }
+
+                if (message.Command == "PING")
+                {
+                    await this.SendAsync(socket, $"PONG :{Sanitize(message.Trailing)}", ct);
+                    continue;
+                }
+
+                if (message.Command == "RECONNECT")
+                {
+                    throw new IrcReconnectException();
+                }
+
+                if (message.Command == "001")
+                {
+                    welcomed = true;
+                    registration.CancelAfter(Timeout.InfiniteTimeSpan);
+                    this.SetState(ChatConnectionState.Joining);
+                    joinPump ??= this.JoinPumpAsync(socket, joins.Token);
+                    continue;
+                }
+
+                if (message.Command == "433")
+                {
+                    if (this.UseToken)
+                    {
+                        throw new IrcAuthException(
+                            "The configured chat login is already connected.");
+                    }
+
+                    throw new IrcReconnectException();
+                }
+
+                if (message.Command == "NOTICE" &&
+                    IsAuthFailure(message.Trailing))
+                {
+                    throw new IrcAuthException(message.Trailing ?? "Authentication failed.");
+                }
+
+                if (message.Command == "CAP" &&
+                    string.Equals(message.Parameter(1), "NAK",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new IrcAuthException("Twitch rejected the required IRC capabilities.");
+                }
+
+                foreach (ChatSourceEvent evt in parser.Parse(message))
+                {
+                    if (evt is ChatSourceEvent.MessageEvent)
+                    {
+                        Interlocked.Exchange(
+                            ref this._lastMessageAt, evt.AtMs);
+                    }
+
+                    this._events.Writer.TryWrite(evt);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && !welcomed)
+        {
+            throw new TimeoutException("Twitch IRC registration timed out.");
+        }
+        finally
+        {
+            joins.Cancel();
+            if (joinPump is not null)
+            {
+                try
+                {
+                    await joinPump;
+                }
+                catch (OperationCanceledException)
+                {
+                    // The connection is closing.
+                }
+            }
+        }
+
+        return welcomed;
+    }
+
+    private async Task JoinPumpAsync(IIrcSocket socket, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            bool sentAny = false;
+            foreach (string channel in this._joined.Keys)
+            {
+                if (this._sent.ContainsKey(channel))
+                    continue;
+
+                await this.SendAsync(socket, $"JOIN #{channel}", ct);
+                this._sent[channel] = 0;
+                sentAny = true;
+                await Task.Delay(TimeSpan.FromMilliseconds(options.Value.JoinIntervalMs), clock, ct);
+                break;
+            }
+
+            foreach (string channel in this._sent.Keys)
+            {
+                if (this._joined.ContainsKey(channel))
+                    continue;
+
+                await this.SendAsync(socket, $"PART #{channel}", ct);
+                this._sent.TryRemove(channel, out _);
+            }
+
+            if (!sentAny)
+                await Task.Delay(TimeSpan.FromMilliseconds(options.Value.JoinIntervalMs), clock, ct);
+        }
+    }
+
+    private async Task SendAsync(IIrcSocket socket, string text, CancellationToken ct)
+    {
+        await this._sendGate.WaitAsync(ct);
+        try
+        {
+            await socket.SendTextAsync(text + "\r\n", ct);
+        }
+        finally
+        {
+            this._sendGate.Release();
+        }
+    }
+
+    private async Task EmitReconnectAsync(CancellationToken ct)
+    {
+        if (this._joined.IsEmpty)
+            return;
+
+        long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
+        foreach (string channel in this._joined.Keys)
+        {
+            this._events.Writer.TryWrite(new ChatSourceEvent.Reconnect(channel, now));
+        }
+    }
+
+    private void SetState(ChatConnectionState state)
+    {
+        int previous = Interlocked.Exchange(ref this._state, (int)state);
+        if (previous == (int)state)
+            return;
+
+        logger.LogInformation(
+            "Twitch IRC state {Previous} -> {State}.",
+            (ChatConnectionState)previous, state);
+        this.Changed?.Invoke();
+    }
+
+    private static bool IsAuthFailure(string? text) =>
+        text is not null &&
+        (text.Contains("Login authentication failed", StringComparison.OrdinalIgnoreCase) ||
+         text.Contains("Improperly formatted auth", StringComparison.OrdinalIgnoreCase));
+
+    private static string NewAnonymousNick() =>
+        "justinfan" + Random.Shared.Next(10000, 99999).ToString(
+            System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string Sanitize(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return "";
+
+        string sanitized = text.Replace("\r", "", StringComparison.Ordinal)
+            .Replace("\n", "", StringComparison.Ordinal);
+        return sanitized.Length > 450 ? sanitized[..450] : sanitized;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        this._events.Writer.TryComplete();
+        this._sendGate.Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    private sealed class IrcReconnectException : Exception;
+
+    private sealed class IrcAuthException(string message) : Exception(message);
+}
