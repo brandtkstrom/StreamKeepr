@@ -33,8 +33,8 @@ public sealed class IrcChatClient(
     private int _tokenDisabled;
 
     public string Source => UseToken
-        ? ChatLogStore.TokenSource
-        : ChatLogStore.AnonymousSource;
+        ? ChatSources.Token
+        : ChatSources.Anonymous;
 
     private bool UseToken => options.Value.HasToken && Volatile.Read(ref _tokenDisabled) == 0;
 

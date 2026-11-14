@@ -71,9 +71,20 @@ public static class ChatStates
 
     /// <summary>Pane-only: a live recording whose stream is reconnecting.</summary>
     public const string Reconnecting = "reconnecting";
+}
 
-    /// <summary>The <c>source</c> reported when a recording has no chat log.</summary>
-    public const string NoSource = "none";
+/// <summary>
+/// The <c>source</c> of <c>meta.json</c> and of a chat query. Each <c>IChatSource</c> reports one
+/// of these; storage records it as given.
+/// </summary>
+public static class ChatSources
+{
+    public const string Anonymous = "irc-anonymous";
+    public const string Token = "irc-token";
+    public const string Mock = "mock";
+
+    /// <summary>Reported when a recording has no chat log.</summary>
+    public const string None = "none";
 }
 
 /// <summary>The <c>reason</c> values written on <c>gap</c> and <c>dropped</c> events.</summary>
@@ -101,6 +112,12 @@ internal static class ChatEventKinds
     public static bool IsTombstone(string kind) => kind is Delete or ClearUser or ClearAll;
 }
 
+/// <summary>The <c>v</c> written on every chat log row and on <c>meta.json</c>.</summary>
+internal static class ChatLogFormat
+{
+    public const int Version = 1;
+}
+
 /// <summary>One persisted non-message chat event.</summary>
 internal sealed record StoredChatEvent(
     [property: JsonPropertyName("v")] int Version,
@@ -116,7 +133,12 @@ internal sealed record StoredChatEvent(
     [property: JsonPropertyName("emoteOnly")] bool? EmoteOnly,
     [property: JsonPropertyName("subsOnly")] bool? SubscribersOnly,
     [property: JsonPropertyName("uniqueChat")] bool? UniqueChat,
-    [property: JsonPropertyName("slow")] int? Slow);
+    [property: JsonPropertyName("slow")] int? Slow)
+{
+    /// <summary>An event of <paramref name="kind"/> at <paramref name="at"/> with no other fields set.</summary>
+    public static StoredChatEvent Create(string kind, long at) =>
+        new(ChatLogFormat.Version, kind, at, null, null, null, null, null, null, null, null, null, null, null);
+}
 
 public sealed record ChatQueryMessage(
     string Id,

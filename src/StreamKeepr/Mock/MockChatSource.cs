@@ -30,7 +30,7 @@ public sealed class MockChatSource(
 
     private int _counter;
 
-    public string Source => ChatLogStore.MockSource;
+    public string Source => ChatSources.Mock;
 
     public ValueTask JoinAsync(string channel, CancellationToken ct)
     {

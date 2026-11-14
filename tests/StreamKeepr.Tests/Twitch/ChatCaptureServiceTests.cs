@@ -145,9 +145,9 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
         Assert.Equal(stoppedAt, gap.GetProperty("to").GetInt64());
     }
 
-    private string ChatDirectory => ChatLogStore.ChatDirectory(_store.SessionDirectory(_recording));
+    private string ChatDirectory => ChatLogLayout.ChatDirectory(_store.SessionDirectory(_recording));
 
-    private string MetaPath => Path.Combine(ChatDirectory, ChatLogStore.MetaFileName);
+    private string MetaPath => Path.Combine(ChatDirectory, ChatLogLayout.MetaFileName);
 
     private async Task StartRecordingAsync()
     {
@@ -167,7 +167,7 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
 
     private List<JsonElement> Events()
     {
-        string path = Path.Combine(ChatDirectory, ChatLogStore.EventsFileName);
+        string path = Path.Combine(ChatDirectory, ChatLogLayout.EventsFileName);
         if (!File.Exists(path))
             return [];
 
