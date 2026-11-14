@@ -198,7 +198,7 @@ public sealed class ChatLogStoreTests : IDisposable
         store.OpenSession(summary, ChatLogStore.AnonymousSource);
         store.Append("chan", Message(summary, "a", 2, "first"));
 
-        // The clock is 12 s of media into the part (the lead-in), so truncation starts there.
+        // The cap trips on "b", so nothing after the last stored message ("a", at 2 s) survives.
         store.Append("chan", Message(summary, "b", 13, "dropped by the cap"));
         store.CloseSession(summary.Id, finalize: true);
 
@@ -206,7 +206,7 @@ public sealed class ChatLogStoreTests : IDisposable
 
         Assert.Equal(["a"], result.Messages.Select(message => message.Id));
         ChatQueryGap gap = Assert.Single(result.Gaps);
-        Assert.Equal(12, gap.From);
+        Assert.Equal(2, gap.From);
         Assert.Equal(20, gap.To);
     }
 
@@ -248,6 +248,25 @@ public sealed class ChatLogStoreTests : IDisposable
         ChatQueryResult result = reader.Query(summary, 0, 60, 300, 0);
 
         Assert.Equal(["a", "b"], result.Messages.Select(message => message.Id));
+    }
+
+    [Fact]
+    public void Query_keeps_the_recorded_part_of_an_outage_that_ends_between_parts()
+    {
+        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(
+            new ChatOptions());
+        string directory = store.SessionDirectory(summary);
+        WritePlaylist(directory);
+        WritePlaylist(directory, part: 2, pdt: Pdt.AddSeconds(60 + 90));
+        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.Append("chan", new ChatSourceEvent.Gap(
+            "chan", At(summary, 100), At(summary, 50), At(summary, 100), "irc-disconnected"));
+        store.CloseSession(summary.Id, finalize: true);
+
+        ChatQueryResult result = reader.Query(
+            summary with { DurationSeconds = 120, PartCount = 2 }, 40, 70, 300, 0);
+
+        Assert.Contains(new ChatQueryGap(50, 60, 50), result.Gaps);
     }
 
     [Fact]

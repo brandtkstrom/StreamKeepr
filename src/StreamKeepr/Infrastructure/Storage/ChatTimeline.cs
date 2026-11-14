@@ -108,6 +108,31 @@ public sealed class ChatTimeline
         return Clamp(media, match.MediaStart, match.MediaStart + match.Duration);
     }
 
+    /// <summary>
+    /// Maps a gap end to the media timeline. A time inside a part maps exactly; a time in the
+    /// unrecorded stretch between parts maps to the next part's start, before the first part to
+    /// its start, and after the last part to the recorded end. Messages must use
+    /// <see cref="MapToMedia"/> instead, so they are never placed at a misleading boundary.
+    /// </summary>
+    public double? MapGapEndToMedia(long atMs)
+    {
+        if (_parts.Count == 0)
+            return null;
+
+        if (MapToMedia(atMs) is { } exact)
+            return exact;
+
+        DateTimeOffset at = DateTimeOffset.FromUnixTimeMilliseconds(atMs);
+        PartTiming? next = _parts
+            .Where(part => part.ContentStart > at)
+            .MinBy(part => part.ContentStart);
+        if (next is not null)
+            return next.MediaStart;
+
+        PartTiming last = _parts.MaxBy(part => part.MediaStart + part.Duration)!;
+        return last.MediaStart + last.Duration;
+    }
+
     /// <summary>Wall-clock ranges covering a media-time window, one per intersecting part.</summary>
     public IReadOnlyList<(DateTimeOffset From, DateTimeOffset To)> WallRanges(
         double fromSec, double toSec)

@@ -133,11 +133,12 @@ public sealed class ChatReader(
             {
                 ChatEventKinds.Gap or ChatEventKinds.Dropped when gap.From is { } start &&
                                                                   gap.To is { } end =>
-                    (timeline.MapToMedia(start), timeline.MapToMedia(end), (end - start) / 1000d),
+                    (timeline.MapGapEndToMedia(start), timeline.MapGapEndToMedia(end),
+                        (end - start) / 1000d),
 
                 // A truncated log is open-ended: nothing after the cap was captured.
                 ChatEventKinds.Truncated =>
-                    (timeline.MapToMedia(gap.From ?? gap.At), to, double.NaN),
+                    (timeline.MapGapEndToMedia(gap.From ?? gap.At), to, double.NaN),
 
                 _ => (null, null, 0),
             };

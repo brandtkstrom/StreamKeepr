@@ -393,9 +393,13 @@ public sealed class ChatLogStore(
 
         private void Truncate()
         {
-            // Open-ended: nothing after this point is captured for the session.
+            // Open-ended: nothing after the last stored message is captured for the session.
             long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
-            WriteEvent(Event(ChatEventKinds.Truncated, now) with { From = now, Count = _messageCount });
+            WriteEvent(Event(ChatEventKinds.Truncated, now) with
+            {
+                From = _lastMessageAt > 0 ? _lastMessageAt : now,
+                Count = _messageCount,
+            });
             _truncated = true;
             CloseWriters();
             WriteMeta(finalize: false);
