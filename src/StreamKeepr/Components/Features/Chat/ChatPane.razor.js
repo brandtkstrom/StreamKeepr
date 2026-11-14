@@ -208,6 +208,7 @@ export function createChatPane(root, {
       const data = await response.json();
       if (disposed || request.signal.aborted) return;
 
+      notice("");
       view.state = data.state;
       view.hasChat = Boolean(data.hasChat);
       view.leadInSec = data.leadInSec;
@@ -497,7 +498,7 @@ export function createChatPane(root, {
   on(el["chat-sync-forward2"], "click", () => adjustSync(2));
   on(document, "sk:playhead", onPlayhead);
   on(document, "keydown", (event) => {
-    if (event.defaultPrevented || event.isComposing) return;
+    if (event.defaultPrevented || event.isComposing || event.repeat) return;
     if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
     if (event.key.toLowerCase() !== "c") return;
     const target = event.target;
