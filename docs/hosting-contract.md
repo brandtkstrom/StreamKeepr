@@ -40,6 +40,7 @@ MapHealthChecks
 | Recording media | `/media/{channel}/{id}/...` | Public |
 | Live/final index | `/media/{channel}/{id}/index.m3u8` | Public |
 | Progress write | `PUT /api/recordings/{id}/progress` | Public (viewing is open) |
+| Chat read | `GET /api/recordings/{id}/chat` | Public (viewing is open) |
 | Export download | `GET /api/exports/{exportId}/download` | Signed-in |
 | Twitch login | `GET /api/auth/twitch/login?returnUrl=` | Public |
 | Twitch callback | `/signin-twitch` | Public |
@@ -56,7 +57,7 @@ ADR-0002 applies.
 
 - Only `.m3u8`, `.m4s`, `.mp4`, `.jpg`, and `.png` are served. Any other extension returns 404.
 - Any decoded path segment starting with `.` returns 404. Reject `..` and encoded traversal before touching the filesystem.
-- `session.json`, `admin-tokens.json`, `progress.json`, `.streamkeepr`, exports, and `.tmp` files are never served.
+- `session.json`, `admin-tokens.json`, `progress.json`, `.streamkeepr`, `chat/`, exports, and `.tmp` files are never served. Chat is served only by the bounded `/api/recordings/{id}/chat` endpoint.
 - `ServeUnknownFileTypes = false`; the explicit content type map supplies:
   - `.m3u8` → `application/vnd.apple.mpegurl`
   - `.m4s` → `video/iso.segment`
@@ -66,6 +67,7 @@ ADR-0002 applies.
 - Cache headers: `.m3u8` → `no-cache`; segments, init files, and thumbnails → `public, max-age=31536000, immutable`.
 - Static files handle GET/HEAD and Range requests. No directory listing; a missing file is 404, never a 500.
 - `index.m3u8`: static files may serve a finalized file; the live endpoint stitches while recording. Both set `Cache-Control: no-cache` and return 404 for unknown sessions/channels. A Complete session must return a playlist with one `#EXT-X-ENDLIST`.
+- The chat endpoint is public, returns `Cache-Control: no-store`, bounds its window and result limit, and returns 400/404/200-with-`hasChat:false` as defined in `docs/backend-ui-contract.md`.
 - The media root is created at startup. An unwritable root fails startup with the UID 1654 guidance.
 - Deletion races return 404/410, never a 500.
 

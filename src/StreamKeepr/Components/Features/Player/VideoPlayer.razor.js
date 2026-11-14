@@ -117,6 +117,7 @@ export function createPlayer(
   let theater = false;
   let idleTimer = 0;
   let wasFullscreen = false;
+  let lastPlayheadAt = 0;
   const stats = createStatsProbe({ video });
   const progress = createProgress({
     save: (recordingId, seconds) => invokeDotNet("SaveProgress", recordingId, seconds),
@@ -680,6 +681,7 @@ export function createPlayer(
     renderTicks();
     renderPosition();
     renderLive();
+    dispatchPlayhead(true);
   });
   on(video, "durationchange", () => {
     // Native HLS has no LEVEL_LOADED: a finite duration is its ENDLIST.
@@ -687,6 +689,7 @@ export function createPlayer(
     renderTicks();
     renderPosition();
     renderLive();
+    dispatchPlayhead(true);
   });
   on(video, "timeupdate", () => {
     if (live && following && !video.paused) {
@@ -696,14 +699,19 @@ export function createPlayer(
     if (!dragging) renderPosition();
     lastKnownTime = video.currentTime;
     renderBuffered();
+    dispatchPlayhead();
   });
+  on(video, "seeked", () => dispatchPlayhead(true));
+  on(video, "ratechange", () => dispatchPlayhead(true));
   on(video, "progress", renderBuffered);
   on(video, "play", () => {
     renderPlayState();
     wake();
     progress.playing();
+    dispatchPlayhead(true);
   });
   on(video, "pause", () => {
+    dispatchPlayhead(true);
     renderPlayState();
     root.classList.remove("idle"); // never idle while paused
     // A pause leaves the live edge; Live edge or a seek to it follows again.
@@ -717,6 +725,7 @@ export function createPlayer(
   on(video, "ended", () => {
     renderPlayState();
     progress.ended();
+    dispatchPlayhead(true);
   });
   on(window, "pagehide", () => progress.flush());
   on(document, "visibilitychange", () => {
@@ -783,6 +792,7 @@ export function createPlayer(
   // Global shortcuts while a recording is open; the decision lives in player-keys.js.
   on(doc, "keydown", (event) => {
     if (!view) return;
+    if (event.target instanceof Element && event.target.closest("[data-sk-chat]")) return;
     const action = playerAction(event, doc);
     if (!action) return;
     event.preventDefault();
@@ -793,6 +803,24 @@ export function createPlayer(
   function seekBy(seconds) {
     if (!hasMetadata()) return;
     userSeek(clamp(video.currentTime + seconds, 0, duration()));
+  }
+
+  function dispatchPlayhead(force = false) {
+    if (!view) return;
+    const now = performance.now();
+    if (!force && now - lastPlayheadAt < 250) return;
+    lastPlayheadAt = now;
+    root.dispatchEvent(new CustomEvent("sk:playhead", {
+      detail: {
+        recordingId: view.recordingId,
+        time: video.currentTime,
+        duration: Number.isFinite(video.duration) ? video.duration : 0,
+        paused: video.paused,
+        rate: video.playbackRate,
+        live,
+      },
+      bubbles: true,
+    }));
   }
 
   function runAction(action) {

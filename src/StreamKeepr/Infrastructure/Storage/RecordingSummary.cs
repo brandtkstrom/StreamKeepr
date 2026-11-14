@@ -17,7 +17,8 @@ public sealed record RecordingSummary(
     int PartCount,
     int SegmentCount,
     bool HasThumbnail,
-    IReadOnlyList<Chapter> Chapters)
+    IReadOnlyList<Chapter> Chapters,
+    bool HasChat = false)
 {
     public string PlaylistUrl => $"/media/{Channel}/{Id}/index.m3u8";
 

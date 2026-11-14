@@ -33,6 +33,7 @@ public sealed class UiPreferences
     private bool _theater;
     private bool _statsOpen;
     private bool _detailsOpen = true;
+    private bool _chatOpen;
 
     public UiPreferences(IClientStateStore store, IJSRuntime js, ILogger<UiPreferences> logger)
     {
@@ -63,6 +64,8 @@ public sealed class UiPreferences
     public bool StatsOpen => _statsOpen;
 
     public bool DetailsOpen => _detailsOpen;
+
+    public bool ChatOpen => _chatOpen;
 
     public IReadOnlyList<string> CollapsedStreamers => _collapsed.ToArray();
 
@@ -109,6 +112,15 @@ public sealed class UiPreferences
             return;
 
         _detailsOpen = open;
+        OnChanged();
+    }
+
+    public void SetChatOpen(bool open)
+    {
+        if (open == _chatOpen)
+            return;
+
+        _chatOpen = open;
         OnChanged();
     }
 
@@ -185,6 +197,7 @@ public sealed class UiPreferences
         _theater = state.Theater ?? false;
         _statsOpen = state.Stats ?? false;
         _detailsOpen = state.Details ?? true;
+        _chatOpen = state.Chat ?? false;
 
         _collapsed.Clear();
         if (state.Collapsed is not null)
@@ -235,6 +248,7 @@ public sealed class UiPreferences
         _theater,
         _statsOpen,
         _detailsOpen,
+        _chatOpen,
         _collapsed.ToArray());
 
     private string ToJson() => Serialize(CreateState());
@@ -254,6 +268,8 @@ public sealed class UiPreferences
 
         [JsonPropertyName("details")] public bool? Details { get; set; }
 
+        [JsonPropertyName("chat")] public bool? Chat { get; set; }
+
         [JsonPropertyName("collapsed")] public List<string?>? Collapsed { get; set; }
     }
 }
@@ -265,4 +281,5 @@ public sealed record UiPreferencesState(
     [property: JsonPropertyName("theater")] bool Theater,
     [property: JsonPropertyName("stats")] bool Stats,
     [property: JsonPropertyName("details")] bool Details,
+    [property: JsonPropertyName("chat")] bool Chat,
     [property: JsonPropertyName("collapsed")] IReadOnlyList<string> Collapsed);

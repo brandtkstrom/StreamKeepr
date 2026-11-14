@@ -13,10 +13,11 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 - `IEventSubBinding` owns how a session authenticates and subscribes: `WebSocketEventSubBinding` (user token) or `ConduitEventSubBinding` (app token and conduit), chosen by `Twitch:EventSubTransport`.
 - `EventSubConduitApi` owns the Helix conduit, shard, and conduit subscription calls; `IConduitStateStore` owns the saved conduit ID.
 - `IAdminTokenStore` owns the admin's Twitch user token, encrypted at rest.
+- `Chat:TwitchUserOAuthToken` is an optional, separate user token owned by chat capture; it is never the admin token or the Streamlink recorder token.
 - The cookie auth handler owns the browser admin session.
 - The supervisor owns channel add/seed profile resolution and feeds observations to the coordinators.
 
-The admin token is used **only** for EventSub subscriptions in WebSocket mode. Conduit mode uses the app token and never reads the admin token. Recording uses the Twitch app client credentials; subscriber-only streams use a separate Streamlink browser token.
+The admin token is used **only** for EventSub subscriptions in WebSocket mode. Conduit mode uses the app token and never reads the admin token. Recording uses the Twitch app client credentials; subscriber-only streams use a separate Streamlink browser token. Chat capture reads neither the admin token nor the recorder token.
 
 ## 2. App token provider
 
@@ -32,6 +33,13 @@ public sealed class TwitchTokenProvider(
 - No failure cache; a Twitch auth outage surfaces as `Unknown` through the poller.
 - `TimeProvider` everywhere; tests use `FakeTimeProvider`.
 - Never log the client secret or access token.
+
+### 2.1 Optional chat token
+
+- `Chat:TwitchUserOAuthToken` is a dedicated user access token with `chat:read`. `Chat:TwitchLogin` is required with it, and its shape is validated at startup; no network token call is made at startup.
+- The IRC connection validates the token. On an authentication failure, log the reason without the token, switch to anonymous capture for the life of the process, and reconnect.
+- Store it through user-secrets or `/run/secrets`; never log the token or a raw `PASS` line.
+- Do not add `chat:read` to the admin OAuth flow. That would couple chat capture to admin sign-in and change this contract.
 
 ## 3. Poller and Helix
 

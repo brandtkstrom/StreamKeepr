@@ -38,7 +38,8 @@ public sealed record RecordingView(
     string? ThumbnailUrl,
     string PlaylistUrl,
     double? ResumeSec,
-    IReadOnlyList<Chapter> Chapters);
+    IReadOnlyList<Chapter> Chapters,
+    bool HasChat = false);
 
 /// <summary>Free and total bytes for the recordings volume.</summary>
 public sealed record StorageView(long FreeBytes, long TotalBytes);

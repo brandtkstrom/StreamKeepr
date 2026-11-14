@@ -1,7 +1,9 @@
 using Bunit.TestDoubles;
+using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Storage;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Components.Features.Details;
 using StreamKeepr.Components.Features.Player;
@@ -133,6 +135,9 @@ public sealed class HomePlayerTests
         context.AddAuthorization().SetNotAuthorized();
         context.Services.AddSingleton<IProgressStore>(new TestProgressStore());
         context.Services.AddSingleton<ILibraryView>(view);
+
+        // Production default: chat capture is off.
+        context.Services.AddSingleton(Options.Create(new ChatOptions()));
         return context;
     }
 }

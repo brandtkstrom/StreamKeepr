@@ -21,6 +21,17 @@ dotnet run --project src/StreamKeepr
 
 Then open <http://localhost:5080>.
 
+## Chat capture (optional)
+
+Chat capture is off by default. Set `Chat:Enabled=true` to read chat over Twitch IRC while a session records. It uses anonymous read-only access by default; for a documented identity, configure a dedicated user token with `chat:read`:
+
+```bash
+dotnet user-secrets --project src/StreamKeepr set "Chat:TwitchUserOAuthToken" "<oauth-token>"
+dotnet user-secrets --project src/StreamKeepr set "Chat:TwitchLogin" "<twitch-login>"
+```
+
+Chat is a best-effort live tap, not a complete history: disconnects, dropped events, and a full log are shown as gaps. The other `Chat:` settings are listed in `docs/runtime-contract.md`. `Chat:PurgeDeletedText=OnFinalize` opts in to physically removing deleted text when a recording finalizes; it is off by default. Chat failures never stop recording.
+
 ## Mock profile (no Twitch credentials)
 
 The `Mock` launch profile runs the whole app without Twitch, OAuth, or production data. It is a

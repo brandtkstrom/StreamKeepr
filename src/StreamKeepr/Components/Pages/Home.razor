@@ -1,10 +1,13 @@
 @page "/"
 @page "/r/{RecordingId}"
 @implements IDisposable
+@using Microsoft.Extensions.Options
+@using StreamKeepr.Configuration
 @inject ILibraryView Library
 @inject UiPreferences Preferences
 @inject SnackbarService Snackbars
 @inject NavigationManager Navigation
+@inject IOptions<ChatOptions> ChatOptions
 
 <PageTitle>@(RecordingId is null ? "Stream Keepr" : $"{RecordingId} · Stream Keepr")</PageTitle>
 
@@ -33,11 +36,19 @@ else
 }
 
 @* The player column keeps its fixed order (player, details, stats). The same VideoPlayer
-   instance survives recording changes and swaps the source in JS. *@
-<div data-slot="player" data-selected-recording="@Selected?.Id">
-    @if (Selected is { } playing)
+   instance survives recording changes and swaps the source in JS. Chat is a sidecar only
+   when the recording has chat, or is live while capture is on; the pane owns its open state in JS. *@
+<div class="sk-player-row" data-chat-open="@(ShowChat && Preferences.ChatOpen ? "true" : "false")">
+    <div data-slot="player" data-selected-recording="@Selected?.Id">
+        @if (Selected is { } playing)
+        {
+            <VideoPlayer Recording="playing" StatsOpen="@Preferences.StatsOpen" />
+        }
+    </div>
+
+    @if (Selected is { } chatRecording && ShowChat)
     {
-        <VideoPlayer Recording="playing" StatsOpen="@Preferences.StatsOpen" />
+        <ChatPane Recording="chatRecording" Open="@Preferences.ChatOpen" />
     }
 </div>
 
@@ -65,7 +76,17 @@ else
     private RecordingView? Selected =>
         RecordingId is not null && Library.IsLoaded ? Library.Find(RecordingId) : null;
 
-    protected override void OnInitialized() => Library.Changed += OnLibraryChanged;
+    // Captured chat always replays; a live recording only waits for chat while capture is on.
+    private bool ShowChat => Selected is { } recording &&
+        (recording.HasChat ||
+         (ChatOptions.Value.Enabled &&
+          recording.State is RecordingState.Recording or RecordingState.Reconnecting));
+
+    protected override void OnInitialized()
+    {
+        Library.Changed += OnLibraryChanged;
+        Preferences.Changed += OnPreferencesChanged;
+    }
 
     protected override void OnParametersSet()
     {
@@ -98,6 +119,8 @@ else
     }
 
     private void OnLibraryChanged() => _ = InvokeAsync(ReactToLibraryChange);
+
+    private void OnPreferencesChanged() => _ = InvokeAsync(StateHasChanged);
 
     private void ReactToLibraryChange()
     {
@@ -139,5 +162,9 @@ else
         return null;
     }
 
-    public void Dispose() => Library.Changed -= OnLibraryChanged;
+    public void Dispose()
+    {
+        Library.Changed -= OnLibraryChanged;
+        Preferences.Changed -= OnPreferencesChanged;
+    }
 }

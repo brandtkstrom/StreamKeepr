@@ -25,7 +25,7 @@ public sealed record RecordingView(
     DateTimeOffset StartedAt, DateTimeOffset? EndedAt, double DurationSec,
     RecordingState State, int SegmentCount, int PartCount, long? SizeBytes,
     string? ThumbnailUrl, string PlaylistUrl, double? ResumeSec,
-    IReadOnlyList<Chapter> Chapters);
+    IReadOnlyList<Chapter> Chapters, bool HasChat = false);
 
 public sealed record StorageView(long FreeBytes, long TotalBytes);
 
@@ -49,6 +49,7 @@ public interface ILibraryView : IDisposable
 - `SizeBytes` is null while recording; otherwise media bytes.
 - `PlaylistUrl` is `/media/{channel}/{id}/index.m3u8`.
 - `ResumeSec` is null for recording/reconnecting sessions and for positions within 30 s of the end.
+- `HasChat` is true when the session's `chat/` folder has metadata or at least one bucket; it gates the chat pane.
 
 ### State derivation
 
@@ -120,6 +121,16 @@ public interface IConnectionStatusView : IDisposable
 - `Covered`/`Watched` come from `PushStatus`. Health is the `dvr` health check (`DvrHealthCheck.Name`) through `HealthCheckService`; a throwing check reports Unhealthy, “Health check failed.”
 - Liveness comes from `PollSchedule`: `LastEventSubMessageAt`, `LastPollAt` (any attempt), `LastSuccessfulPollAt` (the same instant as `LastPollAt` when that poll succeeded) and `LastApiRoundTrip` (Helix time of the last successful poll that made requests), and `CurrentInterval` (the last wait's choice).
 - `Changed` fires on push-status changes (500 ms throttle) and immediately on sign-in changes. Liveness values never raise it; the panel re-reads every 5 s.
+
+## 3b. Chat replay
+
+- `GET /api/recordings/{id}/chat?fromSec=&toSec=&limit=&syncOffsetSec=` is public and read-only. It returns a bounded media-time window from the session's chat log; `Cache-Control: no-store`.
+- `fromSec` is required and non-negative; `toSec` defaults to `fromSec + 120` and the window is capped at 600 s. `limit` defaults to 300 and is capped at 1000. `syncOffsetSec` is clamped to ±30 s.
+- The response envelope is `v`, `recordingId`, `state` (`recording` | `complete` | `starting` | `unavailable`), `hasChat`, `source` (`irc-anonymous` | `irc-token` | `mock` | `none`), `leadInSec`, `fromSec`, `toSec`, `syncOffsetSec`, `messages`, `gaps`, `hasMoreBefore`, `hasMoreAfter`. Messages carry `id`, `mt`, `at`, user fields, badges, text, emote ranges, bits, reply, and the action flag.
+- Each gap is `{from, to, seconds}`: `from`/`to` in media seconds clipped to the window, `seconds` the wall-clock length for the divider. Gaps come from IRC outages (last message to rejoin), queue overflow (`dropped`), a truncated log (from the cap to the window end), and unrecorded time between parts, which is a single media point (`from == to`) because the stitched timeline is contiguous.
+- Deleted and cleared messages are hidden, and a surviving reply's `reply` is `null` when it quotes removed text, whether or not purge ran.
+- Unknown recordings are 404; malformed or out-of-range queries are 400; a recording without chat is 200 with `hasChat:false`. Raw `.jsonl` files are never served.
+- The pane receives the endpoint's `limit` and sync range in its load payload. It keeps one fetch in flight; after a failure it waits 1 s, doubling to 30 s, before trying again. Seeks and sync changes replace the request in flight.
 
 ## 4. Progress store
 

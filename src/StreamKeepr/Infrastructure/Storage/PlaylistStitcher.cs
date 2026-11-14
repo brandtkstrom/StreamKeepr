@@ -116,6 +116,28 @@ public static class PlaylistStitcher
         return segments.Count;
     }
 
+    /// <summary>The first <c>#EXT-X-PROGRAM-DATE-TIME</c> in a playlist, if present.</summary>
+    public static DateTimeOffset? FirstProgramDateTime(string playlist)
+    {
+        ArgumentNullException.ThrowIfNull(playlist);
+        foreach (string raw in playlist.Split('\n'))
+        {
+            string line = raw.Trim();
+            if (!line.StartsWith(ProgramDateTimeTag, StringComparison.Ordinal))
+                continue;
+
+            return DateTimeOffset.TryParse(
+                line.AsSpan(ProgramDateTimeTag.Length),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal,
+                out DateTimeOffset parsed)
+                ? parsed
+                : null;
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Positions title/game changes on the stitched timeline. The first metadata entry describes
     /// the session start and is not a chapter; every later change begins at the first segment whose

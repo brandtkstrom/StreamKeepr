@@ -47,7 +47,7 @@ Use the design system's `.sk-shell` structure:
 - The main column has 24px (`--space-6`) top padding below the app bar on every route, breakpoint, and theater mode; it scrolls with the content.
 - Drawer: expanded 320px, rail 72px, hidden. The menu toggles expanded ↔ rail. Theater hides the drawer and sets the main column to `surface-container-lowest`.
 - Below 960px the drawer is modal over `scrim` with `elevation-3`, opened from the menu; below 600px stats tiles stack (stats implementation later).
-- The player column order is fixed: player → details → stats. The layout provides slots/placeholders; the feature tickets fill them.
+- The player column order is fixed: player → details → stats. The player slot is wrapped in `.sk-player-row`; an optional chat pane is its second child. The row is two columns at ≥960 px and stacks below 960 px. The recording main column may grow to 1280 px while chat is open; the library stays at 1100 px.
 - Collapse/expand is 300ms with the design-system easing; honor `prefers-reduced-motion`.
 - Every interactive element has the 2px `primary` focus ring; use `sk-` classes and role tokens only.
 
@@ -62,18 +62,19 @@ public sealed class UiPreferences
     public bool Theater { get; }
     public bool StatsOpen { get; }
     public bool DetailsOpen { get; }
+    public bool ChatOpen { get; }
     public bool IsCollapsed(string streamerLogin);
     public event Action? Changed;
 }
 ```
 
 - Scoped per circuit; reads the `sk-ui` cookie at prerender through `IHttpContextAccessor`; missing/malformed values fall back to defaults.
-- Cookie JSON is versioned: `{"v":1,"drawer":"expanded","theater":false,"stats":false,"details":true,"collapsed":["login"]}`.
-- Defaults: drawer expanded, theater off, stats closed, details open, no collapsed streamers.
+- Cookie JSON is versioned: `{"v":1,"drawer":"expanded","theater":false,"stats":false,"details":true,"chat":false,"collapsed":["login"]}`.
+- Defaults: drawer expanded, theater off, stats closed, details open, chat collapsed, no collapsed streamers.
 - Cookie attributes: `Path=/; SameSite=Lax; Max-Age=31536000`; `Secure` when HTTPS. It is not `HttpOnly` because `prefs.js` writes it. No secrets.
 - Cap: 4 KB and at most 50 collapsed streamers; drop extras/oldest so the cookie is never rejected. Unknown fields are ignored.
 - Writes go through `prefs.js`; `UiPreferences` updates in memory and raises `Changed`. A reload reads the cookie at prerender, so the first paint matches.
-- Layout state is not stored in localStorage. Player preferences (volume, mute, speed, quality) remain localStorage in the player module later.
+- Layout state is not stored in localStorage. Player preferences (volume, mute, speed, quality) remain localStorage in the player module later. Chat sync offsets are a viewing preference in `sk-chat` localStorage, separate from layout state.
 - Components subscribe to `Changed` and re-render through `InvokeAsync`; dispose unsubscribes.
 
 ## 6. `ViewerClock` and formatting
@@ -138,6 +139,7 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 - `AppShell.razor.js` is a collocated module for the `.scrolled` observer; it disposes on component dispose.
 - `UiPreferences`/`ViewerClock` call `prefs.js` through `IJSRuntime`; no JS reads or writes layout state directly.
 - `Editor`/player modules load later; hls.js is imported only by the player module, never by the shell.
+- `ChatPane.razor.js` owns the chat log, polling, auto-scroll, and sync controls; it listens to `sk:playhead` and never crosses the circuit for time updates.
 - `<ImportMap />` is kept; no CDN and no Node at runtime.
 - Anything changing more than once a second stays in JS (player/stats/scrubbing/pointer); shell state crosses the circuit only on user actions.
 

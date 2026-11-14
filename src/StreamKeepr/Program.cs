@@ -10,6 +10,7 @@ using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
+using StreamKeepr.Infrastructure.Twitch.Chat;
 using StreamKeepr.Mock;
 using StreamKeepr.Ui;
 
@@ -65,6 +66,14 @@ builder.Services.AddOptions<AuthOptions>()
                  $"{AuthOptions.SectionName}:{nameof(AuthOptions.AllowedTwitchLogins)} contains an invalid Twitch login.")
        .ValidateOnStart();
 
+builder.Services.AddOptions<ChatOptions>()
+       .BindConfiguration(ChatOptions.SectionName)
+       .ValidateDataAnnotations()
+       .Validate(options => !options.HasToken || TwitchLogin.IsValid(
+                   TwitchLogin.Normalize(options.TwitchLogin)),
+                 $"{ChatOptions.SectionName}:{nameof(ChatOptions.TwitchLogin)} must be a valid login when a chat token is set.")
+       .ValidateOnStart();
+
 if (mock)
 {
     builder.Services.AddOptions<MockSeedOptions>()
@@ -85,6 +94,11 @@ builder.Services.AddSingleton<IStorageMonitor, StorageMonitor>();
 builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddSingleton<ChannelStore>();
 builder.Services.AddSingleton<ProgressStore>();
+
+// Chat capture is a best-effort read-only tap; it never participates in recording decisions.
+builder.Services.AddSingleton<ChatLogStore>();
+builder.Services.AddSingleton<ChatReader>();
+builder.Services.AddSingleton<TwitchChatParser>();
 builder.Services.AddSingleton<IExportLeaseRegistry, ExportLeaseRegistry>();
 builder.Services.AddSingleton<IRecordingAdmin, RecordingAdmin>();
 builder.Services.AddSingleton<ExportService>();
@@ -107,6 +121,9 @@ if (mock)
     builder.Services.AddSingleton<MockTwitch>();
     builder.Services.AddSingleton<IStreamPoller, MockStreamPoller>();
     builder.Services.AddSingleton<IEventSubClient, MockEventSubClient>();
+    builder.Services.AddSingleton<MockChatSource>();
+    builder.Services.AddSingleton<IChatSource>(services =>
+        services.GetRequiredService<MockChatSource>());
 
     // The mock volume makes the 1 % storage threshold observable in local/E2E runs.
     builder.Services.AddSingleton<MockDiskSpace>();
@@ -133,6 +150,11 @@ else
             ? ActivatorUtilities.CreateInstance<ConduitEventSubBinding>(services)
             : ActivatorUtilities.CreateInstance<WebSocketEventSubBinding>(services));
     builder.Services.AddSingleton<IEventSubClient, EventSubClient>();
+
+    builder.Services.AddSingleton<IIrcSocketFactory, ClientWebSocketIrcSocketFactory>();
+    builder.Services.AddSingleton<IrcChatClient>();
+    builder.Services.AddSingleton<IChatSource>(services =>
+        services.GetRequiredService<IrcChatClient>());
 }
 
 builder.Services.AddSingleton<DvrSupervisor>();
@@ -146,6 +168,7 @@ if (mock)
 {
     builder.Services.AddHostedService<MockSeeder>();
     builder.Services.AddHostedService<MockLiveFeed>();
+    builder.Services.AddHostedService<MockChatSeeder>();
 }
 
 // Loads watch positions at startup and flushes pending ones on graceful shutdown.
@@ -160,6 +183,14 @@ builder.Services.AddStreamKeeprDataProtection();
 builder.Services.AddHostedService(services => services.GetRequiredService<DvrSupervisor>());
 // Grabs thumbnails from recorded media; registered after the supervisor so recovery has run.
 builder.Services.AddHostedService(services => services.GetRequiredService<ThumbnailService>());
+
+// Start the chat source before the capture reconciler; both are non-fatal to recording.
+if (mock)
+    builder.Services.AddHostedService(services => services.GetRequiredService<MockChatSource>());
+else
+    builder.Services.AddHostedService(services => services.GetRequiredService<IrcChatClient>());
+
+builder.Services.AddHostedService<ChatCaptureService>();
 
 // Conduit rollback cleanup; a no-op unless WebSocket mode finds a saved conduit.
 if (!mock)
@@ -280,6 +311,7 @@ app.MapMethods(LiveIndexEndpoint.Route,
                LiveIndexEndpoint.HandleAsync);
 
 app.MapPut(ProgressEndpoint.Route, ProgressEndpoint.HandleAsync);
+app.MapGet(ChatEndpoint.Route, ChatEndpoint.Handle);
 
 // The cookie scheme answers an API challenge with 401; the default challenge is Twitch OAuth.
 app.MapGet(ExportDownloadEndpoint.Route, ExportDownloadEndpoint.Handle)
