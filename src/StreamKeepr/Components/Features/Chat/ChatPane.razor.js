@@ -21,6 +21,10 @@ const LOOKAHEAD_SEC = 30;
 // Scrollback kept and rendered. Older rows drop off the top so a 12-hour live session does not
 // grow the DOM forever. Not the fetch limit; the server's limits arrive in the load payload.
 const MAX_ROWS = 1000;
+// A fresh window starts 30 s back, so after it loads the pane fetches earlier chat in chunks
+// until the log overflows, the chat starts, or it has reached this far back.
+const BACKFILL_CHUNK_SEC = 120;
+const BACKFILL_MAX_SEC = 1800;
 const BADGE_LABELS = {
   broadcaster: "BROADCASTER",
   founder: "FOUNDER",
@@ -116,6 +120,8 @@ export function createChatPane(root, {
   let newCount = 0;
   let lastRenderKey = "";
   let pollTimer = 0;
+  // The backfill in progress, if any. It has its own request so polls never abort it.
+  let backfill = null;
 
   function status(text, state = "") {
     if (el["chat-state"]) {
@@ -194,6 +200,7 @@ export function createChatPane(root, {
   }
 
   function resetWindow() {
+    stopBackfill();
     messages = new Map();
     gaps = [];
     loaded = false;
@@ -261,16 +268,8 @@ export function createChatPane(root, {
     loading = true;
     el["chat-log"]?.setAttribute("aria-busy", "true");
 
-    const url = apiUrl(view.recordingId);
-    url.searchParams.set("fromSec", from.toFixed(3));
-    url.searchParams.set("toSec", to.toFixed(3));
-    url.searchParams.set("limit", String(view.limit));
-    url.searchParams.set("syncOffsetSec", syncOffset.toFixed(3));
-
     try {
-      const response = await fetchImpl(url, { signal: request.signal });
-      if (!response.ok) throw new Error(`chat ${response.status}`);
-      const data = await response.json();
+      const data = await requestChat(from, to, request.signal);
       if (disposed || request.signal.aborted) return;
 
       notice("");
@@ -280,19 +279,11 @@ export function createChatPane(root, {
       retryDelay = RETRY_MIN_MS;
 
       const received = data.messages || [];
-      let added = 0;
-      for (const message of received) {
-        const key = messageKey(message);
-        if (!messages.has(key)) added++;
-        messages.set(key, message);
-      }
-      for (const gap of data.gaps || []) {
-        if (!gaps.some((item) => item.from === gap.from && item.to === gap.to)) gaps.push(gap);
-      }
-      gaps.sort((a, b) => a.from - b.from);
+      const added = mergeChat(received, data.gaps);
 
       // A `starting` or `unavailable` timeline returns no messages, so it proves nothing loaded.
-      if (data.state !== "starting" && data.state !== "unavailable") {
+      const readable = data.state !== "starting" && data.state !== "unavailable";
+      if (readable) {
         // The server echoes the requested toSec, and a window hit by the limit ends at its
         // last row; either way, nothing past that end is known yet.
         const truncated = received.length >= view.limit;
@@ -316,6 +307,7 @@ export function createChatPane(root, {
       updateStatus();
       updateSync();
       render();
+      if (fresh && readable && data.hasMoreBefore && from > 0) void backfillBefore(from);
     } catch (error) {
       if (error?.name !== "AbortError" && !request.signal.aborted) {
         retryAt = Date.now() + retryDelay;
@@ -331,6 +323,76 @@ export function createChatPane(root, {
         el["chat-log"]?.removeAttribute("aria-busy");
       }
     }
+  }
+
+  async function requestChat(from, to, signal) {
+    const url = apiUrl(view.recordingId);
+    url.searchParams.set("fromSec", from.toFixed(3));
+    url.searchParams.set("toSec", to.toFixed(3));
+    url.searchParams.set("limit", String(view.limit));
+    url.searchParams.set("syncOffsetSec", syncOffset.toFixed(3));
+    const response = await fetchImpl(url, { signal });
+    if (!response.ok) throw new Error(`chat ${response.status}`);
+    return response.json();
+  }
+
+  /** Adds messages and gaps to the log's data; returns how many messages are new. */
+  function mergeChat(received, newGaps) {
+    let added = 0;
+    for (const message of received) {
+      const key = messageKey(message);
+      if (!messages.has(key)) added++;
+      messages.set(key, message);
+    }
+    for (const gap of newGaps || []) {
+      if (!gaps.some((item) => item.from === gap.from && item.to === gap.to)) gaps.push(gap);
+    }
+    gaps.sort((a, b) => a.from - b.from);
+    return added;
+  }
+
+  function logFull() {
+    const log = el["chat-log"];
+    return Boolean(log) && log.scrollHeight > log.clientHeight;
+  }
+
+  /**
+   * Fills the log with chat from before a fresh window, newest chunk first. Stops once the log
+   * overflows, the chat or recording starts, it reaches BACKFILL_MAX_SEC back, or a chunk hits
+   * the limit: the limit keeps a chunk's earliest rows, so a busy chunk would leave a hole, and
+   * a busy chat already fills the log. A failure just ends the backfill.
+   */
+  async function backfillBefore(start) {
+    stopBackfill();
+    const job = { controller: new AbortController() };
+    backfill = job;
+    let to = start;
+    try {
+      while (to > 0 && start - to < BACKFILL_MAX_SEC && !logFull()) {
+        if (disposed || !open || !view) return;
+        const from = Math.max(0, to - BACKFILL_CHUNK_SEC);
+        const data = await requestChat(from, to, job.controller.signal);
+        if (backfill !== job) return;
+        const received = data.messages || [];
+        if (received.length >= view.limit) return;
+        mergeChat(received, data.gaps);
+        windowFrom = Math.min(windowFrom, from);
+        render();
+        if (!data.hasMoreBefore) return;
+        to = from;
+      }
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        console.debug("Stream Keepr: chat backfill stopped after a failed fetch.", error);
+      }
+    } finally {
+      if (backfill === job) backfill = null;
+    }
+  }
+
+  function stopBackfill() {
+    backfill?.controller.abort();
+    backfill = null;
   }
 
   function liveState() {
@@ -599,6 +661,7 @@ export function createChatPane(root, {
       if (disposed) return;
       disposed = true;
       controller?.abort();
+      stopBackfill();
       stopPolling();
       listeners.abort();
       if (el["chat-log"]) el["chat-log"].replaceChildren();
