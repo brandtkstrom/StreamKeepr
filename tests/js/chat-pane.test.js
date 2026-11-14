@@ -66,11 +66,27 @@ function fakeFetch(payload = message) {
   }));
 }
 
+const VIEW = {
+  recordingId: "r1",
+  open: true,
+  state: "complete",
+  hasChat: true,
+  limit: 300,
+  maxSyncOffsetSec: 30,
+};
+
+function playhead(time) {
+  document.dispatchEvent(new CustomEvent("sk:playhead", {
+    detail: { recordingId: "r1", time, duration: 60, paused: true },
+  }));
+}
+
 function flush() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   document.body.replaceChildren();
   vi.restoreAllMocks();
 });
@@ -82,7 +98,7 @@ describe("chat replay pane", () => {
     const fetch = fakeFetch();
     const pane = createChatPane(root, { fetch, storage: storage() });
 
-    await pane.load({ recordingId: "r1", open: true, state: "complete", hasChat: true });
+    await pane.load({ ...VIEW });
     document.dispatchEvent(new CustomEvent("sk:playhead", {
       detail: { recordingId: "r1", time: 10, duration: 60, paused: true },
     }));
@@ -123,7 +139,7 @@ describe("chat replay pane", () => {
     const fetch = fakeFetch();
     const pane = createChatPane(root, { fetch, storage: store });
 
-    await pane.load({ recordingId: "r1", open: true, state: "complete", hasChat: true });
+    await pane.load({ ...VIEW });
     document.dispatchEvent(new CustomEvent("sk:playhead", {
       detail: { recordingId: "r1", time: 10, duration: 60, paused: true },
     }));
@@ -135,6 +151,69 @@ describe("chat replay pane", () => {
     expect(JSON.parse(store.getItem("sk-chat")).offsets.r1).toBe(1);
     expect(fetch.mock.calls.some(([url]) => url.searchParams.get("syncOffsetSec") === "1.000"))
       .toBe(true);
+
+    pane.dispose();
+  });
+
+  it("keeps one fetch in flight until the first window loads", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = vi.fn(() => new Promise(() => {}));
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW });
+    for (let i = 0; i < 6; i++) playhead(10 + i * 0.25);
+    await flush();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][1].signal.aborted).toBe(false);
+
+    pane.dispose();
+  });
+
+  it("backs off before retrying a failed fetch", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = vi.fn(async () => ({ ok: false, status: 503, json: async () => ({}) }));
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW });
+    await vi.advanceTimersByTimeAsync(0);
+    playhead(10);
+    playhead(10.25);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(document.querySelector("[data-sk='chat-notice']").textContent)
+      .toBe("Chat could not be loaded.");
+
+    await vi.advanceTimersByTimeAsync(1000);
+    playhead(11);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    // The next wait doubles.
+    await vi.advanceTimersByTimeAsync(1000);
+    playhead(12);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    pane.dispose();
+  });
+
+  it("toggles with C even while focus is inside the pane", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, { fetch: fakeFetch(), storage: storage() });
+    pane.setOpen(true);
+
+    document.querySelector("[data-sk='chat-log']").dispatchEvent(
+      new KeyboardEvent("keydown", { key: "c", bubbles: true, cancelable: true }));
+    expect(root.dataset.open).toBe("false");
+
+    document.body.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "c", repeat: true, bubbles: true, cancelable: true }));
+    expect(root.dataset.open).toBe("false");
 
     pane.dispose();
   });

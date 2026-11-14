@@ -2,6 +2,8 @@
 @inject IJSRuntime JS
 @inject UiPreferences Preferences
 @inject ILogger<ChatPane> Logger
+@using StreamKeepr.Hosting
+@using StreamKeepr.Infrastructure.Storage
 
 @* Rendered once. ChatPane.razor.js owns the log, polling, sync controls, and auto-scroll;
    Blazor never re-renders the pane after init. The toggle is JS-owned for the same reason. *@
@@ -133,6 +135,9 @@
             _ => "complete",
         },
         hasChat = recording.HasChat,
+        // The endpoint's limits are the source of truth; the module only applies them.
+        limit = ChatEndpoint.DefaultLimit,
+        maxSyncOffsetSec = ChatReader.MaxSyncOffsetSeconds,
     };
 
     private async Task InvokeModuleAsync(string identifier, params object[] args)

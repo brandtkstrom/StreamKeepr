@@ -1,6 +1,6 @@
 // Chat replay pane. Blazor renders the skeleton once; this module owns the log, polling,
 // auto-scroll, sync controls, and the C shortcut. The player owns the <video> element.
-import { isEditable } from "/js/shortcuts.js";
+import { shortcutBlocked } from "/js/player-keys.js";
 
 const HOOKS = [
   "chat-toggle", "chat-state", "chat-body", "chat-log", "chat-sync", "chat-sync-value",
@@ -9,10 +9,13 @@ const HOOKS = [
 ];
 
 const POLL_MS = 500;
+// After a failed fetch, wait before the next attempt; the wait doubles up to the cap.
+const RETRY_MIN_MS = 1000;
+const RETRY_MAX_MS = 30_000;
 const WINDOW_BEFORE_SEC = 30;
 const WINDOW_AFTER_SEC = 120;
+// Rendered rows, not the fetch limit; the server's limits arrive in the load payload.
 const MAX_ROWS = 300;
-const MAX_OFFSET_SEC = 30;
 const BADGE_LABELS = {
   broadcaster: "BROADCASTER",
   founder: "FOUNDER",
@@ -46,16 +49,16 @@ function readOffsets(storage) {
   }
 }
 
-function readOffset(storage, recordingId) {
+function readOffset(storage, recordingId, maxOffset) {
   const offsets = readOffsets(storage);
   const value = Number(offsets[recordingId]);
-  return Number.isFinite(value) ? clamp(value, -MAX_OFFSET_SEC, MAX_OFFSET_SEC) : 0;
+  return Number.isFinite(value) ? clamp(value, -maxOffset, maxOffset) : 0;
 }
 
 function writeOffset(storage, recordingId, value) {
   try {
     const offsets = readOffsets(storage);
-    offsets[recordingId] = clamp(value, -MAX_OFFSET_SEC, MAX_OFFSET_SEC);
+    offsets[recordingId] = value;
     const entries = Object.entries(offsets).slice(-100);
     storage?.setItem("sk-chat", JSON.stringify({ v: 1, offsets: Object.fromEntries(entries) }));
   } catch {
@@ -86,9 +89,10 @@ export function createChatPane(root, {
   let currentTime = 0;
   let paused = true;
   let loaded = false;
-  let loadedFrom = 0;
   let loadedTo = 0;
   let loading = false;
+  let retryAt = 0;
+  let retryDelay = RETRY_MIN_MS;
   let controller = null;
   let messages = new Map();
   let gaps = [];
@@ -119,10 +123,30 @@ export function createChatPane(root, {
     else stopPolling();
   }
 
-  function loadCurrentWindow() {
+  /**
+   * Fetches the window around the playhead. Single-flight and backed off after a failure,
+   * unless `replace` is set: a seek or sync change supersedes the request in flight.
+   */
+  function loadCurrentWindow({ replace = false } = {}) {
     if (!open || !view) return;
+    if (!replace && (loading || Date.now() < retryAt)) return;
     void fetchWindow(Math.max(0, currentTime - WINDOW_BEFORE_SEC),
       currentTime + WINDOW_AFTER_SEC);
+  }
+
+  function toggleAndPersist() {
+    setOpen(!open);
+    persistOpen(open);
+  }
+
+  async function persistOpen(value) {
+    try {
+      await dotNet?.invokeMethodAsync("SetChatOpen", value);
+    } catch (error) {
+      // A closed circuit has no preference store left to update; the DOM already
+      // reflects the user's action.
+      console.debug("Stream Keepr: chat open state was not persisted.", error);
+    }
   }
 
   function setOpen(next) {
@@ -137,7 +161,6 @@ export function createChatPane(root, {
     messages = new Map();
     gaps = [];
     loaded = false;
-    loadedFrom = 0;
     loadedTo = 0;
     lastRenderKey = "";
     following = true;
@@ -151,7 +174,7 @@ export function createChatPane(root, {
     open = Boolean(next.open);
     if (changed) {
       resetWindow();
-      syncOffset = readOffset(storage, next.recordingId);
+      syncOffset = readOffset(storage, next.recordingId, next.maxSyncOffsetSec);
       updateSync();
       status(next.hasChat ? "Loading chat…" : "No chat captured", next.hasChat ? "loading" : "empty");
       notice("");
@@ -172,6 +195,7 @@ export function createChatPane(root, {
     if (pollTimer || !view || view.state === "complete" || view.state === "unavailable") return;
     pollTimer = window.setInterval(() => {
       if (!open || disposed || paused || document.hidden || loading) return;
+      if (Date.now() < retryAt) return;
       if (!view || view.state === "complete" || view.state === "unavailable") return;
       const from = Math.max(0, loadedTo - 5);
       const to = Math.max(currentTime + 10, currentTime + WINDOW_AFTER_SEC);
@@ -199,7 +223,7 @@ export function createChatPane(root, {
     const url = apiUrl(view.recordingId);
     url.searchParams.set("fromSec", from.toFixed(3));
     url.searchParams.set("toSec", to.toFixed(3));
-    url.searchParams.set("limit", "300");
+    url.searchParams.set("limit", String(view.limit));
     url.searchParams.set("syncOffsetSec", syncOffset.toFixed(3));
 
     try {
@@ -211,8 +235,8 @@ export function createChatPane(root, {
       notice("");
       view.state = data.state;
       view.hasChat = Boolean(data.hasChat);
-      view.leadInSec = data.leadInSec;
-      loadedFrom = Math.min(loadedFrom || data.fromSec, data.fromSec);
+      retryAt = 0;
+      retryDelay = RETRY_MIN_MS;
       loadedTo = Math.max(loadedTo, data.toSec);
 
       let added = 0;
@@ -244,8 +268,11 @@ export function createChatPane(root, {
       render();
     } catch (error) {
       if (error?.name !== "AbortError" && !request.signal.aborted) {
+        retryAt = Date.now() + retryDelay;
+        retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS);
         status("Chat unavailable", "unavailable");
         notice("Chat could not be loaded.");
+        console.debug("Stream Keepr: chat window fetch failed; retrying later.", error);
       }
     } finally {
       if (controller === request) {
@@ -447,8 +474,7 @@ export function createChatPane(root, {
     currentTime = Number.isFinite(detail.time) ? detail.time : 0;
     paused = Boolean(detail.paused);
     if (!loaded) {
-      void fetchWindow(Math.max(0, currentTime - WINDOW_BEFORE_SEC),
-        currentTime + WINDOW_AFTER_SEC);
+      loadCurrentWindow();
       return;
     }
 
@@ -456,65 +482,40 @@ export function createChatPane(root, {
     const farForward = currentTime > previous + WINDOW_AFTER_SEC;
     if (backward || farForward) {
       resetWindow();
-      void fetchWindow(Math.max(0, currentTime - WINDOW_BEFORE_SEC),
-        currentTime + WINDOW_AFTER_SEC);
+      loadCurrentWindow({ replace: true });
       return;
     }
 
     render();
   }
 
-  function adjustSync(delta) {
+  function setSync(value) {
     if (!view) return;
-    syncOffset = clamp(syncOffset + delta, -MAX_OFFSET_SEC, MAX_OFFSET_SEC);
+    syncOffset = clamp(value, -view.maxSyncOffsetSec, view.maxSyncOffsetSec);
     writeOffset(storage, view.recordingId, syncOffset);
     updateSync();
     resetWindow();
-    void fetchWindow(Math.max(0, currentTime - WINDOW_BEFORE_SEC),
-      currentTime + WINDOW_AFTER_SEC);
+    loadCurrentWindow({ replace: true });
   }
 
-  function resetSync() {
-    if (!view) return;
-    syncOffset = 0;
-    writeOffset(storage, view.recordingId, 0);
-    updateSync();
-    resetWindow();
-    void fetchWindow(Math.max(0, currentTime - WINDOW_BEFORE_SEC),
-      currentTime + WINDOW_AFTER_SEC);
-  }
-
-  on(el["chat-toggle"], "click", () => {
-    setOpen(!open);
-    if (dotNet?.invokeMethodAsync) {
-      void dotNet.invokeMethodAsync("SetChatOpen", open).catch(() => {});
-    }
-  });
+  on(el["chat-toggle"], "click", toggleAndPersist);
   on(el["chat-log"], "scroll", onScroll, { passive: true });
   on(el["chat-jump"], "click", jumpToCurrent);
-  on(el["chat-sync-back2"], "click", () => adjustSync(-2));
-  on(el["chat-sync-back1"], "click", () => adjustSync(-1));
-  on(el["chat-sync-reset"], "click", resetSync);
-  on(el["chat-sync-forward1"], "click", () => adjustSync(1));
-  on(el["chat-sync-forward2"], "click", () => adjustSync(2));
+  on(el["chat-sync-back2"], "click", () => setSync(syncOffset - 2));
+  on(el["chat-sync-back1"], "click", () => setSync(syncOffset - 1));
+  on(el["chat-sync-reset"], "click", () => setSync(0));
+  on(el["chat-sync-forward1"], "click", () => setSync(syncOffset + 1));
+  on(el["chat-sync-forward2"], "click", () => setSync(syncOffset + 2));
   on(document, "sk:playhead", onPlayhead);
   on(document, "keydown", (event) => {
-    if (event.defaultPrevented || event.isComposing || event.repeat) return;
-    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
-    if (event.key.toLowerCase() !== "c") return;
-    const target = event.target;
-    if (isEditable(target) || target?.closest?.("dialog[open], [role='menu']")) return;
+    // Holding C must not flap the pane.
+    if (event.repeat || event.key.toLowerCase() !== "c") return;
+    if (shortcutBlocked(event, document)) return;
     event.preventDefault();
-    setOpen(!open);
-    if (dotNet?.invokeMethodAsync) {
-      void dotNet.invokeMethodAsync("SetChatOpen", open).catch(() => {});
-    }
+    toggleAndPersist();
   });
   on(document, "visibilitychange", () => {
-    if (!document.hidden && open && !paused) {
-      void fetchWindow(Math.max(0, currentTime - WINDOW_BEFORE_SEC),
-        currentTime + WINDOW_AFTER_SEC);
-    }
+    if (!document.hidden && open && !paused) loadCurrentWindow();
   });
 
   applyOpen();

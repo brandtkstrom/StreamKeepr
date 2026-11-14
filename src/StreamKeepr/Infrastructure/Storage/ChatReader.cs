@@ -12,6 +12,9 @@ public sealed class ChatReader(
     ChatLogStore store,
     IOptions<ChatOptions> options)
 {
+    /// <summary>The largest per-recording sync nudge, in either direction.</summary>
+    public const double MaxSyncOffsetSeconds = 30;
+
     public ChatQueryResult Query(
         RecordingSummary summary,
         double fromSec,
@@ -49,7 +52,7 @@ public sealed class ChatReader(
         double duration = summary.DurationSeconds ?? double.MaxValue;
         double from = Math.Clamp(fromSec, 0, duration);
         double to = Math.Clamp(toSec, from, duration);
-        double offset = Math.Clamp(syncOffsetSec, -30, 30);
+        double offset = Math.Clamp(syncOffsetSec, -MaxSyncOffsetSeconds, MaxSyncOffsetSeconds);
 
         IReadOnlyList<StoredChatEvent> events = store.ReadEvents(directory);
         ChatTombstones tombstones = ChatTombstones.From(events);
@@ -236,7 +239,7 @@ public sealed class ChatReader(
             options.Value.LeadInSeconds,
             fromSec,
             toSec,
-            Math.Clamp(syncOffsetSec, -30, 30),
+            Math.Clamp(syncOffsetSec, -MaxSyncOffsetSeconds, MaxSyncOffsetSeconds),
             [],
             [],
             false,

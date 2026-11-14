@@ -19,17 +19,28 @@ function overlayOpen(doc, target) {
 }
 
 /**
+ * True when no single-letter app shortcut may act on this key: it was handled, is mid-IME,
+ * has a modifier, targets an editable field, or an overlay is open. The player and the chat
+ * pane's C both use it.
+ * @param {KeyboardEvent} event
+ * @param {Document} [doc]
+ */
+export function shortcutBlocked(event, doc = document) {
+  if (event.defaultPrevented || event.isComposing) return true;
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return true;
+  return isEditable(event.target) || overlayOpen(doc, event.target);
+}
+
+/**
  * @param {KeyboardEvent} event
  * @param {Document} [doc]
  * @returns {string | null} the action, or null when the player must leave the key alone
  */
 export function playerAction(event, doc = document) {
-  if (event.defaultPrevented || event.isComposing) return null;
-  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return null;
+  if (shortcutBlocked(event, doc)) return null;
   if (event.key === "/" || event.key === "Escape") return null;
 
   const target = event.target;
-  if (isEditable(target) || overlayOpen(doc, target)) return null;
 
   const element = target instanceof Element ? target : null;
   if (element?.closest("[data-sk-chat]")) return null;

@@ -14,7 +14,6 @@ public static class ChatEndpoint
     public const int MaxLimit = 1000;
     public const double DefaultWindowSeconds = 120;
     public const double MaxWindowSeconds = 600;
-    public const double MaxSyncOffsetSeconds = 30;
 
     public static IResult Handle(
         string id,
@@ -41,7 +40,7 @@ public static class ChatEndpoint
         if (!double.IsFinite(to) || to <= from || to - from > MaxWindowSeconds)
             return Results.BadRequest();
 
-        if (limit is < 1 or > MaxLimit || Math.Abs(offset) > MaxSyncOffsetSeconds)
+        if (limit is < 1 or > MaxLimit || Math.Abs(offset) > ChatReader.MaxSyncOffsetSeconds)
             return Results.BadRequest();
 
         ChatQueryResult result = reader.Query(summary, from, to, limit, offset);
