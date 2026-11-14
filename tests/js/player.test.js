@@ -943,6 +943,68 @@ describe("VideoPlayer.razor.js", () => {
       expect(hook("overlay").hidden).toBe(false);
     });
 
+    describe("rejoining the live edge", () => {
+      const clears = () =>
+        dotNet.invokeMethodAsync.mock.calls.filter(([name]) => name === "ClearProgress");
+
+      it("does not clear when the recording simply opens at the live edge", async () => {
+        await startLive();
+        expect(clears()).toEqual([]);
+      });
+
+      it("clears once when Live edge is pressed after leaving the edge", async () => {
+        await startLive("recording", 25);
+        hook("live").click();
+        expect(clears()).toEqual([["ClearProgress", "r1"]]);
+
+        // Staying at the edge does not keep clearing (another viewer's position survives).
+        hook("live").click();
+        hook("seek").focus();
+        key(hook("seek"), "End");
+        expect(clears()).toHaveLength(1);
+      });
+
+      it.each([
+        ["End on the seek bar", () => key(hook("seek"), "End")],
+        ["a seek to within 2 s of the sync position", () => player.seek(47)],
+        ["a seek to the red tick", () => player.seek(59.5)],
+      ])("clears on %s", async (_name, rejoin) => {
+        await startLive("recording", 25);
+        hook("seek").focus();
+        rejoin();
+        expect(clears()).toEqual([["ClearProgress", "r1"]]);
+        expect(hook("live").classList.contains("at-edge")).toBe(true);
+      });
+
+      it("does not clear on a seek that stays behind the edge", async () => {
+        await startLive("recording", 25);
+        player.seek(40);
+        expect(clears()).toEqual([]);
+      });
+    });
+
+    it("retries behind the live edge at the last known position", async () => {
+      const instance = await startLive();
+      hook("seek").focus();
+      key(hook("seek"), "Home");
+      media.time(20);
+      for (let attempt = 0; attempt < 4; attempt++) {
+        instance.emit("hlsError", { type: "networkError", details: "fragLoadError", fatal: true });
+        vi.advanceTimersByTime(4_000);
+      }
+      expect(hook("overlay").hidden).toBe(false);
+
+      hook("retry").click();
+      await Promise.resolve();
+      await Promise.resolve();
+      const next = hls.instances.at(-1);
+      media.seekableEnd = 70;
+      next.liveSyncPosition = 58;
+      media.metadata(70);
+      expect(hook("video").currentTime).toBe(20);
+      expect(hook("live").classList.contains("at-edge")).toBe(false);
+    });
+
     it("retries a failed live capture at the live edge", async () => {
       const instance = await startLive();
       for (let attempt = 0; attempt < 4; attempt++) {

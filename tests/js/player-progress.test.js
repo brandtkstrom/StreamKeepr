@@ -111,6 +111,19 @@ describe("player-progress.js", () => {
     expect(save).toHaveBeenCalledExactlyOnceWith("r 1", 40);
   });
 
+  it("clears the resume position when playback rejoins the live edge", () => {
+    media.live = true;
+    media.following = true;
+    progress.rejoinedLive();
+
+    expect(clear).toHaveBeenCalledExactlyOnceWith("r 1");
+    expect(save).not.toHaveBeenCalled();
+
+    // A flush right after the clear would only re-send what is no longer stored.
+    progress.flush();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("clears on ended and on replay", () => {
     progress.ended();
     progress.restarted();

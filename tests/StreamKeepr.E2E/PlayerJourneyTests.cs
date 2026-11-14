@@ -337,7 +337,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     }
 
     [Fact]
-    public async Task A_position_left_behind_the_live_edge_resumes_after_reload_while_still_recording()
+    public async Task A_position_left_behind_the_live_edge_resumes_after_reload_until_Live_edge_forgets_it()
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
@@ -374,8 +374,18 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.True(await Video(page, "v => v.paused"), "resume never autoplays");
         Assert.DoesNotContain("at-edge", await live.GetAttributeAsync("class") ?? "");
 
-        // Back at the live edge, so this journey leaves no further writes for the next one.
+        // Live edge forgets the position: the row returns to the full live bar and the next
+        // open starts at the live edge again.
         await live.ClickAsync();
+        Assert.Contains("at-edge", await live.GetAttributeAsync("class") ?? "");
+        await page.WaitForFunctionAsync(
+            "id => document.querySelector(`nav#sk-drawer a.sk-row[data-recording-id='${id}'] .prog i`)?.style.width === '100%'",
+            id,
+            new() { Timeout = 10_000 });
+
+        await page.ReloadAsync();
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
+        await live.WaitForAsync(new() { State = WaitForSelectorState.Visible });
         Assert.Contains("at-edge", await live.GetAttributeAsync("class") ?? "");
     }
 

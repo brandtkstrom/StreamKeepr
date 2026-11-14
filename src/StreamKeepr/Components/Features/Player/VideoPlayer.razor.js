@@ -326,6 +326,15 @@ export function createPlayer(
     renderPosition();
   }
 
+  /**
+   * Sets following. A viewer's return to the live edge (not the player opening there) drops
+   * the resume position, once per return.
+   */
+  function setFollowing(next, byViewer) {
+    if (next && !following && byViewer) progress.rejoinedLive();
+    following = next;
+  }
+
   /** A seek the viewer asked for; while live it also decides whether to keep following. */
   function userSeek(time) {
     if (!Number.isFinite(time)) return;
@@ -335,19 +344,19 @@ export function createPlayer(
       if (Number.isFinite(end) && time >= end - LIVE_SLACK_SEC) {
         // The true end would stall at the last segment; the sync position starts buffered.
         time = Number.isFinite(sync) ? sync : time;
-        following = true;
+        setFollowing(true, true);
       } else {
-        following = Number.isFinite(sync) && time >= sync - LIVE_SLACK_SEC;
+        setFollowing(Number.isFinite(sync) && time >= sync - LIVE_SLACK_SEC, true);
       }
     }
     seekTo(time);
     renderLive();
   }
 
-  function goLive() {
+  function goLive(byViewer = false) {
     if (!live) return;
     const sync = liveSync();
-    following = true;
+    setFollowing(true, byViewer);
     if (Number.isFinite(sync)) seekTo(sync);
     renderLive();
   }
@@ -777,7 +786,7 @@ export function createPlayer(
   });
   on(el.back, "click", () => seekBy(-SKIP_SECONDS));
   on(el.forward, "click", () => seekBy(SKIP_SECONDS));
-  on(el.live, "click", goLive);
+  on(el.live, "click", () => goLive(true));
   on(el.mute, "click", toggleMute);
   on(el.theater, "click", toggleTheater);
   on(el.fullscreen, "click", () => void toggleFullscreen());
@@ -838,7 +847,8 @@ export function createPlayer(
   }
   on(el.retry, "click", () => {
     if (!view) return;
-    void start(live ? LIVE_EDGE : lastKnownTime);
+    // Retry returns the viewer to where they were: the live edge only if they were following.
+    void start(live && following ? LIVE_EDGE : lastKnownTime);
   });
   on(el.stats, "click", toggleStats);
   on(document, "sk:stats-state", (event) => {

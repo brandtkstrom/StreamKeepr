@@ -79,6 +79,17 @@ export function createProgress({ save, clear, fetch = globalThis.fetch, now = ()
       void clear(source.recordingId);
     },
 
+    /**
+     * The viewer returned to the live edge: the next open starts there anyway, so the stored
+     * position goes. Called once per return, not while staying at the edge, so a position
+     * another viewer saves meanwhile survives until someone next returns.
+     */
+    rejoinedLive() {
+      if (!source) return;
+      lastWrite = now();
+      void clear(source.recordingId);
+    },
+
     /** Replay from the start drops the stored position. */
     restarted() {
       if (!eligible()) return;
