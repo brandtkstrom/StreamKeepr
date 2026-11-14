@@ -1,6 +1,6 @@
 namespace StreamKeepr.Infrastructure.Twitch.Chat;
 
-/// <summary>The IRC capture connection state shown in logs and the chat status row.</summary>
+/// <summary>The IRC capture connection state, logged on each transition.</summary>
 public enum ChatConnectionState
 {
     Disabled,
@@ -67,7 +67,12 @@ public abstract record ChatSourceEvent(string Channel, long AtMs)
     public sealed record Notice(string Channel, long AtMs, string? MsgId, string Text)
         : ChatSourceEvent(Channel, AtMs);
 
-    public sealed record Reconnect(string Channel, long AtMs)
+    /// <summary>The connection carrying this channel ended; capture is down until rejoin.</summary>
+    public sealed record Disconnected(string Channel, long AtMs)
+        : ChatSourceEvent(Channel, AtMs);
+
+    /// <summary>The source (re)joined this channel; capture resumes from here.</summary>
+    public sealed record Joined(string Channel, long AtMs)
         : ChatSourceEvent(Channel, AtMs);
 
     public sealed record Gap(string Channel, long AtMs, long FromMs, long ToMs, string Reason)

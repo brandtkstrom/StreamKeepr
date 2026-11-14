@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
+using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch.Chat;
 
@@ -20,34 +21,34 @@ public sealed class MockChatSource(
     private readonly ConcurrentDictionary<string, long> _baseAt = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, double> _mediaEnd = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, long> _joinedAt = new(StringComparer.Ordinal);
-    private int _state = (int)ChatConnectionState.Idle;
+    private static readonly TimeSpan MessageInterval = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>Every 12th mock message is deleted, exercising query-time tombstones.</summary>
+    private const int DeleteEvery = 12;
+
     private int _counter;
 
-    public ChatConnectionState State => (ChatConnectionState)Volatile.Read(ref this._state);
+    public string Source => ChatLogStore.MockSource;
 
-    public string Source => "mock";
-
-    public async ValueTask JoinAsync(string channel, CancellationToken ct)
+    public ValueTask JoinAsync(string channel, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(channel))
-            return;
+        string login = TwitchLogin.Normalize(channel);
+        if (!TwitchLogin.IsValid(login))
+            return ValueTask.CompletedTask;
 
-        string login = channel.Trim().ToLowerInvariant();
         this._joined[login] = 0;
         this._joinedAt[login] = clock.GetUtcNow().ToUnixTimeMilliseconds();
         this.RememberMedia(login);
-        this.SetState(ChatConnectionState.Live);
+        return ValueTask.CompletedTask;
     }
 
     public ValueTask PartAsync(string channel, CancellationToken ct)
     {
-        string login = channel.Trim().ToLowerInvariant();
+        string login = TwitchLogin.Normalize(channel);
         this._joined.TryRemove(login, out _);
         this._baseAt.TryRemove(login, out _);
         this._mediaEnd.TryRemove(login, out _);
         this._joinedAt.TryRemove(login, out _);
-        if (this._joined.IsEmpty)
-            this.SetState(ChatConnectionState.Idle);
         return ValueTask.CompletedTask;
     }
 
@@ -56,7 +57,7 @@ public sealed class MockChatSource(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+        using var timer = new PeriodicTimer(MessageInterval, clock);
         try
         {
             while (await timer.WaitForNextTickAsync(stoppingToken))
@@ -69,7 +70,7 @@ public sealed class MockChatSource(
                     ChatMessage message = this.NextMessage(channel);
                     this._events.Write(new ChatSourceEvent.MessageEvent(message));
 
-                    if (this._counter % 12 == 0)
+                    if (this._counter % DeleteEvery == 0)
                     {
                         this._events.Write(new ChatSourceEvent.Delete(
                             channel, message.AtMs, message.Id));
@@ -97,7 +98,8 @@ public sealed class MockChatSource(
         if (summary is null)
             return;
 
-        string path = Path.Combine(storage.Value.RecordingsRoot, summary.Channel, summary.Id, "p001.m3u8");
+        string path = Path.Combine(
+            storage.Value.RecordingsRoot, summary.Channel, summary.Id, PartFiles.Playlist(1));
         if (!File.Exists(path))
             return;
 
@@ -157,16 +159,6 @@ public sealed class MockChatSource(
             null,
             Action: false,
             text);
-    }
-
-    private void SetState(ChatConnectionState state)
-    {
-        int previous = Interlocked.Exchange(ref this._state, (int)state);
-        if (previous != (int)state)
-        {
-            logger.LogDebug("Mock chat state {Previous} -> {State}.",
-                (ChatConnectionState)previous, state);
-        }
     }
 
     public ValueTask DisposeAsync()

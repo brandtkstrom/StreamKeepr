@@ -27,6 +27,7 @@ public sealed class ChatLogStore(
     public const string Transport = "wss";
     public const string AnonymousSource = "irc-anonymous";
     public const string TokenSource = "irc-token";
+    public const string MockSource = "mock";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -337,9 +338,6 @@ public sealed class ChatLogStore(
                         break;
                     case ChatSourceEvent.Notice notice:
                         this.WriteEvent("notice", notice.AtMs, reason: notice.Text);
-                        break;
-                    case ChatSourceEvent.Reconnect reconnect:
-                        this.WriteEvent("reconnect", reconnect.AtMs);
                         break;
                     case ChatSourceEvent.Gap gap:
                         this.WriteEvent(

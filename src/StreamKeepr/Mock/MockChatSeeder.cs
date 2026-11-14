@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
+using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch.Chat;
 
@@ -26,7 +27,7 @@ public sealed class MockChatSeeder(
                 continue;
             }
 
-            string playlist = Path.Combine(directory, "p001.m3u8");
+            string playlist = Path.Combine(directory, PartFiles.Playlist(1));
             if (!File.Exists(playlist) || ChatLogStore.HasChat(directory))
                 continue;
 
@@ -35,7 +36,7 @@ public sealed class MockChatSeeder(
             if (pdt is null)
                 continue;
 
-            store.OpenSession(summary, "mock");
+            store.OpenSession(summary, ChatLogStore.MockSource);
             long baseAt = pdt.Value.AddSeconds(-options.Value.LeadInSeconds)
                 .ToUnixTimeMilliseconds();
             Append(store, summary.Channel, baseAt, 5, "seed-1", "Welcome to the Mock stream",

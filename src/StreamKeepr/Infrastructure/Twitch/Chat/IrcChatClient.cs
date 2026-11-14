@@ -21,6 +21,9 @@ public sealed class IrcChatClient(
     private static readonly Uri Endpoint = new("wss://irc-ws.chat.twitch.tv:443");
     private static readonly TimeSpan MinimumBackoff = TimeSpan.FromSeconds(5);
 
+    /// <summary>Anonymous auth or capability rejection is not transient; retry slowly.</summary>
+    private static readonly TimeSpan AuthRetryDelay = TimeSpan.FromMinutes(1);
+
     private readonly ChatEventQueue _events = new();
 
     private readonly ConcurrentDictionary<string, byte> _joined = new(StringComparer.Ordinal);
@@ -29,19 +32,17 @@ public sealed class IrcChatClient(
     private int _state = (int)ChatConnectionState.Disabled;
     private int _tokenDisabled;
 
-    public ChatConnectionState State => (ChatConnectionState)Volatile.Read(ref this._state);
-
     public string Source => this.UseToken
         ? ChatLogStore.TokenSource
         : ChatLogStore.AnonymousSource;
 
     private bool UseToken => options.Value.HasToken && Volatile.Read(ref this._tokenDisabled) == 0;
 
-    public async ValueTask JoinAsync(string channel, CancellationToken ct)
+    public ValueTask JoinAsync(string channel, CancellationToken ct)
     {
         string login = TwitchLogin.Normalize(channel);
         if (!TwitchLogin.IsValid(login))
-            return;
+            return ValueTask.CompletedTask;
 
         if (this._joined.Count >= options.Value.MaxChannels &&
             !this._joined.ContainsKey(login))
@@ -49,10 +50,11 @@ public sealed class IrcChatClient(
             logger.LogWarning(
                 "Chat join limit of {Limit} channels reached; {Channel} is not joined.",
                 options.Value.MaxChannels, login);
-            return;
+            return ValueTask.CompletedTask;
         }
 
         this._joined[login] = 0;
+        return ValueTask.CompletedTask;
     }
 
     public ValueTask PartAsync(string channel, CancellationToken ct)
@@ -69,15 +71,6 @@ public sealed class IrcChatClient(
         if (!options.Value.Enabled)
         {
             this.SetState(ChatConnectionState.Disabled);
-            this._events.Complete();
-            return;
-        }
-
-        if (options.Value.HasToken && !TwitchLogin.IsValid(
-                TwitchLogin.Normalize(options.Value.TwitchLogin)))
-        {
-            logger.LogError("Chat:TwitchLogin is required and must be valid when a chat token is set.");
-            this.SetState(ChatConnectionState.Unavailable);
             this._events.Complete();
             return;
         }
@@ -112,7 +105,7 @@ public sealed class IrcChatClient(
                     }
 
                     this.SetState(ChatConnectionState.Unavailable);
-                    await Task.Delay(TimeSpan.FromMinutes(1), clock, stoppingToken);
+                    await Task.Delay(AuthRetryDelay, clock, stoppingToken);
                     continue;
                 }
                 catch (Exception ex)
@@ -120,7 +113,7 @@ public sealed class IrcChatClient(
                     logger.LogWarning(ex, "Twitch IRC connection failed; reconnecting.");
                 }
 
-                await this.EmitReconnectAsync(stoppingToken);
+                this.EmitDisconnected();
 
                 if (connected)
                     backoff = MinimumBackoff;
@@ -273,6 +266,8 @@ public sealed class IrcChatClient(
 
                 await this.SendAsync(socket, $"JOIN #{channel}", ct);
                 this._sent[channel] = 0;
+                this._events.Write(new ChatSourceEvent.Joined(
+                    channel, clock.GetUtcNow().ToUnixTimeMilliseconds()));
                 sentAny = true;
                 await Task.Delay(TimeSpan.FromMilliseconds(options.Value.JoinIntervalMs), clock, ct);
                 break;
@@ -305,15 +300,12 @@ public sealed class IrcChatClient(
         }
     }
 
-    private async Task EmitReconnectAsync(CancellationToken ct)
+    private void EmitDisconnected()
     {
-        if (this._joined.IsEmpty)
-            return;
-
         long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
         foreach (string channel in this._joined.Keys)
         {
-            this._events.Write(new ChatSourceEvent.Reconnect(channel, now));
+            this._events.Write(new ChatSourceEvent.Disconnected(channel, now));
         }
     }
 
