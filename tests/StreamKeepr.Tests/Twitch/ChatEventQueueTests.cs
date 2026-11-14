@@ -27,21 +27,37 @@ public sealed class ChatEventQueueTests
     }
 
     [Fact]
-    public async Task Drops_are_reported_per_channel()
+    public async Task A_quiet_channel_gets_its_drop_report_as_the_reader_drains()
     {
         var queue = new ChatEventQueue(capacity: 1);
         queue.Write(Delete("a", 1_000));
         queue.Write(Delete("b", 2_000));
 
-        await TakeAsync(queue, 1);
-        queue.Write(Delete("a", 3_000));
-        var aFirst = await TakeAsync(queue, 1);
-        Assert.Equal(3_000, aFirst[0].AtMs);
+        List<ChatSourceEvent> read = await TakeAsync(queue, 2);
 
-        queue.Write(Delete("b", 4_000));
-        var bDropped = Assert.IsType<ChatSourceEvent.Dropped>((await TakeAsync(queue, 1))[0]);
-        Assert.Equal("b", bDropped.Channel);
-        Assert.Equal(1, bDropped.Count);
+        Assert.Equal(1_000, read[0].AtMs);
+        var dropped = Assert.IsType<ChatSourceEvent.Dropped>(read[1]);
+        Assert.Equal("b", dropped.Channel);
+        Assert.Equal(1, dropped.Count);
+    }
+
+    [Fact]
+    public async Task Connection_events_are_never_dropped_and_keep_their_order()
+    {
+        var queue = new ChatEventQueue(capacity: 1);
+        queue.Write(Delete("chan", 1_000));
+        queue.Write(Delete("chan", 1_500));
+        queue.Write(new ChatSourceEvent.Disconnected("chan", 2_000));
+        queue.Write(new ChatSourceEvent.Disconnected("chan", 2_500));
+        queue.Write(new ChatSourceEvent.Joined("chan", 3_000));
+
+        List<ChatSourceEvent> read = await TakeAsync(queue, 4);
+
+        Assert.Equal(1_000, read[0].AtMs);
+        Assert.IsType<ChatSourceEvent.Dropped>(read[1]);
+        var disconnected = Assert.IsType<ChatSourceEvent.Disconnected>(read[2]);
+        Assert.Equal(2_000, disconnected.AtMs);
+        Assert.IsType<ChatSourceEvent.Joined>(read[3]);
     }
 
     [Fact]
