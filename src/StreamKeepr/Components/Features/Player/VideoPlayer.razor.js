@@ -964,6 +964,7 @@ export function createPlayer(
         position: () => video.currentTime,
         duration,
         live: () => live,
+        following: () => following,
       });
       stats.setView(next);
       stats.reset();
@@ -977,10 +978,11 @@ export function createPlayer(
       renderSpeed();
       renderVolume();
       renderPlayState();
-      // Finished recordings resume; live captures open at the live edge and ignore ResumeSec.
+      // Open at the resume position when there is one; a live capture without one opens at
+      // the live edge, a finished recording at the start.
       resumePlaying = false;
       const resume = Number.isFinite(view.resumeSec) && view.resumeSec > 0 ? view.resumeSec : null;
-      await start(live ? LIVE_EDGE : resume);
+      await start(resume ?? (live ? LIVE_EDGE : null));
     },
 
     update(next) {
@@ -996,7 +998,6 @@ export function createPlayer(
         // VOD→live: a finished session reopened. Reload the same playlist where the viewer
         // is, keeping play/pause; Live edge is theirs to press.
         live = true;
-        progress.live();
         resumePlaying = !video.paused && !video.ended;
         void start(video.currentTime);
       } else if (!nowLive && live) {

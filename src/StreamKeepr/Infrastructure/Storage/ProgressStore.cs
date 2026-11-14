@@ -9,7 +9,7 @@ namespace StreamKeepr.Infrastructure.Storage;
 /// <summary>Body of <c>PUT /api/recordings/{id}/progress</c>.</summary>
 public sealed record ProgressRequest([property: JsonRequired] double PositionSec);
 
-/// <summary>Watch positions for finished recordings, shared by every viewer of this app.</summary>
+/// <summary>Resume positions for live and finished recordings, shared by every viewer of this app.</summary>
 public interface IProgressStore
 {
     event Action? Changed;
@@ -23,8 +23,9 @@ public interface IProgressStore
 
 /// <summary>
 /// Keeps positions in memory and persists them to <c>.streamkeepr/progress.json</c>. Writes
-/// are atomic, at most one every <see cref="WriteInterval"/>, plus a flush on shutdown. Only
-/// finished recordings keep a position; one within <see cref="EndMargin"/> of the end clears it.
+/// are atomic, at most one every <see cref="WriteInterval"/>, plus a flush on shutdown. A finished
+/// recording's position within <see cref="EndMargin"/> of the end clears it; a live recording's
+/// position is kept wherever it is.
 /// </summary>
 public sealed class ProgressStore : IProgressStore, IHostedService, IDisposable
 {
@@ -72,24 +73,32 @@ public sealed class ProgressStore : IProgressStore, IHostedService, IDisposable
     {
         ArgumentNullException.ThrowIfNull(recordingId);
 
-        if (!double.IsFinite(positionSec)
-            || _library.Find(recordingId) is not { IsRecording: false, DurationSeconds: double duration }
-            || !double.IsFinite(duration))
-        {
+        if (!double.IsFinite(positionSec) || _library.Find(recordingId) is not { } summary)
             return Task.CompletedTask;
-        }
+
+        // A live recording keeps any position the viewer left behind the live edge. The live
+        // edge sits inside the end margin, and the library's duration trails the player's,
+        // so neither the margin nor the upper clamp applies until the capture finishes.
+        if (summary.IsRecording)
+            return Store(recordingId, Math.Max(0, positionSec));
+
+        if (summary.DurationSeconds is not double duration || !double.IsFinite(duration))
+            return Task.CompletedTask;
 
         double position = Math.Clamp(positionSec, 0, Math.Max(0, duration));
         return position >= duration - EndMargin
             ? ClearAsync(recordingId, ct)
-            : Apply(positions =>
-            {
-                if (positions.TryGetValue(recordingId, out double existing) && existing == position)
-                    return false;
-                positions[recordingId] = position;
-                return true;
-            });
+            : Store(recordingId, position);
     }
+
+    private Task Store(string recordingId, double position) =>
+        Apply(positions =>
+        {
+            if (positions.TryGetValue(recordingId, out double existing) && existing == position)
+                return false;
+            positions[recordingId] = position;
+            return true;
+        });
 
     public Task ClearAsync(string recordingId, CancellationToken ct)
     {

@@ -30,7 +30,7 @@ The stitched `index.m3u8` is a **single media playlist**, not a multi-variant ma
   3. Reset media, error, idle, stats, seek, and menu state.
   4. Apply volume, mute, and speed preferences.
   5. Create hls.js or set the native source; attach the new poster, title, streamer login, chapters, and state.
-  6. Restore the resume position for Completed recordings, or the live edge for Recording/Reconnecting.
+  6. Restore the resume position when the recording has one; otherwise open at the live edge for Recording/Reconnecting, or at 0 for Completed.
 - `update(view)` runs for the same recording when `LibraryView.Changed` supplies a new `RecordingView`. It updates the title, streamer login, poster, chapters, and state chip. It never applies `ResumeSec` again and never resets playback. The component skips `update` when the `RecordingView` instance is unchanged.
 - The init/update payload uses camelCase:
   - `recordingId`, `playlistUrl`, `title`, `streamerLogin`, `thumbnailUrl`
@@ -44,7 +44,7 @@ The stitched `index.m3u8` is a **single media playlist**, not a multi-variant ma
 
 ## 4. Playback model
 
-- No autoplay. A recording page shows the poster and centre play button; the playhead is positioned at the resume point (Completed) or the live edge (Recording/Reconnecting). The user presses play.
+- No autoplay. A recording page shows the poster and centre play button; the playhead is positioned at the resume position when there is one, otherwise at the live edge (Recording/Reconnecting) or 0 (Completed). The user presses play.
 - hls.js configuration is the defaults plus:
   - `enableWorker: true`
   - `lowLatencyMode: false`
@@ -55,9 +55,9 @@ The stitched `index.m3u8` is a **single media playlist**, not a multi-variant ma
 - The playlist target duration is 12 s, so the live sync position is about one target duration behind the true end. This is the player's **live edge** and avoids a guaranteed stall at the last segment.
 - The red live tick marks the seekable end (`seekable.end`), not the sync position. The **Live edge** button seeks to `hls.liveSyncPosition` and enables following.
 - Following: while Recording/Reconnecting, playing, and following is on, the player keeps the playhead within roughly one target duration of the sync position; if it falls more than 2 s behind `liveSyncPosition`, it seeks forward to it. A manual seek more than 2 s behind the sync position, or a pause, turns following off. Pressing **Live edge**, seeking to within 2 s of the sync position, or seeking to the red tick (within 2 s of `seekable.end`) turns it on; a seek to the true end snaps back to `liveSyncPosition` so playback starts buffered.
-- The player opens at `hls.liveSyncPosition` (or `seekable.end - 1`, clamped, before hls.js reports a position) for Recording/Reconnecting; it ignores `ResumeSec`.
-- **Live to VOD:** when hls.js loads a playlist with `details.live === false` (ENDLIST), the player hides the live tick and button, stops following, updates the duration to the finite media duration, keeps the current position, and begins progress saving. When the .NET state also becomes Partial/Saved, the chip updates; the two paths are idempotent.
-- **VOD to live:** a finalized session can reopen as a new part (Saved/Partial → Recording/Reconnecting). The player reloads the same playlist at the current position, preserving the paused/playing state; it does not jump to the live edge. The user can press **Live edge** afterwards.
+- A Recording/Reconnecting recording without a resume position opens at `hls.liveSyncPosition` (or `seekable.end - 1`, clamped, before hls.js reports a position), following. With a resume position it opens there, paused and not following; **Live edge** is the viewer's to press.
+- **Live to VOD:** when hls.js loads a playlist with `details.live === false` (ENDLIST), the player hides the live tick and button, stops following, updates the duration to the finite media duration, keeps the current position, and applies the 30 s end margin to progress writes from then on. When the .NET state also becomes Partial/Saved, the chip updates; the two paths are idempotent.
+- **VOD to live:** a finalized session can reopen as a new part (Saved/Partial → Recording/Reconnecting). The player reloads the same playlist at the current position, preserving the paused/playing state; it does not jump to the live edge, and progress keeps saving because the viewer is not following. The user can press **Live edge** afterwards.
 - **Deleted recording:** `Home` owns the reaction. When `Find(id)` becomes null it stops/removes the player, shows a “Recording deleted” snackbar, and navigates to the next recording in the current query (the first remaining item across streamers), or `/` when none. The player's flush may 404 and is ignored. An unknown id on first load keeps the foundation's message and back link.
 - Playback continues across part gaps and discontinuities; the stitched playlist supplies the correct init segments. `waiting` shows the spinner, not an error.
 
@@ -114,8 +114,8 @@ Control order, left to right, matches the design system:
 
 ## 8. Resume and progress
 
-- Completed recordings (Saved/Partial) start at `ResumeSec`, clamped to `[0, duration - 1]`; there is no resume prompt, toast, or “start over” control. A null `ResumeSec` starts at 0.
-- Recording/Reconnecting ignore resume entirely. Progress writes are skipped while the media is live; they begin when ENDLIST makes the duration finite. VOD→live stops writes again.
+- Every recording starts at `ResumeSec` when it is set, clamped to `[0, duration - 1]`; there is no resume prompt, toast, or “start over” control. A null `ResumeSec` starts a Completed recording (Saved/Partial) at 0 and a Recording/Reconnecting one at the live edge.
+- Recording/Reconnecting write progress only while the viewer is not following: a pause or a seek behind the live edge starts writing, with the same cadence and flushes as below. Opening at the live edge and never pressing play is following and writes nothing. While live the 30 s end margin is suspended, on the player and the server, because the live edge sits inside it; once ENDLIST makes the duration finite the margin applies again.
 - Save every 15 s while playing and once on pause through the component's `SaveProgress` call to `IProgressStore.SetAsync`; this keeps the library's resume bars updating through `LibraryView.Changed`.
 - Flush on route change, component dispose, `pagehide`, and `visibilitychange` → hidden with `PUT /api/recordings/{id}/progress`, `Content-Type: application/json`, `keepalive: true`. Skip a flush within 2 s of the previous write.
 - On `ended`, call `ClearProgress`. Within 30 s of the end, clear instead of writing a position. While the duration is unknown (still loading, or a pause fired while switching recordings), write nothing: clearing then would wipe a stored resume position the viewer never moved past. The backend clamps and enforces the same 30 s rule.
@@ -224,6 +224,7 @@ Vitest:
 Playwright (Chrome channel against the Mock profile):
 
 - Open a finished recording and play/pause/seek; resume across reload; progress clears near the end.
+- Growing capture: leave the live edge and pause, the row shows a partial resume bar, and a reload opens paused at that position, not following.
 - Growing capture: open near the live edge, duration grows, seek back and press Live edge, finalize and observe the live→VOD handoff; reopen a finalized session and observe VOD→live.
 - Delete the open recording: snackbar and next item (or empty library).
 - Stats: open/close, sampler values, player/panel sync, copy with clipboard permission and snackbar; reload restores `sk-ui`.

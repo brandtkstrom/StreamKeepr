@@ -187,7 +187,7 @@ This is the single handoff for the full application specification. It records th
 - Live edge = `hls.liveSyncPosition` with `liveSyncDurationCount: 1`, `liveMaxLatencyDurationCount: Infinity`, `maxLiveSyncPlaybackRate: 1`, `backBufferLength: 90`; red tick at seekable end; Live edge button follows; manual seek back/pause stops following.
 - Live→VOD via ENDLIST; VOD→live reopen reloads at the current position; deleted recording → snackbar + next item.
 - Controls per design: play/skip/volume/timecode/live edge/speed/static Source/stats/PiP/theater/fullscreen; responsive hiding; seek slider commits once, chapter ticks/tooltips, ARIA; keyboard Space/K, J/L, ←/→, M, F, T, I with yield rules.
-- Resume: Completed starts at `ResumeSec` (no prompt); live ignores; save 15 s/pause via `ProgressStore`, flush on route/dispose/pagehide with keepalive; skip live; clear on ended/near end; no timeupdate circuit; no cross-tab sync.
+- Resume: open at `ResumeSec` when set (no prompt), else the live edge (live) or 0 (Completed); save 15 s/pause via `ProgressStore`, flush on route/dispose/pagehide with keepalive; skip while following the live edge; no 30 s end margin while live; clear on ended/near end once finished; no timeupdate circuit; no cross-tab sync (#160).
 - Preferences: `sk-player` v1 volume/mute/speed; clamped/defaulted; no quality preference (E-20); localStorage failures degrade.
 - Stats: 2 s/20-sample rings; Video bitrate/frame rate, Network bandwidth/buffer; native fallback; copy JSON v1 via clipboard + snackbar; open state `sk-ui` only; collapsed body inert.
 - Errors: three retries with backoff; media recovery/swap audio; waiting-for-first-segment; unsupported-browser overlay; retry at last position.

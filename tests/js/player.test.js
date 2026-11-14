@@ -744,24 +744,45 @@ describe("VideoPlayer.razor.js", () => {
       player = null;
     });
 
-    it("ignores the resume position and never saves while live", async () => {
-      await start(view({ state: "recording", resumeSec: 42 }));
-      media.metadata(600);
+    it("never saves while following the live edge, even after opening without playing", async () => {
+      await start(view({ state: "recording" }));
+      media.seekableEnd = 60;
+      hls.instances[0].liveSyncPosition = 48;
+      media.metadata(60);
+      vi.advanceTimersByTime(60_000);
+      window.dispatchEvent(new Event("pagehide"));
       hook("center").click();
       vi.advanceTimersByTime(60_000);
-      hook("play").click();
       window.dispatchEvent(new Event("pagehide"));
 
-      expect(media.seeks).not.toContain(42);
       expect(calls("SaveProgress")).toEqual([]);
       expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("saves a live position once a pause or a seek back leaves the live edge", async () => {
+      await start(view({ state: "recording" }));
+      media.seekableEnd = 60;
+      hls.instances[0].liveSyncPosition = 48;
+      media.metadata(60);
+      hook("center").click();
+
+      // A pause right at the edge is inside the 30 s end margin and still saves.
+      hook("play").click();
+      expect(calls("SaveProgress").at(-1)).toEqual(["SaveProgress", "r1", 48]);
+
+      hook("center").click();
+      hook("seek").focus();
+      key(hook("seek"), "Home");
+      media.time(12);
+      vi.advanceTimersByTime(15_000);
+      expect(calls("SaveProgress").at(-1)).toEqual(["SaveProgress", "r1", 12]);
     });
   });
 
   describe("live captures", () => {
     // A growing capture: 60 s seekable, hls.js syncs one target duration behind the end.
-    async function startLive(state = "recording") {
-      await start(view({ state, resumeSec: 25 }));
+    async function startLive(state = "recording", resumeSec = null) {
+      await start(view({ state, resumeSec }));
       const [instance] = hls.instances;
       media.seekableEnd = 60;
       instance.liveSyncPosition = 48;
@@ -776,16 +797,30 @@ describe("VideoPlayer.razor.js", () => {
       media.metadata(end);
     };
 
-    it("opens at the live sync position, ignores the resume position, and shows the edge", async () => {
+    it("opens at the live sync position without a resume position, and shows the edge", async () => {
       await startLive();
 
       expect(hook("video").currentTime).toBe(48);
-      expect(media.seeks).not.toContain(25);
       expect(hook("live").hidden).toBe(false);
       expect(hook("live").classList.contains("at-edge")).toBe(true);
       expect(hook("edge").hidden).toBe(false);
       expect(hook("edge").style.left).toBe("100%");
       expect(hook("video").play).not.toHaveBeenCalled();
+    });
+
+    it("opens at the resume position, paused and not following, when the viewer left the edge", async () => {
+      const instance = await startLive("recording", 25);
+
+      expect(hook("video").currentTime).toBe(25);
+      expect(hook("video").play).not.toHaveBeenCalled();
+      expect(hook("live").hidden).toBe(false);
+      expect(hook("live").classList.contains("at-edge")).toBe(false);
+
+      // Playing from there stays put instead of jumping to the edge.
+      hook("center").click();
+      growTo(instance, 90);
+      media.time(26);
+      expect(hook("video").currentTime).toBe(26);
     });
 
     it("follows the sync position while playing and grows the duration", async () => {

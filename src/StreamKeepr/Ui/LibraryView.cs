@@ -304,8 +304,8 @@ public sealed class LibraryView : ILibraryView
             summary.IsRecording ? null : summary.SizeBytes,
             summary.ThumbnailUrl,
             summary.PlaylistUrl,
-            // Live captures open at the live edge, so only finished recordings resume.
-            ResumeSec: summary.IsRecording ? null : progress.Get(summary.Id),
+            // Live recordings resume too: a viewer who left the live edge has a position.
+            ResumeSec: progress.Get(summary.Id),
             summary.Chapters,
             summary.HasChat);
     }

@@ -50,19 +50,45 @@ public sealed class ProgressStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Unknown_and_live_recordings_are_ignored()
+    public async Task Unknown_recordings_are_ignored()
     {
-        _library.Upsert(Finished("live", durationSeconds: null, recording: true));
         using ProgressStore store = await CreateAsync();
         int changes = 0;
         store.Changed += () => changes++;
 
         await store.SetAsync("missing", 10, CancellationToken.None);
-        await store.SetAsync("live", 10, CancellationToken.None);
 
         Assert.Null(store.Get("missing"));
-        Assert.Null(store.Get("live"));
         Assert.Equal(0, changes);
+    }
+
+    [Fact]
+    public async Task Live_recordings_keep_positions_near_and_past_the_known_end()
+    {
+        // While recording the live edge sits inside the 30 s margin, and the library's
+        // duration trails the player's, so neither the margin nor the upper clamp applies.
+        _library.Upsert(Finished("live", durationSeconds: 600, recording: true));
+        using ProgressStore store = await CreateAsync();
+
+        await store.SetAsync("live", 590, CancellationToken.None);
+        Assert.Equal(590, store.Get("live"));
+
+        await store.SetAsync("live", 612, CancellationToken.None);
+        Assert.Equal(612, store.Get("live"));
+
+        await store.SetAsync("live", -3, CancellationToken.None);
+        Assert.Equal(0, store.Get("live"));
+    }
+
+    [Fact]
+    public async Task Live_recordings_without_a_known_duration_keep_positions()
+    {
+        _library.Upsert(Finished("live", durationSeconds: null, recording: true));
+        using ProgressStore store = await CreateAsync();
+
+        await store.SetAsync("live", 10, CancellationToken.None);
+
+        Assert.Equal(10, store.Get("live"));
     }
 
     [Fact]
