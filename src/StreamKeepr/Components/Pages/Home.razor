@@ -1,10 +1,13 @@
 @page "/"
 @page "/r/{RecordingId}"
 @implements IDisposable
+@using Microsoft.Extensions.Options
+@using StreamKeepr.Configuration
 @inject ILibraryView Library
 @inject UiPreferences Preferences
 @inject SnackbarService Snackbars
 @inject NavigationManager Navigation
+@inject IOptions<ChatOptions> ChatOptions
 
 <PageTitle>@(RecordingId is null ? "Stream Keepr" : $"{RecordingId} · Stream Keepr")</PageTitle>
 
@@ -34,7 +37,7 @@ else
 
 @* The player column keeps its fixed order (player, details, stats). The same VideoPlayer
    instance survives recording changes and swaps the source in JS. Chat is a sidecar only
-   when the recording has chat or is live; the pane itself owns its open state in JS. *@
+   when the recording has chat, or is live while capture is on; the pane owns its open state in JS. *@
 <div class="sk-player-row" data-chat-open="@(ShowChat && Preferences.ChatOpen ? "true" : "false")">
     <div data-slot="player" data-selected-recording="@Selected?.Id">
         @if (Selected is { } playing)
@@ -73,9 +76,11 @@ else
     private RecordingView? Selected =>
         RecordingId is not null && Library.IsLoaded ? Library.Find(RecordingId) : null;
 
+    // Captured chat always replays; a live recording only waits for chat while capture is on.
     private bool ShowChat => Selected is { } recording &&
         (recording.HasChat ||
-         recording.State is RecordingState.Recording or RecordingState.Reconnecting);
+         (ChatOptions.Value.Enabled &&
+          recording.State is RecordingState.Recording or RecordingState.Reconnecting));
 
     protected override void OnInitialized()
     {
