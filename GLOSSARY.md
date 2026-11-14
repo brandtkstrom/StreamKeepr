@@ -79,3 +79,31 @@ _Avoid_: Exit code, status
 **Session recovery**:
 The startup reconstruction of the newest session for a channel as resumable or finished.
 _Avoid_: Rebuild, restore
+
+**Chat capture**:
+The best-effort process of reading Twitch chat for a session and persisting it as the session's chat log. Chat capture is independent of the recording state and never gates recording.
+_Avoid_: Chat recording, chat history capture
+
+**Chat log**:
+The persisted per-session record of chat messages and chat log events. It is complete only while capture was connected; gaps are explicit.
+_Avoid_: Chat history, transcript
+
+**Chat message**:
+One user-authored Twitch chat message (`PRIVMSG`) for a channel, identified by its Twitch message ID and timestamped with `tmi-sent-ts` when available.
+_Avoid_: Chat line, comment
+
+**Chat log event**:
+A non-message record in the chat log: deletion, clear, room-state change, reconnect, gap, truncation, or end.
+_Avoid_: System message, moderation event (when the general record is meant)
+
+**Chat replay**:
+The pane that displays the chat log synchronized to recording playback.
+_Avoid_: Chat history pane, live chat
+
+**Chat gap**:
+An interval in which chat capture was not connected or could not persist events. A gap is shown, never filled by guessing.
+_Avoid_: Missing messages, lost chat
+
+**Chat sync offset**:
+A per-recording viewing adjustment that shifts chat replay earlier or later relative to the recording.
+_Avoid_: Chat delay, latency

@@ -18,7 +18,7 @@ This contract covers the library drawer, grouping and day headers, search/filter
   - `Partial`: Complete with more than one part.
   - `Saved`: Complete with one part.
 - Status chips: Recording → `Rec`; Reconnecting → `Reconnecting` warning; Partial → `Partial` warning; Saved → no chip. `Processing` exists in the primitive for finalize/export but is not a library state in v3.
-- `Chapters`, `ResumeSec`, `ThumbnailUrl`, `PlaylistUrl`, `DurationSec`, `SizeBytes`, and counts come from `ILibraryView` as defined.
+- `Chapters`, `ResumeSec`, `HasChat`, `ThumbnailUrl`, `PlaylistUrl`, `DurationSec`, `SizeBytes`, and counts come from `ILibraryView` as defined.
 
 ## 3. Grouping and sort
 

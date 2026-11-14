@@ -16,6 +16,11 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 | `DvrStatus` | Singleton | Read-only runtime snapshots for UI and health |
 | `RecorderJob` | Transient worker per part | Streamlink/FFmpeg processes and part files |
 | `TwitchStreamPoller` / `EventSubClient` | Singletons, supervised | Observations and push notifications |
+| `ChatCaptureService` | Singleton `BackgroundService` | Session-to-chat reconciliation and chat-event routing |
+| `IrcChatClient` / `MockChatSource` | Singleton `BackgroundService` + `IChatSource` | The read-only IRC connection or its deterministic Mock substitute |
+| `ChatLogStore` | Singleton | Per-session chat writers, buckets, events, metadata, and purge |
+
+Chat capture is isolated from the DVR path: a source or store failure is logged and retried, never propagated into a channel loop, the host, or `/health/live`.
 
 Only the coordinator loop mutates domain state. Readers use `DvrStatus` and `RecordingLibrary`; they never inspect a live coordinator.
 

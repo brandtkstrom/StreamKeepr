@@ -6,7 +6,7 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 
 ## 1. Scope and boundary
 
-The session store owns the on-disk session manifest, part stitching, startup recovery, the in-memory recording library, and disk-space checks. The recorder owns part files; the store owns `session.json`, `index.m3u8`, `thumb.jpg`, and library summaries. The store never runs Streamlink/FFmpeg and never changes domain state.
+The session store owns the on-disk session manifest, part stitching, startup recovery, the in-memory recording library, and disk-space checks. The recorder owns part files; the store owns `session.json`, `index.m3u8`, `thumb.jpg`, and library summaries. The store never runs Streamlink/FFmpeg and never changes domain state. A session folder may also contain a `chat/` sidecar owned by `ChatLogStore`; the session store only derives `HasChat` and deletes the folder with the session.
 
 ## 2. Manifest
 
@@ -48,7 +48,10 @@ public sealed record SessionManifest(
 - `EndedAt`: manifest value; null while recording.
 - `HasThumbnail`: `thumb.jpg` exists.
 - `Chapters`: metadata changes after the first, positioned against the stitched playlist.
+- `HasChat`: `chat/meta.json` exists or at least one `chat/*.jsonl` bucket exists.
 - `IsRecording`: `Status == Recording`.
+
+`SizeBytes` excludes `chat/`; the chat log has its own `Chat:MaxBytesPerSession` cap.
 
 ## 3. Atomic writes
 
@@ -127,6 +130,7 @@ For each `recordingsRoot/{channel}/{session}`:
    - If there are no parts, log and skip; do not serve.
 5. If `Status == Recording`:
    - Delete stale `*.tmp` files.
+   - Ignore `chat/`; chat recovery is independent and append-only.
    - Parse every part playlist. If any parse fails, log and skip the session; leave media untouched.
    - Delete `*.m4s` and `init_*.mp4` not referenced by any part playlist.
    - Add `Resumable(Session, LastPart + 1, Complete: false)` to unfinished.
@@ -145,7 +149,7 @@ The supervisor maps `Unfinished` to `Idle.Resume` and `Finished` to `Idle.Finish
 - `ReopenAsync(session)`: under the lock, set `Status = Recording`, clear `EndedAt`/`DurationSeconds`/`SizeBytes`, delete `index.m3u8`, write the manifest, upsert the library, invalidate the live cache.
 - `AppendMetadataAsync(session, live)`: under the lock, read the manifest; if the latest title and game are unchanged, return after ensuring a thumbnail exists. Otherwise append a metadata change, write the manifest, upsert the library with live counts and chapters.
 - `FinalizeAsync(session)`: under the lock, collect non-empty part playlists in numeric order. If none, delete the session directory and remove the library entry. Otherwise stitch final, write `index.m3u8` atomically, set `Status = Complete`, `EndedAt`, `DurationSeconds`, `SizeBytes`, write the manifest, upsert the library with counts/chapters, and remove the live cache.
-- `DeleteAsync(session)`: remove the library entry first, take the lock, delete the directory, remove the live cache and lock entry. Export leases are checked by the caller.
+- `DeleteAsync(session)`: remove the library entry first, take the lock, delete the directory, remove the live cache and lock entry. Export leases are checked by the caller. The session directory includes `chat/`, so chat is deleted with the recording. `FinalizeAsync` does not rewrite chat; the chat writer closes and optionally purges deleted text on its own finalize path.
 - `StitchLiveAsync(dir)`: cache hit or lock + rebuild as above.
 
 ## 8. Recording library

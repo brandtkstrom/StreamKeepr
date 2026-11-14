@@ -40,6 +40,7 @@ The stitched `index.m3u8` is a **single media playlist**, not a multi-variant ma
 - `dispose()` flushes progress, destroys hls/native media, clears timers and listeners, and releases the module reference. The `DotNetObjectReference` is disposed by the component.
 - The .NET reference exposes `SaveProgress(string recordingId, double)`, `ClearProgress(string recordingId)`, `SetStatsOpen(bool)`, `SetTheater(bool)`, and `Notify(string)`. The progress calls carry the recording id so a save in flight across a recording change lands on the recording it belongs to. `Notify` raises a `SnackbarService` message; it is used only for copy-stats confirmation/failure.
 - `UiPreferences` is the single source for stats/theater state. JS applies `setStatsOpen(bool)`/`setTheater(bool)` when `UiPreferences.Changed` fires; the player's own buttons call .NET to persist.
+- The player dispatches a throttled `sk:playhead` DOM event (at most every 250 ms on `timeupdate`, and immediately after play, pause, seek, rate change, end, loaded metadata, and duration change) with `recordingId`, `time`, `duration`, `paused`, `rate`, and `live`. The chat pane listens on `document`; the event never crosses the Blazor circuit.
 
 ## 4. Playback model
 
@@ -90,7 +91,7 @@ Control order, left to right, matches the design system:
 - The quality pill is static text (“Source”) and is not a button; there is no quality menu or preference (E-20). It hides at ≤520 px.
 - The stats toggle and the panel switch share one state; both use `aria-pressed`/`aria-checked`.
 - Picture-in-picture is button-only. It is hidden when `document.pictureInPictureEnabled` is false or the API is absent, disabled while fullscreen, and its icon/aria follows enter/leave events. No custom controls exist inside the PiP window.
-- Fullscreen targets the `.sk-player` container so custom controls remain. `:fullscreen` fills the viewport, contains the video, and drops the radius. If container fullscreen is unavailable, fall back to `video.requestFullscreen()`; native Safari may use its own controls. Entering fullscreen focuses the container; exiting returns focus to the fullscreen button.
+- Fullscreen targets the `.sk-player` container so custom controls remain. `:fullscreen` fills the viewport, contains the video, and drops the radius. If container fullscreen is unavailable, fall back to `video.requestFullscreen()`; native Safari may use its own controls. Entering fullscreen focuses the container; exiting returns focus to the fullscreen button. The chat sidecar is outside `.sk-player`, so it is not part of fullscreen and remains in its previous state when fullscreen exits.
 - Theater calls `UiPreferences.SetTheater(!Theater)` and updates its pressed state through `Changed`; the shell owns hiding the drawer and the background change. Theater does not resize the player beyond the shell.
 - Responsive control hiding uses the existing container queries: ≤720 px hides skip, PiP, and speed; ≤520 px hides theater, volume, the quality pill, and the live-edge label. Keyboard shortcuts remain available.
 
@@ -104,7 +105,7 @@ Control order, left to right, matches the design system:
 
 ## 7. Keyboard
 
-- The player listens on `document` while a recording is active. It ignores events with modifiers or `defaultPrevented`, editable targets (`input`, `textarea`, `select`, `[contenteditable]`), open menus/dialogs, and keys handled by the seek/volume slider.
+- The player listens on `document` while a recording is active. It ignores events with modifiers or `defaultPrevented`, editable targets (`input`, `textarea`, `select`, `[contenteditable]`), open menus/dialogs, keys handled by the seek/volume slider, and any target inside `[data-sk-chat]`.
 - Space/K toggle play/pause. They do nothing when the target is a button or link, so native activation wins.
 - J/L seek ±10 s; ←/→ seek ±5 s, except inside the drawer (tree keys win) or on a slider (the slider handles them).
 - M toggles mute; F toggles container fullscreen; T toggles theater; I toggles stats.
@@ -209,6 +210,7 @@ bUnit:
 
 - `VideoPlayer` renders the skeleton once, initializes with the correct payload, never re-renders, calls `load` on an id change and `update` on a same-id state/title/chapter change, ignores `ResumeSec` on update, and disposes.
 - `UiPreferences.Changed` drives `setStatsOpen`/`setTheater`; the component's buttons call the .NET setters; `Notify` reaches `SnackbarService`.
+- The player dispatches `sk:playhead` with the recording id, time, duration, paused/rate/live flags, throttles `timeupdate` to 250 ms, and emits immediately on the state events above.
 - `PlayerBridge` queues until ready, clamps, flushes, and clears on detach.
 - `StatsPanel` initial open/closed markup, placeholders, inert collapsed body, and switch/player-button ARIA.
 - `Home` deletion: `Find` null shows the snackbar, opens the next item, or `/` when none; unknown id keeps the message.
@@ -217,7 +219,7 @@ Vitest:
 
 - Timecode, chapter lookup/ticks, seek math, prefs parse/clamp, ring buffer, retry policy, copy JSON, and title/URL text handling.
 - Module with a fake hls loader and fake media: init/load/update/dispose, source swap and live/VOD transitions, live edge/follow, keyboard scope, idle, progress cadence/pagehide/dispose, retries and overlay, native fallback, stats sampler/sparkline/copy, stats/theater sync.
-- Menu and slider ARIA/keyboard behaviour; reduced motion paths.
+- Menu and slider ARIA/keyboard behaviour; reduced motion paths; playhead throttle/immediate events; global keys ignored inside `[data-sk-chat]`.
 
 Playwright (Chrome channel against the Mock profile):
 

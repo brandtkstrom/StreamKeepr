@@ -12,11 +12,11 @@ This contract defines the test seams, projects, fake-Twitch harness, determinism
 
 | Layer | Project | Scope |
 |---|---|---|
-| Unit | `tests/StreamKeepr.Tests` | Pure reducer, stitcher, parser, recovery, args, path/media rules, poll schedule, token cache, allowlist logic |
-| Integration | `tests/StreamKeepr.Tests` | `WebApplicationFactory`: media, health, auth, progress, export, channel endpoints; real DI with fake external services |
-| Component | `tests/StreamKeepr.Tests` | bUnit: primitives, library, player shell, stats, details, auth, settings |
-| JS | `tests/js` | Vitest: timecode, preferences, tree navigation, shortcuts, sparkline, player pure logic |
-| E2E | `tests/StreamKeepr.E2E` | Playwright .NET against the Mock profile: journeys, axe, keyboard, screenshots |
+| Unit | `tests/StreamKeepr.Tests` | Pure reducer, stitcher, parser, recovery, args, path/media rules, poll schedule, token cache, allowlist logic, IRC/Twitch chat parser, chat timeline, chat log and purge |
+| Integration | `tests/StreamKeepr.Tests` | `WebApplicationFactory`: media, health, auth, progress, export, channel and chat endpoints; real DI with fake external services |
+| Component | `tests/StreamKeepr.Tests` | bUnit: primitives, library, player shell, stats, chat pane, details, auth, settings |
+| JS | `tests/js` | Vitest: timecode, preferences, tree navigation, shortcuts, sparkline, player pure logic, chat playhead/reveal/sync |
+| E2E | `tests/StreamKeepr.E2E` | Playwright .NET against the Mock profile: journeys, chat replay, axe, keyboard, screenshots |
 | Container | `tests/StreamKeepr.E2E` or CI | Docker build, non-root smoke, health, deep links, restart |
 
 Use the highest seam that still exercises real behavior. Do not mock the reducer, stitcher, session store, or other internal domain objects.
@@ -52,6 +52,7 @@ tests/
 - Inject `TimeProvider` everywhere. Inject retry jitter/delay (`IRetryDelay` or `Func<TimeSpan, TimeSpan>`) so tests can make it deterministic; production uses random jitter.
 - Use `IHttpClientFactory` with stub `HttpMessageHandler`s for Helix, token refresh, and EventSub subscription requests. No test calls Twitch.
 - Use an in-memory `IAdminTokenStore` for auth/EventSub tests; the encrypted implementation is tested separately with a temp directory.
+- Use `IIrcSocket`/`IIrcSocketFactory` with a scripted transcript for the IRC state machine and parser. The Mock profile uses `MockChatSource`; no test connects to Twitch IRC or an external IRC network.
 - Use a temp `StorageOptions.RecordingsRoot` and `WebApplicationFactory` settings per test class. Never write under the repo.
 - Fake `IChannelControl`/`IRecordingActions` only at the UI seam; do not fake the supervisor when testing it.
 
@@ -85,6 +86,7 @@ Rules:
 - `MockPoller` / `MockEventSub`: deterministic observations and push notifications driven by `FakeTimeProvider` or explicit test controls.
 - Fake signed-in and signed-out auth states; no OAuth.
 - `fake-streamlink` for the growing capture.
+- `MockChatSource` for deterministic live chat and `MockChatSeeder` for finished-recording chat fixtures.
 - No Twitch client credentials are required.
 
 `dotnet run --launch-profile Mock` is the local path. The E2E fixture may run the published Debug output with the Mock environment as described in §3 when the SDK static-asset handler cannot serve the framework assets. Plain `dotnet run` is the real recorder.
