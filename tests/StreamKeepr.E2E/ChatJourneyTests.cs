@@ -40,4 +40,43 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         Assert.Equal("true", await page.Locator("[data-sk='chat-toggle']")
             .GetAttributeAsync("aria-expanded"));
     }
+
+    [Fact]
+    public async Task Polls_live_chat_while_a_growing_capture_plays()
+    {
+        await using LibraryJourneyTests.Session session =
+            await LibraryJourneyTests.OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        int chatRequests = 0;
+        page.Request += (_, request) =>
+        {
+            if (request.Url.Contains("/chat?", StringComparison.Ordinal))
+                Interlocked.Increment(ref chatRequests);
+        };
+
+        ILocator growing = page.Locator(
+            "nav#sk-drawer a.sk-row", new() { HasTextString = "Community day" });
+        string id = (await growing.GetAttributeAsync("data-recording-id"))!;
+        await growing.ClickAsync();
+        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await page.Locator("[data-sk='live']").WaitForAsync(
+            new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
+
+        ILocator pane = page.Locator("[data-sk-chat]");
+        if (await pane.GetAttributeAsync("data-open") != "true")
+            await page.Locator("[data-sk='chat-toggle']").ClickAsync();
+        await page.Locator("[data-sk='live']").ClickAsync();
+        await page.Locator("[data-sk='video']").EvaluateAsync(
+            "v => { v.muted = true; return v.play(); }");
+
+        // The Mock source writes a message every 0.5 s near the live edge.
+        await page.Locator("[data-sk='chat-log'] .sk-chat-row").First
+            .WaitForAsync(new() { Timeout = 30_000 });
+        await page.WaitForFunctionAsync(
+            "() => document.querySelector('[data-sk=chat-state]').dataset.state === 'live'");
+        int before = Volatile.Read(ref chatRequests);
+        await page.WaitForTimeoutAsync(3_000);
+
+        Assert.True(Volatile.Read(ref chatRequests) > before, "the pane polls while live");
+    }
 }
