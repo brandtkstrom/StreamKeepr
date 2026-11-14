@@ -12,9 +12,9 @@ Chat replay needs a persisted per-session record with media-time lookup. The rep
 
 - Store chat in `recordings/{channel}/{session}/chat/` as 10-minute UTC JSONL buckets plus `events.jsonl` and `meta.json`. Do not add a database.
 - Keep chat for the life of the recording; deleting the recording deletes `chat/`. No retention service.
-- Store `CLEARMSG`/`CLEARCHAT` as tombstones and hide deleted text at query time. The raw text remains until an opt-in purge.
+- Store `CLEARMSG`/`CLEARCHAT` as tombstones and hide deleted text at query time, including reply quotes of removed messages. Query time and purge share one tombstone rule (`ChatTombstones`). The raw text remains until an opt-in purge.
 - `Chat:PurgeDeletedText` is `Off` by default or `OnFinalize`.
-- An `OnFinalize` purge rewrites affected buckets atomically: remove deleted message rows, redact surviving replies that quote removed messages, remove the delete/clear events, and keep non-content `gap`/`truncated`/`reconnect`/`end` markers plus a `purged` count.
+- An `OnFinalize` purge rewrites affected buckets atomically: remove deleted message rows, redact surviving replies that quote removed messages, remove the delete/clear events, and keep non-content `gap`/`dropped`/`truncated`/`end` markers plus a `purged` count. A reply is redacted when its parent was removed in any bucket, or when its parent's author was cleared at or after the reply (the parent may predate capture).
 - Cap each session with `Chat:MaxBytesPerSession` (default 512 MiB). A full chat log is truncated and marked; a failing chat write is logged and skipped. Neither blocks recording.
 - Do not retroactively purge already-finalized recordings in v1.
 

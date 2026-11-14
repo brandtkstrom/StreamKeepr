@@ -21,7 +21,24 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 | `IrcChatClient` / `MockChatSource` | Singleton `BackgroundService` + `IChatSource` | The read-only IRC connection or its deterministic Mock substitute |
 | `ChatLogStore` | Singleton | Per-session chat writers, buckets, events, metadata, and purge |
 
-Chat capture is isolated from the DVR path: a source or store failure is logged and retried, never propagated into a channel loop, the host, or `/health/live`.
+Chat capture is isolated from the DVR path: a source or store failure is logged and retried, never propagated into a channel loop, the host, or `/health/live`. If the source's event stream fails, `ChatCaptureService` stops both its loops and logs an error; chat is not captured again until restart.
+
+- Sources hand events to the capture service through a bounded `ChatEventQueue` (10,000 events). A full queue drops new events and counts them per channel; the next accepted event for that channel is preceded by one `dropped` event covering the lost range, which replay shows as a gap.
+- A source reports `Disconnected` when its connection ends and `Joined` when it (re)joins a channel. The capture service writes a `gap` from the last captured message (or the disconnect, when none arrived) to the rejoin, or to the session end when it never rejoins.
+- A failed join is logged and retried on the next 1 s reconciliation tick; reconciliation ticks on the injected `TimeProvider`.
+
+| `Chat:` key | Default | Meaning |
+| --- | --- | --- |
+| `Enabled` | `false` | Turns capture on. While off, live recordings show no chat pane; recordings with captured chat still replay it. |
+| `TwitchUserOAuthToken`, `TwitchLogin` | unset | Optional dedicated `chat:read` identity (`docs/twitch-auth-contract.md`); a rejected token falls back to anonymous. |
+| `LeadInSeconds` | `12` | How much earlier the content at a part start aired than its first PDT. |
+| `BucketMinutes` | `10` | Bucket length; buckets are floored on Unix time, so any value 1–60 works. |
+| `MaxChannels` | `100` | Joined-channel cap; joins beyond it are refused and logged. |
+| `JoinIntervalMs` | `600` | Spacing between `JOIN`s (Twitch allows 20 per 10 s). |
+| `ConnectTimeoutSeconds`, `RegistrationTimeoutSeconds` | `10`, `15` | WebSocket connect and IRC registration limits. |
+| `ReconnectMaxSeconds` | `300` | Cap on the doubling reconnect backoff (from 5 s, jittered). |
+| `MaxBytesPerSession` | 512 MiB | Per-session cap; a full log is marked `truncated` and capture stops for that session. |
+| `PurgeDeletedText` | `Off` | `OnFinalize` removes deleted text at finalize (ADR 0009). |
 
 Only the coordinator loop mutates domain state. Readers use `DvrStatus` and `RecordingLibrary`; they never inspect a live coordinator.
 

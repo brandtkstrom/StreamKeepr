@@ -127,7 +127,10 @@ public interface IConnectionStatusView : IDisposable
 - `GET /api/recordings/{id}/chat?fromSec=&toSec=&limit=&syncOffsetSec=` is public and read-only. It returns a bounded media-time window from the session's chat log; `Cache-Control: no-store`.
 - `fromSec` is required and non-negative; `toSec` defaults to `fromSec + 120` and the window is capped at 600 s. `limit` defaults to 300 and is capped at 1000. `syncOffsetSec` is clamped to ±30 s.
 - The response envelope is `v`, `recordingId`, `state` (`recording` | `complete` | `starting` | `unavailable`), `hasChat`, `source` (`irc-anonymous` | `irc-token` | `mock` | `none`), `leadInSec`, `fromSec`, `toSec`, `syncOffsetSec`, `messages`, `gaps`, `hasMoreBefore`, `hasMoreAfter`. Messages carry `id`, `mt`, `at`, user fields, badges, text, emote ranges, bits, reply, and the action flag.
+- Each gap is `{from, to, seconds}`: `from`/`to` in media seconds clipped to the window, `seconds` the wall-clock length for the divider. Gaps come from IRC outages (last message to rejoin), queue overflow (`dropped`), a truncated log (from the cap to the window end), and unrecorded time between parts, which is a single media point (`from == to`) because the stitched timeline is contiguous.
+- Deleted and cleared messages are hidden, and a surviving reply's `reply` is `null` when it quotes removed text, whether or not purge ran.
 - Unknown recordings are 404; malformed or out-of-range queries are 400; a recording without chat is 200 with `hasChat:false`. Raw `.jsonl` files are never served.
+- The pane receives the endpoint's `limit` and sync range in its load payload. It keeps one fetch in flight; after a failure it waits 1 s, doubling to 30 s, before trying again. Seeks and sync changes replace the request in flight.
 
 ## 4. Progress store
 

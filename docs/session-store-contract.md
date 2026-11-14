@@ -53,6 +53,8 @@ public sealed record SessionManifest(
 
 `SizeBytes` excludes `chat/`; the chat log has its own `Chat:MaxBytesPerSession` cap.
 
+The `chat/` sidecar holds `meta.json` (advisory status, counts, lead-in, bucket length), `events.jsonl`, and message buckets named for their UTC start (`yyyyMMddTHHmmZ.jsonl`). A message row stores its Twitch fields plus `local: true` when `tmi-sent-ts` was missing and the capture clock stood in. Event kinds are `delete`, `clear_user`, `clear_all`, `roomstate` (including `uniqueChat`, Twitch's r9k mode), `notice` (the notice text), `gap`, `dropped`, `truncated`, `end`, and `purged`.
+
 ## 3. Atomic writes
 
 - Manifest, stitched index, and thumbnail are written to `<name>.tmp` in the same directory, then renamed over the target with `File.Move(temp, target, overwrite: true)`.

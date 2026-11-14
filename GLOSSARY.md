@@ -93,7 +93,7 @@ One user-authored Twitch chat message (`PRIVMSG`) for a channel, identified by i
 _Avoid_: Chat line, comment
 
 **Chat log event**:
-A non-message record in the chat log: deletion, clear, room-state change, reconnect, gap, truncation, or end.
+A non-message record in the chat log: deletion, clear, room-state change, notice, gap, dropped events, truncation, end, or purge.
 _Avoid_: System message, moderation event (when the general record is meant)
 
 **Chat replay**:
@@ -101,7 +101,7 @@ The pane that displays the chat log synchronized to recording playback.
 _Avoid_: Chat history pane, live chat
 
 **Chat gap**:
-An interval in which chat capture was not connected or could not persist events. A gap is shown, never filled by guessing.
+An interval in which chat capture was not connected or could not persist events: an IRC outage until rejoin, events dropped by a full capture queue, a truncated log, or unrecorded time between parts. A gap is shown, never filled by guessing.
 _Avoid_: Missing messages, lost chat
 
 **Chat sync offset**:

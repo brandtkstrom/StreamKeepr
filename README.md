@@ -30,7 +30,7 @@ dotnet user-secrets --project src/StreamKeepr set "Chat:TwitchUserOAuthToken" "<
 dotnet user-secrets --project src/StreamKeepr set "Chat:TwitchLogin" "<twitch-login>"
 ```
 
-Chat is a best-effort live tap, not a complete history: disconnects are shown as gaps. `Chat:PurgeDeletedText=OnFinalize` opts in to physically removing deleted text when a recording finalizes; it is off by default. Chat failures never stop recording.
+Chat is a best-effort live tap, not a complete history: disconnects, dropped events, and a full log are shown as gaps. The other `Chat:` settings are listed in `docs/runtime-contract.md`. `Chat:PurgeDeletedText=OnFinalize` opts in to physically removing deleted text when a recording finalizes; it is off by default. Chat failures never stop recording.
 
 ## Mock profile (no Twitch credentials)
 
