@@ -231,6 +231,25 @@ public sealed class ChatLogStoreTests : IDisposable
         Assert.Equal([new ChatQueryGap(60, 60, 90)], result.Gaps);
     }
 
+    [Theory]
+    [InlineData(7)]
+    [InlineData(13)]
+    public void Reader_finds_messages_for_a_bucket_size_that_does_not_divide_an_hour(int minutes)
+    {
+        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(
+            new ChatOptions { BucketMinutes = minutes });
+        string directory = store.SessionDirectory(summary);
+        WritePlaylist(directory);
+        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.Append("chan", Message(summary, "a", 3, "first"));
+        store.Append("chan", Message(summary, "b", 50, "second"));
+        store.CloseSession(summary.Id, finalize: true);
+
+        ChatQueryResult result = reader.Query(summary, 0, 60, 300, 0);
+
+        Assert.Equal(["a", "b"], result.Messages.Select(message => message.Id));
+    }
+
     [Fact]
     public void Has_chat_is_false_before_the_first_event_and_true_after_finalize()
     {
