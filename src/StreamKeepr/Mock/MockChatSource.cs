@@ -19,12 +19,14 @@ public sealed class MockChatSource(
 
     private readonly ConcurrentDictionary<string, byte> _joined = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, long> _baseAt = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, double> _mediaEnd = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, long> _joinedAt = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, double> _partEnd = new(StringComparer.Ordinal);
     private static readonly TimeSpan MessageInterval = TimeSpan.FromMilliseconds(500);
 
     /// <summary>Every 12th mock message is deleted, exercising query-time tombstones.</summary>
     private const int DeleteEvery = 12;
+
+    /// <summary>Messages land just behind the recorded edge, where a live viewer can reach them.</summary>
+    private const double EdgeLagSeconds = 2;
 
     private int _counter;
 
@@ -37,7 +39,6 @@ public sealed class MockChatSource(
             return ValueTask.CompletedTask;
 
         _joined[login] = 0;
-        _joinedAt[login] = clock.GetUtcNow().ToUnixTimeMilliseconds();
         RememberMedia(login);
         return ValueTask.CompletedTask;
     }
@@ -47,8 +48,7 @@ public sealed class MockChatSource(
         string login = TwitchLogin.Normalize(channel);
         _joined.TryRemove(login, out _);
         _baseAt.TryRemove(login, out _);
-        _mediaEnd.TryRemove(login, out _);
-        _joinedAt.TryRemove(login, out _);
+        _partEnd.TryRemove(login, out _);
         return ValueTask.CompletedTask;
     }
 
@@ -64,8 +64,8 @@ public sealed class MockChatSource(
             {
                 foreach (string channel in _joined.Keys)
                 {
-                    if (!_baseAt.ContainsKey(channel))
-                        RememberMedia(channel);
+                    // A live capture keeps growing, so follow its edge every tick.
+                    RememberMedia(channel);
 
                     ChatMessage message = NextMessage(channel);
                     _events.Write(new ChatSourceEvent.MessageEvent(message));
@@ -98,21 +98,30 @@ public sealed class MockChatSource(
         if (summary is null)
             return;
 
-        string path = Path.Combine(
-            storage.Value.RecordingsRoot, summary.Channel, summary.Id, PartFiles.Playlist(1));
-        if (!File.Exists(path))
+        string directory = Path.Combine(storage.Value.RecordingsRoot, summary.Channel, summary.Id);
+        if (!Directory.Exists(directory))
             return;
 
         try
         {
-            string playlist = File.ReadAllText(path);
+            // The newest part holds the live edge; a reconnect starts a new part.
+            int newest = Directory.EnumerateFiles(directory, "p*.m3u8")
+                .Select(path => PartFiles.TryParsePlaylist(Path.GetFileName(path), out int part)
+                    ? part
+                    : 0)
+                .DefaultIfEmpty(0)
+                .Max();
+            if (newest < 1)
+                return;
+
+            string playlist = File.ReadAllText(Path.Combine(directory, PartFiles.Playlist(newest)));
             DateTimeOffset? pdt = PlaylistStitcher.FirstProgramDateTime(playlist);
             if (pdt is null)
                 return;
 
             _baseAt[channel] = pdt.Value.AddSeconds(-options.Value.LeadInSeconds)
                 .ToUnixTimeMilliseconds();
-            _mediaEnd[channel] = Math.Max(1, PlaylistStitcher.TotalDuration(playlist));
+            _partEnd[channel] = Math.Max(1, PlaylistStitcher.TotalDuration(playlist));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException)
         {
@@ -124,13 +133,10 @@ public sealed class MockChatSource(
     {
         int counter = Interlocked.Increment(ref _counter);
         long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
-        double mediaEnd = _mediaEnd.GetValueOrDefault(channel, 60);
-        long joinedAt = _joinedAt.GetValueOrDefault(channel, now);
-        double elapsed = Math.Max(0, (now - joinedAt) / 1000.0);
-        double media = Math.Min(Math.Max(1, mediaEnd - 1),
-            Math.Max(1, mediaEnd - 10) + elapsed);
+        // Seconds into the newest part, just behind its recorded end.
+        double offset = Math.Max(1, _partEnd.GetValueOrDefault(channel, 60) - EdgeLagSeconds);
         long at = _baseAt.TryGetValue(channel, out long baseAt)
-            ? baseAt + (long)(media * 1000)
+            ? baseAt + (long)(offset * 1000)
             : now;
         string text = (counter % 4) switch
         {
