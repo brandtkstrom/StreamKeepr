@@ -115,17 +115,34 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_failing_source_never_faults_the_hosted_service()
+    public async Task A_failing_source_is_logged_and_retried_without_faulting_the_service()
     {
-        _source.ReadFailure = new InvalidOperationException("socket exploded");
-        _library.MarkLoaded();
+        _source.ReadFailures = 1;
 
-        await _service.StartAsync(CancellationToken.None);
-        await EventuallyAsync(() => _service.ExecuteTask?.IsCompleted == true);
+        await StartRecordingAsync();
+        await EventuallyAsync(() => _source.ReadCalls >= 2);
 
-        Assert.True(_service.ExecuteTask!.IsCompletedSuccessfully);
+        Assert.False(_service.ExecuteTask!.IsCompleted);
         Assert.Contains(_logs.Messages, message => message.Contains(
-            "stopped unexpectedly", StringComparison.Ordinal));
+            "chat source failed", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Shutdown_during_an_outage_closes_its_gap()
+    {
+        await StartRecordingAsync();
+        _source.Events.Write(Message("m1", Start.AddSeconds(5)));
+        _source.Events.Write(new ChatSourceEvent.Disconnected("chan", ToMs(Start.AddSeconds(30))));
+        await EventuallyAsync(() => File.Exists(MetaPath));
+        await Task.Delay(50);
+        _clock.Advance(TimeSpan.FromMinutes(1));
+
+        long stoppedAt = ToMs(_clock.GetUtcNow());
+        await _service.StopAsync(CancellationToken.None);
+
+        JsonElement gap = Assert.Single(Events(), evt => evt.GetProperty("kind").GetString() == "gap");
+        Assert.Equal(ToMs(Start.AddSeconds(5)), gap.GetProperty("from").GetInt64());
+        Assert.Equal(stoppedAt, gap.GetProperty("to").GetInt64());
     }
 
     private string ChatDirectory => ChatLogStore.ChatDirectory(_store.SessionDirectory(_recording));
@@ -185,6 +202,8 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
     private sealed class FakeChatSource : IChatSource
     {
         private int _joinFailures;
+        private int _readFailures;
+        private int _readCalls;
 
         public ChatEventQueue Events { get; } = new();
 
@@ -192,7 +211,13 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
 
         public ConcurrentQueue<string> Parted { get; } = new();
 
-        public Exception? ReadFailure { get; set; }
+        public int ReadFailures
+        {
+            get => Volatile.Read(ref _readFailures);
+            set => Volatile.Write(ref _readFailures, value);
+        }
+
+        public int ReadCalls => Volatile.Read(ref _readCalls);
 
         public int JoinFailures
         {
@@ -217,8 +242,13 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
             return ValueTask.CompletedTask;
         }
 
-        public IAsyncEnumerable<ChatSourceEvent> ReadAllAsync(CancellationToken ct) =>
-            ReadFailure is { } failure ? Throw(failure, ct) : Events.ReadAllAsync(ct);
+        public IAsyncEnumerable<ChatSourceEvent> ReadAllAsync(CancellationToken ct)
+        {
+            Interlocked.Increment(ref _readCalls);
+            return Interlocked.Decrement(ref _readFailures) >= 0
+                ? Throw(new InvalidOperationException("socket exploded"), ct)
+                : Events.ReadAllAsync(ct);
+        }
 
         public ValueTask DisposeAsync()
         {

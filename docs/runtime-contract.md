@@ -21,9 +21,9 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 | `IrcChatClient` / `MockChatSource` | Singleton `BackgroundService` + `IChatSource` | The read-only IRC connection or its deterministic Mock substitute |
 | `ChatLogStore` | Singleton | Per-session chat writers, buckets, events, metadata, and purge |
 
-Chat capture is isolated from the DVR path: a source or store failure is logged and retried, never propagated into a channel loop, the host, or `/health/live`. If the source's event stream fails, `ChatCaptureService` stops both its loops and logs an error; chat is not captured again until restart.
+Chat capture is isolated from the DVR path: a source or store failure is logged and retried, never propagated into a channel loop, the host, or `/health/live`. If the source's event stream fails, `ChatCaptureService` stops both its loops, logs an error, closes open outages and session writers, and restarts capture after 5 s. Shutdown closes open outages the same way.
 
-- Sources hand events to the capture service through a bounded `ChatEventQueue` (10,000 events). A full queue drops new events and counts them per channel; the next accepted event for that channel is preceded by one `dropped` event covering the lost range, which replay shows as a gap.
+- Sources hand events to the capture service through a bounded `ChatEventQueue` (10,000 events). When it is full, each channel's new events wait in an ordered backlog: messages and chat log events collapse into one `dropped` range, which replay shows as a gap, and `Disconnected`/`Joined` are always kept. Backlogs flush as the reader frees room.
 - A source reports `Disconnected` when its connection ends and `Joined` when it (re)joins a channel. The capture service writes a `gap` from the last captured message (or the disconnect, when none arrived) to the rejoin, or to the session end when it never rejoins.
 - A failed join is logged and retried on the next 1 s reconciliation tick; reconciliation ticks on the injected `TimeProvider`.
 

@@ -18,6 +18,7 @@ public sealed class ChatCaptureService(
     ILogger<ChatCaptureService> logger) : BackgroundService
 {
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan SourceRetryDelay = TimeSpan.FromSeconds(5);
 
     // Reconcile owns _active; the consumer and Close share the concurrent maps.
     private readonly Dictionary<string, string> _active = new(StringComparer.Ordinal);
@@ -29,41 +30,78 @@ public sealed class ChatCaptureService(
         if (!options.Value.Enabled)
             return;
 
-        // Either loop ending stops the other, so a dead source cannot leave joins running
-        // with nothing consuming their events.
-        using var stop = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         try
         {
-            Task consume = RunUntilStoppedAsync(ConsumeAsync, stop);
-            Task reconcile = RunUntilStoppedAsync(ReconcileAsync, stop);
-            await Task.WhenAll(consume, reconcile);
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                if (!await RunOnceAsync(stoppingToken))
+                    return;
+
+                await Task.Delay(SourceRetryDelay, clock, stoppingToken);
+            }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // Host shutdown.
         }
-        catch (Exception ex)
-        {
-            // A chat failure must never stop the recorder host.
-            logger.LogError(ex, "The chat capture service stopped unexpectedly; chat is not captured until restart.");
-        }
         finally
         {
-            store.CloseAll(finalize: false);
+            StopCapture();
         }
     }
 
-    private static async Task RunUntilStoppedAsync(
-        Func<CancellationToken, Task> loop, CancellationTokenSource stop)
+    /// <summary>
+    /// Runs the consumer and the reconciler until either ends. Returns true when the source
+    /// failed and capture should restart; false when the source ended or the host is stopping.
+    /// </summary>
+    private async Task<bool> RunOnceAsync(CancellationToken stoppingToken)
     {
+        // Either loop ending stops the other, so a dead source cannot leave joins running
+        // with nothing consuming their events.
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        Task consume = ConsumeAsync(stop.Token);
+        Task reconcile = ReconcileAsync(stop.Token);
+        Task first = await Task.WhenAny(consume, reconcile);
+        await stop.CancelAsync();
         try
         {
-            await loop(stop.Token);
+            await Task.WhenAll(consume, reconcile);
         }
-        finally
+        catch (OperationCanceledException) when (stop.IsCancellationRequested)
         {
-            await stop.CancelAsync();
+            // The other loop was stopped on purpose.
         }
+        catch (Exception) when (first.IsFaulted)
+        {
+            // Reported below from the loop that ended first.
+        }
+
+        if (stoppingToken.IsCancellationRequested)
+            return false;
+
+        if (first.IsFaulted)
+        {
+            // A chat failure must never stop the recorder host.
+            logger.LogError(first.Exception!.GetBaseException(),
+                "The chat source failed; restarting chat capture in {Delay}.", SourceRetryDelay);
+            StopCapture();
+            return true;
+        }
+
+        logger.LogInformation("The chat source ended; chat capture is stopped.");
+        return false;
+    }
+
+    /// <summary>Closes open outages and every session writer without finalizing.</summary>
+    private void StopCapture()
+    {
+        long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
+        foreach (string channel in _outageFrom.Keys)
+            EndOutage(channel, now);
+
+        store.CloseAll(finalize: false);
+        _active.Clear();
+        _lastMessageAt.Clear();
     }
 
     private async Task ConsumeAsync(CancellationToken ct)
