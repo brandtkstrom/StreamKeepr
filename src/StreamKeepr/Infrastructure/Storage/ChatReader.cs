@@ -1,4 +1,3 @@
-using System.Globalization;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 
@@ -10,7 +9,8 @@ namespace StreamKeepr.Infrastructure.Storage;
 /// </summary>
 public sealed class ChatReader(
     ChatLogStore store,
-    IOptions<ChatOptions> options)
+    IOptions<ChatOptions> options,
+    ILogger<ChatReader> logger)
 {
     /// <summary>The largest per-recording sync nudge, in either direction.</summary>
     public const double MaxSyncOffsetSeconds = 30;
@@ -31,21 +31,21 @@ public sealed class ChatReader(
         }
         catch (ArgumentException)
         {
-            return Empty(summary, fromSec, toSec, syncOffsetSec, "unavailable", false, "none");
+            return Empty(summary, fromSec, toSec, syncOffsetSec, ChatStates.Unavailable, false, "none");
         }
 
         StoredChatMeta? meta = store.ReadMeta(directory);
-        bool hasChat = ChatLogStore.HasChat(directory);
+        bool hasChat = ChatLogStore.HasChat(directory, logger);
         string source = meta?.Source ?? "none";
         int leadIn = meta?.LeadInSec ?? options.Value.LeadInSeconds;
         int bucketSeconds = meta?.BucketSeconds is > 0
             ? meta.BucketSeconds
             : options.Value.BucketMinutes * 60;
 
-        ChatTimeline timeline = ChatTimeline.Build(directory, leadIn);
+        ChatTimeline timeline = ChatTimeline.Build(directory, leadIn, logger);
         if (!timeline.HasParts)
         {
-            string state = summary.IsRecording ? "starting" : "unavailable";
+            string state = summary.IsRecording ? ChatStates.Starting : ChatStates.Unavailable;
             return Empty(summary, fromSec, toSec, syncOffsetSec, state, hasChat, source);
         }
 
@@ -60,7 +60,7 @@ public sealed class ChatReader(
         var candidates = new List<StoredChatMessage>();
         var removedIds = new HashSet<string>(StringComparer.Ordinal);
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (string bucketPath in this.BucketFiles(directory, timeline, from, to, bucketSeconds))
+        foreach (string bucketPath in BucketFiles(directory, timeline, from, to, bucketSeconds))
         {
             foreach (StoredChatMessage message in store.ReadMessages(bucketPath))
             {
@@ -164,7 +164,7 @@ public sealed class ChatReader(
 
         gaps.Sort((left, right) => left.From.CompareTo(right.From));
 
-        string resultState = summary.IsRecording ? "recording" : "complete";
+        string resultState = summary.IsRecording ? ChatStates.Recording : ChatStates.Complete;
         return new ChatQueryResult(
             summary.Id,
             resultState,
@@ -183,44 +183,24 @@ public sealed class ChatReader(
     private IReadOnlyList<string> BucketFiles(
         string directory, ChatTimeline timeline, double from, double to, int bucketSeconds)
     {
+        // One bucket of slack on each side covers messages near a boundary and the sync offset.
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach ((DateTimeOffset rangeFrom, DateTimeOffset rangeTo) in timeline.WallRanges(from, to))
         {
-            DateTimeOffset start = Floor(rangeFrom, bucketSeconds).AddSeconds(-bucketSeconds);
-            DateTimeOffset end = Floor(rangeTo, bucketSeconds).AddSeconds(bucketSeconds);
+            DateTimeOffset start = ChatLogStore.BucketStart(rangeFrom, bucketSeconds)
+                .AddSeconds(-bucketSeconds);
+            DateTimeOffset end = ChatLogStore.BucketStart(rangeTo, bucketSeconds)
+                .AddSeconds(bucketSeconds);
             for (DateTimeOffset bucket = start; bucket <= end;
                  bucket = bucket.AddSeconds(bucketSeconds))
             {
-                names.Add(bucket.UtcDateTime.ToString(
-                    "yyyyMMdd'T'HHmm'Z'", CultureInfo.InvariantCulture) + ".jsonl");
+                names.Add(ChatLogStore.BucketFileName(bucket, bucketSeconds));
             }
         }
 
-        string chatDirectory = ChatLogStore.ChatDirectory(directory);
-        if (!Directory.Exists(chatDirectory))
-            return [];
-
-        try
-        {
-            return Directory.EnumerateFiles(chatDirectory, "*.jsonl")
-                .Where(path => names.Contains(Path.GetFileName(path)))
-                .ToArray();
-        }
-        catch (IOException)
-        {
-            return [];
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return [];
-        }
-    }
-
-    private static DateTimeOffset Floor(DateTimeOffset at, int bucketSeconds)
-    {
-        long seconds = at.ToUnixTimeSeconds();
-        long floor = seconds / bucketSeconds * bucketSeconds;
-        return DateTimeOffset.FromUnixTimeSeconds(floor);
+        return ChatLogStore.BucketFiles(directory, logger)
+            .Where(path => names.Contains(Path.GetFileName(path)))
+            .ToArray();
     }
 
     private ChatQueryResult Empty(

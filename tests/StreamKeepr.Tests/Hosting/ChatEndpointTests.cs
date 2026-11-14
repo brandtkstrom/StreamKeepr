@@ -26,15 +26,15 @@ public sealed class ChatEndpointTests : IDisposable
 
     public ChatEndpointTests()
     {
-        Directory.CreateDirectory(this._root);
+        Directory.CreateDirectory(_root);
         var chat = Options.Create(new ChatOptions());
-        this._store = new ChatLogStore(
-            Options.Create(new StorageOptions { RecordingsRoot = this._root }),
+        _store = new ChatLogStore(
+            Options.Create(new StorageOptions { RecordingsRoot = _root }),
             chat,
-            this._clock,
+            _clock,
             NullLogger<ChatLogStore>.Instance);
-        this._reader = new ChatReader(this._store, chat);
-        this._summary = new RecordingSummary(
+        _reader = new ChatReader(_store, chat, NullLogger<ChatReader>.Instance);
+        _summary = new RecordingSummary(
             "20261110T163000Z_1",
             "chan",
             "Title",
@@ -49,26 +49,26 @@ public sealed class ChatEndpointTests : IDisposable
             HasThumbnail: false,
             Chapters: [],
             HasChat: true);
-        this._library.Upsert(this._summary);
+        _library.Upsert(_summary);
 
-        string directory = this._store.SessionDirectory(this._summary);
+        string directory = _store.SessionDirectory(_summary);
         Directory.CreateDirectory(directory);
         File.WriteAllText(
             Path.Combine(directory, "p001.m3u8"),
             "#EXTM3U\n#EXT-X-TARGETDURATION:2\n" +
             $"#EXT-X-PROGRAM-DATE-TIME:{Now:O}\n" +
             "#EXTINF:60.000000,\nsegment.m4s\n");
-        this._store.OpenSession(this._summary, ChatLogStore.AnonymousSource);
-        this._store.Append("chan", new ChatSourceEvent.MessageEvent(new ChatMessage(
+        _store.OpenSession(_summary, ChatLogStore.AnonymousSource);
+        _store.Append("chan", new ChatSourceEvent.MessageEvent(new ChatMessage(
             "m1", "chan", Now.AddSeconds(-7).ToUnixTimeMilliseconds(), false, "42",
             "alice", "Alice", null, [], [], null, null, false, "hello")));
-        this._store.CloseSession(this._summary.Id, finalize: true);
+        _store.CloseSession(_summary.Id, finalize: true);
     }
 
     public void Dispose()
     {
-        if (Directory.Exists(this._root))
-            Directory.Delete(this._root, recursive: true);
+        if (Directory.Exists(_root))
+            Directory.Delete(_root, recursive: true);
     }
 
     private static DefaultHttpContext NewContext() => new()
@@ -86,7 +86,7 @@ public sealed class ChatEndpointTests : IDisposable
         context.Request.QueryString = new QueryString("?fromSec=0&toSec=60");
         context.Response.Body = new MemoryStream();
 
-        IResult result = ChatEndpoint.Handle(this._summary.Id, context, this._library, this._reader);
+        IResult result = ChatEndpoint.Handle(_summary.Id, context, _library, _reader);
         await result.ExecuteAsync(context);
 
         Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
@@ -102,13 +102,13 @@ public sealed class ChatEndpointTests : IDisposable
     {
         var bad = NewContext();
         bad.Request.QueryString = new QueryString("?fromSec=abc");
-        await ChatEndpoint.Handle(this._summary.Id, bad, this._library, this._reader)
+        await ChatEndpoint.Handle(_summary.Id, bad, _library, _reader)
             .ExecuteAsync(bad);
         Assert.Equal(StatusCodes.Status400BadRequest, bad.Response.StatusCode);
 
         var unknown = NewContext();
         unknown.Request.QueryString = new QueryString("?fromSec=0");
-        await ChatEndpoint.Handle("missing", unknown, this._library, this._reader)
+        await ChatEndpoint.Handle("missing", unknown, _library, _reader)
             .ExecuteAsync(unknown);
         Assert.Equal(StatusCodes.Status404NotFound, unknown.Response.StatusCode);
     }

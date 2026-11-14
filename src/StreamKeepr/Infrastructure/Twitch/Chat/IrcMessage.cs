@@ -9,8 +9,8 @@ public sealed record IrcMessage(
     string? Trailing)
 {
     public string? Tag(string name) =>
-        this.Tags.TryGetValue(name, out string? value) ? value : null;
+        Tags.TryGetValue(name, out string? value) ? value : null;
 
     public string? Parameter(int index) =>
-        index >= 0 && index < this.Parameters.Count ? this.Parameters[index] : null;
+        index >= 0 && index < Parameters.Count ? Parameters[index] : null;
 }

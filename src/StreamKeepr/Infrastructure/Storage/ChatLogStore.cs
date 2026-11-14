@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -12,7 +11,8 @@ namespace StreamKeepr.Infrastructure.Storage;
 
 /// <summary>
 /// Owns the per-session chat log. One writer per active session; readers never take a write lock.
-/// Chat is best-effort and must never fail recording.
+/// Chat is best-effort and must never fail recording: read failures are logged and degrade to
+/// what could be read.
 /// </summary>
 public sealed class ChatLogStore(
     IOptions<StorageOptions> storage,
@@ -29,6 +29,8 @@ public sealed class ChatLogStore(
     public const string TokenSource = "irc-token";
     public const string MockSource = "mock";
 
+    private const string JsonLinesPattern = "*.jsonl";
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -41,8 +43,23 @@ public sealed class ChatLogStore(
     public static string ChatDirectory(string sessionDirectory) =>
         Path.Combine(sessionDirectory, ChatFolderName);
 
-    public static bool HasChat(string sessionDirectory)
+    /// <summary>The UTC start of the bucket that holds messages sent at <paramref name="at"/>.</summary>
+    public static DateTimeOffset BucketStart(DateTimeOffset at, int bucketSeconds)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(bucketSeconds, 1);
+        long seconds = at.ToUnixTimeSeconds();
+        return DateTimeOffset.FromUnixTimeSeconds(
+            seconds - (((seconds % bucketSeconds) + bucketSeconds) % bucketSeconds));
+    }
+
+    /// <summary>The bucket file holding messages sent at <paramref name="at"/>.</summary>
+    public static string BucketFileName(DateTimeOffset at, int bucketSeconds) =>
+        BucketStart(at, bucketSeconds).UtcDateTime.ToString(
+            "yyyyMMdd'T'HHmm'Z'", CultureInfo.InvariantCulture) + ".jsonl";
+
+    public static bool HasChat(string sessionDirectory, ILogger logger)
+    {
+        ArgumentNullException.ThrowIfNull(logger);
         string directory = ChatDirectory(sessionDirectory);
         try
         {
@@ -50,15 +67,36 @@ public sealed class ChatLogStore(
                 return true;
 
             return Directory.Exists(directory)
-                   && Directory.EnumerateFiles(directory, "*.jsonl").Any();
+                   && Directory.EnumerateFiles(directory, JsonLinesPattern).Any();
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            logger.LogWarning(ex, "Could not check {Directory} for chat; treating it as having none.",
+                directory);
             return false;
         }
-        catch (UnauthorizedAccessException)
+    }
+
+    /// <summary>Message bucket files in time order; empty when there is no readable chat log.</summary>
+    public static IReadOnlyList<string> BucketFiles(string sessionDirectory, ILogger logger)
+    {
+        ArgumentNullException.ThrowIfNull(logger);
+        string directory = ChatDirectory(sessionDirectory);
+        if (!Directory.Exists(directory))
+            return [];
+
+        try
         {
-            return false;
+            return Directory.EnumerateFiles(directory, JsonLinesPattern)
+                .Where(path => !string.Equals(
+                    Path.GetFileName(path), EventsFileName, StringComparison.Ordinal))
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToArray();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning(ex, "Could not list chat buckets in {Directory}.", directory);
+            return [];
         }
     }
 
@@ -75,29 +113,23 @@ public sealed class ChatLogStore(
     public void OpenSession(RecordingSummary summary, string source)
     {
         ArgumentNullException.ThrowIfNull(summary);
-        lock (this._gate)
+        lock (_gate)
         {
-            if (this._bySession.ContainsKey(summary.Id))
+            if (_bySession.ContainsKey(summary.Id))
                 return;
 
             var writer = new ChatSessionWriter(
-                summary,
-                this.SessionDirectory(summary),
-                source,
-                chatOptions.Value,
-                clock,
-                logger);
-
-            this._bySession[summary.Id] = writer;
-            this._byChannel[summary.Channel] = writer;
+                summary, SessionDirectory(summary), source, chatOptions.Value, clock, logger);
+            _bySession[summary.Id] = writer;
+            _byChannel[summary.Channel] = writer;
         }
     }
 
     public void Append(string channel, ChatSourceEvent evt)
     {
         ChatSessionWriter? writer;
-        lock (this._gate)
-            this._byChannel.TryGetValue(channel, out writer);
+        lock (_gate)
+            _byChannel.TryGetValue(channel, out writer);
 
         writer?.Append(evt);
     }
@@ -105,15 +137,15 @@ public sealed class ChatLogStore(
     public void CloseSession(string sessionId, bool finalize)
     {
         ChatSessionWriter? writer;
-        lock (this._gate)
+        lock (_gate)
         {
-            if (!this._bySession.Remove(sessionId, out writer))
+            if (!_bySession.Remove(sessionId, out writer))
                 return;
 
-            if (this._byChannel.TryGetValue(writer.Channel, out ChatSessionWriter? mapped) &&
+            if (_byChannel.TryGetValue(writer.Channel, out ChatSessionWriter? mapped) &&
                 ReferenceEquals(mapped, writer))
             {
-                this._byChannel.Remove(writer.Channel);
+                _byChannel.Remove(writer.Channel);
             }
         }
 
@@ -123,11 +155,11 @@ public sealed class ChatLogStore(
     public void CloseAll(bool finalize)
     {
         ChatSessionWriter[] writers;
-        lock (this._gate)
+        lock (_gate)
         {
-            writers = this._bySession.Values.ToArray();
-            this._bySession.Clear();
-            this._byChannel.Clear();
+            writers = _bySession.Values.ToArray();
+            _bySession.Clear();
+            _byChannel.Clear();
         }
 
         foreach (ChatSessionWriter writer in writers)
@@ -135,103 +167,73 @@ public sealed class ChatLogStore(
     }
 
     internal StoredChatMeta? ReadMeta(string sessionDirectory) =>
-        TryDeserialize<StoredChatMeta>(Path.Combine(
-            ChatDirectory(sessionDirectory), MetaFileName));
+        TryReadJson<StoredChatMeta>(
+            Path.Combine(ChatDirectory(sessionDirectory), MetaFileName), logger);
 
-    internal IReadOnlyList<StoredChatEvent> ReadEvents(string sessionDirectory)
+    internal IReadOnlyList<StoredChatEvent> ReadEvents(string sessionDirectory) =>
+        ReadJsonLines<StoredChatEvent>(
+            Path.Combine(ChatDirectory(sessionDirectory), EventsFileName));
+
+    internal IReadOnlyList<StoredChatMessage> ReadMessages(string bucketPath) =>
+        ReadJsonLines<StoredChatMessage>(bucketPath);
+
+    /// <summary>Reads a live log tolerantly: a failure is logged and returns what was read.</summary>
+    private List<T> ReadJsonLines<T>(string path)
     {
-        string path = Path.Combine(ChatDirectory(sessionDirectory), EventsFileName);
+        var items = new List<T>();
         if (!File.Exists(path))
-            return [];
+            return items;
 
-        var events = new List<StoredChatEvent>();
         try
         {
-            foreach (string line in ReadLines(path))
+            using var stream = new FileStream(
+                path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            items.AddRange(ParseLines<T>(ReadLines(reader), path, logger));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning(ex, "Chat log {Path} could not be fully read; using {Count} entries.",
+                path, items.Count);
+        }
+
+        return items;
+    }
+
+    private static IEnumerable<string> ReadLines(StreamReader reader)
+    {
+        while (reader.ReadLine() is { } line)
+            yield return line;
+    }
+
+    /// <summary>
+    /// Parses JSON lines, skipping malformed ones. A torn last line is expected while a writer
+    /// is mid-append, so a skip is logged at debug level only.
+    /// </summary>
+    private static IEnumerable<T> ParseLines<T>(IEnumerable<string> lines, string path, ILogger logger)
+    {
+        foreach (string line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+
+            T? item;
+            try
             {
-                if (TryDeserializeLine<StoredChatEvent>(line) is { } evt)
-                    events.Add(evt);
+                item = JsonSerializer.Deserialize<T>(line, Json);
             }
-        }
-        catch (IOException)
-        {
-            // A concurrent writer or a deleted folder: return what was read.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Chat is best-effort; an unreadable event log is an empty one.
-        }
-
-        return events;
-    }
-
-    public static IReadOnlyList<string> BucketFiles(string sessionDirectory)
-    {
-        string directory = ChatDirectory(sessionDirectory);
-        if (!Directory.Exists(directory))
-            return [];
-
-        try
-        {
-            return Directory.EnumerateFiles(directory, "*.jsonl")
-                .Where(path => !string.Equals(
-                    Path.GetFileName(path), EventsFileName, StringComparison.Ordinal))
-                .OrderBy(path => path, StringComparer.Ordinal)
-                .ToArray();
-        }
-        catch (IOException)
-        {
-            return [];
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return [];
-        }
-    }
-
-    internal IReadOnlyList<StoredChatMessage> ReadMessages(string bucketPath)
-    {
-        var messages = new List<StoredChatMessage>();
-        try
-        {
-            foreach (string line in ReadLines(bucketPath))
+            catch (JsonException ex)
             {
-                if (TryDeserializeLine<StoredChatMessage>(line) is { } message)
-                    messages.Add(message);
+                logger.LogDebug(ex, "Skipping a malformed chat log line in {Path}.", path);
+                continue;
             }
-        }
-        catch (IOException)
-        {
-            // A concurrent writer or a deleted bucket: return what was read.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Chat is best-effort; an unreadable bucket is an empty one.
-        }
 
-        return messages;
+            if (item is not null)
+                yield return item;
+        }
     }
 
-    private static IEnumerable<string> ReadLines(string path)
-    {
-        IEnumerable<string> lines;
-        try
-        {
-            lines = File.ReadLines(path);
-        }
-        catch (IOException)
-        {
-            return [];
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return [];
-        }
-
-        return lines.Where(line => !string.IsNullOrWhiteSpace(line));
-    }
-
-    private static T? TryDeserialize<T>(string path)
+    private static T? TryReadJson<T>(string path, ILogger logger)
     {
         try
         {
@@ -239,31 +241,26 @@ public sealed class ChatLogStore(
                 ? JsonSerializer.Deserialize<T>(File.ReadAllText(path), Json)
                 : default;
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
-            return default;
-        }
-        catch (IOException)
-        {
-            return default;
-        }
-        catch (UnauthorizedAccessException)
-        {
+            logger.LogWarning(ex, "Chat metadata {Path} could not be read.", path);
             return default;
         }
     }
 
-    private static T? TryDeserializeLine<T>(string line)
+    /// <summary>Writes through a sibling temp file, the storage convention, so readers never see a partial file.</summary>
+    private static void WriteAllTextAtomically(string path, string content)
     {
-        try
-        {
-            return JsonSerializer.Deserialize<T>(line, Json);
-        }
-        catch (JsonException)
-        {
-            return default;
-        }
+        string temp = path + ".tmp";
+        File.WriteAllText(temp, content);
+        File.Move(temp, path, overwrite: true);
     }
+
+    private static string ToJsonLines<T>(IEnumerable<T> items) =>
+        string.Join('\n', items.Select(item => JsonSerializer.Serialize(item, Json))) + "\n";
+
+    private static StoredChatEvent Event(string kind, long at) =>
+        new(FormatVersion, kind, at, null, null, null, null, null, null, null, null, null, null, null);
 
     /// <summary>One active session writer. All methods are serialized by its own lock.</summary>
     private sealed class ChatSessionWriter(
@@ -274,9 +271,16 @@ public sealed class ChatLogStore(
         TimeProvider clock,
         ILogger logger)
     {
+        /// <summary>Twitch rarely resends an id far apart; this bounds the dedupe set's memory.</summary>
+        private const int RecentIdWindow = 4096;
+
+        /// <summary>Meta is advisory; refreshing it every N messages keeps rewrites cheap.</summary>
+        private const int MetaRefreshEveryMessages = 25;
+
         private readonly object _gate = new();
         private readonly HashSet<string> _recentIds = new(StringComparer.Ordinal);
         private readonly Queue<string> _recentOrder = new();
+        private readonly string _directory = ChatDirectory(sessionDirectory);
         private string? _bucketPath;
         private StreamWriter? _bucket;
         private StreamWriter? _events;
@@ -285,126 +289,156 @@ public sealed class ChatLogStore(
         private int _messageCount;
         private long _lastMessageAt;
         private long _approxBytes;
-        private DateTimeOffset StartedAt = clock.GetUtcNow();
 
         public string Channel => summary.Channel;
 
-        public string SessionId => summary.Id;
+        private string EventsPath => Path.Combine(_directory, EventsFileName);
+
+        private string MetaPath => Path.Combine(_directory, MetaFileName);
 
         public void Append(ChatSourceEvent evt)
         {
-            lock (this._gate)
+            lock (_gate)
             {
-                if (this._closed || this._truncated)
+                if (_closed || _truncated)
                     return;
 
-                if (this._approxBytes >= options.MaxBytesPerSession)
+                if (_approxBytes >= options.MaxBytesPerSession)
                 {
-                    // Open-ended: nothing after this point is captured for the session.
-                    long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
-                    this.WriteEvent(ChatEventKinds.Truncated, now, from: now,
-                        count: this._messageCount);
-                    this._truncated = true;
-                    this.CloseWriters();
-                    this.WriteMeta(finalize: false);
+                    Truncate();
                     return;
                 }
 
-                switch (evt)
+                if (evt is ChatSourceEvent.MessageEvent message)
                 {
-                    case ChatSourceEvent.MessageEvent message:
-                        this.AppendMessage(message.Message);
-                        break;
-                    case ChatSourceEvent.Delete delete:
-                        this.WriteEvent("delete", delete.AtMs, targetId: delete.TargetId);
-                        break;
-                    case ChatSourceEvent.Clear clear:
-                        this.WriteEvent(
-                            clear.TargetUserId is null && clear.TargetLogin is null
-                                ? "clear_all"
-                                : "clear_user",
-                            clear.AtMs,
-                            targetUid: clear.TargetUserId,
-                            targetLogin: clear.TargetLogin);
-                        break;
-                    case ChatSourceEvent.RoomState room:
-                        this.WriteEvent(
-                            "roomstate",
-                            room.AtMs,
-                            emoteOnly: room.EmoteOnly,
-                            subsOnly: room.SubscribersOnly,
-                            uniqueChat: room.UniqueChat,
-                            slow: room.SlowSeconds);
-                        break;
-                    case ChatSourceEvent.Notice notice:
-                        this.WriteEvent("notice", notice.AtMs, reason: notice.Text);
-                        break;
-                    case ChatSourceEvent.Gap gap:
-                        this.WriteEvent(
-                            "gap", gap.AtMs, from: gap.FromMs, to: gap.ToMs,
-                            reason: gap.Reason);
-                        break;
-                    case ChatSourceEvent.Dropped dropped:
-                        this.WriteEvent(
-                            ChatEventKinds.Dropped, dropped.AtMs, from: dropped.FromMs,
-                            to: dropped.ToMs, count: dropped.Count, reason: "queue-full");
-                        break;
+                    AppendMessage(message.Message);
+                    return;
                 }
+
+                StoredChatEvent? stored = evt switch
+                {
+                    ChatSourceEvent.Delete delete =>
+                        Event(ChatEventKinds.Delete, delete.AtMs) with { TargetId = delete.TargetId },
+                    ChatSourceEvent.Clear clear =>
+                        Event(clear.TargetUserId is null && clear.TargetLogin is null
+                                ? ChatEventKinds.ClearAll
+                                : ChatEventKinds.ClearUser,
+                            clear.AtMs) with
+                        {
+                            TargetUid = clear.TargetUserId,
+                            TargetLogin = clear.TargetLogin,
+                        },
+                    ChatSourceEvent.RoomState room =>
+                        Event(ChatEventKinds.RoomState, room.AtMs) with
+                        {
+                            EmoteOnly = room.EmoteOnly,
+                            SubscribersOnly = room.SubscribersOnly,
+                            UniqueChat = room.UniqueChat,
+                            Slow = room.SlowSeconds,
+                        },
+                    ChatSourceEvent.Notice notice =>
+                        Event(ChatEventKinds.Notice, notice.AtMs) with { Reason = notice.Text },
+                    ChatSourceEvent.Gap gap =>
+                        Event(ChatEventKinds.Gap, gap.AtMs) with
+                        {
+                            From = gap.FromMs,
+                            To = gap.ToMs,
+                            Reason = gap.Reason,
+                        },
+                    ChatSourceEvent.Dropped dropped =>
+                        Event(ChatEventKinds.Dropped, dropped.AtMs) with
+                        {
+                            From = dropped.FromMs,
+                            To = dropped.ToMs,
+                            Count = dropped.Count,
+                            Reason = "queue-full",
+                        },
+                    _ => null,
+                };
+
+                if (stored is not null)
+                    WriteEvent(stored);
             }
         }
 
         public void Close(bool finalize)
         {
-            lock (this._gate)
+            lock (_gate)
             {
-                if (this._closed)
+                if (_closed)
                     return;
 
-                this._closed = true;
-                string eventsPath = Path.Combine(
-                    ChatDirectory(sessionDirectory), EventsFileName);
-                bool hasLog = this._messageCount > 0 || this._bucketPath is not null ||
-                              File.Exists(eventsPath);
+                _closed = true;
                 if (!Directory.Exists(sessionDirectory))
                 {
-                    this.CloseWriters();
+                    CloseWriters();
                     return;
                 }
 
-                if (!hasLog)
+                if (!HasLog)
                     return;
 
                 if (finalize)
-                {
-                    this.WriteEvent("end", clock.GetUtcNow().ToUnixTimeMilliseconds());
-                }
+                    WriteEvent(Event(ChatEventKinds.End, clock.GetUtcNow().ToUnixTimeMilliseconds()));
 
-                this.CloseWriters();
-                this.WriteMeta(finalize);
+                CloseWriters();
+                WriteMeta(finalize);
 
                 if (finalize && options.PurgeDeletedText == ChatPurgeMode.OnFinalize)
-                    this.PurgeDeleted();
+                    PurgeDeleted();
             }
         }
 
+        private bool HasLog => _messageCount > 0 || _bucketPath is not null || File.Exists(EventsPath);
+
+        private void Truncate()
+        {
+            // Open-ended: nothing after this point is captured for the session.
+            long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
+            WriteEvent(Event(ChatEventKinds.Truncated, now) with { From = now, Count = _messageCount });
+            _truncated = true;
+            CloseWriters();
+            WriteMeta(finalize: false);
+            logger.LogWarning(
+                "Chat for {Session} reached {Limit} bytes; capture stopped for this session.",
+                summary.Id, options.MaxBytesPerSession);
+        }
+
+        /// <summary>Writes the message to its time bucket unless it is a recent duplicate.</summary>
         private void AppendMessage(ChatMessage message)
         {
-            if (message.Id.Length > 0 && !this._recentIds.Add(message.Id))
+            if (message.Id.Length > 0 && !_recentIds.Add(message.Id))
                 return;
 
             if (message.Id.Length > 0)
             {
-                this._recentOrder.Enqueue(message.Id);
-                while (this._recentOrder.Count > 4096)
-                    this._recentIds.Remove(this._recentOrder.Dequeue());
+                _recentOrder.Enqueue(message.Id);
+                while (_recentOrder.Count > RecentIdWindow)
+                    _recentIds.Remove(_recentOrder.Dequeue());
             }
 
-            string bucketPath = Path.Combine(
-                ChatDirectory(sessionDirectory),
-                BucketName(message.AtMs, options.BucketMinutes));
-            this.EnsureBucket(bucketPath);
+            string bucketPath = Path.Combine(_directory, BucketFileName(
+                DateTimeOffset.FromUnixTimeMilliseconds(message.AtMs), options.BucketMinutes * 60));
+            if (_bucketPath != bucketPath || _bucket is null)
+            {
+                _bucket?.Dispose();
+                _bucket = OpenAppend(bucketPath);
+                _bucketPath = bucketPath;
+            }
 
-            var stored = new StoredChatMessage(
+            string line = JsonSerializer.Serialize(ToStored(message), Json);
+            _bucket.WriteLine(line);
+            _bucket.Flush();
+            _messageCount++;
+            _lastMessageAt = Math.Max(_lastMessageAt, message.AtMs);
+            _approxBytes += Encoding.UTF8.GetByteCount(line) + 1;
+
+            if (_messageCount == 1 || _messageCount % MetaRefreshEveryMessages == 0)
+                WriteMeta(finalize: false);
+        }
+
+        private static StoredChatMessage ToStored(ChatMessage message) =>
+            new(
                 FormatVersion,
                 message.Id,
                 message.AtMs,
@@ -430,150 +464,79 @@ public sealed class ChatLogStore(
                         message.Reply.Text),
                 message.Action);
 
-            string line = JsonSerializer.Serialize(stored, Json);
-            this._bucket!.WriteLine(line);
-            this._bucket.Flush();
-            this._messageCount++;
-            this._lastMessageAt = Math.Max(this._lastMessageAt, message.AtMs);
-            this._approxBytes += Encoding.UTF8.GetByteCount(line) + 1;
-
-            if (this._messageCount == 1 || this._messageCount % 25 == 0)
-                this.WriteMeta(finalize: false);
+        private void WriteEvent(StoredChatEvent evt)
+        {
+            _events ??= OpenAppend(EventsPath);
+            _events.WriteLine(JsonSerializer.Serialize(evt, Json));
+            _events.Flush();
         }
 
-        private void WriteEvent(
-            string kind,
-            long at,
-            string? targetId = null,
-            string? targetUid = null,
-            string? targetLogin = null,
-            long? from = null,
-            long? to = null,
-            int? count = null,
-            string? reason = null,
-            bool? emoteOnly = null,
-            bool? subsOnly = null,
-            bool? uniqueChat = null,
-            int? slow = null)
+        private static StreamWriter OpenAppend(string path)
         {
-            this.EnsureEvents();
-            var stored = new StoredChatEvent(
-                FormatVersion, kind, at, targetId, targetUid, targetLogin,
-                from, to, count, reason, emoteOnly, subsOnly, uniqueChat, slow);
-            this._events!.WriteLine(JsonSerializer.Serialize(stored, Json));
-            this._events.Flush();
-        }
-
-        private void EnsureBucket(string path)
-        {
-            if (this._bucketPath == path && this._bucket is not null)
-                return;
-
-            this._bucket?.Dispose();
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var stream = new FileStream(
-                path, FileMode.Append, FileAccess.Write,
-                FileShare.ReadWrite | FileShare.Delete);
-            this._bucket = new StreamWriter(stream, new UTF8Encoding(false))
-            {
-                NewLine = "\n",
-            };
-            this._bucketPath = path;
-        }
-
-        private void EnsureEvents()
-        {
-            if (this._events is not null)
-                return;
-
-            string path = Path.Combine(ChatDirectory(sessionDirectory), EventsFileName);
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            var stream = new FileStream(
-                path, FileMode.Append, FileAccess.Write,
-                FileShare.ReadWrite | FileShare.Delete);
-            this._events = new StreamWriter(stream, new UTF8Encoding(false))
-            {
-                NewLine = "\n",
-            };
+                path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+            return new StreamWriter(stream, new UTF8Encoding(false)) { NewLine = "\n" };
         }
 
         private void CloseWriters()
         {
-            this._bucket?.Flush();
-            this._bucket?.Dispose();
-            this._bucket = null;
-            this._bucketPath = null;
+            _bucket?.Dispose();
+            _bucket = null;
+            _bucketPath = null;
 
-            this._events?.Flush();
-            this._events?.Dispose();
-            this._events = null;
+            _events?.Dispose();
+            _events = null;
         }
 
-        private void WriteMeta(bool finalize)
-        {
-            if (this._messageCount == 0 && this._bucketPath is null && !File.Exists(
-                    Path.Combine(ChatDirectory(sessionDirectory), EventsFileName)))
-            {
-                return;
-            }
-
-            string directory = ChatDirectory(sessionDirectory);
-            Directory.CreateDirectory(directory);
-            string path = Path.Combine(directory, MetaFileName);
-            string temp = path + ".tmp";
-            StoredChatMeta? previous = TryDeserialize<StoredChatMeta>(path);
-            var meta = new StoredChatMeta(
+        private StoredChatMeta BuildMeta(bool finalize, StoredChatMeta? previous) =>
+            new(
                 FormatVersion,
                 summary.Id,
                 summary.Channel,
                 source,
                 Transport,
-                finalize ? "complete" : "recording",
+                finalize ? ChatStates.Complete : ChatStates.Recording,
                 previous?.StartedAt ?? summary.StartedAt,
                 finalize ? clock.GetUtcNow() : previous?.EndedAt,
                 options.LeadInSeconds,
                 options.BucketMinutes * 60,
-                this._lastMessageAt > 0
-                    ? DateTimeOffset.FromUnixTimeMilliseconds(this._lastMessageAt)
-                    : null,
-                this._messageCount,
-                this._truncated,
+                _lastMessageAt > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(_lastMessageAt) : null,
+                _messageCount,
+                _truncated,
                 previous?.LastError,
                 previous?.PurgedCount,
                 previous?.PurgedAt,
                 previous?.PurgedDeletedText);
 
+        private void WriteMeta(bool finalize)
+        {
+            if (!HasLog)
+                return;
+
             try
             {
-                File.WriteAllText(temp, JsonSerializer.Serialize(meta, Json));
-                File.Move(temp, path, overwrite: true);
+                Directory.CreateDirectory(_directory);
+                StoredChatMeta meta = BuildMeta(finalize, TryReadJson<StoredChatMeta>(MetaPath, logger));
+                WriteAllTextAtomically(MetaPath, JsonSerializer.Serialize(meta, Json));
             }
-            catch (IOException ex)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                logger.LogWarning(ex, "Chat metadata could not be written for {Session}.",
-                    summary.Id);
+                logger.LogWarning(ex, "Chat metadata could not be written for {Session}.", summary.Id);
             }
         }
 
         private void PurgeDeleted()
         {
-            string directory = ChatDirectory(sessionDirectory);
-            if (!Directory.Exists(directory))
+            if (!Directory.Exists(_directory))
                 return;
 
             try
             {
-                string eventsPath = Path.Combine(directory, EventsFileName);
-                var events = new List<StoredChatEvent>();
-                if (File.Exists(eventsPath))
-                {
-                    foreach (string line in File.ReadLines(eventsPath))
-                    {
-                        if (TryDeserializeLine<StoredChatEvent>(line) is { } evt)
-                            events.Add(evt);
-                    }
-                }
-
+                // Strict reads: a bucket that cannot be read fully must not be rewritten.
+                List<StoredChatEvent> events = File.Exists(EventsPath)
+                    ? ParseLines<StoredChatEvent>(File.ReadLines(EventsPath), EventsPath, logger).ToList()
+                    : [];
                 ChatTombstones tombstones = ChatTombstones.From(events);
                 if (tombstones.IsEmpty)
                     return;
@@ -583,22 +546,21 @@ public sealed class ChatLogStore(
                 var buckets = new List<(string Path, List<StoredChatMessage> Kept)>();
                 var removedIds = new HashSet<string>(StringComparer.Ordinal);
                 int removed = 0;
-                foreach (string bucketPath in BucketFiles(sessionDirectory))
+                foreach (string bucketPath in BucketFiles(sessionDirectory, logger))
                 {
                     var kept = new List<StoredChatMessage>();
-                    foreach (string line in File.ReadLines(bucketPath))
+                    foreach (StoredChatMessage message in ParseLines<StoredChatMessage>(
+                                 File.ReadLines(bucketPath), bucketPath, logger))
                     {
-                        if (TryDeserializeLine<StoredChatMessage>(line) is not { } message)
-                            continue;
-
                         if (tombstones.Removes(message))
                         {
                             removedIds.Add(message.Id);
                             removed++;
-                            continue;
                         }
-
-                        kept.Add(message);
+                        else
+                        {
+                            kept.Add(message);
+                        }
                     }
 
                     buckets.Add((bucketPath, kept));
@@ -624,60 +586,37 @@ public sealed class ChatLogStore(
                         continue;
                     }
 
-                    string temp = bucketPath + ".tmp";
-                    File.WriteAllText(temp, string.Join(
-                        '\n', kept.Select(message => JsonSerializer.Serialize(message, Json))) + "\n");
-                    File.Move(temp, bucketPath, overwrite: true);
+                    WriteAllTextAtomically(bucketPath, ToJsonLines(kept));
                     keptTotal += kept.Count;
                     lastAt = Math.Max(lastAt, kept[^1].At);
                 }
 
-                var keptEvents = events
+                List<StoredChatEvent> keptEvents = events
                     .Where(e => !ChatEventKinds.IsTombstone(e.Kind))
+                    .Append(Event(ChatEventKinds.Purged, clock.GetUtcNow().ToUnixTimeMilliseconds()) with
+                    {
+                        Count = removed,
+                        Reason = $"{removed} messages, {redacted} replies",
+                    })
                     .ToList();
-                keptEvents.Add(new StoredChatEvent(
-                    FormatVersion, "purged", clock.GetUtcNow().ToUnixTimeMilliseconds(),
-                    null, null, null, null, null, removed, $"{removed} messages, {redacted} replies",
-                    null, null, null, null));
-                string eventsTemp = eventsPath + ".tmp";
-                File.WriteAllText(eventsTemp, string.Join(
-                    '\n', keptEvents.Select(evt => JsonSerializer.Serialize(evt, Json))) + "\n");
-                File.Move(eventsTemp, eventsPath, overwrite: true);
+                WriteAllTextAtomically(EventsPath, ToJsonLines(keptEvents));
 
-                StoredChatMeta? previous = TryDeserialize<StoredChatMeta>(
-                    Path.Combine(directory, MetaFileName));
-                var meta = (previous ?? new StoredChatMeta(
-                    FormatVersion, summary.Id, summary.Channel, source, Transport,
-                    "complete", summary.StartedAt, clock.GetUtcNow(), options.LeadInSeconds,
-                    options.BucketMinutes * 60, null, 0, false, null, null, null, null))
-                    with
+                StoredChatMeta? previous = TryReadJson<StoredChatMeta>(MetaPath, logger);
+                StoredChatMeta meta = (previous ?? BuildMeta(finalize: true, previous: null)) with
                 {
                     MessageCount = keptTotal,
-                    LastMessageAt = lastAt > 0
-                            ? DateTimeOffset.FromUnixTimeMilliseconds(lastAt)
-                            : null,
+                    LastMessageAt = lastAt > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(lastAt) : null,
                     PurgedCount = (previous?.PurgedCount ?? 0) + removed,
                     PurgedAt = clock.GetUtcNow(),
                     PurgedDeletedText = true,
                 };
-                string metaTemp = Path.Combine(directory, MetaFileName) + ".tmp";
-                File.WriteAllText(metaTemp, JsonSerializer.Serialize(meta, Json));
-                File.Move(metaTemp, Path.Combine(directory, MetaFileName), overwrite: true);
+                WriteAllTextAtomically(MetaPath, JsonSerializer.Serialize(meta, Json));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
             {
                 logger.LogWarning(ex, "Chat purge failed for {Session}; rewritten buckets stay purged and the query path still hides deleted text.",
                     summary.Id);
             }
-        }
-
-        private static string BucketName(long atMs, int bucketMinutes)
-        {
-            DateTime at = DateTimeOffset.FromUnixTimeMilliseconds(atMs).UtcDateTime;
-            DateTime bucket = at.AddMinutes(-(at.Minute % bucketMinutes))
-                .AddSeconds(-at.Second)
-                .AddMilliseconds(-at.Millisecond);
-            return bucket.ToString("yyyyMMdd'T'HHmm'Z'", CultureInfo.InvariantCulture) + ".jsonl";
         }
     }
 }

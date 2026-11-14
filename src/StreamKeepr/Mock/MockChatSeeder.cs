@@ -28,7 +28,7 @@ public sealed class MockChatSeeder(
             }
 
             string playlist = Path.Combine(directory, PartFiles.Playlist(1));
-            if (!File.Exists(playlist) || ChatLogStore.HasChat(directory))
+            if (!File.Exists(playlist) || ChatLogStore.HasChat(directory, logger))
                 continue;
 
             DateTimeOffset? pdt = PlaylistStitcher.FirstProgramDateTime(

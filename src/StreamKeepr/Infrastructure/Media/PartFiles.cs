@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
+
 namespace StreamKeepr.Infrastructure.Media;
 
 /// <summary>
@@ -6,7 +9,23 @@ namespace StreamKeepr.Infrastructure.Media;
 /// </summary>
 public static class PartFiles
 {
+    private static readonly Regex PlaylistName = new(
+        @"^p(?<part>\d{3})\.m3u8$", RegexOptions.CultureInvariant);
+
     public static string Playlist(int part) => $"p{part:D3}.m3u8";
+
+    /// <summary>
+    /// Parses a part playlist name such as <c>p001.m3u8</c>. Callers apply their own range
+    /// rules; part 0 parses but is not a valid part.
+    /// </summary>
+    public static bool TryParsePlaylist(string fileName, out int part)
+    {
+        Match match = PlaylistName.Match(fileName);
+        part = match.Success
+            ? int.Parse(match.Groups["part"].Value, CultureInfo.InvariantCulture)
+            : 0;
+        return match.Success;
+    }
 
     public static string Init(int part) => $"init_{part:D3}.mp4";
 

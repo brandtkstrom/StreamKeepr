@@ -32,11 +32,11 @@ public sealed class IrcChatClient(
     private int _state = (int)ChatConnectionState.Disabled;
     private int _tokenDisabled;
 
-    public string Source => this.UseToken
+    public string Source => UseToken
         ? ChatLogStore.TokenSource
         : ChatLogStore.AnonymousSource;
 
-    private bool UseToken => options.Value.HasToken && Volatile.Read(ref this._tokenDisabled) == 0;
+    private bool UseToken => options.Value.HasToken && Volatile.Read(ref _tokenDisabled) == 0;
 
     public ValueTask JoinAsync(string channel, CancellationToken ct)
     {
@@ -44,8 +44,8 @@ public sealed class IrcChatClient(
         if (!TwitchLogin.IsValid(login))
             return ValueTask.CompletedTask;
 
-        if (this._joined.Count >= options.Value.MaxChannels &&
-            !this._joined.ContainsKey(login))
+        if (_joined.Count >= options.Value.MaxChannels &&
+            !_joined.ContainsKey(login))
         {
             logger.LogWarning(
                 "Chat join limit of {Limit} channels reached; {Channel} is not joined.",
@@ -53,25 +53,25 @@ public sealed class IrcChatClient(
             return ValueTask.CompletedTask;
         }
 
-        this._joined[login] = 0;
+        _joined[login] = 0;
         return ValueTask.CompletedTask;
     }
 
     public ValueTask PartAsync(string channel, CancellationToken ct)
     {
-        this._joined.TryRemove(TwitchLogin.Normalize(channel), out _);
+        _joined.TryRemove(TwitchLogin.Normalize(channel), out _);
         return ValueTask.CompletedTask;
     }
 
     public IAsyncEnumerable<ChatSourceEvent> ReadAllAsync(CancellationToken ct) =>
-        this._events.ReadAllAsync(ct);
+        _events.ReadAllAsync(ct);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!options.Value.Enabled)
         {
-            this.SetState(ChatConnectionState.Disabled);
-            this._events.Complete();
+            SetState(ChatConnectionState.Disabled);
+            _events.Complete();
             return;
         }
 
@@ -84,7 +84,7 @@ public sealed class IrcChatClient(
                 bool connected = false;
                 try
                 {
-                    connected = await this.RunConnectionAsync(stoppingToken);
+                    connected = await RunConnectionAsync(stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -97,14 +97,14 @@ public sealed class IrcChatClient(
                 catch (IrcAuthException ex)
                 {
                     logger.LogWarning("Twitch IRC authentication failed: {Reason}", ex.Message);
-                    if (this.UseToken)
+                    if (UseToken)
                     {
-                        Interlocked.Exchange(ref this._tokenDisabled, 1);
+                        Interlocked.Exchange(ref _tokenDisabled, 1);
                         logger.LogWarning("Falling back to anonymous Twitch IRC capture.");
                         continue;
                     }
 
-                    this.SetState(ChatConnectionState.Unavailable);
+                    SetState(ChatConnectionState.Unavailable);
                     await Task.Delay(AuthRetryDelay, clock, stoppingToken);
                     continue;
                 }
@@ -113,14 +113,14 @@ public sealed class IrcChatClient(
                     logger.LogWarning(ex, "Twitch IRC connection failed; reconnecting.");
                 }
 
-                this.EmitDisconnected();
+                EmitDisconnected();
 
                 if (connected)
                     backoff = MinimumBackoff;
 
                 if (!immediate)
                 {
-                    this.SetState(ChatConnectionState.Backoff);
+                    SetState(ChatConnectionState.Backoff);
                     TimeSpan delay = jitter.Apply(backoff);
                     logger.LogInformation("Twitch IRC reconnecting in {Delay}.", delay);
                     await Task.Delay(delay, clock, stoppingToken);
@@ -132,14 +132,14 @@ public sealed class IrcChatClient(
         }
         finally
         {
-            this.SetState(ChatConnectionState.Idle);
-            this._events.Complete();
+            SetState(ChatConnectionState.Idle);
+            _events.Complete();
         }
     }
 
     private async Task<bool> RunConnectionAsync(CancellationToken ct)
     {
-        this.SetState(ChatConnectionState.Connecting);
+        SetState(ChatConnectionState.Connecting);
         await using IIrcSocket socket = sockets.Create();
 
         using (var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
@@ -148,21 +148,21 @@ public sealed class IrcChatClient(
             await socket.ConnectAsync(Endpoint, connectCts.Token);
         }
 
-        this.SetState(ChatConnectionState.Registering);
-        bool useToken = this.UseToken;
+        SetState(ChatConnectionState.Registering);
+        bool useToken = UseToken;
         string nick = useToken
             ? TwitchLogin.Normalize(options.Value.TwitchLogin)
             : NewAnonymousNick();
 
-        await this.SendAsync(socket, "CAP LS 302", ct);
+        await SendAsync(socket, "CAP LS 302", ct);
         if (useToken)
-            await this.SendAsync(socket, $"PASS oauth:{options.Value.TwitchUserOAuthToken}", ct);
-        await this.SendAsync(socket, $"NICK {nick}", ct);
-        await this.SendAsync(socket, $"USER {nick} 0 * :{nick}", ct);
-        await this.SendAsync(socket, "CAP REQ :twitch.tv/tags twitch.tv/commands", ct);
-        await this.SendAsync(socket, "CAP END", ct);
+            await SendAsync(socket, $"PASS oauth:{options.Value.TwitchUserOAuthToken}", ct);
+        await SendAsync(socket, $"NICK {nick}", ct);
+        await SendAsync(socket, $"USER {nick} 0 * :{nick}", ct);
+        await SendAsync(socket, "CAP REQ :twitch.tv/tags twitch.tv/commands", ct);
+        await SendAsync(socket, "CAP END", ct);
 
-        this._sent.Clear();
+        _sent.Clear();
         using var registration = CancellationTokenSource.CreateLinkedTokenSource(ct);
         registration.CancelAfter(TimeSpan.FromSeconds(options.Value.RegistrationTimeoutSeconds));
 
@@ -183,7 +183,7 @@ public sealed class IrcChatClient(
 
                 if (message.Command == "PING")
                 {
-                    await this.SendAsync(socket, $"PONG :{Sanitize(message.Trailing)}", ct);
+                    await SendAsync(socket, $"PONG :{Sanitize(message.Trailing)}", ct);
                     continue;
                 }
 
@@ -196,14 +196,14 @@ public sealed class IrcChatClient(
                 {
                     welcomed = true;
                     registration.CancelAfter(Timeout.InfiniteTimeSpan);
-                    this.SetState(ChatConnectionState.Joining);
-                    joinPump ??= this.JoinPumpAsync(socket, joins.Token);
+                    SetState(ChatConnectionState.Joining);
+                    joinPump ??= JoinPumpAsync(socket, joins.Token);
                     continue;
                 }
 
                 if (message.Command == "433")
                 {
-                    if (this.UseToken)
+                    if (UseToken)
                     {
                         throw new IrcAuthException(
                             "The configured chat login is already connected.");
@@ -227,7 +227,7 @@ public sealed class IrcChatClient(
 
                 foreach (ChatSourceEvent evt in parser.Parse(message))
                 {
-                    this._events.Write(evt);
+                    _events.Write(evt);
                 }
             }
         }
@@ -259,27 +259,27 @@ public sealed class IrcChatClient(
         while (!ct.IsCancellationRequested)
         {
             bool sentAny = false;
-            foreach (string channel in this._joined.Keys)
+            foreach (string channel in _joined.Keys)
             {
-                if (this._sent.ContainsKey(channel))
+                if (_sent.ContainsKey(channel))
                     continue;
 
-                await this.SendAsync(socket, $"JOIN #{channel}", ct);
-                this._sent[channel] = 0;
-                this._events.Write(new ChatSourceEvent.Joined(
+                await SendAsync(socket, $"JOIN #{channel}", ct);
+                _sent[channel] = 0;
+                _events.Write(new ChatSourceEvent.Joined(
                     channel, clock.GetUtcNow().ToUnixTimeMilliseconds()));
                 sentAny = true;
                 await Task.Delay(TimeSpan.FromMilliseconds(options.Value.JoinIntervalMs), clock, ct);
                 break;
             }
 
-            foreach (string channel in this._sent.Keys)
+            foreach (string channel in _sent.Keys)
             {
-                if (this._joined.ContainsKey(channel))
+                if (_joined.ContainsKey(channel))
                     continue;
 
-                await this.SendAsync(socket, $"PART #{channel}", ct);
-                this._sent.TryRemove(channel, out _);
+                await SendAsync(socket, $"PART #{channel}", ct);
+                _sent.TryRemove(channel, out _);
             }
 
             if (!sentAny)
@@ -289,29 +289,29 @@ public sealed class IrcChatClient(
 
     private async Task SendAsync(IIrcSocket socket, string text, CancellationToken ct)
     {
-        await this._sendGate.WaitAsync(ct);
+        await _sendGate.WaitAsync(ct);
         try
         {
             await socket.SendTextAsync(text + "\r\n", ct);
         }
         finally
         {
-            this._sendGate.Release();
+            _sendGate.Release();
         }
     }
 
     private void EmitDisconnected()
     {
         long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
-        foreach (string channel in this._joined.Keys)
+        foreach (string channel in _joined.Keys)
         {
-            this._events.Write(new ChatSourceEvent.Disconnected(channel, now));
+            _events.Write(new ChatSourceEvent.Disconnected(channel, now));
         }
     }
 
     private void SetState(ChatConnectionState state)
     {
-        int previous = Interlocked.Exchange(ref this._state, (int)state);
+        int previous = Interlocked.Exchange(ref _state, (int)state);
         if (previous == (int)state)
             return;
 
@@ -341,8 +341,8 @@ public sealed class IrcChatClient(
 
     public ValueTask DisposeAsync()
     {
-        this._events.Complete();
-        this._sendGate.Dispose();
+        _events.Complete();
+        _sendGate.Dispose();
         return ValueTask.CompletedTask;
     }
 

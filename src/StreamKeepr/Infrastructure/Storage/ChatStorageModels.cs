@@ -58,6 +58,18 @@ internal sealed record StoredChatMeta(
     [property: JsonPropertyName("purgedAt")] DateTimeOffset? PurgedAt,
     [property: JsonPropertyName("purgedDeletedText")] bool? PurgedDeletedText);
 
+/// <summary>
+/// The <c>state</c> of a chat query and the <c>status</c> of <c>meta.json</c>; the pane's
+/// ChatPane.razor.js switches on the same strings.
+/// </summary>
+public static class ChatStates
+{
+    public const string Starting = "starting";
+    public const string Recording = "recording";
+    public const string Complete = "complete";
+    public const string Unavailable = "unavailable";
+}
+
 /// <summary>The <c>kind</c> values written to <c>events.jsonl</c>.</summary>
 internal static class ChatEventKinds
 {
@@ -66,7 +78,6 @@ internal static class ChatEventKinds
     public const string ClearUser = "clear_user";
     public const string RoomState = "roomstate";
     public const string Notice = "notice";
-    public const string Reconnect = "reconnect";
     public const string Gap = "gap";
     public const string Dropped = "dropped";
     public const string Truncated = "truncated";

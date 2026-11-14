@@ -18,21 +18,21 @@ public sealed class ChatLogStoreTests : IDisposable
         Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
     private readonly FakeTimeProvider _clock = new(Now);
 
-    public ChatLogStoreTests() => Directory.CreateDirectory(this._root);
+    public ChatLogStoreTests() => Directory.CreateDirectory(_root);
 
     public void Dispose()
     {
-        if (Directory.Exists(this._root))
-            Directory.Delete(this._root, recursive: true);
+        if (Directory.Exists(_root))
+            Directory.Delete(_root, recursive: true);
     }
 
     [Fact]
     public void Reader_maps_messages_to_the_media_timeline_and_applies_the_offset()
     {
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = this.Create(
+        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(
             new ChatOptions());
         string directory = store.SessionDirectory(summary);
-        this.WritePlaylist(directory);
+        WritePlaylist(directory);
         store.OpenSession(summary, ChatLogStore.AnonymousSource);
         store.Append("chan", Message(summary, "a", offsetSeconds: 3, "first"));
         store.Append("chan", Message(summary, "b", offsetSeconds: 8, "second"));
@@ -52,10 +52,10 @@ public sealed class ChatLogStoreTests : IDisposable
     [Fact]
     public void Query_hides_a_deleted_message_even_when_purge_is_off()
     {
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = this.Create(
+        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(
             new ChatOptions());
         string directory = store.SessionDirectory(summary);
-        this.WritePlaylist(directory);
+        WritePlaylist(directory);
         store.OpenSession(summary, ChatLogStore.AnonymousSource);
         store.Append("chan", Message(summary, "a", 3, "first"));
         store.Append("chan", Message(summary, "b", 6, "second"));
@@ -71,9 +71,9 @@ public sealed class ChatLogStoreTests : IDisposable
     public void On_finalize_purge_removes_deleted_text_and_redacts_replies()
     {
         var options = new ChatOptions { PurgeDeletedText = ChatPurgeMode.OnFinalize };
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = this.Create(options);
+        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(options);
         string directory = store.SessionDirectory(summary);
-        this.WritePlaylist(directory);
+        WritePlaylist(directory);
         store.OpenSession(summary, ChatLogStore.AnonymousSource);
         store.Append("chan", Message(summary, "a", 3, "first"));
         store.Append("chan", Message(summary, "b", 6, "second"));
@@ -109,9 +109,9 @@ public sealed class ChatLogStoreTests : IDisposable
     public void Purge_redacts_a_quote_of_a_banned_author_whose_message_was_never_captured()
     {
         var options = new ChatOptions { PurgeDeletedText = ChatPurgeMode.OnFinalize };
-        (ChatLogStore store, _, RecordingSummary summary) = this.Create(options);
+        (ChatLogStore store, _, RecordingSummary summary) = Create(options);
         string directory = store.SessionDirectory(summary);
-        this.WritePlaylist(directory);
+        WritePlaylist(directory);
         store.OpenSession(summary, ChatLogStore.AnonymousSource);
         store.Append("chan", Message(summary, "a", 3, "first"));
         store.Append(
@@ -128,9 +128,9 @@ public sealed class ChatLogStoreTests : IDisposable
     public void Purge_redacts_a_reply_in_a_later_bucket_whose_parent_was_cleared()
     {
         var options = new ChatOptions { PurgeDeletedText = ChatPurgeMode.OnFinalize };
-        (ChatLogStore store, _, RecordingSummary summary) = this.Create(options);
+        (ChatLogStore store, _, RecordingSummary summary) = Create(options);
         string directory = store.SessionDirectory(summary);
-        this.WritePlaylist(directory);
+        WritePlaylist(directory);
         store.OpenSession(summary, ChatLogStore.AnonymousSource);
 
         // Parent and ban in the first 10-minute bucket; replies in the next three buckets.
@@ -153,10 +153,10 @@ public sealed class ChatLogStoreTests : IDisposable
     [Fact]
     public void Query_hides_a_quote_of_a_deleted_message_even_when_purge_is_off()
     {
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = this.Create(
+        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(
             new ChatOptions());
         string directory = store.SessionDirectory(summary);
-        this.WritePlaylist(directory);
+        WritePlaylist(directory);
         store.OpenSession(summary, ChatLogStore.AnonymousSource);
         store.Append("chan", Message(summary, "a", 3, "first"));
         store.Append("chan", Message(summary, "b", 6, "second", replyId: "a", replyText: "first"));
@@ -173,10 +173,10 @@ public sealed class ChatLogStoreTests : IDisposable
     [Fact]
     public void Query_reports_messages_dropped_by_a_full_capture_queue_as_a_gap()
     {
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = this.Create(
+        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(
             new ChatOptions());
         string directory = store.SessionDirectory(summary);
-        this.WritePlaylist(directory);
+        WritePlaylist(directory);
         store.OpenSession(summary, ChatLogStore.AnonymousSource);
         store.Append("chan", Message(summary, "a", 2, "first"));
         store.Append("chan", new ChatSourceEvent.Dropped(
@@ -192,9 +192,9 @@ public sealed class ChatLogStoreTests : IDisposable
     public void Query_reports_a_truncated_log_as_a_gap_to_the_end_of_the_window()
     {
         var options = new ChatOptions { MaxBytesPerSession = 1 };
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = this.Create(options);
+        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(options);
         string directory = store.SessionDirectory(summary);
-        this.WritePlaylist(directory);
+        WritePlaylist(directory);
         store.OpenSession(summary, ChatLogStore.AnonymousSource);
         store.Append("chan", Message(summary, "a", 2, "first"));
 
@@ -213,11 +213,11 @@ public sealed class ChatLogStoreTests : IDisposable
     [Fact]
     public void Query_reports_the_unrecorded_time_between_parts_as_a_gap()
     {
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = this.Create(
+        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(
             new ChatOptions());
         string directory = store.SessionDirectory(summary);
-        this.WritePlaylist(directory);
-        this.WritePlaylist(directory, part: 2, pdt: Pdt.AddSeconds(60 + 90));
+        WritePlaylist(directory);
+        WritePlaylist(directory, part: 2, pdt: Pdt.AddSeconds(60 + 90));
         store.OpenSession(summary, ChatLogStore.AnonymousSource);
         store.Append("chan", Message(summary, "a", 55, "before the outage"));
         store.Append("chan", Message(summary, "lost", 100, "while nothing was recorded"));
@@ -235,25 +235,25 @@ public sealed class ChatLogStoreTests : IDisposable
     public void Has_chat_is_false_before_the_first_event_and_true_after_finalize()
     {
         var options = new ChatOptions();
-        (ChatLogStore store, _, RecordingSummary summary) = this.Create(options);
+        (ChatLogStore store, _, RecordingSummary summary) = Create(options);
         string directory = store.SessionDirectory(summary);
 
-        Assert.False(ChatLogStore.HasChat(directory));
+        Assert.False(ChatLogStore.HasChat(directory, NullLogger.Instance));
 
         store.OpenSession(summary, ChatLogStore.AnonymousSource);
         store.Append("chan", Message(summary, "a", 3, "first"));
         store.CloseSession(summary.Id, finalize: true);
 
-        Assert.True(ChatLogStore.HasChat(directory));
+        Assert.True(ChatLogStore.HasChat(directory, NullLogger.Instance));
     }
 
     private (ChatLogStore, ChatReader, RecordingSummary) Create(ChatOptions options)
     {
-        var storage = Options.Create(new StorageOptions { RecordingsRoot = this._root });
+        var storage = Options.Create(new StorageOptions { RecordingsRoot = _root });
         var chat = Options.Create(options);
         var store = new ChatLogStore(
-            storage, chat, this._clock, NullLogger<ChatLogStore>.Instance);
-        var reader = new ChatReader(store, chat);
+            storage, chat, _clock, NullLogger<ChatLogStore>.Instance);
+        var reader = new ChatReader(store, chat, NullLogger<ChatReader>.Instance);
         var summary = new RecordingSummary(
             "20261110T163000Z_1",
             "chan",

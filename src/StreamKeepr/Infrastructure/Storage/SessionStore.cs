@@ -3,10 +3,10 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
+using StreamKeepr.Infrastructure.Media;
 
 namespace StreamKeepr.Infrastructure.Storage;
 
@@ -35,9 +35,6 @@ public sealed class SessionStore(
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         Converters = { new JsonStringEnumConverter() },
     };
-
-    private static readonly Regex PartPlaylistPattern = new(
-        @"^p(?<part>\d{3})\.m3u8$", RegexOptions.CultureInvariant);
 
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, LiveIndex> _live = new(StringComparer.Ordinal);
@@ -287,7 +284,7 @@ public sealed class SessionStore(
             SegmentCount: PlaylistStitcher.SegmentCount(playlist),
             HasThumbnail: File.Exists(Path.Combine(directory, ThumbnailFileName)),
             Chapters: PlaylistStitcher.Chapters(playlist, manifest.Metadata),
-            HasChat: ChatLogStore.HasChat(directory));
+            HasChat: ChatLogStore.HasChat(directory, logger));
     }
 
     /// <summary>
@@ -449,8 +446,7 @@ public sealed class SessionStore(
 
         foreach (string path in Directory.EnumerateFiles(directory, "p*.m3u8"))
         {
-            var match = PartPlaylistPattern.Match(Path.GetFileName(path));
-            if (!match.Success)
+            if (!PartFiles.TryParsePlaylist(Path.GetFileName(path), out int part))
             {
                 logger.LogWarning(
                     "Ignoring part playlist {File}; part names are p001.m3u8 through p999.m3u8.",
@@ -458,7 +454,6 @@ public sealed class SessionStore(
                 continue;
             }
 
-            int part = int.Parse(match.Groups["part"].Value, CultureInfo.InvariantCulture);
             if (part is >= 1 and <= 999)
                 parts.Add((part, path));
             else

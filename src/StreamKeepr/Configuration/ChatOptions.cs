@@ -42,5 +42,5 @@ public sealed class ChatOptions
 
     public ChatPurgeMode PurgeDeletedText { get; set; } = ChatPurgeMode.Off;
 
-    public bool HasToken => !string.IsNullOrWhiteSpace(this.TwitchUserOAuthToken);
+    public bool HasToken => !string.IsNullOrWhiteSpace(TwitchUserOAuthToken);
 }

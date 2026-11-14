@@ -1,5 +1,4 @@
-using System.Globalization;
-using System.Text.RegularExpressions;
+using StreamKeepr.Infrastructure.Media;
 
 namespace StreamKeepr.Infrastructure.Storage;
 
@@ -7,7 +6,7 @@ namespace StreamKeepr.Infrastructure.Storage;
 /// Maps between Twitch wall-clock timestamps and the stitched media timeline. Each part has its
 /// own FFmpeg muxer-start PDT; the content at the part start aired roughly <c>leadIn</c> earlier.
 /// </summary>
-public sealed partial class ChatTimeline
+public sealed class ChatTimeline
 {
     /// <summary>PDT and segment rounding make adjacent parts differ by well under a second.</summary>
     private const double MinPartGapSeconds = 1;
@@ -16,17 +15,22 @@ public sealed partial class ChatTimeline
 
     private ChatTimeline(IReadOnlyList<PartTiming> parts, double leadInSeconds)
     {
-        this._parts = parts;
-        this.LeadInSeconds = leadInSeconds;
+        _parts = parts;
+        LeadInSeconds = leadInSeconds;
     }
 
     public double LeadInSeconds { get; }
 
-    public bool HasParts => this._parts.Count > 0;
+    public bool HasParts => _parts.Count > 0;
 
-    public static ChatTimeline Build(string sessionDirectory, double leadInSeconds)
+    /// <summary>
+    /// Reads the part playlists. An unreadable part is logged and left out, so chat for it is
+    /// unmapped rather than placed at a wrong time.
+    /// </summary>
+    public static ChatTimeline Build(string sessionDirectory, double leadInSeconds, ILogger logger)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionDirectory);
+        ArgumentNullException.ThrowIfNull(logger);
         if (!Directory.Exists(sessionDirectory))
             return new ChatTimeline([], leadInSeconds);
 
@@ -35,21 +39,14 @@ public sealed partial class ChatTimeline
         {
             foreach (string path in Directory.EnumerateFiles(sessionDirectory, "p*.m3u8"))
             {
-                Match match = PartFilePattern().Match(Path.GetFileName(path));
-                if (match.Success &&
-                    int.TryParse(match.Groups[1].Value, NumberStyles.None,
-                                 CultureInfo.InvariantCulture, out int part))
-                {
+                if (PartFiles.TryParsePlaylist(Path.GetFileName(path), out int part) && part >= 1)
                     files.Add((part, path));
-                }
             }
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return new ChatTimeline([], leadInSeconds);
-        }
-        catch (UnauthorizedAccessException)
-        {
+            logger.LogWarning(ex, "Could not list parts in {Directory}; chat cannot be placed.",
+                sessionDirectory);
             return new ChatTimeline([], leadInSeconds);
         }
 
@@ -57,7 +54,7 @@ public sealed partial class ChatTimeline
         double mediaStart = 0;
         foreach ((int part, string path) in files.OrderBy(item => item.Part))
         {
-            string? playlist = TryRead(path);
+            string? playlist = TryRead(path, logger);
             if (playlist is null)
                 continue;
 
@@ -66,8 +63,9 @@ public sealed partial class ChatTimeline
             {
                 duration = PlaylistStitcher.TotalDuration(playlist);
             }
-            catch (FormatException)
+            catch (FormatException ex)
             {
+                logger.LogWarning(ex, "Part playlist {Path} is malformed; its chat is not placed.", path);
                 continue;
             }
 
@@ -92,7 +90,7 @@ public sealed partial class ChatTimeline
     {
         DateTimeOffset at = DateTimeOffset.FromUnixTimeMilliseconds(atMs);
         PartTiming? match = null;
-        foreach (PartTiming part in this._parts)
+        foreach (PartTiming part in _parts)
         {
             DateTimeOffset end = part.ContentStart.AddSeconds(part.Duration);
             if (at < part.ContentStart || at > end)
@@ -115,7 +113,7 @@ public sealed partial class ChatTimeline
         double fromSec, double toSec)
     {
         var ranges = new List<(DateTimeOffset, DateTimeOffset)>();
-        foreach (PartTiming part in this._parts)
+        foreach (PartTiming part in _parts)
         {
             double start = Math.Max(fromSec, part.MediaStart);
             double end = Math.Min(toSec, part.MediaStart + part.Duration);
@@ -137,10 +135,10 @@ public sealed partial class ChatTimeline
     public IReadOnlyList<(double MediaAt, double Seconds)> PartGaps()
     {
         var gaps = new List<(double, double)>();
-        for (int i = 1; i < this._parts.Count; i++)
+        for (int i = 1; i < _parts.Count; i++)
         {
-            PartTiming previous = this._parts[i - 1];
-            PartTiming next = this._parts[i];
+            PartTiming previous = _parts[i - 1];
+            PartTiming next = _parts[i];
             double seconds = (next.ContentStart -
                               previous.ContentStart.AddSeconds(previous.Duration)).TotalSeconds;
             if (seconds >= MinPartGapSeconds)
@@ -153,7 +151,7 @@ public sealed partial class ChatTimeline
     private static double Clamp(double value, double min, double max) =>
         Math.Min(Math.Max(value, min), max);
 
-    private static string? TryRead(string path)
+    private static string? TryRead(string path, ILogger logger)
     {
         try
         {
@@ -163,19 +161,13 @@ public sealed partial class ChatTimeline
             using var reader = new StreamReader(stream);
             return reader.ReadToEnd();
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return null;
-        }
-        catch (UnauthorizedAccessException)
-        {
+            logger.LogWarning(ex, "Part playlist {Path} could not be read; its chat is not placed.", path);
             return null;
         }
     }
 
     private sealed record PartTiming(
         int Part, DateTimeOffset ContentStart, double MediaStart, double Duration);
-
-    [GeneratedRegex(@"^p(\d{3})\.m3u8$", RegexOptions.CultureInvariant)]
-    private static partial Regex PartFilePattern();
 }

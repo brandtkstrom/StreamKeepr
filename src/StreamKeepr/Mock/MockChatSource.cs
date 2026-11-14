@@ -36,24 +36,24 @@ public sealed class MockChatSource(
         if (!TwitchLogin.IsValid(login))
             return ValueTask.CompletedTask;
 
-        this._joined[login] = 0;
-        this._joinedAt[login] = clock.GetUtcNow().ToUnixTimeMilliseconds();
-        this.RememberMedia(login);
+        _joined[login] = 0;
+        _joinedAt[login] = clock.GetUtcNow().ToUnixTimeMilliseconds();
+        RememberMedia(login);
         return ValueTask.CompletedTask;
     }
 
     public ValueTask PartAsync(string channel, CancellationToken ct)
     {
         string login = TwitchLogin.Normalize(channel);
-        this._joined.TryRemove(login, out _);
-        this._baseAt.TryRemove(login, out _);
-        this._mediaEnd.TryRemove(login, out _);
-        this._joinedAt.TryRemove(login, out _);
+        _joined.TryRemove(login, out _);
+        _baseAt.TryRemove(login, out _);
+        _mediaEnd.TryRemove(login, out _);
+        _joinedAt.TryRemove(login, out _);
         return ValueTask.CompletedTask;
     }
 
     public IAsyncEnumerable<ChatSourceEvent> ReadAllAsync(CancellationToken ct) =>
-        this._events.ReadAllAsync(ct);
+        _events.ReadAllAsync(ct);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -62,17 +62,17 @@ public sealed class MockChatSource(
         {
             while (await timer.WaitForNextTickAsync(stoppingToken))
             {
-                foreach (string channel in this._joined.Keys)
+                foreach (string channel in _joined.Keys)
                 {
-                    if (!this._baseAt.ContainsKey(channel))
-                        this.RememberMedia(channel);
+                    if (!_baseAt.ContainsKey(channel))
+                        RememberMedia(channel);
 
-                    ChatMessage message = this.NextMessage(channel);
-                    this._events.Write(new ChatSourceEvent.MessageEvent(message));
+                    ChatMessage message = NextMessage(channel);
+                    _events.Write(new ChatSourceEvent.MessageEvent(message));
 
-                    if (this._counter % DeleteEvery == 0)
+                    if (_counter % DeleteEvery == 0)
                     {
-                        this._events.Write(new ChatSourceEvent.Delete(
+                        _events.Write(new ChatSourceEvent.Delete(
                             channel, message.AtMs, message.Id));
                     }
                 }
@@ -84,7 +84,7 @@ public sealed class MockChatSource(
         }
         finally
         {
-            this._events.Complete();
+            _events.Complete();
         }
     }
 
@@ -110,9 +110,9 @@ public sealed class MockChatSource(
             if (pdt is null)
                 return;
 
-            this._baseAt[channel] = pdt.Value.AddSeconds(-options.Value.LeadInSeconds)
+            _baseAt[channel] = pdt.Value.AddSeconds(-options.Value.LeadInSeconds)
                 .ToUnixTimeMilliseconds();
-            this._mediaEnd[channel] = Math.Max(1, PlaylistStitcher.TotalDuration(playlist));
+            _mediaEnd[channel] = Math.Max(1, PlaylistStitcher.TotalDuration(playlist));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException)
         {
@@ -122,14 +122,14 @@ public sealed class MockChatSource(
 
     private ChatMessage NextMessage(string channel)
     {
-        int counter = Interlocked.Increment(ref this._counter);
+        int counter = Interlocked.Increment(ref _counter);
         long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
-        double mediaEnd = this._mediaEnd.GetValueOrDefault(channel, 60);
-        long joinedAt = this._joinedAt.GetValueOrDefault(channel, now);
+        double mediaEnd = _mediaEnd.GetValueOrDefault(channel, 60);
+        long joinedAt = _joinedAt.GetValueOrDefault(channel, now);
         double elapsed = Math.Max(0, (now - joinedAt) / 1000.0);
         double media = Math.Min(Math.Max(1, mediaEnd - 1),
             Math.Max(1, mediaEnd - 10) + elapsed);
-        long at = this._baseAt.TryGetValue(channel, out long baseAt)
+        long at = _baseAt.TryGetValue(channel, out long baseAt)
             ? baseAt + (long)(media * 1000)
             : now;
         string text = (counter % 4) switch
@@ -163,7 +163,7 @@ public sealed class MockChatSource(
 
     public ValueTask DisposeAsync()
     {
-        this._events.Complete();
+        _events.Complete();
         return ValueTask.CompletedTask;
     }
 }

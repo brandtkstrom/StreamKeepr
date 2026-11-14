@@ -17,14 +17,14 @@ public sealed class ClientWebSocketIrcSocket : IIrcSocket
 
     public async Task ConnectAsync(Uri uri, CancellationToken ct)
     {
-        this._socket.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
-        await this._socket.ConnectAsync(uri, ct);
+        _socket.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
+        await _socket.ConnectAsync(uri, ct);
     }
 
     public async Task<IrcSocketFrame> ReceiveAsync(
         Memory<byte> buffer, CancellationToken ct)
     {
-        ValueWebSocketReceiveResult result = await this._socket.ReceiveAsync(buffer, ct);
+        ValueWebSocketReceiveResult result = await _socket.ReceiveAsync(buffer, ct);
         if (result.MessageType == WebSocketMessageType.Close)
             return new IrcSocketFrame(0, Closed: true);
 
@@ -32,7 +32,7 @@ public sealed class ClientWebSocketIrcSocket : IIrcSocket
         {
             while (!result.EndOfMessage)
             {
-                result = await this._socket.ReceiveAsync(buffer, ct);
+                result = await _socket.ReceiveAsync(buffer, ct);
             }
 
             return new IrcSocketFrame(0, Closed: false);
@@ -43,7 +43,7 @@ public sealed class ClientWebSocketIrcSocket : IIrcSocket
 
     public async Task SendTextAsync(string text, CancellationToken ct)
     {
-        await this._socket.SendAsync(
+        await _socket.SendAsync(
             Encoding.UTF8.GetBytes(text),
             WebSocketMessageType.Text,
             endOfMessage: true,
@@ -52,24 +52,24 @@ public sealed class ClientWebSocketIrcSocket : IIrcSocket
 
     public async ValueTask DisposeAsync()
     {
-        if (this._socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
+        if (_socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
         {
             using var closeTimeout = new CancellationTokenSource(CloseTimeout);
             try
             {
-                await this._socket.CloseAsync(
+                await _socket.CloseAsync(
                     WebSocketCloseStatus.NormalClosure, "shutdown", closeTimeout.Token);
             }
             catch (OperationCanceledException)
             {
-                this._socket.Abort();
+                _socket.Abort();
             }
             catch (WebSocketException)
             {
-                this._socket.Abort();
+                _socket.Abort();
             }
         }
 
-        this._socket.Dispose();
+        _socket.Dispose();
     }
 }
