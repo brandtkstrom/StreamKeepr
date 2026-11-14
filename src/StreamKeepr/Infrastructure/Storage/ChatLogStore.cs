@@ -299,7 +299,9 @@ public sealed class ChatLogStore(
 
                 if (this._approxBytes >= options.MaxBytesPerSession)
                 {
-                    this.WriteEvent("truncated", clock.GetUtcNow().ToUnixTimeMilliseconds(),
+                    // Open-ended: nothing after this point is captured for the session.
+                    long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
+                    this.WriteEvent(ChatEventKinds.Truncated, now, from: now,
                         count: this._messageCount);
                     this._truncated = true;
                     this.CloseWriters();
@@ -343,6 +345,11 @@ public sealed class ChatLogStore(
                         this.WriteEvent(
                             "gap", gap.AtMs, from: gap.FromMs, to: gap.ToMs,
                             reason: gap.Reason);
+                        break;
+                    case ChatSourceEvent.Dropped dropped:
+                        this.WriteEvent(
+                            ChatEventKinds.Dropped, dropped.AtMs, from: dropped.FromMs,
+                            to: dropped.ToMs, count: dropped.Count, reason: "queue-full");
                         break;
                 }
             }

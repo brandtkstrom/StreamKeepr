@@ -72,4 +72,8 @@ public abstract record ChatSourceEvent(string Channel, long AtMs)
 
     public sealed record Gap(string Channel, long AtMs, long FromMs, long ToMs, string Reason)
         : ChatSourceEvent(Channel, AtMs);
+
+    /// <summary>Events lost because the capture queue was full; see <see cref="ChatEventQueue"/>.</summary>
+    public sealed record Dropped(string Channel, long AtMs, long FromMs, long ToMs, int Count)
+        : ChatSourceEvent(Channel, AtMs);
 }

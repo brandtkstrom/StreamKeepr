@@ -1,6 +1,4 @@
 using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
-using System.Threading.Channels;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Runtime;
@@ -23,12 +21,7 @@ public sealed class IrcChatClient(
     private static readonly Uri Endpoint = new("wss://irc-ws.chat.twitch.tv:443");
     private static readonly TimeSpan MinimumBackoff = TimeSpan.FromSeconds(5);
 
-    private readonly Channel<ChatSourceEvent> _events = Channel.CreateUnbounded<ChatSourceEvent>(
-        new UnboundedChannelOptions
-        {
-            SingleReader = true,
-            SingleWriter = false,
-        });
+    private readonly ChatEventQueue _events = new();
 
     private readonly ConcurrentDictionary<string, byte> _joined = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _sent = new(StringComparer.Ordinal);
@@ -68,19 +61,15 @@ public sealed class IrcChatClient(
         return ValueTask.CompletedTask;
     }
 
-    public async IAsyncEnumerable<ChatSourceEvent> ReadAllAsync(
-        [EnumeratorCancellation] CancellationToken ct)
-    {
-        await foreach (ChatSourceEvent evt in this._events.Reader.ReadAllAsync(ct))
-            yield return evt;
-    }
+    public IAsyncEnumerable<ChatSourceEvent> ReadAllAsync(CancellationToken ct) =>
+        this._events.ReadAllAsync(ct);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!options.Value.Enabled)
         {
             this.SetState(ChatConnectionState.Disabled);
-            this._events.Writer.TryComplete();
+            this._events.Complete();
             return;
         }
 
@@ -89,7 +78,7 @@ public sealed class IrcChatClient(
         {
             logger.LogError("Chat:TwitchLogin is required and must be valid when a chat token is set.");
             this.SetState(ChatConnectionState.Unavailable);
-            this._events.Writer.TryComplete();
+            this._events.Complete();
             return;
         }
 
@@ -151,7 +140,7 @@ public sealed class IrcChatClient(
         finally
         {
             this.SetState(ChatConnectionState.Idle);
-            this._events.Writer.TryComplete();
+            this._events.Complete();
         }
     }
 
@@ -245,7 +234,7 @@ public sealed class IrcChatClient(
 
                 foreach (ChatSourceEvent evt in parser.Parse(message))
                 {
-                    this._events.Writer.TryWrite(evt);
+                    this._events.Write(evt);
                 }
             }
         }
@@ -324,7 +313,7 @@ public sealed class IrcChatClient(
         long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
         foreach (string channel in this._joined.Keys)
         {
-            this._events.Writer.TryWrite(new ChatSourceEvent.Reconnect(channel, now));
+            this._events.Write(new ChatSourceEvent.Reconnect(channel, now));
         }
     }
 
@@ -360,7 +349,7 @@ public sealed class IrcChatClient(
 
     public ValueTask DisposeAsync()
     {
-        this._events.Writer.TryComplete();
+        this._events.Complete();
         this._sendGate.Dispose();
         return ValueTask.CompletedTask;
     }

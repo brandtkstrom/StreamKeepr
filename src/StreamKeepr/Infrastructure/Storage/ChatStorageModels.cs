@@ -109,7 +109,11 @@ public sealed record ChatQueryMessage(
     StoredChatReply? Reply,
     bool Action);
 
-public sealed record ChatQueryGap(double From, double To);
+/// <summary>
+/// A stretch with no chat. <c>From</c>/<c>To</c> are media seconds; <c>Seconds</c> is the
+/// wall-clock length, which differs for the zero-width media point between two parts.
+/// </summary>
+public sealed record ChatQueryGap(double From, double To, double Seconds);
 
 public sealed record ChatQueryResult(
     string RecordingId,

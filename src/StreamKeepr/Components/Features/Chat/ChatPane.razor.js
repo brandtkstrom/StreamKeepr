@@ -349,7 +349,8 @@ export function createChatPane(root, {
   }
 
   function appendGap(gap) {
-    const seconds = Math.max(1, Math.round(gap.to - gap.from));
+    // `seconds` is wall-clock time; a gap between parts is a single point on the media timeline.
+    const seconds = Math.max(1, Math.round(Number(gap.seconds ?? gap.to - gap.from)));
     const row = document.createElement("div");
     row.className = "sk-chat-gap";
     row.textContent = `Chat unavailable for ${seconds}s`;

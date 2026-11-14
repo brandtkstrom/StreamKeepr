@@ -9,6 +9,9 @@ namespace StreamKeepr.Infrastructure.Storage;
 /// </summary>
 public sealed partial class ChatTimeline
 {
+    /// <summary>PDT and segment rounding make adjacent parts differ by well under a second.</summary>
+    private const double MinPartGapSeconds = 1;
+
     private readonly IReadOnlyList<PartTiming> _parts;
 
     private ChatTimeline(IReadOnlyList<PartTiming> parts, double leadInSeconds)
@@ -125,6 +128,26 @@ public sealed partial class ChatTimeline
         }
 
         return ranges;
+    }
+
+    /// <summary>
+    /// Unrecorded wall-clock time between consecutive parts. The stitched media timeline is
+    /// contiguous, so each gap sits at one media point: the later part's start.
+    /// </summary>
+    public IReadOnlyList<(double MediaAt, double Seconds)> PartGaps()
+    {
+        var gaps = new List<(double, double)>();
+        for (int i = 1; i < this._parts.Count; i++)
+        {
+            PartTiming previous = this._parts[i - 1];
+            PartTiming next = this._parts[i];
+            double seconds = (next.ContentStart -
+                              previous.ContentStart.AddSeconds(previous.Duration)).TotalSeconds;
+            if (seconds >= MinPartGapSeconds)
+                gaps.Add((next.MediaStart, seconds));
+        }
+
+        return gaps;
     }
 
     private static double Clamp(double value, double min, double max) =>

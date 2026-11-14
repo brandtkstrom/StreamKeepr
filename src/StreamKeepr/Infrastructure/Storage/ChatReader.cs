@@ -124,20 +124,42 @@ public sealed class ChatReader(
         }
 
         var gaps = new List<ChatQueryGap>();
-        foreach (StoredChatEvent gap in events.Where(
-                     e => (e.Kind is "gap" or "dropped") &&
-                          e.From is not null && e.To is not null))
+        foreach (StoredChatEvent gap in events)
         {
-            double? gapFrom = timeline.MapToMedia(gap.From!.Value);
-            double? gapTo = timeline.MapToMedia(gap.To!.Value);
-            if (gapFrom is null || gapTo is null || gapTo <= gapFrom)
-                continue;
+            (double? gapFrom, double? gapTo, double seconds) = gap.Kind switch
+            {
+                ChatEventKinds.Gap or ChatEventKinds.Dropped when gap.From is { } start &&
+                                                                  gap.To is { } end =>
+                    (timeline.MapToMedia(start), timeline.MapToMedia(end), (end - start) / 1000d),
+
+                // A truncated log is open-ended: nothing after the cap was captured.
+                ChatEventKinds.Truncated =>
+                    (timeline.MapToMedia(gap.From ?? gap.At), to, double.NaN),
+
+                _ => (null, null, 0),
+            };
+            AddGap(gapFrom, gapTo, seconds);
+        }
+
+        foreach ((double mediaAt, double seconds) in timeline.PartGaps())
+            AddGap(mediaAt, mediaAt, seconds);
+
+        void AddGap(double? gapFrom, double? gapTo, double seconds)
+        {
+            if (gapFrom is null || gapTo is null || gapTo < gapFrom ||
+                gapTo < from || gapFrom > to)
+            {
+                return;
+            }
 
             double start = Math.Max(from, gapFrom.Value);
             double end = Math.Min(to, gapTo.Value);
-            if (end > start)
-                gaps.Add(new ChatQueryGap(Math.Round(start, 3), Math.Round(end, 3)));
+            double length = double.IsNaN(seconds) ? end - start : seconds;
+            gaps.Add(new ChatQueryGap(
+                Math.Round(start, 3), Math.Round(end, 3), Math.Round(length, 3)));
         }
+
+        gaps.Sort((left, right) => left.From.CompareTo(right.From));
 
         string resultState = summary.IsRecording ? "recording" : "complete";
         return new ChatQueryResult(

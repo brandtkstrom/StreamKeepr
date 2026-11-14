@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
+using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch.Chat;
 
@@ -170,6 +171,67 @@ public sealed class ChatLogStoreTests : IDisposable
     }
 
     [Fact]
+    public void Query_reports_messages_dropped_by_a_full_capture_queue_as_a_gap()
+    {
+        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = this.Create(
+            new ChatOptions());
+        string directory = store.SessionDirectory(summary);
+        this.WritePlaylist(directory);
+        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.Append("chan", Message(summary, "a", 2, "first"));
+        store.Append("chan", new ChatSourceEvent.Dropped(
+            "chan", At(summary, 6), At(summary, 3), At(summary, 6), Count: 40));
+        store.CloseSession(summary.Id, finalize: true);
+
+        ChatQueryResult result = reader.Query(summary, 0, 20, 300, 0);
+
+        Assert.Equal([new ChatQueryGap(3, 6, 3)], result.Gaps);
+    }
+
+    [Fact]
+    public void Query_reports_a_truncated_log_as_a_gap_to_the_end_of_the_window()
+    {
+        var options = new ChatOptions { MaxBytesPerSession = 1 };
+        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = this.Create(options);
+        string directory = store.SessionDirectory(summary);
+        this.WritePlaylist(directory);
+        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.Append("chan", Message(summary, "a", 2, "first"));
+
+        // The clock is 12 s of media into the part (the lead-in), so truncation starts there.
+        store.Append("chan", Message(summary, "b", 13, "dropped by the cap"));
+        store.CloseSession(summary.Id, finalize: true);
+
+        ChatQueryResult result = reader.Query(summary, 0, 20, 300, 0);
+
+        Assert.Equal(["a"], result.Messages.Select(message => message.Id));
+        ChatQueryGap gap = Assert.Single(result.Gaps);
+        Assert.Equal(12, gap.From);
+        Assert.Equal(20, gap.To);
+    }
+
+    [Fact]
+    public void Query_reports_the_unrecorded_time_between_parts_as_a_gap()
+    {
+        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = this.Create(
+            new ChatOptions());
+        string directory = store.SessionDirectory(summary);
+        this.WritePlaylist(directory);
+        this.WritePlaylist(directory, part: 2, pdt: Pdt.AddSeconds(60 + 90));
+        store.OpenSession(summary, ChatLogStore.AnonymousSource);
+        store.Append("chan", Message(summary, "a", 55, "before the outage"));
+        store.Append("chan", Message(summary, "lost", 100, "while nothing was recorded"));
+        store.Append("chan", Message(summary, "b", 60 + 90 + 5, "after the outage"));
+        store.CloseSession(summary.Id, finalize: true);
+
+        ChatQueryResult result = reader.Query(
+            summary with { DurationSeconds = 120, PartCount = 2 }, 50, 70, 300, 0);
+
+        Assert.Equal(["a", "b"], result.Messages.Select(message => message.Id));
+        Assert.Equal([new ChatQueryGap(60, 60, 90)], result.Gaps);
+    }
+
+    [Fact]
     public void Has_chat_is_false_before_the_first_event_and_true_after_finalize()
     {
         var options = new ChatOptions();
@@ -209,16 +271,16 @@ public sealed class ChatLogStoreTests : IDisposable
         return (store, reader, summary);
     }
 
-    private void WritePlaylist(string directory)
+    private void WritePlaylist(string directory, int part = 1, DateTimeOffset? pdt = null)
     {
         Directory.CreateDirectory(directory);
         File.WriteAllText(
-            Path.Combine(directory, "p001.m3u8"),
+            Path.Combine(directory, PartFiles.Playlist(part)),
             "#EXTM3U\n" +
             "#EXT-X-VERSION:7\n" +
             "#EXT-X-TARGETDURATION:2\n" +
             "#EXT-X-PLAYLIST-TYPE:EVENT\n" +
-            $"#EXT-X-PROGRAM-DATE-TIME:{Pdt:O}\n" +
+            $"#EXT-X-PROGRAM-DATE-TIME:{pdt ?? Pdt:O}\n" +
             "#EXTINF:30.000000,\nsegment-1.m4s\n" +
             "#EXTINF:30.000000,\nsegment-2.m4s\n");
     }

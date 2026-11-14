@@ -1,6 +1,4 @@
 using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
-using System.Threading.Channels;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Storage;
@@ -16,12 +14,7 @@ public sealed class MockChatSource(
     TimeProvider clock,
     ILogger<MockChatSource> logger) : BackgroundService, IChatSource
 {
-    private readonly Channel<ChatSourceEvent> _events = Channel.CreateUnbounded<ChatSourceEvent>(
-        new UnboundedChannelOptions
-        {
-            SingleReader = true,
-            SingleWriter = false,
-        });
+    private readonly ChatEventQueue _events = new();
 
     private readonly ConcurrentDictionary<string, byte> _joined = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, long> _baseAt = new(StringComparer.Ordinal);
@@ -58,12 +51,8 @@ public sealed class MockChatSource(
         return ValueTask.CompletedTask;
     }
 
-    public async IAsyncEnumerable<ChatSourceEvent> ReadAllAsync(
-        [EnumeratorCancellation] CancellationToken ct)
-    {
-        await foreach (ChatSourceEvent evt in this._events.Reader.ReadAllAsync(ct))
-            yield return evt;
-    }
+    public IAsyncEnumerable<ChatSourceEvent> ReadAllAsync(CancellationToken ct) =>
+        this._events.ReadAllAsync(ct);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -78,11 +67,11 @@ public sealed class MockChatSource(
                         this.RememberMedia(channel);
 
                     ChatMessage message = this.NextMessage(channel);
-                    this._events.Writer.TryWrite(new ChatSourceEvent.MessageEvent(message));
+                    this._events.Write(new ChatSourceEvent.MessageEvent(message));
 
                     if (this._counter % 12 == 0)
                     {
-                        this._events.Writer.TryWrite(new ChatSourceEvent.Delete(
+                        this._events.Write(new ChatSourceEvent.Delete(
                             channel, message.AtMs, message.Id));
                     }
                 }
@@ -94,7 +83,7 @@ public sealed class MockChatSource(
         }
         finally
         {
-            this._events.Writer.TryComplete();
+            this._events.Complete();
         }
     }
 
@@ -182,7 +171,7 @@ public sealed class MockChatSource(
 
     public ValueTask DisposeAsync()
     {
-        this._events.Writer.TryComplete();
+        this._events.Complete();
         return ValueTask.CompletedTask;
     }
 }
