@@ -274,4 +274,135 @@ describe("chat replay pane", () => {
 
     pane.dispose();
   });
+
+  describe("scrollback", () => {
+    // Behaves like ChatReader: one message every 1/rate s of media time, the window clamped to
+    // the duration, `limit` keeping the earliest rows, and the requested toSec echoed back.
+    // While live, a message exists only once the live edge has passed it.
+    function chatServer({ state, rate = 1, duration = 100_000, liveEdge = () => Infinity }) {
+      return vi.fn(async (url) => {
+        const from = Number(url.searchParams.get("fromSec"));
+        const to = Math.min(Number(url.searchParams.get("toSec")), duration);
+        const limit = Number(url.searchParams.get("limit"));
+        const newest = Math.min(to, liveEdge());
+        const messages = [];
+        for (let i = Math.ceil(from * rate); i / rate <= newest; i++) {
+          messages.push({ ...message, id: `m${i}`, mt: i / rate, text: `message ${i}`, emotes: [] });
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            v: 1, recordingId: "r1", state, hasChat: true, source: "mock", leadInSec: 12,
+            fromSec: from, toSec: to, syncOffsetSec: 0,
+            messages: messages.slice(0, limit), gaps: [],
+            hasMoreBefore: false, hasMoreAfter: messages.length > limit,
+          }),
+        };
+      });
+    }
+
+    function play(time) {
+      document.dispatchEvent(new CustomEvent("sk:playhead", {
+        detail: { recordingId: "r1", time, duration: 100_000, paused: false },
+      }));
+    }
+
+    function renderedIds() {
+      return [...document.querySelectorAll("[data-sk='chat-log'] .sk-chat-row")]
+        .map((row) => row.dataset.messageId);
+    }
+
+    // Rows render up to 0.5 s past the playhead, so at t the newest row is at t + 0.5.
+    async function playThrough(from, to, step = 1) {
+      for (let t = from; t <= to; t += step) {
+        play(t);
+        await vi.advanceTimersByTimeAsync(step * 1000);
+      }
+    }
+
+    it("keeps live messages as polls follow the playhead", async () => {
+      vi.useFakeTimers();
+      document.body.innerHTML = MARKUP;
+      let now = 600;
+      const fetch = chatServer({ state: "recording", liveEdge: () => now + 2 });
+      const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+        { fetch, storage: storage() });
+
+      await pane.load({ ...VIEW, state: "recording" });
+      // Join at the live edge, then play on in player-sized steps while the pane polls.
+      for (now = 600; now <= 720; now += 0.25) {
+        play(now);
+        await vi.advanceTimersByTimeAsync(250);
+      }
+
+      const ids = renderedIds();
+      // The first window reached 30 s back; nothing since has been dropped.
+      expect(ids[0]).toBe("m570");
+      expect(ids.at(-1)).toBe("m720");
+      expect(ids).toHaveLength(151);
+      // No poll asks for a window that starts after the playhead.
+      for (const [url] of fetch.mock.calls) {
+        expect(Number(url.searchParams.get("fromSec"))).toBeLessThanOrEqual(720);
+      }
+
+      pane.dispose();
+    });
+
+    it("fetches ahead and keeps earlier messages as a complete recording plays", async () => {
+      vi.useFakeTimers();
+      document.body.innerHTML = MARKUP;
+      const fetch = chatServer({ state: "complete", duration: 1000 });
+      const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+        { fetch, storage: storage() });
+
+      await pane.load({ ...VIEW });
+      await playThrough(10, 400, 5);
+
+      const ids = renderedIds();
+      // Past the first window's end (130 s) and past the old 300 s retention.
+      expect(ids[0]).toBe("m0");
+      expect(ids.at(-1)).toBe("m400");
+      expect(ids).toHaveLength(401);
+
+      pane.dispose();
+    });
+
+    it("continues past windows the server truncated at the limit", async () => {
+      vi.useFakeTimers();
+      document.body.innerHTML = MARKUP;
+      // Twenty messages a second with a limit of 50: each window holds only 2.45 s, less than
+      // the 5 s overlap, so a continuation must start at the last row it received.
+      const fetch = chatServer({ state: "complete", rate: 20, duration: 1000 });
+      const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+        { fetch, storage: storage() });
+
+      await pane.load({ ...VIEW, limit: 50 });
+      await playThrough(10, 40);
+
+      const ids = renderedIds();
+      expect(ids[0]).toBe("m0");
+      expect(ids.at(-1)).toBe("m810");
+      expect(ids).toHaveLength(811);
+
+      pane.dispose();
+    });
+
+    it("drops the oldest rows once the retained history is full", async () => {
+      vi.useFakeTimers();
+      document.body.innerHTML = MARKUP;
+      const fetch = chatServer({ state: "complete", rate: 25, duration: 1000 });
+      const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+        { fetch, storage: storage() });
+
+      await pane.load({ ...VIEW });
+      await playThrough(10, 60, 5);
+
+      const ids = renderedIds();
+      expect(ids).toHaveLength(1000);
+      expect(ids[0]).toBe("m513");
+      expect(ids.at(-1)).toBe("m1512");
+
+      pane.dispose();
+    });
+  });
 });

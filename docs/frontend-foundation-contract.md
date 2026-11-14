@@ -140,6 +140,7 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 - `UiPreferences`/`ViewerClock` call `prefs.js` through `IJSRuntime`; no JS reads or writes layout state directly.
 - `Editor`/player modules load later; hls.js is imported only by the player module, never by the shell.
 - `ChatPane.razor.js` owns the chat log, polling, auto-scroll, and sync controls; it listens to `sk:playhead` and never crosses the circuit for time updates.
+- Chat scrollback persists while playback runs on. A seek back, a seek more than 120 s ahead, a sync change, or a seek before the kept rows fetches a fresh window from 30 s before the playhead. Otherwise each fetch continues from what is loaded: live panes poll every 0.5 s, and a complete recording reads ahead when the playhead is within 30 s of the loaded end. The log keeps the newest 1000 rows; older rows drop off the top.
 - `<ImportMap />` is kept; no CDN and no Node at runtime.
 - Anything changing more than once a second stays in JS (player/stats/scrubbing/pointer); shell state crosses the circuit only on user actions.
 
