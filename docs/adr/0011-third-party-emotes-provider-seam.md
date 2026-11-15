@@ -16,7 +16,7 @@ Chat replay already renders Twitch emotes from the IRC `emotes` tag: the parser 
 - Use replay-time catalogs. Do not snapshot catalogs or image bytes with the session.
 - Match only text outside Twitch emote ranges, using BetterTTV's semantics: case-sensitive, space-delimited tokens, punctuation part of the code, first entry wins. Reply quotes remain plain text.
 - Render static images only. Skip modifier/zero-width emotes in v1. Load images from the provider CDN with `referrerpolicy="no-referrer"`; do not proxy images.
-- Gate the feature with `Chat:Emotes:Bttv:Enabled=false`. Cache catalogs for five minutes, bound provider work to three seconds, serve stale data on failure, and return `200 {available:false}` rather than an error. Emote failures never affect chat capture, replay, or health.
+- Gate the feature with `Chat:Emotes:Bttv:Enabled=false`. Cache global and channel catalogs independently for five minutes, bound provider work to three seconds, serve stale data on failure, and return `200 {available:false}` rather than an error. A global or channel failure preserves the other scope's catalog. Emote failures never affect chat capture, replay, or health.
 
 ## Considered options
 

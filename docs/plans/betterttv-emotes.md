@@ -2,7 +2,7 @@
 title: BetterTTV emotes in chat replay
 version: 1.0
 date_created: 2026-11-14
-last_updated: 2026-11-14
+last_updated: 2026-11-15
 owner: @brandtkstrom
 tags: [chat, emotes, frontend, backend, integration]
 ---
@@ -60,17 +60,17 @@ See `GLOSSARY.md` for the canonical definitions.
 
 - **REQ-001**: The server MUST expose `GET /api/recordings/{id}/emotes` as a public, read-only endpoint with `Cache-Control: no-store`.
 - **REQ-002**: The endpoint MUST return `404` for an unknown recording.
-- **REQ-003**: The endpoint MUST NOT call any provider when `Chat:Emotes:Bttv:Enabled` is `false`; it MUST return `200` with `available:false` and an empty `entries` array.
+- **REQ-003**: The endpoint MUST NOT call a disabled provider. With every provider disabled (the default), it MUST return `200` with `available:false` and an empty `entries` array.
 - **REQ-004**: The endpoint MUST aggregate enabled providers behind an internal `IEmoteProvider` seam. BetterTTV is the only implementation in this change.
 - **REQ-005**: The endpoint MUST resolve the recording's channel login to a numeric Twitch user ID from `ChannelStore` first and `IStreamPoller.GetUserAsync` second. It MUST cache the resolution for five minutes. If the ID cannot be resolved, it MUST skip channel catalogs and still serve global entries.
 - **REQ-006**: The endpoint MUST order entries by provider registration order, then channel before global within a provider. BetterTTV MUST place shared emotes before channel emotes within the channel scope so shared codes win duplicates, matching BetterTTV's own client.
 - **REQ-007**: The endpoint MUST dedupe entries by exact, case-sensitive `code`; the first entry wins.
-- **REQ-008**: The endpoint MUST drop modifier entries (BTTV `modifier:true`), restricted entries (no viewer identity exists), and entries with invalid IDs, empty codes, or codes longer than 128 characters. The BTTV provider MUST match `code`, never `codeOriginal`.
+- **REQ-008**: Providers MUST drop modifier entries (BTTV `modifier:true`) and restricted entries (no viewer identity exists) before aggregation. The catalog pipeline MUST drop entries with invalid IDs, empty codes, or codes longer than 128 characters. The BTTV provider MUST match `code`, never `codeOriginal`.
 - **REQ-009**: The endpoint MUST build static image `src`/`srcset` URLs from validated provider emote IDs and fixed provider templates. It MUST NOT echo a provider-supplied URL.
 - **REQ-010**: The endpoint MUST cap each provider catalog at 2,000 entries and each provider HTTP response body at 2 MiB; excess or invalid entries are dropped.
-- **REQ-011**: The endpoint MUST return an empty catalog with `available:false` on provider failure when no cached catalog exists; it MUST return stale cached entries with `stale:true` when a refresh fails.
+- **REQ-011**: A provider failure MUST NOT discard a successful catalog or cache from the other scope. The endpoint MUST return an empty catalog with `available:false` only when no enabled provider has a global or channel catalog; it MUST serve stale cached entries with `stale:true` for the failed scope when a refresh fails.
 - **REQ-012**: The endpoint MUST bound provider work (including channel-ID resolution) to three seconds. On timeout it MUST serve cached or global entries and continue.
-- **REQ-013**: Global catalogs MUST be cached once per provider; channel catalogs MUST be cached per provider and channel ID. Both use a five-minute TTL. Concurrent requests for the same key MUST share one refresh (single-flight).
+- **REQ-013**: Global catalogs MUST be cached once per provider; channel catalogs MUST be cached per provider and channel ID. Both use a five-minute TTL. Each cache key has its own single-flight gate: concurrent requests for the same key MUST share one refresh, and a global refresh MUST NOT run under a channel gate.
 
 ### 3.2 Matching and rendering
 
@@ -87,7 +87,7 @@ See `GLOSSARY.md` for the canonical definitions.
 - **REQ-021**: Add `Chat:Emotes:Bttv:Enabled`, default `false`. The cache TTL (300 s) and timeout (3 s) are constants, not configuration.
 - **REQ-022**: `ChatPane.razor` MUST include `emotesEnabled` in the pane load payload. The value is true when any provider is enabled.
 - **REQ-023**: Emote catalog and image failures MUST NOT affect chat capture, chat replay, recording, `/health/live`, or `/health/ready`.
-- **REQ-024**: The server MUST log one warning per failed refresh with provider ID, channel ID, and HTTP status. It MUST NOT log response bodies.
+- **REQ-024**: The server MUST log one warning per failed refresh with provider ID, scope (global or channel), channel ID, the HTTP status when the failure came from an HTTP response, and a reason (`http`, `invalid-payload`, `too-large`, `timeout`, `transport`, or `error`). It MUST NOT log response bodies.
 - **REQ-025**: Do not add an attribution label or a user-visible failure notice for third-party emotes. Failures fall back to text and are diagnosed from logs.
 
 ### 3.4 Security and privacy
@@ -95,7 +95,7 @@ See `GLOSSARY.md` for the canonical definitions.
 - **SEC-001**: Provider responses are untrusted input. Validate IDs, codes, and sizes; use `textContent` and attributes, never `innerHTML`.
 - **SEC-002**: Server requests to providers MUST be credential-free: no cookies, no `Authorization`, no admin or chat tokens.
 - **SEC-003**: Outbound URLs MUST be fixed provider endpoints. The only variable path segments are a validated numeric channel ID and a validated provider emote ID.
-- **SEC-004**: Browser image requests MUST use `referrerpolicy="no-referrer"`. The client MUST NOT send BTTV cookies or credentials.
+- **SEC-004**: Browser image requests MUST use `referrerpolicy="no-referrer"`. The pane sends no explicit credentials for provider images; browser-supplied provider cookies, if any, are outside the pane's control and accepted for the private-home deployment.
 - **SEC-005**: The client MUST accept image URLs only when they are absolute `https:` URLs.
 
 ### 3.5 Constraints
@@ -147,29 +147,28 @@ Response `200 application/json`:
 internal interface IEmoteProvider
 {
     string Id { get; } // "bttv"
-    Task<EmoteProviderCatalog> GetCatalogAsync(EmoteChannel channel, CancellationToken ct);
+    bool Enabled { get; } // provider-specific configuration
+    Task<IReadOnlyList<EmoteCatalogEntry>> GetGlobalAsync(CancellationToken ct);
+    Task<IReadOnlyList<EmoteCatalogEntry>> GetChannelAsync(string channelId, CancellationToken ct);
     EmoteImageSet GetStaticImage(EmoteCatalogEntry entry);
 }
 
 internal sealed record EmoteChannel(string Login, string? TwitchUserId);
 
-internal sealed record EmoteProviderCatalog(
-    IReadOnlyList<EmoteCatalogEntry> Channel,
-    IReadOnlyList<EmoteCatalogEntry> Global);
-
 internal sealed record EmoteCatalogEntry(
     string Id,
     string Code,
-    bool Animated,
-    bool Modifier);
+    bool Animated);
 
 internal sealed record EmoteImageSet(string Src, string SrcSet);
 ```
 
-- `Channel` is ordered by the provider; BetterTTV returns shared entries before channel entries.
+- Providers own their enablement flag. The aggregation service skips disabled providers, and `ChatEmoteOptions.AnyEnabled` is the single pane-facing value.
+- Global and channel fetches are separate calls. Each provider's global catalog is cached once and each channel catalog once per channel ID; every cache key has its own single-flight gate.
+- `GetChannelAsync` receives a validated numeric Twitch user ID and receives no call when the ID is unresolved. BetterTTV returns shared entries before channel entries so shared codes win its first-entry-wins dedupe.
 - `GetStaticImage` returns 1x/2x/3x URLs. For BTTV: `https://cdn.betterttv.net/emote/{id}/{size}.webp` for static emotes and `https://cdn.betterttv.net/emote/{id}/static/{size}.webp` for animated emotes.
-- `Modifier` entries are filtered by the aggregation service, not rendered.
-- The aggregation service owns caching, single-flight, ordering, dedupe, and URL assembly; providers only fetch and normalize.
+- Modifier and restricted entries are filtered by the provider during normalization; `EmoteCatalogEntry` carries no modifier flag.
+- The aggregation service owns caching, single-flight, ordering, dedupe, stale fallback, and URL assembly; providers only fetch and normalize.
 
 ### 4.3 Client load payload and matching
 
@@ -220,7 +219,7 @@ See `docs/research/betterttv-emotes.md` for the API/CDN probes and matching evid
 
 - Provider returns `200` with empty arrays: treat as an available channel with no emotes, not a failure.
 - Channel `404`: cache an empty channel catalog for five minutes; global remains.
-- Provider `429`/`5xx`/timeout: stale cache if present; otherwise `available:false`.
+- Provider `429`/`5xx`/timeout in one scope: serve that scope's stale cache when present and otherwise omit the scope. The other scope's catalog and cache are unaffected; `available:false` only when neither scope has a catalog.
 - Channel renamed or removed: channel entries may disappear; global remains; no schema persistence in v1.
 - Deleted emote image: browser image error → code as text.
 - Multiple emotes adjacent: only space-delimited tokens match.
