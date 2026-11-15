@@ -1,5 +1,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createChatPane } from "../../src/StreamKeepr/Components/Features/Chat/ChatPane.razor.js";
+import {
+  buildEmoteCatalog,
+  createChatPane,
+  matchEmotes,
+} from "../../src/StreamKeepr/Components/Features/Chat/ChatPane.razor.js";
+
+const KEKW = {
+  provider: "bttv",
+  id: "5ff36d0a95e8e11f4f6f0a1c",
+  code: "KEKW",
+  animated: false,
+  src: "https://cdn.betterttv.net/emote/5ff36d0a95e8e11f4f6f0a1c/1x.webp",
+  srcset: "https://cdn.betterttv.net/emote/5ff36d0a95e8e11f4f6f0a1c/1x.webp 1x, " +
+    "https://cdn.betterttv.net/emote/5ff36d0a95e8e11f4f6f0a1c/2x.webp 2x, " +
+    "https://cdn.betterttv.net/emote/5ff36d0a95e8e11f4f6f0a1c/3x.webp 3x",
+};
+
+const emoteCodes = (segments) =>
+  segments.filter((segment) => segment.type === "emote").map((segment) => segment.text);
 
 const MARKUP = `
   <aside class="sk-chat" data-sk-chat data-open="true">
@@ -74,6 +92,20 @@ const VIEW = {
   limit: 300,
   maxSyncOffsetSec: 30,
 };
+
+const emoteMessage = { ...message, text: "hello KEKW", emotes: [] };
+
+function emoteFetch(entries, { available = true, chat = emoteMessage } = {}) {
+  const chatFetch = fakeFetch(chat);
+  return vi.fn((url, init) => url.pathname.endsWith("/emotes")
+    ? Promise.resolve({
+      ok: true,
+      json: async () => ({
+        v: 1, available, stale: false, fetchedAt: "2026-11-14T12:34:56Z", entries,
+      }),
+    })
+    : chatFetch(url, init));
+}
 
 function playhead(time) {
   document.dispatchEvent(new CustomEvent("sk:playhead", {
@@ -534,5 +566,366 @@ describe("chat replay pane", () => {
 
       pane.dispose();
     });
+  });
+});
+
+describe("third-party emotes in the pane", () => {
+  it("fetches the catalog once and renders a safe static image", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = emoteFetch([KEKW]);
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, emotesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+
+    const image = document.querySelector("[data-sk='chat-log'] img[alt='KEKW']");
+    expect(image).not.toBeNull();
+    expect(image.getAttribute("title")).toBe("KEKW");
+    expect(image.getAttribute("loading")).toBe("lazy");
+    expect(image.getAttribute("decoding")).toBe("async");
+    expect(image.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(image.getAttribute("src")).toBe(KEKW.src);
+    expect(image.getAttribute("srcset")).toBe(KEKW.srcset);
+    expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r1/emotes"))
+      .toHaveLength(1);
+
+    pane.dispose();
+  });
+
+  it("omits an image set that is not entirely https", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const unsafe = {
+      ...KEKW,
+      code: "UNSAFE",
+      srcset: "http://cdn.betterttv.net/emote/unsafe/1x.webp 1x, " +
+        "https://cdn.betterttv.net/emote/unsafe/2x.webp 2x",
+    };
+    const fetch = emoteFetch([unsafe], {
+      chat: { ...emoteMessage, text: "hello UNSAFE" },
+    });
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, emotesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+
+    const image = document.querySelector("[data-sk='chat-log'] img[alt='UNSAFE']");
+    expect(image).not.toBeNull();
+    expect(image.getAttribute("src")).toBe(unsafe.src);
+    expect(image.hasAttribute("srcset")).toBe(false);
+
+    pane.dispose();
+  });
+
+  it("makes no catalog request while disabled or closed", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = emoteFetch([KEKW]);
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, emotesEnabled: false });
+    await flush();
+    expect(fetch.mock.calls.some(([url]) => url.pathname.endsWith("/emotes"))).toBe(false);
+
+    await pane.load({ ...VIEW, open: false, emotesEnabled: true });
+    await flush();
+    expect(fetch.mock.calls.some(([url]) => url.pathname.endsWith("/emotes"))).toBe(false);
+
+    pane.setOpen(true);
+    await flush();
+    expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r1/emotes"))
+      .toHaveLength(1);
+
+    pane.dispose();
+  });
+
+  it("requests the catalog once per recording load", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = emoteFetch([KEKW]);
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, emotesEnabled: true });
+    await flush();
+    await pane.load({ ...VIEW, emotesEnabled: true });
+    await flush();
+    expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r1/emotes"))
+      .toHaveLength(1);
+
+    await pane.load({ ...VIEW, recordingId: "r2", emotesEnabled: true });
+    await flush();
+    expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r2/emotes"))
+      .toHaveLength(1);
+
+    pane.dispose();
+  });
+
+  it("re-renders once when the catalog arrives after messages are visible", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const chatFetch = fakeFetch(emoteMessage);
+    let release;
+    const fetch = vi.fn((url, init) => url.pathname.endsWith("/emotes")
+      ? new Promise((resolve) => {
+        release = () => resolve({
+          ok: true,
+          json: async () => ({
+            v: 1, available: true, stale: false, fetchedAt: null, entries: [KEKW],
+          }),
+        });
+      })
+      : chatFetch(url, init));
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, emotesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    expect(log.querySelector("img[alt='KEKW']")).toBeNull();
+    expect(log.textContent).toContain("KEKW");
+
+    release();
+    await flush();
+
+    expect(log.querySelectorAll("img[alt='KEKW']")).toHaveLength(1);
+    expect(fetch.mock.calls.filter(([url]) => url.pathname.endsWith("/emotes"))).toHaveLength(1);
+
+    pane.dispose();
+  });
+
+  it("keeps text when the catalog is unavailable or the request fails", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const unavailable = emoteFetch([KEKW], { available: false });
+    const pane = createChatPane(root, { fetch: unavailable, storage: storage() });
+
+    await pane.load({ ...VIEW, emotesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+    expect(document.querySelector("[data-sk='chat-log'] img[alt='KEKW']")).toBeNull();
+    expect(document.querySelector("[data-sk='chat-log']").textContent).toContain("KEKW");
+    pane.dispose();
+
+    document.body.innerHTML = MARKUP;
+    const failing = vi.fn((url, init) => url.pathname.endsWith("/emotes")
+      ? Promise.resolve({ ok: false, status: 503, json: async () => ({}) })
+      : fakeFetch(emoteMessage)(url, init));
+    const failedPane = createChatPane(document.querySelector("[data-sk-chat]"),
+      { fetch: failing, storage: storage() });
+    await failedPane.load({ ...VIEW, emotesEnabled: true });
+    await flush();
+    playhead(10);
+    playhead(11);
+    playhead(12);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    expect(log.textContent).toContain("KEKW");
+    expect(log.querySelector("img[alt='KEKW']")).toBeNull();
+    expect(document.querySelector("[data-sk='chat-notice']").textContent).toBe("");
+    expect(failing.mock.calls.filter(([url]) => url.pathname.endsWith("/emotes"))).toHaveLength(1);
+    failedPane.dispose();
+  });
+
+  it("keeps reply quotes and Twitch ranges as plain text and native images", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const kappa = { ...KEKW, id: "kappa", code: "Kappa", src: "https://cdn.betterttv.net/emote/kappa/1x.webp" };
+    const fetch = emoteFetch([kappa, KEKW], {
+      chat: {
+        ...message,
+        text: "hello Kappa KEKW",
+        reply: { display: "Bob", login: "bob", text: "KEKW" },
+      },
+    });
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, emotesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    const images = [...log.querySelectorAll("img")];
+    // Kappa is a Twitch range, so the BTTV entry with the same code loses.
+    expect(images.find((image) => image.alt === "Kappa").src)
+      .toContain("static-cdn.jtvnw.net");
+    expect(log.querySelector("img[alt='KEKW']")).not.toBeNull();
+    expect(log.querySelector(".sk-chat-reply").querySelector("img")).toBeNull();
+    expect(log.querySelector(".sk-chat-reply").textContent).toContain("KEKW");
+
+    pane.dispose();
+  });
+
+  it("ignores a catalog response that arrives after the recording changes", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const other = { ...KEKW, id: "other", code: "OTHER", src: "https://cdn.betterttv.net/emote/other/1x.webp" };
+    const chatFetch = fakeFetch({ ...emoteMessage, text: "hello OTHER" });
+    let release;
+    const fetch = vi.fn((url, init) => {
+      if (url.pathname === "/api/recordings/r1/emotes") {
+        return new Promise((resolve) => {
+          release = () => resolve({
+            ok: true,
+            json: async () => ({
+              v: 1, available: true, stale: false, fetchedAt: null, entries: [KEKW],
+            }),
+          });
+        });
+      }
+      if (url.pathname === "/api/recordings/r2/emotes") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            v: 1, available: true, stale: false, fetchedAt: null, entries: [other],
+          }),
+        });
+      }
+      return chatFetch(url, init);
+    });
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, emotesEnabled: true });
+    await flush();
+    await pane.load({ ...VIEW, recordingId: "r2", emotesEnabled: true });
+    await flush();
+    document.dispatchEvent(new CustomEvent("sk:playhead", {
+      detail: { recordingId: "r2", time: 10, duration: 60, paused: true },
+    }));
+    await flush();
+
+    release();
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    expect(log.querySelectorAll("img[alt='OTHER']")).toHaveLength(1);
+    expect(log.querySelector("img[alt='KEKW']")).toBeNull();
+
+    pane.dispose();
+  });
+
+  it("falls back to text on image error and never retries after a rebuild", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = emoteFetch([KEKW]);
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, emotesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    const image = log.querySelector("img[alt='KEKW']");
+    expect(image).not.toBeNull();
+    image.dispatchEvent(new Event("error"));
+
+    expect(log.querySelector("img[alt='KEKW']")).toBeNull();
+    expect(log.textContent).toContain("KEKW");
+
+    // A sync change rebuilds the log from the same messages.
+    document.querySelector("[data-sk='chat-sync-forward1']").click();
+    await flush();
+
+    expect(log.querySelector("img[alt='KEKW']")).toBeNull();
+    expect(log.textContent).toContain("KEKW");
+    expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r1/emotes"))
+      .toHaveLength(1);
+
+    pane.dispose();
+  });
+});
+
+describe("third-party emote matching", () => {
+  it("matches only whole space-delimited codes, never inside a larger word", () => {
+    const catalog = buildEmoteCatalog([KEKW]);
+
+    expect(emoteCodes(matchEmotes("KappaKappa", [], catalog))).toEqual([]);
+    expect(emoteCodes(matchEmotes("hello KEKW", [], catalog))).toEqual(["KEKW"]);
+    expect(emoteCodes(matchEmotes("KEKW KEKW", [], catalog))).toEqual(["KEKW", "KEKW"]);
+  });
+
+  it("is case-sensitive and keeps punctuation as part of the code", () => {
+    const brazil = { ...KEKW, id: "a", code: "Brazil", src: "https://cdn.betterttv.net/emote/a/1x.webp" };
+    const upper = { ...KEKW, id: "b", code: "BRAZIL", src: "https://cdn.betterttv.net/emote/b/1x.webp" };
+    const smile = { ...KEKW, id: "c", code: "D:", src: "https://cdn.betterttv.net/emote/c/1x.webp" };
+    const tf = { ...KEKW, id: "d", code: ":tf:", src: "https://cdn.betterttv.net/emote/d/1x.webp" };
+    const amp = { ...KEKW, id: "e", code: "M&Mjc", src: "https://cdn.betterttv.net/emote/e/1x.webp" };
+    const catalog = buildEmoteCatalog([brazil, upper, smile, tf, amp]);
+
+    expect(matchEmotes("Brazil", [], catalog)[0].entry).toBe(brazil);
+    expect(matchEmotes("BRAZIL", [], catalog)[0].entry).toBe(upper);
+    expect(emoteCodes(matchEmotes("D: D", [], catalog))).toEqual(["D:"]);
+    expect(emoteCodes(matchEmotes(":tf: M&Mjc", [], catalog))).toEqual([":tf:", "M&Mjc"]);
+  });
+
+  it("keeps every character and the first catalog entry for a code", () => {
+    const first = { ...KEKW, id: "first" };
+    const second = { ...KEKW, id: "second" };
+    const catalog = buildEmoteCatalog([first, second]);
+    const segments = matchEmotes("  KEKW   x ", [], catalog);
+
+    expect(segments.map((segment) => segment.type === "emote" ? "KEKW" : segment.text).join(""))
+      .toBe("  KEKW   x ");
+    expect(segments.find((segment) => segment.type === "emote").entry).toBe(first);
+  });
+
+  it("protects native ranges and never forms a token across one", () => {
+    const catalog = buildEmoteCatalog([KEKW]);
+
+    // "KE" and "KW" are adjacent on screen but the native range separates them.
+    const split = matchEmotes("KEKW", [{ from: 2, to: 3, id: "25" }], catalog);
+    expect(emoteCodes(split)).toEqual([]);
+    expect(split.map((segment) => segment.text).join("")).toBe("KEKW");
+    expect(split.find((segment) => segment.type === "native")).toMatchObject({
+      text: "KW", id: "25",
+    });
+
+    const around = matchEmotes("a KEKW", [{ from: 2, to: 5, id: "25" }], catalog);
+    expect(emoteCodes(around)).toEqual([]);
+    expect(around.find((segment) => segment.type === "native").text).toBe("KEKW");
+  });
+
+  it("accepts only absolute https image URLs and ignores invalid native ranges", () => {
+    const catalog = buildEmoteCatalog([
+      { ...KEKW, id: "http", code: "HTTP", src: "http://cdn.betterttv.net/emote/a/1x.webp" },
+      { ...KEKW, id: "relative", code: "RELATIVE", src: "/emote/a/1x.webp" },
+      { ...KEKW, id: "empty", code: "", src: "https://cdn.betterttv.net/emote/a/1x.webp" },
+      { ...KEKW, id: "ok", code: "OK", src: "https://cdn.betterttv.net/emote/ok/1x.webp" },
+    ]);
+    expect([...catalog.keys()]).toEqual(["OK"]);
+
+    // Out-of-range, reversed, and overlapping ranges cannot split or drop text.
+    const segments = matchEmotes("hello OK", [
+      { from: 99, to: 100, id: "25" },
+      { from: 3, to: 1, id: "25" },
+      { from: 1, to: 4, id: "25" },
+      { from: 3, to: 6, id: "25" },
+    ], catalog);
+    expect(segments.map((segment) => segment.text).join("")).toBe("hello OK");
+    expect(emoteCodes(segments)).toEqual(["OK"]);
+  });
+
+  it("uses code-point ranges around non-BMP characters", () => {
+    const catalog = buildEmoteCatalog([KEKW]);
+    // Code points: 0🔥 1(space) 2K 3E 4K 5W. A UTF-16 index would split the emoji.
+    const native = matchEmotes("🔥 KEKW", [{ from: 2, to: 5, id: "25" }], catalog);
+    expect(emoteCodes(native)).toEqual([]);
+    expect(native.find((segment) => segment.type === "native").text).toBe("KEKW");
+    expect(native[0].text).toBe("🔥 ");
+
+    const emote = matchEmotes("🔥 KEKW 😀", [{ from: 0, to: 0, id: "25" }], catalog);
+    expect(emote[0]).toMatchObject({ type: "native", text: "🔥" });
+    expect(emoteCodes(emote)).toEqual(["KEKW"]);
+    expect(emote.at(-1).text).toBe(" 😀");
   });
 });
