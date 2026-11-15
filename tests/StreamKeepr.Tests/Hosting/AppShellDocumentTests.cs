@@ -27,6 +27,58 @@ public sealed class AppShellDocumentTests
         Assert.DoesNotContain("https://", html, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(@"<link rel=""icon"" href=""(?<href>favicon(?:\.[a-z0-9]+)?\.ico)"" sizes=""48x48""", "image/x-icon")]
+    [InlineData(@"<link rel=""icon"" href=""(?<href>favicon(?:\.[a-z0-9]+)?\.svg)"" type=""image/svg\+xml""", "image/svg+xml")]
+    [InlineData(@"<link rel=""apple-touch-icon"" href=""(?<href>apple-touch-icon(?:\.[a-z0-9]+)?\.png)""", "image/png")]
+    [InlineData(@"<link rel=""manifest"" href=""(?<href>manifest(?:\.[a-z0-9]+)?\.webmanifest)""", "application/manifest+json")]
+    public async Task Document_links_each_brand_icon_and_the_manifest_from_local_assets(
+        string linkPattern, string mediaType)
+    {
+        using var factory = new StreamKeeprAppFactory();
+        using var client = factory.CreateClient();
+
+        // Blazor HTML-encodes some attribute characters (the "+" in image/svg+xml); match what a browser reads.
+        var html = WebUtility.HtmlDecode(await client.GetStringAsync("/"));
+        var match = Regex.Match(html, linkPattern);
+        Assert.True(match.Success, $"The document has no link matching {linkPattern}.");
+
+        using var response = await client.GetAsync(match.Groups["href"].Value);
+        var body = await response.Content.ReadAsByteArrayAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(mediaType, response.Content.Headers.ContentType?.MediaType);
+        Assert.NotEmpty(body);
+    }
+
+    [Fact]
+    public async Task Web_manifest_names_the_app_and_its_install_icons_resolve()
+    {
+        using var factory = new StreamKeeprAppFactory();
+        using var client = factory.CreateClient();
+
+        var html = await client.GetStringAsync("/");
+        var href = Regex.Match(html, @"<link rel=""manifest"" href=""(?<href>[^""]+)""").Groups["href"].Value;
+        using var manifest = System.Text.Json.JsonDocument.Parse(await client.GetStringAsync(href));
+        var root = manifest.RootElement;
+
+        Assert.Equal("StreamKeepr", root.GetProperty("name").GetString());
+        Assert.Equal("/", root.GetProperty("start_url").GetString());
+
+        var sizes = new List<string>();
+        foreach (var icon in root.GetProperty("icons").EnumerateArray())
+        {
+            var src = icon.GetProperty("src").GetString()!;
+            using var response = await client.GetAsync(src);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(icon.GetProperty("type").GetString(), response.Content.Headers.ContentType?.MediaType);
+            sizes.Add(icon.GetProperty("sizes").GetString()!);
+        }
+
+        Assert.Contains("192x192", sizes);
+        Assert.Contains("512x512", sizes);
+    }
+
     [Fact]
     public async Task Document_shell_keeps_the_template_reconnect_modal_and_prefs_module()
     {
