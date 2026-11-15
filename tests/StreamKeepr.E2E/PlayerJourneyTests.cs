@@ -337,6 +337,59 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     }
 
     [Fact]
+    public async Task A_position_left_behind_the_live_edge_resumes_after_reload_until_Live_edge_forgets_it()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        ILocator growing = page.Locator("nav#sk-drawer a.sk-row", new() { HasTextString = "Community day" });
+        string id = (await growing.GetAttributeAsync("data-recording-id"))!;
+
+        await growing.ClickAsync();
+        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
+        ILocator live = page.Locator("[data-sk='live']");
+        await live.WaitForAsync(new() { State = WaitForSelectorState.Visible });
+
+        // Leave the live edge: seek near the start, play a moment, then pause.
+        ILocator seek = page.Locator("[data-sk='seek']");
+        await seek.FocusAsync();
+        await page.Keyboard.PressAsync("Home");
+        await page.Keyboard.PressAsync("ArrowRight");
+        await WaitForTimeAsync(page, 5);
+        await page.Locator("[data-sk='video']").EvaluateAsync("v => { v.muted = true; return v.play(); }");
+        await page.WaitForFunctionAsync("document.querySelector('[data-sk=video]').currentTime > 5.2");
+        await page.Locator("[data-sk='play']").ClickAsync();
+        double paused = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
+
+        // The row swaps the full live bar for a partial resume bar.
+        await page.WaitForFunctionAsync(
+            "id => { const i = document.querySelector(`nav#sk-drawer a.sk-row[data-recording-id='${id}'] .prog i`); return i && i.style.width !== '100%'; }",
+            id,
+            new() { Timeout = 10_000 });
+
+        await page.ReloadAsync();
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
+        await live.WaitForAsync(new() { State = WaitForSelectorState.Visible });
+        await WaitForTimeAsync(page, paused, tolerance: 1);
+        Assert.True(await Video(page, "v => v.paused"), "resume never autoplays");
+        Assert.DoesNotContain("at-edge", await live.GetAttributeAsync("class") ?? "");
+
+        // Live edge forgets the position: the row returns to the full live bar and the next
+        // open starts at the live edge again.
+        await live.ClickAsync();
+        Assert.Contains("at-edge", await live.GetAttributeAsync("class") ?? "");
+        await page.WaitForFunctionAsync(
+            "id => document.querySelector(`nav#sk-drawer a.sk-row[data-recording-id='${id}'] .prog i`)?.style.width === '100%'",
+            id,
+            new() { Timeout = 10_000 });
+
+        await page.ReloadAsync();
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
+        await live.WaitForAsync(new() { State = WaitForSelectorState.Visible });
+        Assert.Contains("at-edge", await live.GetAttributeAsync("class") ?? "");
+    }
+
+    [Fact]
     public async Task A_growing_capture_opens_near_the_live_edge_follows_and_hands_off_on_endlist()
     {
         await using Session session = await OpenAsync(app.BaseUrl);

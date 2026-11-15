@@ -198,7 +198,7 @@ public sealed class LibraryViewTests
     }
 
     [Fact]
-    public async Task Resume_positions_come_from_the_progress_store_for_finished_recordings_only()
+    public async Task Resume_positions_come_from_the_progress_store_for_finished_and_live_recordings()
     {
         using Harness harness = await Harness.CreateAsync("alpha");
         harness.Add(Summary("done", "alpha", Now.AddHours(-3)));
@@ -214,6 +214,9 @@ public sealed class LibraryViewTests
         Assert.Equal(120, Assert.Single(
             harness.View.Recordings("alpha", new LibraryQuery()), item => item.Id == "done").ResumeSec);
         Assert.Null(harness.View.Find("live")!.ResumeSec);
+
+        await harness.Progress.SetAsync("live", 45, CancellationToken.None);
+        Assert.Equal(45, harness.View.Find("live")!.ResumeSec);
 
         await harness.Progress.ClearAsync("done", CancellationToken.None);
         harness.Clock.Advance(TimeSpan.FromMilliseconds(500));

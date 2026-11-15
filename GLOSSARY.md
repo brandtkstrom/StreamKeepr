@@ -107,3 +107,15 @@ _Avoid_: Missing messages, lost chat
 **Chat sync offset**:
 A per-recording viewing adjustment that shifts chat replay earlier or later relative to the recording.
 _Avoid_: Chat delay, latency
+
+**Live edge**:
+The newest playback position the player treats as live: the sync position about one target duration behind the end of a session that is still Recording or Reconnecting.
+_Avoid_: Live point, now, end of stream
+
+**Following**:
+The player mode in which playback stays at the live edge while the session is still being recorded. A pause or a seek behind the live edge leaves following; returning to the live edge by any means resumes it.
+_Avoid_: Live mode, auto-follow, catching up
+
+**Resume position**:
+The one saved playback position per recording, shared by every viewer of the app, where playback starts when the recording is opened. It exists only while the viewer is away from the live edge and short of the end: following, reaching the end, or a capture finishing within 30 s of it discards it.
+_Avoid_: Watch progress, bookmark, last position

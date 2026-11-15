@@ -20,11 +20,12 @@ export function progressUrl(recordingId) {
  * @param {() => number} [options.now]
  */
 export function createProgress({ save, clear, fetch = globalThis.fetch, now = () => Date.now() }) {
-  let source = null; // { recordingId, position(), duration(), live() }
+  let source = null; // { recordingId, position(), duration(), live(), following() }
   let lastWrite = -Infinity;
   let timer = 0;
 
-  const eligible = () => source && !source.live();
+  // At the live edge there is nothing to remember: the next open starts there anyway.
+  const eligible = () => source && !(source.live() && source.following());
 
   function decide() {
     const position = source.position();
@@ -32,7 +33,9 @@ export function createProgress({ save, clear, fetch = globalThis.fetch, now = ()
     // Unknown duration (still loading, or a pause fired while switching recordings): skip.
     // Clearing here would wipe a stored resume position the viewer never moved past.
     if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0) return null;
-    return position >= duration - END_MARGIN_SEC ? "clear" : Math.max(0, position);
+    // While live the edge sits inside the end margin, so a position behind it is always kept.
+    if (!source.live() && position >= duration - END_MARGIN_SEC) return "clear";
+    return Math.max(0, position);
   }
 
   function write() {
@@ -57,8 +60,10 @@ export function createProgress({ save, clear, fetch = globalThis.fetch, now = ()
       lastWrite = -Infinity;
     },
 
+    /** Runs the cadence while playing; each tick writes only when eligible, so a seek off the
+     *  live edge starts saving without a new play. */
     playing() {
-      if (!eligible() || timer) return;
+      if (!source || timer) return;
       timer = setInterval(write, SAVE_INTERVAL_MS);
     },
 
@@ -67,13 +72,19 @@ export function createProgress({ save, clear, fetch = globalThis.fetch, now = ()
       write();
     },
 
-    /** Called when playback becomes live: no writes until it is finite again. */
-    live() {
-      stopTimer();
-    },
-
     ended() {
       stopTimer();
+      if (!source) return;
+      lastWrite = now();
+      void clear(source.recordingId);
+    },
+
+    /**
+     * The viewer returned to the live edge: the next open starts there anyway, so the stored
+     * position goes. Called once per return, not while staying at the edge, so a position
+     * another viewer saves meanwhile survives until someone next returns.
+     */
+    rejoinedLive() {
       if (!source) return;
       lastWrite = now();
       void clear(source.recordingId);
@@ -88,7 +99,7 @@ export function createProgress({ save, clear, fetch = globalThis.fetch, now = ()
 
     /**
      * Keepalive flush for page hide, route change, and dispose. The server applies the
-     * same clamp and end rule, so a position near the end clears there too.
+     * same clamp and end rule (none while live), so a position near the end clears there too.
      */
     flush() {
       if (!eligible() || now() - lastWrite < FLUSH_SKIP_MS || typeof fetch !== "function") return;

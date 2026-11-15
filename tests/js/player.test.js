@@ -744,24 +744,45 @@ describe("VideoPlayer.razor.js", () => {
       player = null;
     });
 
-    it("ignores the resume position and never saves while live", async () => {
-      await start(view({ state: "recording", resumeSec: 42 }));
-      media.metadata(600);
+    it("never saves while following the live edge, even after opening without playing", async () => {
+      await start(view({ state: "recording" }));
+      media.seekableEnd = 60;
+      hls.instances[0].liveSyncPosition = 48;
+      media.metadata(60);
+      vi.advanceTimersByTime(60_000);
+      window.dispatchEvent(new Event("pagehide"));
       hook("center").click();
       vi.advanceTimersByTime(60_000);
-      hook("play").click();
       window.dispatchEvent(new Event("pagehide"));
 
-      expect(media.seeks).not.toContain(42);
       expect(calls("SaveProgress")).toEqual([]);
       expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("saves a live position once a pause or a seek back leaves the live edge", async () => {
+      await start(view({ state: "recording" }));
+      media.seekableEnd = 60;
+      hls.instances[0].liveSyncPosition = 48;
+      media.metadata(60);
+      hook("center").click();
+
+      // A pause right at the edge is inside the 30 s end margin and still saves.
+      hook("play").click();
+      expect(calls("SaveProgress").at(-1)).toEqual(["SaveProgress", "r1", 48]);
+
+      hook("center").click();
+      hook("seek").focus();
+      key(hook("seek"), "Home");
+      media.time(12);
+      vi.advanceTimersByTime(15_000);
+      expect(calls("SaveProgress").at(-1)).toEqual(["SaveProgress", "r1", 12]);
     });
   });
 
   describe("live captures", () => {
     // A growing capture: 60 s seekable, hls.js syncs one target duration behind the end.
-    async function startLive(state = "recording") {
-      await start(view({ state, resumeSec: 25 }));
+    async function startLive(state = "recording", resumeSec = null) {
+      await start(view({ state, resumeSec }));
       const [instance] = hls.instances;
       media.seekableEnd = 60;
       instance.liveSyncPosition = 48;
@@ -776,16 +797,30 @@ describe("VideoPlayer.razor.js", () => {
       media.metadata(end);
     };
 
-    it("opens at the live sync position, ignores the resume position, and shows the edge", async () => {
+    it("opens at the live sync position without a resume position, and shows the edge", async () => {
       await startLive();
 
       expect(hook("video").currentTime).toBe(48);
-      expect(media.seeks).not.toContain(25);
       expect(hook("live").hidden).toBe(false);
       expect(hook("live").classList.contains("at-edge")).toBe(true);
       expect(hook("edge").hidden).toBe(false);
       expect(hook("edge").style.left).toBe("100%");
       expect(hook("video").play).not.toHaveBeenCalled();
+    });
+
+    it("opens at the resume position, paused and not following, when the viewer left the edge", async () => {
+      const instance = await startLive("recording", 25);
+
+      expect(hook("video").currentTime).toBe(25);
+      expect(hook("video").play).not.toHaveBeenCalled();
+      expect(hook("live").hidden).toBe(false);
+      expect(hook("live").classList.contains("at-edge")).toBe(false);
+
+      // Playing from there stays put instead of jumping to the edge.
+      hook("center").click();
+      growTo(instance, 90);
+      media.time(26);
+      expect(hook("video").currentTime).toBe(26);
     });
 
     it("follows the sync position while playing and grows the duration", async () => {
@@ -906,6 +941,68 @@ describe("VideoPlayer.razor.js", () => {
 
       expect(hook("waiting").hidden).toBe(true);
       expect(hook("overlay").hidden).toBe(false);
+    });
+
+    describe("rejoining the live edge", () => {
+      const clears = () =>
+        dotNet.invokeMethodAsync.mock.calls.filter(([name]) => name === "ClearProgress");
+
+      it("does not clear when the recording simply opens at the live edge", async () => {
+        await startLive();
+        expect(clears()).toEqual([]);
+      });
+
+      it("clears once when Live edge is pressed after leaving the edge", async () => {
+        await startLive("recording", 25);
+        hook("live").click();
+        expect(clears()).toEqual([["ClearProgress", "r1"]]);
+
+        // Staying at the edge does not keep clearing (another viewer's position survives).
+        hook("live").click();
+        hook("seek").focus();
+        key(hook("seek"), "End");
+        expect(clears()).toHaveLength(1);
+      });
+
+      it.each([
+        ["End on the seek bar", () => key(hook("seek"), "End")],
+        ["a seek to within 2 s of the sync position", () => player.seek(47)],
+        ["a seek to the red tick", () => player.seek(59.5)],
+      ])("clears on %s", async (_name, rejoin) => {
+        await startLive("recording", 25);
+        hook("seek").focus();
+        rejoin();
+        expect(clears()).toEqual([["ClearProgress", "r1"]]);
+        expect(hook("live").classList.contains("at-edge")).toBe(true);
+      });
+
+      it("does not clear on a seek that stays behind the edge", async () => {
+        await startLive("recording", 25);
+        player.seek(40);
+        expect(clears()).toEqual([]);
+      });
+    });
+
+    it("retries behind the live edge at the last known position", async () => {
+      const instance = await startLive();
+      hook("seek").focus();
+      key(hook("seek"), "Home");
+      media.time(20);
+      for (let attempt = 0; attempt < 4; attempt++) {
+        instance.emit("hlsError", { type: "networkError", details: "fragLoadError", fatal: true });
+        vi.advanceTimersByTime(4_000);
+      }
+      expect(hook("overlay").hidden).toBe(false);
+
+      hook("retry").click();
+      await Promise.resolve();
+      await Promise.resolve();
+      const next = hls.instances.at(-1);
+      media.seekableEnd = 70;
+      next.liveSyncPosition = 58;
+      media.metadata(70);
+      expect(hook("video").currentTime).toBe(20);
+      expect(hook("live").classList.contains("at-edge")).toBe(false);
     });
 
     it("retries a failed live capture at the live edge", async () => {

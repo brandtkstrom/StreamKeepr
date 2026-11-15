@@ -301,6 +301,20 @@ public sealed class LibraryDrawerTests
         Assert.Contains("5.0 GB free of 100.0 GB", cut.Find(".sk-storage").GetAttribute("title"));
     }
 
+    [Theory]
+    [InlineData(105.0, "width:25%")]
+    [InlineData(null, "width:100%")]
+    public void A_live_row_shows_its_resume_bar_or_the_full_live_bar(double? resume, string width)
+    {
+        using BunitContext context = CreateContext(new TestLibraryView());
+        RecordingView live = Recording("r1", "ann", RecordingState.Recording, Now) with { ResumeSec = resume };
+
+        IRenderedComponent<RecordingRow> cut = context.Render<RecordingRow>(parameters => parameters
+            .Add(component => component.Recording, live));
+
+        Assert.Equal(width, cut.Find(".prog i").GetAttribute("style"));
+    }
+
     [Fact]
     public void A_paused_streamer_shows_paused_without_a_live_ring()
     {
