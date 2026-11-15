@@ -19,8 +19,14 @@ internal sealed class ScriptedStreamPoller : IStreamPoller
         new(StringComparer.Ordinal);
 
     private int _nudges;
+    private int _lookups;
 
     public int Nudges => Volatile.Read(ref _nudges);
+
+    public int Lookups => Volatile.Read(ref _lookups);
+
+    /// <summary>Overrides the default profile lookup when a test needs failures or delays.</summary>
+    public Func<string, CancellationToken, Task<ChannelProfile?>>? Lookup { get; set; }
 
     public async Task RunAsync(
         Func<IReadOnlyList<string>> logins,
@@ -42,8 +48,13 @@ internal sealed class ScriptedStreamPoller : IStreamPoller
         }
     }
 
-    public Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct) =>
-        Task.FromResult(Profiles.GetValueOrDefault(login));
+    public Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct)
+    {
+        Interlocked.Increment(ref _lookups);
+        return Lookup is null
+            ? Task.FromResult(Profiles.GetValueOrDefault(login))
+            : Lookup(login, ct);
+    }
 
     public Task<ChannelInfo?> GetChannelInfoAsync(
         string broadcasterId, CancellationToken ct) =>

@@ -12,11 +12,11 @@ This contract defines the test seams, projects, fake-Twitch harness, determinism
 
 | Layer | Project | Scope |
 |---|---|---|
-| Unit | `tests/StreamKeepr.Tests` | Pure reducer, stitcher, parser, recovery, args, path/media rules, poll schedule, token cache, allowlist logic, IRC/Twitch chat parser, chat timeline, chat log and purge |
-| Integration | `tests/StreamKeepr.Tests` | `WebApplicationFactory`: media, health, auth, progress, export, channel and chat endpoints; real DI with fake external services |
+| Unit | `tests/StreamKeepr.Tests` | Pure reducer, stitcher, parser, recovery, args, path/media rules, poll schedule, token cache, allowlist logic, IRC/Twitch chat parser, chat timeline, chat log and purge, third-party emote provider/cache |
+| Integration | `tests/StreamKeepr.Tests` | `WebApplicationFactory`: media, health, auth, progress, export, channel, chat, and emote catalog endpoints; real DI with fake external services |
 | Component | `tests/StreamKeepr.Tests` | bUnit: primitives, library, player shell, stats, chat pane, details, auth, settings |
-| JS | `tests/js` | Vitest: timecode, preferences, tree navigation, shortcuts, sparkline, player pure logic, chat playhead/reveal/sync |
-| E2E | `tests/StreamKeepr.E2E` | Playwright .NET against the Mock profile: journeys, chat replay, axe, keyboard, screenshots |
+| JS | `tests/js` | Vitest: timecode, preferences, tree navigation, shortcuts, sparkline, player pure logic, chat playhead/reveal/sync, third-party emote matching |
+| E2E | `tests/StreamKeepr.E2E` | Playwright .NET against the Mock profile: journeys, chat replay, emote replay, axe, keyboard, screenshots |
 | Container | `tests/StreamKeepr.E2E` or CI | Docker build, non-root smoke, health, deep links, restart |
 
 Use the highest seam that still exercises real behavior. Do not mock the reducer, stitcher, session store, or other internal domain objects.
@@ -41,6 +41,7 @@ tests/
 ```
 
 - `tests/StreamKeepr.Tests` references `src/StreamKeepr` directly. No separate test-only public API.
+- `src/StreamKeepr` grants `InternalsVisibleTo` to `StreamKeepr.Tests` so unit and integration tests can exercise internal seams (emote providers, catalog service, channel resolver) without widening the public surface. Do not add test-only public members to production types; cover new internals through that binding.
 - `tests/StreamKeepr.E2E` starts the app with the `Mock` launch profile on a free loopback port, waits for `/health/ready`, then runs Playwright.
 - The E2E fixture publishes the Debug output once per run and starts `StreamKeepr.dll` with `ASPNETCORE_ENVIRONMENT=Mock` on a free loopback port, then runs Playwright. It keeps the source project as the content root for the Mock fixture path and points `ASPNETCORE_WEBROOT` at the publish output. The shared publish is a stable test artifact, not a workaround: the Mock host enables build-time static web assets outside Development, so `_framework/*.js` is also served from a normal build.
 - `tests/js` is dev-only; Node never enters the image.
@@ -141,6 +142,7 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 | Twitch/auth | Token cache/refresh/401; forced admin-token refresh; poller batch/Unknown/offline/profile; schedule/coverage; EventSub welcome/refusal/409 session verification/429 capacity/partial coverage/no-resolved-channel idle/non-live online/dedupe/reconnect handoff/malformed and route isolation/401 retry/timeouts/backoff; allowlist empty/configured; callback/HTTPS/cookie/logout; token encryption/rotation/clear/wait; subscriber token |
 | Hosting | Media allowlist/traversal/content types/cache/Range; live vs final index; health push-aware/readiness; Data Protection persistence; preflight; endpoint auth |
 | Frontend | bUnit primitives and feature components; Vitest helpers/player logic; Playwright journeys; axe/keyboard |
+| Emotes | Provider normalization and static URL assembly; cache TTL/stale/single-flight and bounds; channel-ID fallback and memoization; cold global with a slow resolver; endpoint shape/disabled/failure; matcher precedence and native-range protection; image attributes and text fallback; Mock/E2E fixture; no external network |
 | Container | Build; non-root; health; deep links; volume; secrets; stop finalize; restart recovery |
 
 ## 10. Failure modes

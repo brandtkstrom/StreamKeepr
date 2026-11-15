@@ -82,6 +82,107 @@ function apiUrl(recordingId) {
   );
 }
 
+function emotesUrl(recordingId) {
+  return new URL(
+    `/api/recordings/${encodeURIComponent(recordingId)}/emotes`,
+    window.location.origin,
+  );
+}
+
+function isHttpsUrl(value) {
+  if (typeof value !== "string") return false;
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Builds the code-to-entry lookup for a catalog response. The server already orders and dedupes
+ * entries; a Map keeps the first entry for a code, which is the documented precedence. Provider
+ * data is untrusted, so only absolute https image sources enter the catalog.
+ */
+export function buildEmoteCatalog(entries) {
+  const catalog = new Map();
+  const claimed = new Set();
+  for (const entry of entries || []) {
+    if (!entry || typeof entry.code !== "string" || entry.code === "") continue;
+    // First entry wins even when its src is invalid: the code then falls back to text and a
+    // later duplicate must not replace it.
+    if (claimed.has(entry.code)) continue;
+    claimed.add(entry.code);
+    if (!isHttpsUrl(entry.src)) continue;
+    catalog.set(entry.code, entry);
+  }
+  return catalog;
+}
+
+/**
+ * Splits message text into text, Twitch-emote, and third-party-emote segments. Matching runs on
+ * code points so a native range cannot split a surrogate pair; only U+0020 separates tokens, and
+ * every character between native ranges is preserved. `nativeRanges` are inclusive code-point
+ * ranges, as chat messages already store them.
+ */
+export function matchEmotes(text, nativeRanges, catalog) {
+  const chars = Array.from(String(text ?? ""));
+  const ranges = [];
+  for (const range of nativeRanges || []) {
+    if (!range || !Number.isInteger(range.from) || !Number.isInteger(range.to)) continue;
+    if (range.from < 0 || range.to < range.from || range.to >= chars.length) continue;
+    ranges.push(range);
+  }
+  ranges.sort((a, b) => a.from - b.from);
+
+  const segments = [];
+  let pending = "";
+
+  const flushText = () => {
+    if (pending !== "") {
+      segments.push({ type: "text", text: pending });
+      pending = "";
+    }
+  };
+
+  const matchToken = (start, end) => {
+    const token = chars.slice(start, end).join("");
+    const entry = catalog?.get(token);
+    if (entry) {
+      flushText();
+      segments.push({ type: "emote", text: token, entry });
+    } else {
+      pending += token;
+    }
+  };
+
+  const matchPlain = (start, end) => {
+    let tokenStart = start;
+    for (let index = start; index < end; index++) {
+      if (chars[index] !== " ") continue;
+      if (tokenStart < index) matchToken(tokenStart, index);
+      pending += " ";
+      tokenStart = index + 1;
+    }
+    if (tokenStart < end) matchToken(tokenStart, end);
+  };
+
+  let cursor = 0;
+  for (const range of ranges) {
+    if (range.from < cursor) continue;
+    matchPlain(cursor, range.from);
+    flushText();
+    segments.push({
+      type: "native",
+      text: chars.slice(range.from, range.to + 1).join(""),
+      id: range.id,
+    });
+    cursor = range.to + 1;
+  }
+  matchPlain(cursor, chars.length);
+  flushText();
+  return segments;
+}
+
 export function createChatPane(root, {
   dotNet = null,
   fetch: fetchImpl = globalThis.fetch?.bind(globalThis),
@@ -122,6 +223,15 @@ export function createChatPane(root, {
   let pollTimer = 0;
   // The backfill in progress, if any. It has its own request so polls never abort it.
   let backfill = null;
+  let emoteCatalog = new Map();
+  // Codes whose image failed stay text for this recording, even when the log rebuilds.
+  let failedEmotes = new Set();
+  // The catalog is requested once per recording load, at the first moment the open pane is
+  // enabled; a failure leaves text and is not retried per message.
+  let emoteAttempted = false;
+  let emoteController = null;
+  // A catalog that arrives after the log is visible must rebuild it exactly once.
+  let emoteVersion = 0;
 
   function status(text, state = "") {
     if (el["chat-state"]) {
@@ -140,8 +250,40 @@ export function createChatPane(root, {
     el["chat-toggle"]?.setAttribute("aria-expanded", open ? "true" : "false");
     el["chat-toggle"]?.setAttribute("aria-label", open ? "Collapse chat" : "Open chat");
     if (el["chat-body"]) el["chat-body"].inert = !open;
-    if (open) startPolling();
-    else stopPolling();
+    if (open) {
+      startPolling();
+      maybeFetchEmotes();
+    } else {
+      stopPolling();
+    }
+  }
+
+  function maybeFetchEmotes() {
+    if (disposed || !open || !view?.emotesEnabled || emoteAttempted) return;
+    emoteAttempted = true;
+    void fetchEmotes(view.recordingId);
+  }
+
+  async function fetchEmotes(recordingId) {
+    if (typeof fetchImpl !== "function") return;
+    const request = new AbortController();
+    emoteController = request;
+    try {
+      const response = await fetchImpl(emotesUrl(recordingId), { signal: request.signal });
+      if (!response.ok) throw new Error(`emotes ${response.status}`);
+      const data = await response.json();
+      if (disposed || request.signal.aborted || view?.recordingId !== recordingId) return;
+      emoteCatalog = buildEmoteCatalog(data.available ? data.entries : []);
+      emoteVersion++;
+      render();
+    } catch (error) {
+      // A catalog failure is invisible by design; chat text remains the fallback.
+      if (error?.name !== "AbortError") {
+        console.debug("Stream Keepr: emote catalog fetch failed; chat stays text.", error);
+      }
+    } finally {
+      if (emoteController === request) emoteController = null;
+    }
   }
 
   /**
@@ -225,6 +367,12 @@ export function createChatPane(root, {
     open = Boolean(next.open);
     if (changed) {
       resetWindow();
+      emoteController?.abort();
+      emoteController = null;
+      emoteCatalog = new Map();
+      failedEmotes = new Set();
+      emoteAttempted = false;
+      emoteVersion++;
       syncOffset = readOffset(storage, next.recordingId, next.maxSyncOffsetSec);
       updateSync();
       status(next.hasChat ? "Loading chat…" : "No chat captured", next.hasChat ? "loading" : "empty");
@@ -472,7 +620,8 @@ export function createChatPane(root, {
     }
     const key = visible.map((message) => message.id).join("|") + "|" +
       gaps.map((gap) => `${gap.from}:${gap.to}`).join("|") + "|" +
-      (view?.state ?? "") + "|" + (view?.hasChat === false ? "empty" : "");
+      (view?.state ?? "") + "|" + (view?.hasChat === false ? "empty" : "") +
+      `|emotes:${emoteVersion}`;
     if (key === lastRenderKey) return;
     lastRenderKey = key;
 
@@ -558,43 +707,80 @@ export function createChatPane(root, {
   }
 
   function appendText(parent, value, emotes) {
-    const chars = Array.from(value);
+    // matchEmotes validates ranges against the code-point array, so the bounds check exists once.
     const ranges = [];
     for (const emote of emotes) {
       for (const range of emote.ranges || []) {
-        if (range.from >= 0 && range.to >= range.from && range.to < chars.length) {
-          ranges.push({ from: range.from, to: range.to, id: emote.id });
-        }
+        if (!range) continue;
+        ranges.push({ from: range.from, to: range.to, id: emote.id });
       }
     }
-    ranges.sort((a, b) => a.from - b.from);
 
-    let index = 0;
-    for (const range of ranges) {
-      if (range.from < index) continue;
-      if (range.from > index) {
-        parent.append(document.createTextNode(chars.slice(index, range.from).join("")));
-      }
-      const name = chars.slice(range.from, range.to + 1).join("");
-      if (/^[A-Za-z0-9_]+$/.test(range.id)) {
-        const image = document.createElement("img");
-        const base = `https://static-cdn.jtvnw.net/emoticons/v2/${encodeURIComponent(range.id)}/default/dark`;
-        image.src = `${base}/1.0`;
-        image.srcset = `${base}/1.0 1x, ${base}/2.0 2x, ${base}/3.0 3x`;
-        image.alt = name;
-        image.title = name;
-        image.loading = "lazy";
-        image.decoding = "async";
-        parent.append(image);
+    for (const segment of matchEmotes(value, ranges, emoteCatalog)) {
+      if (segment.type === "emote") {
+        parent.append(emoteImage(segment.entry, segment.text));
+      } else if (segment.type === "native") {
+        parent.append(nativeEmoteImage(segment.id, segment.text));
       } else {
-        parent.append(document.createTextNode(name));
+        parent.append(document.createTextNode(segment.text));
       }
-      index = range.to + 1;
     }
+  }
 
-    if (index < chars.length) {
-      parent.append(document.createTextNode(chars.slice(index).join("")));
+  /** The shared alt/title and lazy/async attributes for native and third-party emotes. */
+  function applyEmoteImageAttributes(image, { src, srcset, code }) {
+    image.src = src;
+    if (srcset) image.setAttribute("srcset", srcset);
+    image.alt = code;
+    image.title = code;
+    image.setAttribute("loading", "lazy");
+    image.setAttribute("decoding", "async");
+  }
+
+  function nativeEmoteImage(id, name) {
+    if (typeof id !== "string" || !/^[A-Za-z0-9_]+$/.test(id)) {
+      return document.createTextNode(name);
     }
+    const image = document.createElement("img");
+    const base = `https://static-cdn.jtvnw.net/emoticons/v2/${encodeURIComponent(id)}/default/dark`;
+    applyEmoteImageAttributes(image, {
+      src: `${base}/1.0`,
+      srcset: `${base}/1.0 1x, ${base}/2.0 2x, ${base}/3.0 3x`,
+      code: name,
+    });
+    return image;
+  }
+
+  function safeSrcSet(value) {
+    if (typeof value !== "string") return "";
+    const candidates = value.split(",").map((candidate) => candidate.trim()).filter(Boolean);
+    if (candidates.length === 0) return "";
+    for (const candidate of candidates) {
+      if (!isHttpsUrl(candidate.split(/\s+/)[0])) return "";
+    }
+    return candidates.join(", ");
+  }
+
+  function emoteImage(entry, code) {
+    if (failedEmotes.has(code) || !isHttpsUrl(entry?.src)) return document.createTextNode(code);
+    const image = document.createElement("img");
+    applyEmoteImageAttributes(image, {
+      src: entry.src,
+      srcset: safeSrcSet(entry.srcset),
+      code,
+    });
+    image.setAttribute("referrerpolicy", "no-referrer");
+    // The error handler replaces the image with this code; the row never retries it.
+    image.dataset.emoteCode = code;
+    return image;
+  }
+
+  function onEmoteError(event) {
+    const image = event.target;
+    const code = image?.dataset?.emoteCode;
+    if (!code) return;
+    failedEmotes.add(code);
+    image.replaceWith(document.createTextNode(code));
   }
 
   function onPlayhead(event) {
@@ -641,6 +827,8 @@ export function createChatPane(root, {
 
   on(el["chat-toggle"], "click", toggleAndPersist);
   on(el["chat-log"], "scroll", onScroll, { passive: true });
+  // Image errors do not bubble, so capture them at the log.
+  on(el["chat-log"], "error", onEmoteError, { capture: true });
   on(el["chat-jump"], "click", jumpToCurrent);
   on(el["chat-sync-back2"], "click", () => setSync(syncOffset - 2));
   on(el["chat-sync-back1"], "click", () => setSync(syncOffset - 1));
@@ -668,6 +856,7 @@ export function createChatPane(root, {
       if (disposed) return;
       disposed = true;
       controller?.abort();
+      emoteController?.abort();
       stopBackfill();
       stopPolling();
       listeners.abort();

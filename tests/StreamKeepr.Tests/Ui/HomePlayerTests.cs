@@ -136,7 +136,7 @@ public sealed class HomePlayerTests
         context.Services.AddSingleton<IProgressStore>(new TestProgressStore());
         context.Services.AddSingleton<ILibraryView>(view);
 
-        // Production default: chat capture is off.
+        // Production defaults: chat capture and third-party emotes are off.
         context.Services.AddSingleton(Options.Create(new ChatOptions()));
         return context;
     }
