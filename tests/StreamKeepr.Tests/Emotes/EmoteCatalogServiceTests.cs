@@ -543,6 +543,48 @@ public sealed class EmoteCatalogServiceTests
         Assert.Equal(1, provider.Calls);
     }
 
+    [Fact]
+    public async Task A_channel_refresh_timeout_serves_the_stale_catalogs()
+    {
+        var hang = false;
+        var started = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = new StubEmoteProvider
+        {
+            Fetch = async (_, ct) =>
+            {
+                if (!hang)
+                {
+                    return new EmoteProviderCatalog(
+                        [EmoteTestData.Entry(code: "CHANNEL")],
+                        [EmoteTestData.Entry(code: "GLOBAL")]);
+                }
+
+                started.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+                throw new InvalidOperationException("unreachable");
+            },
+        };
+        EmoteCatalogService service = Create([provider]);
+
+        await service.GetCatalogAsync(new EmoteChannel("chan", "42"), CancellationToken.None);
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        hang = true;
+
+        Task<EmoteCatalogResult> pending = service.GetCatalogAsync(
+            new EmoteChannel("chan", "42"), CancellationToken.None);
+        await started.Task;
+        _clock.Advance(TimeSpan.FromSeconds(3));
+        EmoteCatalogResult result = await pending.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(result.Available);
+        Assert.True(result.Stale);
+        Assert.Equal(Now, result.FetchedAt);
+        Assert.Equal(["CHANNEL", "GLOBAL"], result.Entries.Select(item => item.Entry.Code));
+        Assert.Equal(2, provider.Calls);
+        Assert.Single(_logs.Messages);
+    }
+
     private EmoteCatalogService Create(
         IEnumerable<IEmoteProvider> providers,
         bool enabled = true,
