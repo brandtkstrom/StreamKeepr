@@ -1,5 +1,7 @@
+using System.Text.Json;
 using Bunit;
 using Bunit.TestDoubles;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Components.Pages;
@@ -95,6 +97,32 @@ public sealed class ChatPaneTests
             .Add(component => component.Recording, LiveRecording(3, hasChat: true))
             .Add(component => component.Open, true)));
         Assert.Single(module.Invocations, call => call.Identifier == "load");
+    }
+
+    [Theory]
+    [InlineData("false", false)]
+    [InlineData("true", true)]
+    public void Initializes_the_module_with_the_emotes_flag(string configured, bool expected)
+    {
+        using BunitContext context = HomePlayerTests.CreateContext(
+            out BunitJSModuleInterop module, out TestLibraryView _);
+        module = context.JSInterop.SetupModule(Module);
+        module.Mode = JSRuntimeMode.Loose;
+        context.Services.AddSingleton<IConfiguration>(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Chat:Emotes:Bttv:Enabled"] = configured,
+            })
+            .Build());
+
+        context.Render<ChatPane>(p => p
+            .Add(c => c.Recording, WithChat())
+            .Add(c => c.Open, true));
+
+        JSRuntimeInvocation init = Assert.Single(module.Invocations, call => call.Identifier == "init");
+        JsonElement payload = JsonSerializer.SerializeToElement(
+            init.Arguments[2], new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal(expected, payload.GetProperty("emotesEnabled").GetBoolean());
     }
 
     private static RecordingView WithChat() =>
