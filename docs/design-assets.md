@@ -10,6 +10,7 @@ Status: complete (2026-11-10). The Claude design-system export is installed; Mat
 | Design-system source | Present | Claude artifact export, 2026-11-10 | `design-system/` | Manifest v3; 9 components; tokens and previews |
 | Built CSS | Present | Generated from `design-system/` | `src/StreamKeepr/wwwroot/css/` | `tokens.css`, `components.css`, `fonts.css` |
 | Material Symbols Rounded | Present | `material-symbols@0.48.3` | `src/StreamKeepr/wwwroot/fonts/material-symbols-rounded.woff2`; `design-system/fonts/` | Apache-2.0; license copied |
+| Logo and favicon set | Present | Original artwork, 2026-11-15 (MudBlazor design system, Logos and Favicon groups) | `branding/` (all files and usage READMEs); `src/StreamKeepr/wwwroot/` (`favicon.svg`, `favicon.ico`, `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, `manifest.webmanifest`) | Project-owned; the wordmark is outlined from Roboto Flex Bold (OFL), so no font is embedded |
 | hls.js ESM 1.7.4 | Present | `https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.mjs` | `src/StreamKeepr/wwwroot/lib/hls.js/hls.mjs` | Apache-2.0; license copied |
 | hls.js 1.6.15 (local cache) | Not used | `/Users/brandt/repos/go-ffmpeg/frontend/node_modules/hls.js` | — | Superseded by 1.7.4 |
 | Dracula PRO palette | Reference | `/Users/brandt/Downloads/dracula-pro-v2.2.4/design/` | — | Design input; not vendored |
@@ -54,7 +55,12 @@ design-system/                              # exported source of truth
   components/<Comp>/README.md, preview.html
   api/tokens.md, api/components/*.md
   fonts/                                    # Material Symbols Rounded, committed
+branding/
+  logo/                                     # mark and lockups, SVG + PNG, usage README
+  favicon/                                  # favicon.svg/.ico, app icons, sources, README
 src/StreamKeepr/wwwroot/
+  favicon.svg, favicon.ico, apple-touch-icon.png, icon-192.png, icon-512.png
+  manifest.webmanifest                      # linked from App.razor <head>
   css/tokens.css, components.css, fonts.css # generated/committed
   fonts/material-symbols-rounded.woff2      # committed, Apache-2.0
   lib/hls.js/hls.mjs                        # committed, Apache-2.0

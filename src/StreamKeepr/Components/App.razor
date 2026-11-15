@@ -5,6 +5,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
+    @* Brand icons (design-system Favicon group). The .ico comes first for older browsers;
+       browsers that support SVG favicons prefer the later SVG link. *@
+    <link rel="icon" href="@Assets["favicon.ico"]" sizes="48x48" />
+    <link rel="icon" href="@Assets["favicon.svg"]" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="@Assets["apple-touch-icon.png"]" />
+    <link rel="manifest" href="@Assets["manifest.webmanifest"]" />
     <link rel="stylesheet" href="@Assets["css/tokens.css"]" />
     <link rel="stylesheet" href="@Assets["css/fonts.css"]" />
     <link rel="stylesheet" href="@Assets["css/components.css"]" />
