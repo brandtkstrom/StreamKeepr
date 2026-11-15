@@ -1,0 +1,167 @@
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
+using StreamKeepr.Configuration;
+using StreamKeepr.Domain;
+using StreamKeepr.Infrastructure.Emotes;
+using StreamKeepr.Infrastructure.Storage;
+
+namespace StreamKeepr.Tests.Emotes;
+
+public sealed class EmoteChannelResolverTests : IDisposable
+{
+    private static readonly DateTimeOffset Now =
+        new(2026, 11, 15, 9, 0, 0, TimeSpan.Zero);
+
+    private readonly string _root = Path.Combine(
+        Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
+    private readonly FakeTimeProvider _clock = new(Now);
+    private readonly StubEmotePoller _poller = new();
+
+    public EmoteChannelResolverTests() => Directory.CreateDirectory(_root);
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_root))
+            Directory.Delete(_root, recursive: true);
+    }
+
+    [Fact]
+    public async Task A_profile_in_the_channel_store_wins_without_a_poller_lookup()
+    {
+        ChannelStore store = await CreateStoreAsync("chan");
+        await store.SetProfileAsync(
+            "chan", "42", "Chan", avatarUrl: null, CancellationToken.None);
+        _poller.Lookup = (_, _) => Task.FromResult<ChannelProfile?>(
+            new ChannelProfile("99", "Chan", null));
+        EmoteChannelResolver resolver = new(store, _poller, _clock);
+
+        string? userId = await resolver.ResolveAsync(" CHAN ", CancellationToken.None);
+
+        Assert.Equal("42", userId);
+        Assert.Equal(0, _poller.Lookups);
+    }
+
+    [Fact]
+    public async Task A_missing_profile_is_resolved_by_the_poller_and_cached_for_five_minutes()
+    {
+        ChannelStore store = await CreateStoreAsync();
+        _poller.Lookup = (_, _) => Task.FromResult<ChannelProfile?>(
+            new ChannelProfile("42", "Chan", null));
+        EmoteChannelResolver resolver = new(store, _poller, _clock);
+
+        Assert.Equal("42", await resolver.ResolveAsync("chan", CancellationToken.None));
+        _clock.Advance(TimeSpan.FromMinutes(4));
+        Assert.Equal("42", await resolver.ResolveAsync("chan", CancellationToken.None));
+        Assert.Equal(1, _poller.Lookups);
+
+        _clock.Advance(TimeSpan.FromMinutes(1));
+        Assert.Equal("42", await resolver.ResolveAsync("chan", CancellationToken.None));
+        Assert.Equal(2, _poller.Lookups);
+    }
+
+    [Fact]
+    public async Task An_unknown_login_caches_the_missing_resolution_for_five_minutes()
+    {
+        ChannelStore store = await CreateStoreAsync();
+        EmoteChannelResolver resolver = new(store, _poller, _clock);
+
+        Assert.Null(await resolver.ResolveAsync("missing", CancellationToken.None));
+        Assert.Null(await resolver.ResolveAsync("missing", CancellationToken.None));
+        Assert.Equal(1, _poller.Lookups);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        Assert.Null(await resolver.ResolveAsync("missing", CancellationToken.None));
+        Assert.Equal(2, _poller.Lookups);
+    }
+
+    [Fact]
+    public async Task A_transient_poller_failure_is_not_cached()
+    {
+        ChannelStore store = await CreateStoreAsync();
+        var failed = false;
+        _poller.Lookup = (_, _) =>
+        {
+            if (failed)
+            {
+                return Task.FromResult<ChannelProfile?>(
+                    new ChannelProfile("42", "Chan", null));
+            }
+
+            failed = true;
+            return Task.FromException<ChannelProfile?>(
+                new HttpRequestException("Twitch unavailable."));
+        };
+        EmoteChannelResolver resolver = new(store, _poller, _clock);
+
+        Assert.Null(await resolver.ResolveAsync("chan", CancellationToken.None));
+        Assert.Equal("42", await resolver.ResolveAsync("chan", CancellationToken.None));
+        Assert.Equal(2, _poller.Lookups);
+    }
+
+    [Fact]
+    public async Task A_non_numeric_poller_id_is_treated_as_unresolved()
+    {
+        ChannelStore store = await CreateStoreAsync();
+        _poller.Lookup = (_, _) => Task.FromResult<ChannelProfile?>(
+            new ChannelProfile("not-a-number", "Chan", null));
+        EmoteChannelResolver resolver = new(store, _poller, _clock);
+
+        Assert.Null(await resolver.ResolveAsync("chan", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task The_channel_store_is_consulted_before_a_cached_poller_result()
+    {
+        ChannelStore store = await CreateStoreAsync("chan");
+        _poller.Lookup = (_, _) => Task.FromResult<ChannelProfile?>(
+            new ChannelProfile("42", "Chan", null));
+        EmoteChannelResolver resolver = new(store, _poller, _clock);
+        Assert.Equal("42", await resolver.ResolveAsync("chan", CancellationToken.None));
+
+        await store.SetProfileAsync(
+            "chan", "43", "Chan", avatarUrl: null, CancellationToken.None);
+
+        Assert.Equal("43", await resolver.ResolveAsync("chan", CancellationToken.None));
+        Assert.Equal(1, _poller.Lookups);
+    }
+
+    [Fact]
+    public async Task Concurrent_resolutions_share_one_poller_lookup()
+    {
+        ChannelStore store = await CreateStoreAsync();
+        var started = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<ChannelProfile?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _poller.Lookup = (_, _) =>
+        {
+            started.TrySetResult();
+            return release.Task;
+        };
+        EmoteChannelResolver resolver = new(store, _poller, _clock);
+
+        Task<string?> first = resolver.ResolveAsync("chan", CancellationToken.None);
+        await started.Task;
+        Task<string?>[] others = Enumerable.Range(0, 4)
+            .Select(_ => resolver.ResolveAsync("chan", CancellationToken.None))
+            .ToArray();
+        await Task.Delay(50);
+
+        release.SetResult(new ChannelProfile("42", "Chan", null));
+        string?[] results = await Task.WhenAll([first, .. others]);
+
+        Assert.All(results, userId => Assert.Equal("42", userId));
+        Assert.Equal(1, _poller.Lookups);
+    }
+
+    private async Task<ChannelStore> CreateStoreAsync(params string[] seeds)
+    {
+        var store = new ChannelStore(
+            Options.Create(new TwitchOptions { Channels = [.. seeds] }),
+            Options.Create(new StorageOptions { RecordingsRoot = _root }),
+            NullLogger<ChannelStore>.Instance);
+        await store.LoadAsync(CancellationToken.None);
+        return store;
+    }
+}
