@@ -100,7 +100,6 @@ builder.Services.AddSingleton<ProgressStore>();
 builder.Services.AddSingleton<ChatLogStore>();
 builder.Services.AddSingleton<ChatReader>();
 builder.Services.AddSingleton<TwitchChatParser>();
-builder.Services.AddSingleton<IEmoteProvider, BttvEmoteProvider>();
 builder.Services.AddSingleton<EmoteChannelResolver>();
 builder.Services.AddSingleton<EmoteCatalogService>();
 builder.Services.AddSingleton<IExportLeaseRegistry, ExportLeaseRegistry>();
@@ -128,6 +127,9 @@ if (mock)
     builder.Services.AddSingleton<MockChatSource>();
     builder.Services.AddSingleton<IChatSource>(services =>
         services.GetRequiredService<MockChatSource>());
+
+    // The fixed fixture keeps the Mock profile off both BetterTTV endpoints.
+    builder.Services.AddSingleton<IEmoteProvider, MockEmoteProvider>();
 
     // The mock volume makes the 1 % storage threshold observable in local/E2E runs.
     builder.Services.AddSingleton<MockDiskSpace>();
@@ -159,6 +161,8 @@ else
     builder.Services.AddSingleton<IrcChatClient>();
     builder.Services.AddSingleton<IChatSource>(services =>
         services.GetRequiredService<IrcChatClient>());
+
+    builder.Services.AddSingleton<IEmoteProvider, BttvEmoteProvider>();
 }
 
 builder.Services.AddSingleton<DvrSupervisor>();
