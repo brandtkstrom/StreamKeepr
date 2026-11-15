@@ -121,6 +121,50 @@ public sealed class BttvEmoteProviderTests
     }
 
     [Fact]
+    public async Task Absent_and_empty_restrictions_do_not_drop_an_emote()
+    {
+        string json = JsonSerializer.Serialize(new object[]
+        {
+            new { id = EmoteTestData.StaticId, code = "ABSENT", animated = false, modifier = false },
+            new
+            {
+                id = EmoteTestData.StaticId,
+                code = "EMPTYARRAY",
+                animated = false,
+                modifier = false,
+                restrictions = Array.Empty<object>(),
+            },
+            new
+            {
+                id = EmoteTestData.StaticId,
+                code = "EMPTYOBJECT",
+                animated = false,
+                modifier = false,
+                restrictions = new Dictionary<string, string>(),
+            },
+            new
+            {
+                id = EmoteTestData.StaticId,
+                code = "RESTRICTED",
+                animated = false,
+                modifier = false,
+                restrictions = new { emoteSet = "night" },
+            },
+        });
+
+        var handler = new StubHttpMessageHandler(
+            (_, _) => Task.FromResult(EmoteTestData.Json(json)));
+        BttvEmoteProvider provider = CreateProvider(handler);
+
+        IReadOnlyList<EmoteCatalogEntry> entries =
+            await provider.GetGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(
+            ["ABSENT", "EMPTYARRAY", "EMPTYOBJECT"],
+            entries.Select(entry => entry.Code));
+    }
+
+    [Fact]
     public async Task Global_catalog_rejects_a_body_over_two_mebibytes()
     {
         var handler = new StubHttpMessageHandler((_, _) => Task.FromResult(

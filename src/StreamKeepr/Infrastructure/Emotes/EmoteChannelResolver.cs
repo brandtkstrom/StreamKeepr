@@ -7,17 +7,20 @@ using StreamKeepr.Infrastructure.Twitch;
 namespace StreamKeepr.Infrastructure.Emotes;
 
 /// <summary>
-/// Resolves a Twitch login to its numeric user ID. The persisted channel list is authoritative
-/// and is checked on every call; the Helix fallback result, including a login Twitch does not
-/// know, is cached for five minutes with single-flight so replay does not repeat lookups.
+/// Resolves a Twitch login to its numeric user ID. On a cache miss the persisted channel list
+/// is consulted before Helix; the result from either source (including a login Twitch does not
+/// know) is cached for five minutes with single-flight so replay does not repeat lookups. The
+/// cache is bounded; above the limit, expired entries and then arbitrary entries are pruned.
 /// </summary>
 internal sealed class EmoteChannelResolver(
     ChannelStore store,
     IStreamPoller poller,
     TimeProvider clock,
-    ILogger<EmoteChannelResolver> logger)
+    ILogger<EmoteChannelResolver> logger) : IEmoteChannelResolver
 {
     public static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
+
+    private const int CacheLimit = 1_024;
 
     private readonly ConcurrentDictionary<string, SingleFlightSlot<CachedResolution>> _cache =
         new(StringComparer.Ordinal);
@@ -28,21 +31,36 @@ internal sealed class EmoteChannelResolver(
         if (login.Length == 0)
             return null;
 
-        if (FindStoredId(login) is { } stored)
-            return stored;
-
-        SingleFlightSlot<CachedResolution> slot = _cache.GetOrAdd(
-            login, static _ => new SingleFlightSlot<CachedResolution>());
         DateTimeOffset now = clock.GetUtcNow();
-        if (slot.Value is { } cached && now - cached.ResolvedAt < CacheTtl)
-            return cached.UserId;
+        _cache.TryGetValue(login, out SingleFlightSlot<CachedResolution>? slot);
+        if (slot is not null && IsFresh(slot.Value, now))
+            return slot.Value!.UserId;
+
+        if (slot is null)
+        {
+            BoundedEmoteCache.Trim(
+                _cache,
+                CacheLimit,
+                now,
+                CacheTtl,
+                static resolution => resolution.ResolvedAt);
+            slot = _cache.GetOrAdd(
+                login, static _ => new SingleFlightSlot<CachedResolution>());
+        }
 
         await slot.Gate.WaitAsync(ct);
         try
         {
             now = clock.GetUtcNow();
-            if (slot.Value is { } refreshed && now - refreshed.ResolvedAt < CacheTtl)
-                return refreshed.UserId;
+            if (IsFresh(slot.Value, now))
+                return slot.Value!.UserId;
+
+            // The stored channel list is authoritative; a hit is memoized like a Helix result.
+            if (FindStoredId(login) is { } stored)
+            {
+                slot.Value = new CachedResolution(stored, clock.GetUtcNow());
+                return stored;
+            }
 
             ChannelProfile? profile;
             try
@@ -70,6 +88,9 @@ internal sealed class EmoteChannelResolver(
             slot.Gate.Release();
         }
     }
+
+    private static bool IsFresh(CachedResolution? cached, DateTimeOffset now) =>
+        cached is not null && now - cached.ResolvedAt < CacheTtl;
 
     private string? FindStoredId(string login)
     {

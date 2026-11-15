@@ -8,6 +8,7 @@ using StreamKeepr.Infrastructure.Emotes;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Emotes;
+using StreamKeepr.Tests.Runtime;
 
 namespace StreamKeepr.Tests.Hosting;
 
@@ -182,18 +183,14 @@ public sealed class EmoteEndpointTests
     [Fact]
     public async Task Enabled_endpoint_returns_channel_entries_before_global_entries()
     {
-        var poller = new StubEmotePoller
-        {
-            Lookup = (_, _) => Task.FromResult<ChannelProfile?>(
-                new ChannelProfile("12345", "chan", null)),
-        };
+        var resolver = new FakeEmoteChannelResolver("12345");
         var handler = new StubHttpMessageHandler((request, _) =>
             Task.FromResult(EmoteTestData.Json(
                 request.RequestUri!.AbsolutePath.Contains("/users/twitch/", StringComparison.Ordinal)
                     ? ChannelJson
                     : GlobalJson)));
         using StreamKeeprAppFactory factory = CreateFactory(
-            handler, enabled: true, poller: poller);
+            handler, enabled: true, resolver: resolver);
         using HttpClient client = factory.CreateClient();
 
         using HttpResponseMessage response =
@@ -209,17 +206,17 @@ public sealed class EmoteEndpointTests
             handler.Requests,
             request => request.RequestUri?.AbsoluteUri ==
                 "https://api.betterttv.net/3/cached/users/twitch/12345");
-        Assert.Equal(1, poller.Lookups);
+        Assert.Equal(1, resolver.Lookups);
     }
 
     [Fact]
     public async Task An_unresolved_channel_returns_global_entries_only()
     {
-        var poller = new StubEmotePoller();
+        var resolver = new FakeEmoteChannelResolver();
         var handler = new StubHttpMessageHandler(
             (_, _) => Task.FromResult(EmoteTestData.Json(GlobalJson)));
         using StreamKeeprAppFactory factory = CreateFactory(
-            handler, enabled: true, poller: poller);
+            handler, enabled: true, resolver: resolver);
         using HttpClient client = factory.CreateClient();
 
         using HttpResponseMessage response =
@@ -231,34 +228,34 @@ public sealed class EmoteEndpointTests
             json.RootElement.GetProperty("entries").EnumerateArray());
         Assert.Equal("KEKW", entry.GetProperty("code").GetString());
         Assert.Single(handler.Requests);
-        Assert.Equal(1, poller.Lookups);
+        Assert.Equal(1, resolver.Lookups);
     }
 
     [Fact]
     public async Task A_disabled_feature_does_not_resolve_the_channel()
     {
-        var poller = new StubEmotePoller
+        var resolver = new FakeEmoteChannelResolver
         {
-            Lookup = (_, _) => throw new InvalidOperationException("must not resolve"),
+            Resolve = (_, _) => throw new InvalidOperationException("must not resolve"),
         };
         var handler = new StubHttpMessageHandler(
             (_, _) => Task.FromResult(EmoteTestData.Json(GlobalJson)));
         using StreamKeeprAppFactory factory = CreateFactory(
-            handler, enabled: false, poller: poller);
+            handler, enabled: false, resolver: resolver);
         using HttpClient client = factory.CreateClient();
 
         using HttpResponseMessage response =
             await client.GetAsync($"/api/recordings/{Summary.Id}/emotes");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(0, poller.Lookups);
+        Assert.Equal(0, resolver.Lookups);
         Assert.Empty(handler.Requests);
     }
 
     [Fact]
     public async Task The_channel_resolution_is_cached_across_requests()
     {
-        var poller = new StubEmotePoller
+        var poller = new ScriptedStreamPoller
         {
             Lookup = (_, _) => Task.FromResult<ChannelProfile?>(
                 new ChannelProfile("12345", "chan", null)),
@@ -288,18 +285,14 @@ public sealed class EmoteEndpointTests
     [Fact]
     public async Task A_channel_failure_still_returns_the_global_catalog()
     {
-        var poller = new StubEmotePoller
-        {
-            Lookup = (_, _) => Task.FromResult<ChannelProfile?>(
-                new ChannelProfile("12345", "chan", null)),
-        };
+        var resolver = new FakeEmoteChannelResolver("12345");
         var handler = new StubHttpMessageHandler((request, _) =>
             Task.FromResult(
                 request.RequestUri!.AbsolutePath.Contains("/users/twitch/", StringComparison.Ordinal)
                     ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
                     : EmoteTestData.Json(GlobalJson)));
         using StreamKeeprAppFactory factory = CreateFactory(
-            handler, enabled: true, poller: poller);
+            handler, enabled: true, resolver: resolver);
         using HttpClient client = factory.CreateClient();
 
         using HttpResponseMessage response =
@@ -317,18 +310,14 @@ public sealed class EmoteEndpointTests
     [Fact]
     public async Task A_global_failure_still_returns_the_channel_catalog()
     {
-        var poller = new StubEmotePoller
-        {
-            Lookup = (_, _) => Task.FromResult<ChannelProfile?>(
-                new ChannelProfile("12345", "chan", null)),
-        };
+        var resolver = new FakeEmoteChannelResolver("12345");
         var handler = new StubHttpMessageHandler((request, _) =>
             Task.FromResult(
                 request.RequestUri!.AbsolutePath.Contains("/users/twitch/", StringComparison.Ordinal)
                     ? EmoteTestData.Json(ChannelJson)
                     : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)));
         using StreamKeeprAppFactory factory = CreateFactory(
-            handler, enabled: true, poller: poller);
+            handler, enabled: true, resolver: resolver);
         using HttpClient client = factory.CreateClient();
 
         using HttpResponseMessage response =
@@ -349,7 +338,8 @@ public sealed class EmoteEndpointTests
         HttpMessageHandler handler,
         bool enabled,
         TimeProvider? clock = null,
-        StubEmotePoller? poller = null)
+        FakeEmoteChannelResolver? resolver = null,
+        ScriptedStreamPoller? poller = null)
     {
         var overrides = new Dictionary<string, string?>
         {
@@ -362,7 +352,19 @@ public sealed class EmoteEndpointTests
             {
                 services.AddHttpClient(EmoteHttpClients.Bttv)
                     .ConfigurePrimaryHttpMessageHandler(() => handler);
-                services.AddSingleton<IStreamPoller>(poller ?? new StubEmotePoller());
+                if (poller is not null)
+                {
+                    // Exercise the real resolver and its cache with a scripted Helix lookup.
+                    services.AddSingleton<IStreamPoller>(poller);
+                    services.AddSingleton<IEmoteChannelResolver>(
+                        provider => provider.GetRequiredService<EmoteChannelResolver>());
+                }
+                else
+                {
+                    services.AddSingleton<IEmoteChannelResolver>(
+                        resolver ?? new FakeEmoteChannelResolver());
+                }
+
                 if (clock is not null)
                     services.AddSingleton(clock);
             });

@@ -1,7 +1,5 @@
 using System.Collections.Concurrent;
 using System.Globalization;
-using Microsoft.Extensions.Options;
-using StreamKeepr.Configuration;
 
 namespace StreamKeepr.Infrastructure.Emotes;
 
@@ -18,15 +16,16 @@ internal sealed record EmoteCatalogResult(
 }
 
 /// <summary>
-/// Aggregates enabled provider catalogs. Global catalogs are cached once per provider and
-/// channel catalogs once per provider and channel ID, both for five minutes with a single
-/// in-flight refresh. A failed refresh serves the cached catalog when one exists and otherwise
-/// leaves that scope out; all provider work shares one three-second budget.
+/// Aggregates enabled provider catalogs. Global refreshes start before channel-ID resolution so
+/// a slow resolver cannot keep a cold global catalog from being fetched inside the shared
+/// three-second budget; channel scopes start once an ID is known. Global catalogs are cached
+/// once per provider and channel catalogs once per provider and channel ID, both for five
+/// minutes with a single in-flight refresh per key. A failed refresh serves that scope's cached
+/// catalog when one exists and otherwise leaves the scope out.
 /// </summary>
 internal sealed class EmoteCatalogService(
     IEnumerable<IEmoteProvider> providers,
-    EmoteChannelResolver resolver,
-    IOptions<ChatOptions> options,
+    IEmoteChannelResolver resolver,
     TimeProvider clock,
     ILogger<EmoteCatalogService> logger)
 {
@@ -34,16 +33,20 @@ internal sealed class EmoteCatalogService(
 
     public static readonly TimeSpan ProviderTimeout = TimeSpan.FromSeconds(3);
 
-    private readonly ConcurrentDictionary<string, SingleFlightSlot<CachedCatalog>> _globalCatalogs =
+    // The global cache is bounded by the provider count; channel entries get an explicit cap.
+    private const int ChannelCacheLimit = 128;
+
+    private readonly ConcurrentDictionary<string, SingleFlightSlot<CatalogScope>> _globalCatalogs =
         new(StringComparer.Ordinal);
 
-    private readonly ConcurrentDictionary<string, SingleFlightSlot<CachedCatalog>> _channelCatalogs =
+    private readonly ConcurrentDictionary<string, SingleFlightSlot<CatalogScope>> _channelCatalogs =
         new(StringComparer.Ordinal);
 
-    public async Task<EmoteCatalogResult> GetCatalogAsync(
-        EmoteChannel channel, CancellationToken ct)
+    public async Task<EmoteCatalogResult> GetCatalogAsync(string login, CancellationToken ct)
     {
-        if (!options.Value.Emotes.AnyEnabled)
+        // Enablement is provider-specific so a future provider needs no change here.
+        IEmoteProvider[] enabled = providers.Where(provider => provider.Enabled).ToArray();
+        if (enabled.Length == 0)
             return EmoteCatalogResult.Unavailable;
 
         using var budget = new CancellationTokenSource();
@@ -55,49 +58,55 @@ internal sealed class EmoteCatalogService(
         using CancellationTokenSource linked =
             CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
 
-        string? channelId = EmoteCatalogRules.IsValidChannelId(channel.TwitchUserId)
-            ? channel.TwitchUserId
-            : null;
-        if (channelId is null && !string.IsNullOrWhiteSpace(channel.Login))
+        // Start every global refresh before resolution. A slow resolver then cannot consume the
+        // budget before a cold global catalog has started fetching (REQ-012).
+        Task<CatalogScope?>[] globalTasks = enabled
+            .Select(provider => RefreshGlobalAsync(provider, linked.Token, ct))
+            .ToArray();
+
+        string? channelId;
+        try
         {
-            try
-            {
-                channelId = await resolver.ResolveAsync(channel.Login, linked.Token);
-            }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            {
-                // The shared three-second budget expired; serve the global catalog only.
-                logger.LogWarning(
-                    "Emote channel ID resolution timed out; serving global emotes only: " +
-                    "channel={ChannelId}, login={Login}",
-                    channel.TwitchUserId ?? "global",
-                    channel.Login);
-            }
+            channelId = await ResolveChannelAsync(login, linked.Token, ct);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The caller left. Observe the refreshes already in flight, then propagate.
+            await Task.WhenAll(globalTasks).ConfigureAwait(false);
+            throw;
+        }
+
+        Task<CatalogScope?>[] channelTasks = channelId is null
+            ? []
+            : enabled
+                .Select(provider => RefreshChannelAsync(provider, channelId, linked.Token, ct))
+                .ToArray();
+
+        Task<CatalogScope?[]> globalResults = Task.WhenAll(globalTasks);
+        Task<CatalogScope?[]> channelResults = Task.WhenAll(channelTasks);
+
+        // Wait for both sets before reading either result, so caller cancellation never leaves
+        // a started refresh unobserved.
+        await Task.WhenAll(globalResults, channelResults).ConfigureAwait(false);
+        CatalogScope?[] globals = await globalResults.ConfigureAwait(false);
+        CatalogScope?[] channels = await channelResults.ConfigureAwait(false);
 
         var entries = new List<EmoteCatalogItem>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        var available = false;
-        var stale = false;
-        DateTimeOffset? fetchedAt = null;
+        var providerScopes = new List<CatalogScope>(enabled.Length);
 
-        foreach (IEmoteProvider provider in providers)
+        for (int index = 0; index < enabled.Length; index++)
         {
-            // Enablement is provider-specific so a future provider needs no change here.
-            if (!provider.Enabled)
+            CatalogScope? scope = Combine([
+                channelId is null ? null : channels[index],
+                globals[index],
+            ]);
+            if (scope is null)
                 continue;
 
-            ProviderCatalog? catalog = await GetProviderCatalogAsync(
-                provider, channelId, linked.Token, ct);
-            if (catalog is null)
-                continue;
-
-            available = true;
-            stale |= catalog.Stale;
-            if (fetchedAt is null || catalog.FetchedAt < fetchedAt)
-                fetchedAt = catalog.FetchedAt;
-
-            foreach (EmoteCatalogEntry entry in catalog.Entries)
+            providerScopes.Add(scope);
+            IEmoteProvider provider = enabled[index];
+            foreach (EmoteCatalogEntry entry in scope.Entries)
             {
                 if (!seen.Add(entry.Code))
                     continue;
@@ -107,58 +116,84 @@ internal sealed class EmoteCatalogService(
             }
         }
 
-        return new EmoteCatalogResult(available, stale, fetchedAt, entries);
+        return Combine(providerScopes) is { } catalog
+            ? new EmoteCatalogResult(true, catalog.Stale, catalog.FetchedAt, entries)
+            : EmoteCatalogResult.Unavailable;
     }
 
-    /// <summary>
-    /// Refreshes the provider's global and channel scopes independently. Each scope owns its
-    /// cache key, TTL, stale fallback, and single-flight gate, so one scope's failure neither
-    /// discards the other's catalog nor blocks its refresh.
-    /// </summary>
-    private async Task<ProviderCatalog?> GetProviderCatalogAsync(
-        IEmoteProvider provider,
-        string? channelId,
-        CancellationToken work,
-        CancellationToken callerCt)
+    private async Task<string?> ResolveChannelAsync(
+        string login, CancellationToken work, CancellationToken callerCt)
     {
-        SingleFlightSlot<CachedCatalog> globalSlot = _globalCatalogs.GetOrAdd(
-            provider.Id, static _ => new SingleFlightSlot<CachedCatalog>());
+        if (string.IsNullOrWhiteSpace(login))
+            return null;
 
-        CachedCatalog? global = await RefreshScopeAsync(
+        try
+        {
+            return await resolver.ResolveAsync(login, work);
+        }
+        catch (OperationCanceledException) when (!callerCt.IsCancellationRequested)
+        {
+            logger.LogWarning(
+                "Emote channel ID resolution timed out; serving global emotes only: login={Login}",
+                login);
+            return null;
+        }
+    }
+
+    private Task<CatalogScope?> RefreshGlobalAsync(
+        IEmoteProvider provider, CancellationToken work, CancellationToken callerCt)
+    {
+        SingleFlightSlot<CatalogScope> slot = _globalCatalogs.GetOrAdd(
+            provider.Id, static _ => new SingleFlightSlot<CatalogScope>());
+
+        return RefreshScopeAsync(
             provider,
-            globalSlot,
+            slot,
             scope: "global",
-            channelId,
+            channelId: null,
             work,
             callerCt,
             token => provider.GetGlobalAsync(token));
+    }
 
-        CachedCatalog? channel = null;
-        if (channelId is not null)
+    private Task<CatalogScope?> RefreshChannelAsync(
+        IEmoteProvider provider,
+        string channelId,
+        CancellationToken work,
+        CancellationToken callerCt)
+    {
+        string key = $"{provider.Id}:{channelId}";
+        if (!_channelCatalogs.TryGetValue(key, out SingleFlightSlot<CatalogScope>? slot))
         {
-            string resolvedId = channelId;
-            SingleFlightSlot<CachedCatalog> channelSlot = _channelCatalogs.GetOrAdd(
-                $"{provider.Id}:{resolvedId}", static _ => new SingleFlightSlot<CachedCatalog>());
-            channel = await RefreshScopeAsync(
-                provider,
-                channelSlot,
-                scope: "channel",
-                resolvedId,
-                work,
-                callerCt,
-                token => provider.GetChannelAsync(resolvedId, token));
+            BoundedEmoteCache.Trim(
+                _channelCatalogs,
+                ChannelCacheLimit,
+                clock.GetUtcNow(),
+                CacheTtl,
+                static cached => cached.FetchedAt);
+            slot = _channelCatalogs.GetOrAdd(
+                key, static _ => new SingleFlightSlot<CatalogScope>());
         }
 
-        return Combine(channel, global, clock.GetUtcNow());
+        return RefreshScopeAsync(
+            provider,
+            slot,
+            scope: "channel",
+            channelId,
+            work,
+            callerCt,
+            token => provider.GetChannelAsync(channelId, token));
     }
 
     /// <summary>
     /// Returns the scope's fresh cache, refreshes it under its single-flight gate, or falls back
-    /// to its stale cache. A failure with no cache leaves the scope out.
+    /// to its stale cache. A failure with no cache leaves the scope out. <see cref="CatalogScope.Stale"/>
+    /// is decided here, when the scope is read, so a later scope's fetch cannot retroactively
+    /// make an earlier fresh catalog stale.
     /// </summary>
-    private async Task<CachedCatalog?> RefreshScopeAsync(
+    private async Task<CatalogScope?> RefreshScopeAsync(
         IEmoteProvider provider,
-        SingleFlightSlot<CachedCatalog> slot,
+        SingleFlightSlot<CatalogScope> slot,
         string scope,
         string? channelId,
         CancellationToken work,
@@ -167,7 +202,7 @@ internal sealed class EmoteCatalogService(
     {
         // The shared budget may have expired during channel-ID resolution or the other scope.
         if (work.IsCancellationRequested)
-            return slot.Value;
+            return Served(slot.Value, clock.GetUtcNow());
 
         DateTimeOffset now = clock.GetUtcNow();
         if (IsFresh(slot.Value, now))
@@ -183,7 +218,7 @@ internal sealed class EmoteCatalogService(
             }
             catch (OperationCanceledException) when (!callerCt.IsCancellationRequested)
             {
-                return slot.Value;
+                return Served(slot.Value, clock.GetUtcNow());
             }
 
             now = clock.GetUtcNow();
@@ -194,14 +229,14 @@ internal sealed class EmoteCatalogService(
             {
                 IReadOnlyList<EmoteCatalogEntry> entries = await fetch(work);
                 DateTimeOffset fetchedAt = clock.GetUtcNow();
-                var cached = new CachedCatalog(Normalize(entries), fetchedAt);
+                var cached = new CatalogScope(Normalize(entries), fetchedAt);
                 slot.Value = cached;
                 return cached;
             }
             catch (Exception exception) when (!callerCt.IsCancellationRequested)
             {
                 LogRefreshFailure(provider, scope, channelId, exception);
-                return slot.Value;
+                return Served(slot.Value, clock.GetUtcNow());
             }
         }
         finally
@@ -211,58 +246,39 @@ internal sealed class EmoteCatalogService(
         }
     }
 
-    /// <summary>Channel entries precede global entries; first entry wins the service-level dedupe.</summary>
-    private static ProviderCatalog? Combine(
-        CachedCatalog? channel, CachedCatalog? global, DateTimeOffset now)
+    /// <summary>
+    /// Rolls up scopes in order: channel before global within a provider, and providers in
+    /// registration order. The caller supplies the order; this helper only concatenates entries,
+    /// takes the earliest fetch time, and ORs the stale flags decided at scope-read time.
+    /// </summary>
+    private static CatalogScope? Combine(IEnumerable<CatalogScope?> scopes)
     {
-        if (global is null && channel is null)
+        CatalogScope[] available = scopes
+            .Where(scope => scope is not null)
+            .Select(scope => scope!)
+            .ToArray();
+        if (available.Length == 0)
             return null;
 
-        var entries = new List<EmoteCatalogEntry>(
-            (channel?.Entries.Count ?? 0) + (global?.Entries.Count ?? 0));
-        var stale = false;
-        DateTimeOffset? fetchedAt = null;
-
-        if (channel is not null)
-        {
-            entries.AddRange(channel.Entries);
-            stale |= !IsFresh(channel, now);
-            fetchedAt = channel.FetchedAt;
-        }
-
-        if (global is not null)
-        {
-            entries.AddRange(global.Entries);
-            stale |= !IsFresh(global, now);
-            if (fetchedAt is null || global.FetchedAt < fetchedAt)
-                fetchedAt = global.FetchedAt;
-        }
-
-        return new ProviderCatalog(entries, fetchedAt!.Value, stale);
+        return new CatalogScope(
+            [.. available.SelectMany(scope => scope.Entries)],
+            available.Min(scope => scope.FetchedAt),
+            available.Any(scope => scope.Stale));
     }
 
-    private static bool IsFresh(CachedCatalog? cached, DateTimeOffset now) =>
+    /// <summary>Marks a cached scope stale when it is older than the TTL at the moment it is read.</summary>
+    private static CatalogScope? Served(CatalogScope? cached, DateTimeOffset now) =>
+        cached is null
+            ? null
+            : cached with { Stale = !IsFresh(cached, now) };
+
+    private static bool IsFresh(CatalogScope? cached, DateTimeOffset now) =>
         cached is not null && now - cached.FetchedAt < CacheTtl;
 
     private void LogRefreshFailure(
         IEmoteProvider provider, string scope, string? channelId, Exception exception)
     {
-        int? httpStatus = exception switch
-        {
-            EmoteProviderException providerError => providerError.HttpStatus,
-            HttpRequestException requestError => (int?)requestError.StatusCode,
-            _ => null,
-        };
-        string reason = exception switch
-        {
-            EmoteProviderException { Kind: EmoteProviderFailureKind.InvalidPayload } =>
-                "invalid-payload",
-            EmoteProviderException { Kind: EmoteProviderFailureKind.TooLarge } => "too-large",
-            EmoteProviderException => "http",
-            OperationCanceledException => "timeout",
-            HttpRequestException => "transport",
-            _ => "error",
-        };
+        (int? httpStatus, string reason) = DescribeFailure(exception);
         string status = httpStatus?.ToString(CultureInfo.InvariantCulture) ?? "none";
 
         logger.LogWarning(
@@ -276,6 +292,19 @@ internal sealed class EmoteCatalogService(
             reason);
     }
 
+    private static (int? HttpStatus, string Reason) DescribeFailure(Exception exception) =>
+        exception switch
+        {
+            EmoteProviderException { Kind: EmoteProviderFailureKind.InvalidPayload } =>
+                (null, "invalid-payload"),
+            EmoteProviderException { Kind: EmoteProviderFailureKind.TooLarge } =>
+                (null, "too-large"),
+            EmoteProviderException providerError => (providerError.HttpStatus, "http"),
+            OperationCanceledException => (null, "timeout"),
+            HttpRequestException requestError => ((int?)requestError.StatusCode, "transport"),
+            _ => (null, "error"),
+        };
+
     private static IReadOnlyList<EmoteCatalogEntry> Normalize(
         IEnumerable<EmoteCatalogEntry> entries) =>
         entries
@@ -283,9 +312,6 @@ internal sealed class EmoteCatalogService(
             .Take(EmoteCatalogRules.MaxEntriesPerCatalog)
             .ToArray();
 
-    private sealed record CachedCatalog(
-        IReadOnlyList<EmoteCatalogEntry> Entries, DateTimeOffset FetchedAt);
-
-    private sealed record ProviderCatalog(
-        IReadOnlyList<EmoteCatalogEntry> Entries, DateTimeOffset FetchedAt, bool Stale);
+    private sealed record CatalogScope(
+        IReadOnlyList<EmoteCatalogEntry> Entries, DateTimeOffset FetchedAt, bool Stale = false);
 }

@@ -7,7 +7,9 @@ namespace StreamKeepr.Hosting;
 
 /// <summary>
 /// Public read-only third-party emote catalog for a recording's channel. Optional decoration:
-/// failures degrade to an empty catalog and never affect chat or health.
+/// a failed scope serves its stale cache or leaves only that scope out, and catalog failures
+/// never affect chat or health. The response is unavailable only when no enabled provider has
+/// a global or channel catalog.
 /// </summary>
 internal static class EmoteEndpoint
 {
@@ -25,8 +27,7 @@ internal static class EmoteEndpoint
         if (library.Find(id) is not { } summary)
             return Results.NotFound();
 
-        EmoteCatalogResult result = await catalog.GetCatalogAsync(
-            new EmoteChannel(summary.Channel, TwitchUserId: null), ct);
+        EmoteCatalogResult result = await catalog.GetCatalogAsync(summary.Channel, ct);
         return Results.Json(EmoteCatalogResponse.From(result));
     }
 }

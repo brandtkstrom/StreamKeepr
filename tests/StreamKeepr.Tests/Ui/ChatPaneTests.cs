@@ -6,6 +6,8 @@ using Microsoft.Extensions.Options;
 using StreamKeepr.Components.Pages;
 using StreamKeepr.Configuration;
 using StreamKeepr.Components.Features.Chat;
+using StreamKeepr.Infrastructure.Emotes;
+using StreamKeepr.Tests.Emotes;
 using StreamKeepr.Ui;
 
 namespace StreamKeepr.Tests.Ui;
@@ -107,13 +109,8 @@ public sealed class ChatPaneTests
             out BunitJSModuleInterop module, out TestLibraryView _);
         module = context.JSInterop.SetupModule(Module);
         module.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton(Options.Create(new ChatOptions
-        {
-            Emotes = new ChatEmoteOptions
-            {
-                Bttv = new BttvEmoteOptions { Enabled = enabled },
-            },
-        }));
+        context.Services.AddSingleton<IEmoteProvider>(
+            new StubEmoteProvider { Enabled = enabled });
 
         context.Render<ChatPane>(p => p
             .Add(c => c.Recording, WithChat())

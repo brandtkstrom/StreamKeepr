@@ -42,7 +42,7 @@ Chat capture is isolated from the DVR path: a source or store failure is logged 
 | `MaxBytesPerSession` | 512 MiB | Per-session cap; a full log is marked `truncated` and capture stops for that session. |
 | `PurgeDeletedText` | `Off` | `OnFinalize` removes deleted text at finalize (ADR 0009). |
 
-Third-party emote catalogs are fetched on demand by `GET /api/recordings/{id}/emotes` behind an `IEmoteProvider` seam; the five-minute cache and three-second provider bound are constants, not configuration. Catalog and image failures never affect chat capture, replay, or health (ADR 0011).
+Third-party emote catalogs are fetched on demand by `GET /api/recordings/{id}/emotes` behind an `IEmoteProvider` seam; global refreshes start before channel-ID resolution, and the five-minute cache and three-second provider bound are constants, not configuration. Catalog and image failures never affect chat capture, replay, or health (ADR 0011).
 
 Only the coordinator loop mutates domain state. Readers use `DvrStatus` and `RecordingLibrary`; they never inspect a live coordinator.
 

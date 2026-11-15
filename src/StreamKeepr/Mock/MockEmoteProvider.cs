@@ -1,5 +1,3 @@
-using Microsoft.Extensions.Options;
-using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Emotes;
 
 namespace StreamKeepr.Mock;
@@ -8,9 +6,10 @@ namespace StreamKeepr.Mock;
 /// The Mock profile's fixed third-party catalog. It replaces the BetterTTV provider so local and
 /// E2E runs never call <c>api.betterttv.net</c>, and its image URLs use the reserved
 /// <c>.invalid</c> host so the browser never calls <c>cdn.betterttv.net</c> either. The E2E
-/// journey intercepts that host and serves the image bytes itself.
+/// journey intercepts that host and serves the image bytes itself. The fixture is always
+/// enabled so a Mock run renders it regardless of the production BetterTTV flag.
 /// </summary>
-internal sealed class MockEmoteProvider(IOptions<ChatOptions> options) : IEmoteProvider
+internal sealed class MockEmoteProvider : IEmoteProvider
 {
     public const string ImageHost = "https://emotes.mock.invalid";
 
@@ -27,7 +26,7 @@ internal sealed class MockEmoteProvider(IOptions<ChatOptions> options) : IEmoteP
 
     public string Id => BttvEmoteProvider.ProviderId;
 
-    public bool Enabled => options.Value.Emotes.Bttv.Enabled;
+    public bool Enabled => true;
 
     public Task<IReadOnlyList<EmoteCatalogEntry>> GetGlobalAsync(CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<EmoteCatalogEntry>>(Fixture);
@@ -36,16 +35,6 @@ internal sealed class MockEmoteProvider(IOptions<ChatOptions> options) : IEmoteP
         string channelId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<EmoteCatalogEntry>>([]);
 
-    /// <summary>
-    /// Mirrors <see cref="BttvEmoteProvider.GetStaticImage"/> on the mock host: animated entries
-    /// point at their still frame and static entries at the regular assets.
-    /// </summary>
-    public EmoteImageSet GetStaticImage(EmoteCatalogEntry entry)
-    {
-        string folder = entry.Animated ? "static/" : "";
-        string Url(string size) => $"{ImageHost}/emote/{entry.Id}/{folder}{size}.webp";
-
-        return new EmoteImageSet(
-            Url("1x"), $"{Url("1x")} 1x, {Url("2x")} 2x, {Url("3x")} 3x");
-    }
+    public EmoteImageSet GetStaticImage(EmoteCatalogEntry entry) =>
+        StaticEmoteImage.Create(ImageHost, entry);
 }

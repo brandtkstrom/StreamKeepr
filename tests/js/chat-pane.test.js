@@ -956,6 +956,15 @@ describe("third-party emote matching", () => {
     expect(segments.find((segment) => segment.type === "emote").entry).toBe(first);
   });
 
+  it("falls back to text when the first entry for a code has an invalid src", () => {
+    const invalid = { ...KEKW, id: "invalid", src: "http://cdn.betterttv.net/emote/a/1x.webp" };
+    const valid = { ...KEKW, id: "valid", src: "https://cdn.betterttv.net/emote/b/1x.webp" };
+    const catalog = buildEmoteCatalog([invalid, valid]);
+
+    expect([...catalog.keys()]).toEqual([]);
+    expect(emoteCodes(matchEmotes("KEKW", [], catalog))).toEqual([]);
+  });
+
   it("protects native ranges and never forms a token across one", () => {
     const catalog = buildEmoteCatalog([KEKW]);
 

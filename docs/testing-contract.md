@@ -142,7 +142,7 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 | Twitch/auth | Token cache/refresh/401; forced admin-token refresh; poller batch/Unknown/offline/profile; schedule/coverage; EventSub welcome/refusal/409 session verification/429 capacity/partial coverage/no-resolved-channel idle/non-live online/dedupe/reconnect handoff/malformed and route isolation/401 retry/timeouts/backoff; allowlist empty/configured; callback/HTTPS/cookie/logout; token encryption/rotation/clear/wait; subscriber token |
 | Hosting | Media allowlist/traversal/content types/cache/Range; live vs final index; health push-aware/readiness; Data Protection persistence; preflight; endpoint auth |
 | Frontend | bUnit primitives and feature components; Vitest helpers/player logic; Playwright journeys; axe/keyboard |
-| Emotes | Provider normalization and static URL assembly; cache TTL/stale/single-flight; channel-ID fallback; endpoint shape/disabled/failure; matcher precedence and native-range protection; image attributes and text fallback; Mock/E2E fixture; no external network |
+| Emotes | Provider normalization and static URL assembly; cache TTL/stale/single-flight and bounds; channel-ID fallback and memoization; cold global with a slow resolver; endpoint shape/disabled/failure; matcher precedence and native-range protection; image attributes and text fallback; Mock/E2E fixture; no external network |
 | Container | Build; non-root; health; deep links; volume; secrets; stop finalize; restart recovery |
 
 ## 10. Failure modes
