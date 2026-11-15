@@ -1,0 +1,188 @@
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using StreamKeepr.Infrastructure.Emotes;
+
+namespace StreamKeepr.Tests.Emotes;
+
+public sealed class BttvEmoteProviderTests
+{
+    private const string GlobalJson = """
+        [
+          {"id":"54fa8f1401e468494b85b537","code":":tf:","imageType":"png","animated":false,"modifier":false},
+          {"id":"566ca38765dbbdab32ec0560","code":"KEKW","imageType":"gif","animated":true,"modifier":false}
+        ]
+        """;
+
+    [Fact]
+    public async Task Global_catalog_normalizes_entries_and_builds_static_image_urls()
+    {
+        var handler = new StubHttpMessageHandler(
+            (_, _) => Task.FromResult(EmoteTestData.Json(GlobalJson)));
+        var provider = new BttvEmoteProvider(new EmoteHttpClientFactory(handler));
+
+        EmoteProviderCatalog catalog = await provider.GetCatalogAsync(
+            new EmoteChannel("chan", null), CancellationToken.None);
+
+        Assert.Empty(catalog.Channel);
+        Assert.Collection(
+            catalog.Global,
+            entry =>
+            {
+                Assert.Equal(EmoteTestData.StaticId, entry.Id);
+                Assert.Equal(":tf:", entry.Code);
+                Assert.False(entry.Animated);
+                Assert.False(entry.Modifier);
+
+                EmoteImageSet image = provider.GetStaticImage(entry);
+                Assert.Equal(
+                    $"https://cdn.betterttv.net/emote/{EmoteTestData.StaticId}/1x.webp",
+                    image.Src);
+                Assert.Equal(
+                    $"https://cdn.betterttv.net/emote/{EmoteTestData.StaticId}/1x.webp 1x, " +
+                    $"https://cdn.betterttv.net/emote/{EmoteTestData.StaticId}/2x.webp 2x, " +
+                    $"https://cdn.betterttv.net/emote/{EmoteTestData.StaticId}/3x.webp 3x",
+                    image.SrcSet);
+            },
+            entry =>
+            {
+                Assert.Equal(EmoteTestData.AnimatedId, entry.Id);
+                Assert.Equal("KEKW", entry.Code);
+                Assert.True(entry.Animated);
+            });
+
+        CapturedRequest request = Assert.Single(handler.Requests);
+        Assert.Equal(HttpMethod.Get, request.Method);
+        Assert.Equal(
+            "https://api.betterttv.net/3/cached/emotes/global",
+            request.RequestUri?.AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task Animated_entries_use_the_static_first_frame_urls()
+    {
+        var handler = new StubHttpMessageHandler(
+            (_, _) => Task.FromResult(EmoteTestData.Json(GlobalJson)));
+        var provider = new BttvEmoteProvider(new EmoteHttpClientFactory(handler));
+
+        EmoteProviderCatalog catalog = await provider.GetCatalogAsync(
+            new EmoteChannel("chan", null), CancellationToken.None);
+
+        EmoteImageSet image = provider.GetStaticImage(catalog.Global[1]);
+        Assert.Equal(
+            $"https://cdn.betterttv.net/emote/{EmoteTestData.AnimatedId}/static/1x.webp",
+            image.Src);
+        Assert.Equal(
+            $"https://cdn.betterttv.net/emote/{EmoteTestData.AnimatedId}/static/1x.webp 1x, " +
+            $"https://cdn.betterttv.net/emote/{EmoteTestData.AnimatedId}/static/2x.webp 2x, " +
+            $"https://cdn.betterttv.net/emote/{EmoteTestData.AnimatedId}/static/3x.webp 3x",
+            image.SrcSet);
+    }
+
+    [Fact]
+    public async Task Global_catalog_drops_invalid_modifier_and_restricted_entries()
+    {
+        string json = JsonSerializer.Serialize(new object[]
+        {
+            new { id = EmoteTestData.StaticId, code = ":tf:", animated = false, modifier = false },
+            new { id = "not-an-emote-id", code = "BROKEN", animated = false, modifier = false },
+            new { id = EmoteTestData.StaticId, code = "", animated = false, modifier = false },
+            new { id = EmoteTestData.StaticId, code = new string('a', 129), animated = false, modifier = false },
+            new { id = EmoteTestData.StaticId, code = "w!", animated = false, modifier = true },
+            new
+            {
+                id = EmoteTestData.StaticId,
+                code = "RESTRICTED",
+                animated = false,
+                modifier = false,
+                restrictions = new { emoteSet = "night" },
+            },
+            new
+            {
+                id = EmoteTestData.StaticId,
+                code = "DUUR",
+                animated = false,
+                modifier = false,
+                codeOriginal = "FeelsTastyMan",
+            },
+        });
+
+        var handler = new StubHttpMessageHandler(
+            (_, _) => Task.FromResult(EmoteTestData.Json(json)));
+        var provider = new BttvEmoteProvider(new EmoteHttpClientFactory(handler));
+
+        EmoteProviderCatalog catalog = await provider.GetCatalogAsync(
+            new EmoteChannel("chan", null), CancellationToken.None);
+
+        Assert.Collection(
+            catalog.Global,
+            entry => Assert.Equal(":tf:", entry.Code),
+            entry => Assert.Equal("DUUR", entry.Code));
+    }
+
+    [Fact]
+    public async Task Global_catalog_rejects_a_body_over_two_mebibytes()
+    {
+        var handler = new StubHttpMessageHandler((_, _) => Task.FromResult(
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    new string('x', EmoteCatalogRules.MaxResponseBytes + 1),
+                    Encoding.UTF8,
+                    "application/json"),
+            }));
+        var provider = new BttvEmoteProvider(new EmoteHttpClientFactory(handler));
+
+        EmoteProviderException error = await Assert.ThrowsAsync<EmoteProviderException>(() =>
+            provider.GetCatalogAsync(new EmoteChannel("chan", null), CancellationToken.None));
+
+        Assert.Equal("bttv", error.ProviderId);
+        Assert.Equal(200, error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task Global_catalog_reports_a_non_success_http_status()
+    {
+        var handler = new StubHttpMessageHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)));
+        var provider = new BttvEmoteProvider(new EmoteHttpClientFactory(handler));
+
+        EmoteProviderException error = await Assert.ThrowsAsync<EmoteProviderException>(() =>
+            provider.GetCatalogAsync(new EmoteChannel("chan", null), CancellationToken.None));
+
+        Assert.Equal("bttv", error.ProviderId);
+        Assert.Equal(503, error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task Global_catalog_treats_malformed_json_as_a_provider_failure()
+    {
+        var handler = new StubHttpMessageHandler(
+            (_, _) => Task.FromResult(EmoteTestData.Json("{not json")));
+        var provider = new BttvEmoteProvider(new EmoteHttpClientFactory(handler));
+
+        EmoteProviderException error = await Assert.ThrowsAsync<EmoteProviderException>(() =>
+            provider.GetCatalogAsync(new EmoteChannel("chan", null), CancellationToken.None));
+
+        Assert.Equal("bttv", error.ProviderId);
+        Assert.Equal(200, error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task Global_catalog_request_is_credential_free()
+    {
+        var handler = new StubHttpMessageHandler(
+            (_, _) => Task.FromResult(EmoteTestData.Json(GlobalJson)));
+        var provider = new BttvEmoteProvider(new EmoteHttpClientFactory(handler));
+
+        await provider.GetCatalogAsync(new EmoteChannel("chan", null), CancellationToken.None);
+
+        CapturedRequest request = Assert.Single(handler.Requests);
+        Assert.DoesNotContain(
+            request.Headers,
+            header => header.Key.Equals("Authorization", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            request.Headers,
+            header => header.Key.Equals("Cookie", StringComparison.OrdinalIgnoreCase));
+    }
+}
