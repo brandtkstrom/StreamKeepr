@@ -595,6 +595,75 @@ describe("third-party emotes in the pane", () => {
     pane.dispose();
   });
 
+  it("renders global entries when no channel catalog is present", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = emoteFetch([KEKW]);
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, emotesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    expect(log.querySelector("img[alt='KEKW']")).not.toBeNull();
+    expect(log.textContent).toContain("hello ");
+
+    pane.dispose();
+  });
+
+  it("renders an animated entry's server-provided static frame", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const catjam = {
+      provider: "bttv",
+      id: "566ca38765dbbdab32ec0560",
+      code: "CatJAM",
+      animated: true,
+      src: "https://cdn.betterttv.net/emote/566ca38765dbbdab32ec0560/static/1x.webp",
+      srcset: "https://cdn.betterttv.net/emote/566ca38765dbbdab32ec0560/static/1x.webp 1x, " +
+        "https://cdn.betterttv.net/emote/566ca38765dbbdab32ec0560/static/2x.webp 2x",
+    };
+    const fetch = emoteFetch([catjam], {
+      chat: { ...emoteMessage, text: "hello CatJAM" },
+    });
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, emotesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+
+    const image = document.querySelector("[data-sk='chat-log'] img[alt='CatJAM']");
+    expect(image).not.toBeNull();
+    expect(image.getAttribute("src")).toBe(catjam.src);
+    expect(image.getAttribute("srcset")).toBe(catjam.srcset);
+
+    pane.dispose();
+  });
+
+  it("keeps a modifier code as text when the catalog omits it", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = emoteFetch([KEKW], {
+      chat: { ...emoteMessage, text: "w! hello KEKW" },
+    });
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, emotesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    expect(log.querySelector("img[alt='w!']")).toBeNull();
+    expect(log.textContent).toContain("w! hello");
+    expect(log.querySelector("img[alt='KEKW']")).not.toBeNull();
+
+    pane.dispose();
+  });
+
   it("omits an image set that is not entirely https", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
@@ -866,6 +935,14 @@ describe("third-party emote matching", () => {
     expect(matchEmotes("BRAZIL", [], catalog)[0].entry).toBe(upper);
     expect(emoteCodes(matchEmotes("D: D", [], catalog))).toEqual(["D:"]);
     expect(emoteCodes(matchEmotes(":tf: M&Mjc", [], catalog))).toEqual([":tf:", "M&Mjc"]);
+  });
+
+  it("leaves a modifier code as text when a provider drops it from the catalog", () => {
+    const catalog = buildEmoteCatalog([KEKW]);
+    const segments = matchEmotes("w! hello", [], catalog);
+
+    expect(emoteCodes(segments)).toEqual([]);
+    expect(segments.map((segment) => segment.text).join("")).toBe("w! hello");
   });
 
   it("keeps every character and the first catalog entry for a code", () => {
