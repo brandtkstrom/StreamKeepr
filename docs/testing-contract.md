@@ -41,6 +41,7 @@ tests/
 ```
 
 - `tests/StreamKeepr.Tests` references `src/StreamKeepr` directly. No separate test-only public API.
+- `src/StreamKeepr` grants `InternalsVisibleTo` to `StreamKeepr.Tests` so unit and integration tests can exercise internal seams (emote providers, catalog service, channel resolver) without widening the public surface. Do not add test-only public members to production types; cover new internals through that binding.
 - `tests/StreamKeepr.E2E` starts the app with the `Mock` launch profile on a free loopback port, waits for `/health/ready`, then runs Playwright.
 - The E2E fixture publishes the Debug output once per run and starts `StreamKeepr.dll` with `ASPNETCORE_ENVIRONMENT=Mock` on a free loopback port, then runs Playwright. It keeps the source project as the content root for the Mock fixture path and points `ASPNETCORE_WEBROOT` at the publish output. The shared publish is a stable test artifact, not a workaround: the Mock host enables build-time static web assets outside Development, so `_framework/*.js` is also served from a normal build.
 - `tests/js` is dev-only; Node never enters the image.

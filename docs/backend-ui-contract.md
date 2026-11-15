@@ -137,9 +137,9 @@ public interface IConnectionStatusView : IDisposable
 - `GET /api/recordings/{id}/emotes` is public and read-only. It returns the third-party emote catalog for the recording's channel; `Cache-Control: no-store`.
 - The response envelope is `v`, `available`, `stale`, `fetchedAt`, `entries`. Each entry is `{provider, id, code, animated, src, srcset}`. Entries are ordered by precedence and deduped by exact, case-sensitive `code`; the pane takes the first entry for a code. Entries are static-only and never include modifier/zero-width emotes.
 - `available` is true when at least one enabled provider returned a catalog (including an empty one) or served a stale cache. `stale` is true when any served catalog is stale. `fetchedAt` is the earliest successful catalog fetch time among the catalogs used to build the response, or `null` when `available` is false.
-- Unknown recordings are 404. A disabled feature or a provider failure with no cache is 200 with `available:false` and an empty `entries` array; provider errors never block chat.
+- Unknown recordings are 404. A disabled feature or a provider failure with no catalog in either scope is 200 with `available:false` and an empty `entries` array; provider errors never block chat.
 - The endpoint resolves the channel's numeric Twitch user ID at replay (`ChannelStore`, then Helix). If unresolved, it returns global entries only. No session field is stored.
-- The endpoint caches global catalogs per provider and channel catalogs per provider and channel ID for five minutes, uses single-flight refreshes, serves stale entries on failure, and bounds provider work to three seconds.
+- The endpoint caches global catalogs per provider and channel catalogs per provider and channel ID for five minutes. Each cache key has its own single-flight refresh, stale fallback, and failure boundary, so one scope's failure never discards the other's catalog; provider work is bounded to three seconds.
 - The pane's load payload carries `emotesEnabled` (true when any provider is enabled). The pane fetches the catalog once per recording load only when open and enabled; a failed fetch leaves text rendering.
 - Third-party entries are optional decoration. Chat text and Twitch emotes never depend on them.
 

@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Options;
+using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Emotes;
 
 namespace StreamKeepr.Mock;
@@ -8,27 +10,31 @@ namespace StreamKeepr.Mock;
 /// <c>.invalid</c> host so the browser never calls <c>cdn.betterttv.net</c> either. The E2E
 /// journey intercepts that host and serves the image bytes itself.
 /// </summary>
-internal sealed class MockEmoteProvider : IEmoteProvider
+internal sealed class MockEmoteProvider(IOptions<ChatOptions> options) : IEmoteProvider
 {
     public const string ImageHost = "https://emotes.mock.invalid";
 
     /// <summary>The deliberately missing image that exercises the text fallback.</summary>
     public const string MissingImageId = "000000000000000000000001";
 
-    private static readonly EmoteProviderCatalog Fixture = new(
-        Channel: [],
-        Global:
-        [
-            new("5ff36d0a95e8e11f4f6f0a1c", "KEKW", Animated: false, Modifier: false),
-            new("54fa8f1401e468494b85b537", ":tf:", Animated: false, Modifier: false),
-            new("566ca38765dbbdab32ec0560", "CatJAM", Animated: true, Modifier: false),
-            new(MissingImageId, "BrokenEmote", Animated: false, Modifier: false),
-        ]);
+    private static readonly EmoteCatalogEntry[] Fixture =
+    [
+        new("5ff36d0a95e8e11f4f6f0a1c", "KEKW", Animated: false),
+        new("54fa8f1401e468494b85b537", ":tf:", Animated: false),
+        new("566ca38765dbbdab32ec0560", "CatJAM", Animated: true),
+        new(MissingImageId, "BrokenEmote", Animated: false),
+    ];
 
     public string Id => BttvEmoteProvider.ProviderId;
 
-    public Task<EmoteProviderCatalog> GetCatalogAsync(EmoteChannel channel, CancellationToken ct) =>
-        Task.FromResult(Fixture);
+    public bool Enabled => options.Value.Emotes.Bttv.Enabled;
+
+    public Task<IReadOnlyList<EmoteCatalogEntry>> GetGlobalAsync(CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<EmoteCatalogEntry>>(Fixture);
+
+    public Task<IReadOnlyList<EmoteCatalogEntry>> GetChannelAsync(
+        string channelId, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<EmoteCatalogEntry>>([]);
 
     /// <summary>
     /// Mirrors <see cref="BttvEmoteProvider.GetStaticImage"/> on the mock host: animated entries

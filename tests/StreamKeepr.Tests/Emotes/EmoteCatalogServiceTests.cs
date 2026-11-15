@@ -25,7 +25,10 @@ public sealed class EmoteCatalogServiceTests
     [Fact]
     public async Task Disabled_feature_returns_unavailable_without_calling_any_provider()
     {
-        var provider = new StubEmoteProvider();
+        var provider = new StubEmoteProvider
+        {
+            Global = _ => Succeed(EmoteTestData.Entry()),
+        };
         EmoteCatalogService service = Create([provider], enabled: false);
 
         EmoteCatalogResult result = await service.GetCatalogAsync(
@@ -39,12 +42,36 @@ public sealed class EmoteCatalogServiceTests
     }
 
     [Fact]
+    public async Task A_disabled_provider_is_skipped_and_an_enabled_provider_is_served()
+    {
+        var disabled = new StubEmoteProvider
+        {
+            Id = "disabled",
+            Enabled = false,
+            Global = _ => Succeed(EmoteTestData.Entry(code: "DISABLED")),
+        };
+        var enabled = new StubEmoteProvider
+        {
+            Id = "enabled",
+            Global = _ => Succeed(EmoteTestData.Entry(code: "KEKW")),
+        };
+        EmoteCatalogService service = Create([disabled, enabled]);
+
+        EmoteCatalogResult result = await service.GetCatalogAsync(
+            new EmoteChannel("chan", null), CancellationToken.None);
+
+        Assert.Equal("KEKW", Assert.Single(result.Entries).Entry.Code);
+        Assert.Equal("enabled", result.Entries[0].Provider);
+        Assert.Equal(0, disabled.Calls);
+        Assert.Equal(1, enabled.GlobalCalls);
+    }
+
+    [Fact]
     public async Task A_fresh_global_catalog_is_reused_within_the_five_minute_ttl()
     {
         var provider = new StubEmoteProvider
         {
-            Fetch = (_, _) => Task.FromResult(
-                new EmoteProviderCatalog([], [EmoteTestData.Entry(code: "KEKW")])),
+            Global = _ => Succeed(EmoteTestData.Entry(code: "KEKW")),
         };
         EmoteCatalogService service = Create([provider]);
 
@@ -59,7 +86,8 @@ public sealed class EmoteCatalogServiceTests
         Assert.Equal("KEKW", Assert.Single(first.Entries).Entry.Code);
         Assert.Equal("bttv", first.Entries[0].Provider);
         Assert.Equal(Now, second.FetchedAt);
-        Assert.Equal(1, provider.Calls);
+        Assert.Equal(1, provider.GlobalCalls);
+        Assert.Equal(0, provider.ChannelCalls);
     }
 
     [Fact]
@@ -68,11 +96,10 @@ public sealed class EmoteCatalogServiceTests
         var call = 0;
         var provider = new StubEmoteProvider
         {
-            Fetch = (_, _) =>
+            Global = _ =>
             {
                 int next = Interlocked.Increment(ref call);
-                return Task.FromResult(new EmoteProviderCatalog(
-                    [], [EmoteTestData.Entry(code: $"CODE{next}")]));
+                return Succeed(EmoteTestData.Entry(code: $"CODE{next}"));
             },
         };
         EmoteCatalogService service = Create([provider]);
@@ -86,22 +113,21 @@ public sealed class EmoteCatalogServiceTests
 
         Assert.Equal("CODE1", Assert.Single(first.Entries).Entry.Code);
         Assert.Equal("CODE2", Assert.Single(second.Entries).Entry.Code);
-        Assert.Equal(2, provider.Calls);
+        Assert.Equal(2, provider.GlobalCalls);
         Assert.Equal(Now.AddMinutes(5), second.FetchedAt);
     }
 
     [Fact]
-    public async Task A_failed_refresh_without_a_cache_returns_unavailable_and_logs_once()
+    public async Task A_failed_global_refresh_without_a_cache_returns_unavailable_and_logs_once()
     {
         var provider = new StubEmoteProvider
         {
-            Fetch = (_, _) => Task.FromException<EmoteProviderCatalog>(
-                new EmoteProviderException("bttv", 503, "BetterTTV unavailable.")),
+            Global = _ => Fail(new EmoteProviderException("bttv", 503, "BetterTTV unavailable.")),
         };
         EmoteCatalogService service = Create([provider]);
 
         EmoteCatalogResult result = await service.GetCatalogAsync(
-            new EmoteChannel("chan", "42"), CancellationToken.None);
+            new EmoteChannel("chan", null), CancellationToken.None);
 
         Assert.False(result.Available);
         Assert.False(result.Stale);
@@ -109,49 +135,96 @@ public sealed class EmoteCatalogServiceTests
         Assert.Empty(result.Entries);
         string warning = Assert.Single(_logs.Messages);
         Assert.Contains("provider=bttv", warning, StringComparison.Ordinal);
-        Assert.Contains("channel=42", warning, StringComparison.Ordinal);
+        Assert.Contains("scope=global", warning, StringComparison.Ordinal);
+        Assert.Contains("channel=global", warning, StringComparison.Ordinal);
         Assert.Contains("status=503", warning, StringComparison.Ordinal);
+        Assert.Contains("reason=http", warning, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task A_failed_refresh_serves_the_stale_catalog()
+    public async Task A_failed_channel_refresh_without_a_cache_keeps_the_global_catalog()
     {
-        var fail = false;
         var provider = new StubEmoteProvider
         {
-            Fetch = (_, _) => fail
-                ? Task.FromException<EmoteProviderCatalog>(
-                    new EmoteProviderException("bttv", 500, "BetterTTV unavailable."))
-                : Task.FromResult(new EmoteProviderCatalog(
-                    [], [EmoteTestData.Entry(code: "KEKW")])),
+            Global = _ => Succeed(EmoteTestData.Entry(code: "KEKW")),
+            Channel = (_, _) => Fail(
+                new EmoteProviderException("bttv", 500, "BetterTTV unavailable.")),
         };
         EmoteCatalogService service = Create([provider]);
-
-        await service.GetCatalogAsync(new EmoteChannel("chan", "42"), CancellationToken.None);
-        _clock.Advance(TimeSpan.FromMinutes(5));
-        fail = true;
 
         EmoteCatalogResult result = await service.GetCatalogAsync(
             new EmoteChannel("chan", "42"), CancellationToken.None);
 
         Assert.True(result.Available);
+        Assert.False(result.Stale);
+        Assert.Equal(Now, result.FetchedAt);
+        Assert.Equal("KEKW", Assert.Single(result.Entries).Entry.Code);
+        string warning = Assert.Single(_logs.Messages);
+        Assert.Contains("scope=channel", warning, StringComparison.Ordinal);
+        Assert.Contains("channel=42", warning, StringComparison.Ordinal);
+        Assert.Contains("status=500", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_failed_global_refresh_without_a_cache_keeps_the_channel_catalog()
+    {
+        var provider = new StubEmoteProvider
+        {
+            Global = _ => Fail(
+                new EmoteProviderException("bttv", 500, "BetterTTV unavailable.")),
+            Channel = (_, _) => Succeed(EmoteTestData.Entry(code: "CHANNEL")),
+        };
+        EmoteCatalogService service = Create([provider]);
+
+        EmoteCatalogResult result = await service.GetCatalogAsync(
+            new EmoteChannel("chan", "42"), CancellationToken.None);
+
+        Assert.True(result.Available);
+        Assert.False(result.Stale);
+        Assert.Equal(Now, result.FetchedAt);
+        Assert.Equal("CHANNEL", Assert.Single(result.Entries).Entry.Code);
+        string warning = Assert.Single(_logs.Messages);
+        Assert.Contains("scope=global", warning, StringComparison.Ordinal);
+        Assert.Contains("channel=42", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_failed_global_refresh_serves_the_stale_catalog()
+    {
+        var fail = false;
+        var provider = new StubEmoteProvider
+        {
+            Global = _ => fail
+                ? Fail(new EmoteProviderException("bttv", 500, "BetterTTV unavailable."))
+                : Succeed(EmoteTestData.Entry(code: "KEKW")),
+        };
+        EmoteCatalogService service = Create([provider]);
+
+        await service.GetCatalogAsync(new EmoteChannel("chan", null), CancellationToken.None);
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        fail = true;
+
+        EmoteCatalogResult result = await service.GetCatalogAsync(
+            new EmoteChannel("chan", null), CancellationToken.None);
+
+        Assert.True(result.Available);
         Assert.True(result.Stale);
         Assert.Equal(Now, result.FetchedAt);
         Assert.Equal("KEKW", Assert.Single(result.Entries).Entry.Code);
-        Assert.Equal(2, provider.Calls);
+        Assert.Equal(2, provider.GlobalCalls);
         Assert.Single(_logs.Messages);
     }
 
     [Fact]
-    public async Task Concurrent_refreshes_share_one_provider_call()
+    public async Task Concurrent_global_refreshes_share_one_provider_call()
     {
         var started = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource<EmoteProviderCatalog>(
+        var release = new TaskCompletionSource<IReadOnlyList<EmoteCatalogEntry>>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var provider = new StubEmoteProvider
         {
-            Fetch = (_, _) =>
+            Global = _ =>
             {
                 started.TrySetResult();
                 return release.Task;
@@ -165,13 +238,45 @@ public sealed class EmoteCatalogServiceTests
         Task<EmoteCatalogResult>[] others = Enumerable.Range(0, 4)
             .Select(_ => service.GetCatalogAsync(channel, CancellationToken.None))
             .ToArray();
-        await Task.Delay(50);
 
-        release.SetResult(new EmoteProviderCatalog([], [EmoteTestData.Entry()]));
+        release.SetResult([EmoteTestData.Entry()]);
         EmoteCatalogResult[] results = await Task.WhenAll([first, .. others]);
 
         Assert.All(results, result => Assert.Single(result.Entries));
-        Assert.Equal(1, provider.Calls);
+        Assert.Equal(1, provider.GlobalCalls);
+    }
+
+    [Fact]
+    public async Task Concurrent_global_refreshes_share_one_call_across_channels()
+    {
+        var started = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<IReadOnlyList<EmoteCatalogEntry>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = new StubEmoteProvider
+        {
+            Global = _ =>
+            {
+                started.TrySetResult();
+                return release.Task;
+            },
+        };
+        EmoteCatalogService service = Create([provider]);
+
+        Task<EmoteCatalogResult> first = service.GetCatalogAsync(
+            new EmoteChannel("chan", "42"), CancellationToken.None);
+        await started.Task;
+        Task<EmoteCatalogResult>[] others = Enumerable.Range(0, 4)
+            .Select(_ => service.GetCatalogAsync(
+                new EmoteChannel("chan", "43"), CancellationToken.None))
+            .ToArray();
+
+        release.SetResult([EmoteTestData.Entry(code: "GLOBAL")]);
+        EmoteCatalogResult[] results = await Task.WhenAll([first, .. others]);
+
+        Assert.All(results, result => Assert.Single(result.Entries));
+        Assert.Equal(1, provider.GlobalCalls);
+        Assert.Equal(2, provider.ChannelCalls);
     }
 
     [Fact]
@@ -181,7 +286,7 @@ public sealed class EmoteCatalogServiceTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         var provider = new StubEmoteProvider
         {
-            Fetch = async (_, ct) =>
+            Global = async ct =>
             {
                 started.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, ct);
@@ -194,11 +299,14 @@ public sealed class EmoteCatalogServiceTests
             new EmoteChannel("chan", "42"), CancellationToken.None);
         await started.Task;
         _clock.Advance(TimeSpan.FromSeconds(3));
-        EmoteCatalogResult result = await pending.WaitAsync(TimeSpan.FromSeconds(2));
+        EmoteCatalogResult result = await pending;
 
         Assert.False(result.Available);
         Assert.Empty(result.Entries);
-        Assert.Single(_logs.Messages);
+        string warning = Assert.Single(_logs.Messages);
+        Assert.Contains("scope=global", warning, StringComparison.Ordinal);
+        Assert.Contains("status=none", warning, StringComparison.Ordinal);
+        Assert.Contains("reason=timeout", warning, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -207,22 +315,16 @@ public sealed class EmoteCatalogServiceTests
         var first = new StubEmoteProvider
         {
             Id = "first",
-            Fetch = (_, _) => Task.FromResult(new EmoteProviderCatalog(
-                [],
-                [
-                    EmoteTestData.Entry(id: "aaaaaaaaaaaaaaaaaaaaaaaa", code: "KEKW"),
-                    EmoteTestData.Entry(id: "bbbbbbbbbbbbbbbbbbbbbbbb", code: "brazil"),
-                ])),
+            Global = _ => Succeed(
+                EmoteTestData.Entry(id: "aaaaaaaaaaaaaaaaaaaaaaaa", code: "KEKW"),
+                EmoteTestData.Entry(id: "bbbbbbbbbbbbbbbbbbbbbbbb", code: "brazil")),
         };
         var second = new StubEmoteProvider
         {
             Id = "second",
-            Fetch = (_, _) => Task.FromResult(new EmoteProviderCatalog(
-                [],
-                [
-                    EmoteTestData.Entry(id: "cccccccccccccccccccccccc", code: "KEKW"),
-                    EmoteTestData.Entry(id: "dddddddddddddddddddddddd", code: "Brazil"),
-                ])),
+            Global = _ => Succeed(
+                EmoteTestData.Entry(id: "cccccccccccccccccccccccc", code: "KEKW"),
+                EmoteTestData.Entry(id: "dddddddddddddddddddddddd", code: "Brazil")),
         };
         EmoteCatalogService service = Create([first, second]);
 
@@ -243,7 +345,7 @@ public sealed class EmoteCatalogServiceTests
             .ToArray();
         var provider = new StubEmoteProvider
         {
-            Fetch = (_, _) => Task.FromResult(new EmoteProviderCatalog([], entries)),
+            Global = _ => Task.FromResult<IReadOnlyList<EmoteCatalogEntry>>(entries),
         };
         EmoteCatalogService service = Create([provider]);
 
@@ -256,18 +358,14 @@ public sealed class EmoteCatalogServiceTests
     }
 
     [Fact]
-    public async Task Modifier_and_invalid_provider_entries_are_dropped()
+    public async Task Invalid_provider_entries_are_dropped()
     {
         var provider = new StubEmoteProvider
         {
-            Fetch = (_, _) => Task.FromResult(new EmoteProviderCatalog(
-                [],
-                [
-                    EmoteTestData.Entry(id: "not-an-id", code: "BROKEN"),
-                    EmoteTestData.Entry(code: ""),
-                    EmoteTestData.Entry(code: "w!", modifier: true),
-                    EmoteTestData.Entry(code: "KEKW"),
-                ])),
+            Global = _ => Succeed(
+                EmoteTestData.Entry(id: "not-an-id", code: "BROKEN"),
+                EmoteTestData.Entry(code: ""),
+                EmoteTestData.Entry(code: "KEKW")),
         };
         EmoteCatalogService service = Create([provider]);
 
@@ -282,7 +380,7 @@ public sealed class EmoteCatalogServiceTests
     {
         var provider = new StubEmoteProvider
         {
-            Fetch = (_, _) => Task.FromResult(new EmoteProviderCatalog([], [])),
+            Global = _ => Succeed(),
         };
         EmoteCatalogService service = Create([provider]);
 
@@ -300,16 +398,13 @@ public sealed class EmoteCatalogServiceTests
     {
         var provider = new StubEmoteProvider
         {
-            Fetch = (_, _) => Task.FromResult(new EmoteProviderCatalog(
-                [
-                    EmoteTestData.Entry(id: "aaaaaaaaaaaaaaaaaaaaaaaa", code: "SHARED"),
-                    EmoteTestData.Entry(id: "bbbbbbbbbbbbbbbbbbbbbbbb", code: "Brazil"),
-                ],
-                [
-                    EmoteTestData.Entry(id: "cccccccccccccccccccccccc", code: "SHARED"),
-                    EmoteTestData.Entry(id: "dddddddddddddddddddddddd", code: "BRAZIL"),
-                    EmoteTestData.Entry(id: "eeeeeeeeeeeeeeeeeeeeeeee", code: "Brazil"),
-                ])),
+            Channel = (_, _) => Succeed(
+                EmoteTestData.Entry(id: "aaaaaaaaaaaaaaaaaaaaaaaa", code: "SHARED"),
+                EmoteTestData.Entry(id: "bbbbbbbbbbbbbbbbbbbbbbbb", code: "Brazil")),
+            Global = _ => Succeed(
+                EmoteTestData.Entry(id: "cccccccccccccccccccccccc", code: "SHARED"),
+                EmoteTestData.Entry(id: "dddddddddddddddddddddddd", code: "BRAZIL"),
+                EmoteTestData.Entry(id: "eeeeeeeeeeeeeeeeeeeeeeee", code: "Brazil")),
         };
         EmoteCatalogService service = Create([provider]);
 
@@ -325,16 +420,15 @@ public sealed class EmoteCatalogServiceTests
     [Fact]
     public async Task Channel_catalogs_are_cached_per_channel_id()
     {
-        var requested = new List<string?>();
+        var requested = new List<string>();
         var provider = new StubEmoteProvider
         {
-            Fetch = (channel, _) =>
+            Channel = (channelId, _) =>
             {
-                requested.Add(channel.TwitchUserId);
-                return Task.FromResult(new EmoteProviderCatalog(
-                    [EmoteTestData.Entry(code: $"CH{channel.TwitchUserId}")],
-                    [EmoteTestData.Entry(code: "GLOBAL")]));
+                requested.Add(channelId);
+                return Succeed(EmoteTestData.Entry(code: $"CH{channelId}"));
             },
+            Global = _ => Succeed(EmoteTestData.Entry(code: "GLOBAL")),
         };
         EmoteCatalogService service = Create([provider]);
 
@@ -346,6 +440,7 @@ public sealed class EmoteCatalogServiceTests
 
         Assert.Equal(["42", "43"], requested);
         Assert.Equal(["CH43", "GLOBAL"], other.Entries.Select(item => item.Entry.Code));
+        Assert.Equal(1, provider.GlobalCalls);
     }
 
     [Fact]
@@ -354,12 +449,10 @@ public sealed class EmoteCatalogServiceTests
         var call = 0;
         var provider = new StubEmoteProvider
         {
-            Fetch = (channel, _) =>
+            Channel = (channelId, _) =>
             {
                 int next = Interlocked.Increment(ref call);
-                return Task.FromResult(new EmoteProviderCatalog(
-                    [EmoteTestData.Entry(code: $"CH{channel.TwitchUserId}-{next}")],
-                    []));
+                return Succeed(EmoteTestData.Entry(code: $"CH{channelId}-{next}"));
             },
         };
         EmoteCatalogService service = Create([provider]);
@@ -373,7 +466,7 @@ public sealed class EmoteCatalogServiceTests
 
         Assert.Equal("CH42-1", Assert.Single(first.Entries).Entry.Code);
         Assert.Equal("CH42-2", Assert.Single(second.Entries).Entry.Code);
-        Assert.Equal(2, provider.Calls);
+        Assert.Equal(2, provider.ChannelCalls);
         Assert.Equal(Now.AddMinutes(5), second.FetchedAt);
     }
 
@@ -383,12 +476,10 @@ public sealed class EmoteCatalogServiceTests
         var fail = false;
         var provider = new StubEmoteProvider
         {
-            Fetch = (_, _) => fail
-                ? Task.FromException<EmoteProviderCatalog>(
-                    new EmoteProviderException("bttv", 500, "BetterTTV unavailable."))
-                : Task.FromResult(new EmoteProviderCatalog(
-                    [EmoteTestData.Entry(code: "CHANNEL")],
-                    [EmoteTestData.Entry(code: "GLOBAL")])),
+            Channel = (_, _) => fail
+                ? Fail(new EmoteProviderException("bttv", 500, "BetterTTV unavailable."))
+                : Succeed(EmoteTestData.Entry(code: "CHANNEL")),
+            Global = _ => Succeed(EmoteTestData.Entry(code: "GLOBAL")),
         };
         EmoteCatalogService service = Create([provider]);
 
@@ -403,7 +494,8 @@ public sealed class EmoteCatalogServiceTests
         Assert.True(result.Stale);
         Assert.Equal(Now, result.FetchedAt);
         Assert.Equal(["CHANNEL", "GLOBAL"], result.Entries.Select(item => item.Entry.Code));
-        Assert.Equal(2, provider.Calls);
+        Assert.Equal(2, provider.GlobalCalls);
+        Assert.Equal(2, provider.ChannelCalls);
         Assert.Single(_logs.Messages);
     }
 
@@ -416,7 +508,7 @@ public sealed class EmoteCatalogServiceTests
             .ToArray();
         var provider = new StubEmoteProvider
         {
-            Fetch = (_, _) => Task.FromResult(new EmoteProviderCatalog(entries, [])),
+            Channel = (_, _) => Task.FromResult<IReadOnlyList<EmoteCatalogEntry>>(entries),
         };
         EmoteCatalogService service = Create([provider]);
 
@@ -433,11 +525,11 @@ public sealed class EmoteCatalogServiceTests
     {
         var started = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource<EmoteProviderCatalog>(
+        var release = new TaskCompletionSource<IReadOnlyList<EmoteCatalogEntry>>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var provider = new StubEmoteProvider
         {
-            Fetch = (_, _) =>
+            Channel = (_, _) =>
             {
                 started.TrySetResult();
                 return release.Task;
@@ -451,15 +543,13 @@ public sealed class EmoteCatalogServiceTests
         Task<EmoteCatalogResult>[] others = Enumerable.Range(0, 4)
             .Select(_ => service.GetCatalogAsync(channel, CancellationToken.None))
             .ToArray();
-        await Task.Delay(50);
 
-        release.SetResult(new EmoteProviderCatalog(
-            [EmoteTestData.Entry(code: "CHANNEL")],
-            [EmoteTestData.Entry(code: "GLOBAL")]));
+        release.SetResult([EmoteTestData.Entry(code: "CHANNEL")]);
         EmoteCatalogResult[] results = await Task.WhenAll([first, .. others]);
 
-        Assert.All(results, result => Assert.Equal(2, result.Entries.Count));
-        Assert.Equal(1, provider.Calls);
+        Assert.All(results, result => Assert.Single(result.Entries));
+        Assert.Equal(1, provider.GlobalCalls);
+        Assert.Equal(1, provider.ChannelCalls);
     }
 
     [Fact]
@@ -473,11 +563,10 @@ public sealed class EmoteCatalogServiceTests
         string? requestedId = null;
         var provider = new StubEmoteProvider
         {
-            Fetch = (channel, _) =>
+            Channel = (channelId, _) =>
             {
-                requestedId = channel.TwitchUserId;
-                return Task.FromResult(new EmoteProviderCatalog(
-                    [EmoteTestData.Entry(code: "CHANNEL")], []));
+                requestedId = channelId;
+                return Succeed(EmoteTestData.Entry(code: "CHANNEL"));
             },
         };
         EmoteCatalogService service = Create([provider], resolver: CreateResolver(poller));
@@ -494,11 +583,8 @@ public sealed class EmoteCatalogServiceTests
     {
         var provider = new StubEmoteProvider
         {
-            Fetch = (channel, _) => Task.FromResult(new EmoteProviderCatalog(
-                channel.TwitchUserId is null
-                    ? []
-                    : [EmoteTestData.Entry(code: "CHANNEL")],
-                [EmoteTestData.Entry(code: "GLOBAL")])),
+            Global = _ => Succeed(EmoteTestData.Entry(code: "GLOBAL")),
+            Channel = (_, _) => throw new InvalidOperationException("must not fetch a channel"),
         };
         EmoteCatalogService service = Create([provider], resolver: CreateResolver());
 
@@ -506,6 +592,7 @@ public sealed class EmoteCatalogServiceTests
             new EmoteChannel("chan", null), CancellationToken.None);
 
         Assert.Equal("GLOBAL", Assert.Single(result.Entries).Entry.Code);
+        Assert.Equal(0, provider.ChannelCalls);
     }
 
     [Fact]
@@ -524,23 +611,27 @@ public sealed class EmoteCatalogServiceTests
         };
         var provider = new StubEmoteProvider
         {
-            Fetch = (_, _) => Task.FromResult(new EmoteProviderCatalog(
-                [], [EmoteTestData.Entry(code: "GLOBAL")])),
+            Global = _ => Succeed(EmoteTestData.Entry(code: "GLOBAL")),
         };
         EmoteCatalogService service = Create([provider], resolver: CreateResolver(poller));
 
         await service.GetCatalogAsync(new EmoteChannel("chan", "42"), CancellationToken.None);
-        Assert.Equal(1, provider.Calls);
+        Assert.Equal(1, provider.GlobalCalls);
+        Assert.Equal(1, provider.ChannelCalls);
 
         Task<EmoteCatalogResult> pending = service.GetCatalogAsync(
             new EmoteChannel("chan", null), CancellationToken.None);
         await started.Task;
         _clock.Advance(TimeSpan.FromSeconds(3));
-        EmoteCatalogResult result = await pending.WaitAsync(TimeSpan.FromSeconds(2));
+        EmoteCatalogResult result = await pending;
 
         Assert.True(result.Available);
         Assert.Equal("GLOBAL", Assert.Single(result.Entries).Entry.Code);
-        Assert.Equal(1, provider.Calls);
+        Assert.Equal(1, provider.GlobalCalls);
+        Assert.Contains(
+            _logs.Messages,
+            message => message.Contains("resolution timed out", StringComparison.Ordinal) &&
+                message.Contains("login=chan", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -551,19 +642,16 @@ public sealed class EmoteCatalogServiceTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         var provider = new StubEmoteProvider
         {
-            Fetch = async (_, ct) =>
+            Channel = async (_, ct) =>
             {
                 if (!hang)
-                {
-                    return new EmoteProviderCatalog(
-                        [EmoteTestData.Entry(code: "CHANNEL")],
-                        [EmoteTestData.Entry(code: "GLOBAL")]);
-                }
+                    return [EmoteTestData.Entry(code: "CHANNEL")];
 
                 started.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, ct);
                 throw new InvalidOperationException("unreachable");
             },
+            Global = _ => Succeed(EmoteTestData.Entry(code: "GLOBAL")),
         };
         EmoteCatalogService service = Create([provider]);
 
@@ -575,15 +663,47 @@ public sealed class EmoteCatalogServiceTests
             new EmoteChannel("chan", "42"), CancellationToken.None);
         await started.Task;
         _clock.Advance(TimeSpan.FromSeconds(3));
-        EmoteCatalogResult result = await pending.WaitAsync(TimeSpan.FromSeconds(2));
+        EmoteCatalogResult result = await pending;
 
         Assert.True(result.Available);
         Assert.True(result.Stale);
         Assert.Equal(Now, result.FetchedAt);
         Assert.Equal(["CHANNEL", "GLOBAL"], result.Entries.Select(item => item.Entry.Code));
-        Assert.Equal(2, provider.Calls);
-        Assert.Single(_logs.Messages);
+        Assert.Equal(2, provider.GlobalCalls);
+        Assert.Equal(2, provider.ChannelCalls);
+        string warning = Assert.Single(_logs.Messages);
+        Assert.Contains("scope=channel", warning, StringComparison.Ordinal);
+        Assert.Contains("reason=timeout", warning, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("invalid-payload")]
+    [InlineData("too-large")]
+    public async Task Payload_failures_log_a_reason_and_never_a_fake_http_status(string reason)
+    {
+        EmoteProviderFailureKind kind = reason == "invalid-payload"
+            ? EmoteProviderFailureKind.InvalidPayload
+            : EmoteProviderFailureKind.TooLarge;
+        var provider = new StubEmoteProvider
+        {
+            Global = _ => Fail(new EmoteProviderException("bttv", null, "bad body", kind)),
+        };
+        EmoteCatalogService service = Create([provider]);
+
+        await service.GetCatalogAsync(new EmoteChannel("chan", null), CancellationToken.None);
+
+        string warning = Assert.Single(_logs.Messages);
+        Assert.Contains($"reason={reason}", warning, StringComparison.Ordinal);
+        Assert.Contains("status=none", warning, StringComparison.Ordinal);
+        Assert.DoesNotContain("status=200", warning, StringComparison.Ordinal);
+    }
+
+    private static Task<IReadOnlyList<EmoteCatalogEntry>> Succeed(
+        params EmoteCatalogEntry[] entries) =>
+        Task.FromResult<IReadOnlyList<EmoteCatalogEntry>>(entries);
+
+    private static Task<IReadOnlyList<EmoteCatalogEntry>> Fail(Exception exception) =>
+        Task.FromException<IReadOnlyList<EmoteCatalogEntry>>(exception);
 
     private EmoteCatalogService Create(
         IEnumerable<IEmoteProvider> providers,
@@ -610,5 +730,6 @@ public sealed class EmoteCatalogServiceTests
                 Options.Create(new StorageOptions { RecordingsRoot = Path.GetTempPath() }),
                 NullLogger<ChannelStore>.Instance),
             poller ?? new StubEmotePoller(),
-            _clock);
+            _clock,
+            NullLogger<EmoteChannelResolver>.Instance);
 }

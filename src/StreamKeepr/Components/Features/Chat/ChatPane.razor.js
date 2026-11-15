@@ -702,13 +702,12 @@ export function createChatPane(root, {
   }
 
   function appendText(parent, value, emotes) {
-    const chars = Array.from(value);
+    // matchEmotes validates ranges against the code-point array, so the bounds check exists once.
     const ranges = [];
     for (const emote of emotes) {
       for (const range of emote.ranges || []) {
-        if (range.from >= 0 && range.to >= range.from && range.to < chars.length) {
-          ranges.push({ from: range.from, to: range.to, id: emote.id });
-        }
+        if (!range) continue;
+        ranges.push({ from: range.from, to: range.to, id: emote.id });
       }
     }
 
@@ -723,18 +722,27 @@ export function createChatPane(root, {
     }
   }
 
+  /** The shared alt/title and lazy/async attributes for native and third-party emotes. */
+  function applyEmoteImageAttributes(image, { src, srcset, code }) {
+    image.src = src;
+    if (srcset) image.setAttribute("srcset", srcset);
+    image.alt = code;
+    image.title = code;
+    image.setAttribute("loading", "lazy");
+    image.setAttribute("decoding", "async");
+  }
+
   function nativeEmoteImage(id, name) {
     if (typeof id !== "string" || !/^[A-Za-z0-9_]+$/.test(id)) {
       return document.createTextNode(name);
     }
     const image = document.createElement("img");
     const base = `https://static-cdn.jtvnw.net/emoticons/v2/${encodeURIComponent(id)}/default/dark`;
-    image.src = `${base}/1.0`;
-    image.srcset = `${base}/1.0 1x, ${base}/2.0 2x, ${base}/3.0 3x`;
-    image.alt = name;
-    image.title = name;
-    image.loading = "lazy";
-    image.decoding = "async";
+    applyEmoteImageAttributes(image, {
+      src: `${base}/1.0`,
+      srcset: `${base}/1.0 1x, ${base}/2.0 2x, ${base}/3.0 3x`,
+      code: name,
+    });
     return image;
   }
 
@@ -751,14 +759,11 @@ export function createChatPane(root, {
   function emoteImage(entry, code) {
     if (failedEmotes.has(code) || !isHttpsUrl(entry?.src)) return document.createTextNode(code);
     const image = document.createElement("img");
-    image.className = "sk-chat-emote";
-    image.src = entry.src;
-    const srcset = safeSrcSet(entry.srcset);
-    if (srcset) image.setAttribute("srcset", srcset);
-    image.alt = code;
-    image.title = code;
-    image.setAttribute("loading", "lazy");
-    image.setAttribute("decoding", "async");
+    applyEmoteImageAttributes(image, {
+      src: entry.src,
+      srcset: safeSrcSet(entry.srcset),
+      code,
+    });
     image.setAttribute("referrerpolicy", "no-referrer");
     // The error handler replaces the image with this code; the row never retries it.
     image.dataset.emoteCode = code;

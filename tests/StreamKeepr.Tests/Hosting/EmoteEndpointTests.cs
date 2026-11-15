@@ -285,6 +285,66 @@ public sealed class EmoteEndpointTests
         Assert.Equal(1, poller.Lookups);
     }
 
+    [Fact]
+    public async Task A_channel_failure_still_returns_the_global_catalog()
+    {
+        var poller = new StubEmotePoller
+        {
+            Lookup = (_, _) => Task.FromResult<ChannelProfile?>(
+                new ChannelProfile("12345", "chan", null)),
+        };
+        var handler = new StubHttpMessageHandler((request, _) =>
+            Task.FromResult(
+                request.RequestUri!.AbsolutePath.Contains("/users/twitch/", StringComparison.Ordinal)
+                    ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                    : EmoteTestData.Json(GlobalJson)));
+        using StreamKeeprAppFactory factory = CreateFactory(
+            handler, enabled: true, poller: poller);
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response =
+            await client.GetAsync($"/api/recordings/{Summary.Id}/emotes");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement root = json.RootElement;
+        Assert.True(root.GetProperty("available").GetBoolean());
+        Assert.False(root.GetProperty("stale").GetBoolean());
+        JsonElement entry = Assert.Single(root.GetProperty("entries").EnumerateArray());
+        Assert.Equal("KEKW", entry.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task A_global_failure_still_returns_the_channel_catalog()
+    {
+        var poller = new StubEmotePoller
+        {
+            Lookup = (_, _) => Task.FromResult<ChannelProfile?>(
+                new ChannelProfile("12345", "chan", null)),
+        };
+        var handler = new StubHttpMessageHandler((request, _) =>
+            Task.FromResult(
+                request.RequestUri!.AbsolutePath.Contains("/users/twitch/", StringComparison.Ordinal)
+                    ? EmoteTestData.Json(ChannelJson)
+                    : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)));
+        using StreamKeeprAppFactory factory = CreateFactory(
+            handler, enabled: true, poller: poller);
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response =
+            await client.GetAsync($"/api/recordings/{Summary.Id}/emotes");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement root = json.RootElement;
+        Assert.True(root.GetProperty("available").GetBoolean());
+        Assert.False(root.GetProperty("stale").GetBoolean());
+        string[] codes = root.GetProperty("entries").EnumerateArray()
+            .Select(entry => entry.GetProperty("code").GetString()!)
+            .ToArray();
+        Assert.Equal(["SHARED", "CHANNEL"], codes);
+    }
+
     private static StreamKeeprAppFactory CreateFactory(
         HttpMessageHandler handler,
         bool enabled,

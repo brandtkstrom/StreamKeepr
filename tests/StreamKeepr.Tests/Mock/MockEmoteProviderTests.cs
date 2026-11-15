@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Options;
+using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Emotes;
 using StreamKeepr.Mock;
 
@@ -8,29 +10,30 @@ public sealed class MockEmoteProviderTests
     [Fact]
     public async Task The_fixture_covers_static_punctuation_animated_and_failed_images()
     {
-        var provider = new MockEmoteProvider();
+        MockEmoteProvider provider = CreateProvider();
 
-        EmoteProviderCatalog catalog = await provider.GetCatalogAsync(
-            new EmoteChannel("mock_nova", "9100001"), CancellationToken.None);
+        IReadOnlyList<EmoteCatalogEntry> entries =
+            await provider.GetGlobalAsync(CancellationToken.None);
 
         Assert.Equal("bttv", provider.Id);
-        Assert.Empty(catalog.Channel);
-        Assert.Contains(catalog.Global, entry => entry is { Code: "KEKW", Animated: false });
-        Assert.Contains(catalog.Global, entry => entry is { Code: ":tf:", Animated: false });
-        Assert.Contains(catalog.Global, entry => entry is { Code: "CatJAM", Animated: true });
+        Assert.True(provider.Enabled);
+        Assert.Contains(entries, entry => entry is { Code: "KEKW", Animated: false });
+        Assert.Contains(entries, entry => entry is { Code: ":tf:", Animated: false });
+        Assert.Contains(entries, entry => entry is { Code: "CatJAM", Animated: true });
         Assert.Contains(
-            catalog.Global,
+            entries,
             entry => entry.Code == "BrokenEmote" && entry.Id == MockEmoteProvider.MissingImageId);
+        Assert.Empty(await provider.GetChannelAsync("9100001", CancellationToken.None));
     }
 
     [Fact]
     public async Task Image_urls_use_the_mock_host_and_animated_entries_use_the_static_frame()
     {
-        var provider = new MockEmoteProvider();
-        EmoteProviderCatalog catalog = await provider.GetCatalogAsync(
-            new EmoteChannel("mock_nova", "9100001"), CancellationToken.None);
+        MockEmoteProvider provider = CreateProvider();
+        IReadOnlyList<EmoteCatalogEntry> entries =
+            await provider.GetGlobalAsync(CancellationToken.None);
 
-        Assert.All(catalog.Global, entry =>
+        Assert.All(entries, entry =>
         {
             EmoteImageSet image = provider.GetStaticImage(entry);
             Assert.StartsWith(
@@ -39,7 +42,26 @@ public sealed class MockEmoteProviderTests
             Assert.DoesNotContain("betterttv", image.SrcSet, StringComparison.OrdinalIgnoreCase);
         });
 
-        EmoteCatalogEntry animated = Assert.Single(catalog.Global, entry => entry.Animated);
+        EmoteCatalogEntry animated = Assert.Single(entries, entry => entry.Animated);
         Assert.EndsWith("/static/1x.webp", provider.GetStaticImage(animated).Src, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Enablement_follows_the_shared_bttv_option(bool enabled)
+    {
+        MockEmoteProvider provider = CreateProvider(enabled);
+
+        Assert.Equal(enabled, provider.Enabled);
+    }
+
+    private static MockEmoteProvider CreateProvider(bool enabled = true) =>
+        new(Options.Create(new ChatOptions
+        {
+            Emotes = new ChatEmoteOptions
+            {
+                Bttv = new BttvEmoteOptions { Enabled = enabled },
+            },
+        }));
 }
