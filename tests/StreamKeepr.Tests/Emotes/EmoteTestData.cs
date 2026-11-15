@@ -56,19 +56,39 @@ internal sealed class EmoteHttpClientFactory(HttpMessageHandler handler) : IHttp
 
 internal sealed class StubEmoteProvider : IEmoteProvider
 {
-    private int _calls;
+    private int _globalCalls;
+    private int _channelCalls;
 
     public string Id { get; init; } = "bttv";
 
-    public Func<EmoteChannel, CancellationToken, Task<EmoteProviderCatalog>> Fetch { get; set; } =
-        (_, _) => Task.FromResult(new EmoteProviderCatalog([], []));
+    public bool Enabled { get; init; } = true;
 
-    public int Calls => Volatile.Read(ref _calls);
+    public Func<CancellationToken, Task<IReadOnlyList<EmoteCatalogEntry>>> Global { get; set; } =
+        _ => Task.FromResult<IReadOnlyList<EmoteCatalogEntry>>([]);
 
-    public Task<EmoteProviderCatalog> GetCatalogAsync(EmoteChannel channel, CancellationToken ct)
+    public Func<string, CancellationToken, Task<IReadOnlyList<EmoteCatalogEntry>>> Channel
     {
-        Interlocked.Increment(ref _calls);
-        return Fetch(channel, ct);
+        get;
+        set;
+    } = (_, _) => Task.FromResult<IReadOnlyList<EmoteCatalogEntry>>([]);
+
+    public int GlobalCalls => Volatile.Read(ref _globalCalls);
+
+    public int ChannelCalls => Volatile.Read(ref _channelCalls);
+
+    public int Calls => GlobalCalls + ChannelCalls;
+
+    public Task<IReadOnlyList<EmoteCatalogEntry>> GetGlobalAsync(CancellationToken ct)
+    {
+        Interlocked.Increment(ref _globalCalls);
+        return Global(ct);
+    }
+
+    public Task<IReadOnlyList<EmoteCatalogEntry>> GetChannelAsync(
+        string channelId, CancellationToken ct)
+    {
+        Interlocked.Increment(ref _channelCalls);
+        return Channel(channelId, ct);
     }
 
     public EmoteImageSet GetStaticImage(EmoteCatalogEntry entry) =>
@@ -126,6 +146,6 @@ internal static class EmoteTestData
     public const string AnimatedId = "566ca38765dbbdab32ec0560";
 
     public static EmoteCatalogEntry Entry(
-        string id = StaticId, string code = "KEKW", bool animated = false, bool modifier = false) =>
-        new(id, code, animated, modifier);
+        string id = StaticId, string code = "KEKW", bool animated = false) =>
+        new(id, code, animated);
 }

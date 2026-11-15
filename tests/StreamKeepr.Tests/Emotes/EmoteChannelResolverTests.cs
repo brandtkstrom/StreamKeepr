@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -5,6 +6,7 @@ using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Emotes;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Emotes;
 
@@ -17,14 +19,24 @@ public sealed class EmoteChannelResolverTests : IDisposable
         Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
     private readonly FakeTimeProvider _clock = new(Now);
     private readonly StubEmotePoller _poller = new();
+    private readonly ListLoggerProvider _logs = new();
+    private readonly ILoggerFactory _loggerFactory;
 
-    public EmoteChannelResolverTests() => Directory.CreateDirectory(_root);
+    public EmoteChannelResolverTests()
+    {
+        _loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(_logs));
+        Directory.CreateDirectory(_root);
+    }
 
     public void Dispose()
     {
+        _loggerFactory.Dispose();
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
     }
+
+    private ILogger<EmoteChannelResolver> Logger =>
+        _loggerFactory.CreateLogger<EmoteChannelResolver>();
 
     [Fact]
     public async Task A_profile_in_the_channel_store_wins_without_a_poller_lookup()
@@ -34,7 +46,7 @@ public sealed class EmoteChannelResolverTests : IDisposable
             "chan", "42", "Chan", avatarUrl: null, CancellationToken.None);
         _poller.Lookup = (_, _) => Task.FromResult<ChannelProfile?>(
             new ChannelProfile("99", "Chan", null));
-        EmoteChannelResolver resolver = new(store, _poller, _clock);
+        EmoteChannelResolver resolver = new(store, _poller, _clock, Logger);
 
         string? userId = await resolver.ResolveAsync(" CHAN ", CancellationToken.None);
 
@@ -48,7 +60,7 @@ public sealed class EmoteChannelResolverTests : IDisposable
         ChannelStore store = await CreateStoreAsync();
         _poller.Lookup = (_, _) => Task.FromResult<ChannelProfile?>(
             new ChannelProfile("42", "Chan", null));
-        EmoteChannelResolver resolver = new(store, _poller, _clock);
+        EmoteChannelResolver resolver = new(store, _poller, _clock, Logger);
 
         Assert.Equal("42", await resolver.ResolveAsync("chan", CancellationToken.None));
         _clock.Advance(TimeSpan.FromMinutes(4));
@@ -64,7 +76,7 @@ public sealed class EmoteChannelResolverTests : IDisposable
     public async Task An_unknown_login_caches_the_missing_resolution_for_five_minutes()
     {
         ChannelStore store = await CreateStoreAsync();
-        EmoteChannelResolver resolver = new(store, _poller, _clock);
+        EmoteChannelResolver resolver = new(store, _poller, _clock, Logger);
 
         Assert.Null(await resolver.ResolveAsync("missing", CancellationToken.None));
         Assert.Null(await resolver.ResolveAsync("missing", CancellationToken.None));
@@ -92,11 +104,13 @@ public sealed class EmoteChannelResolverTests : IDisposable
             return Task.FromException<ChannelProfile?>(
                 new HttpRequestException("Twitch unavailable."));
         };
-        EmoteChannelResolver resolver = new(store, _poller, _clock);
+        EmoteChannelResolver resolver = new(store, _poller, _clock, Logger);
 
         Assert.Null(await resolver.ResolveAsync("chan", CancellationToken.None));
         Assert.Equal("42", await resolver.ResolveAsync("chan", CancellationToken.None));
         Assert.Equal(2, _poller.Lookups);
+        string warning = Assert.Single(_logs.Messages);
+        Assert.Contains("login=chan", warning, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -105,7 +119,7 @@ public sealed class EmoteChannelResolverTests : IDisposable
         ChannelStore store = await CreateStoreAsync();
         _poller.Lookup = (_, _) => Task.FromResult<ChannelProfile?>(
             new ChannelProfile("not-a-number", "Chan", null));
-        EmoteChannelResolver resolver = new(store, _poller, _clock);
+        EmoteChannelResolver resolver = new(store, _poller, _clock, Logger);
 
         Assert.Null(await resolver.ResolveAsync("chan", CancellationToken.None));
     }
@@ -116,7 +130,7 @@ public sealed class EmoteChannelResolverTests : IDisposable
         ChannelStore store = await CreateStoreAsync("chan");
         _poller.Lookup = (_, _) => Task.FromResult<ChannelProfile?>(
             new ChannelProfile("42", "Chan", null));
-        EmoteChannelResolver resolver = new(store, _poller, _clock);
+        EmoteChannelResolver resolver = new(store, _poller, _clock, Logger);
         Assert.Equal("42", await resolver.ResolveAsync("chan", CancellationToken.None));
 
         await store.SetProfileAsync(
@@ -139,14 +153,13 @@ public sealed class EmoteChannelResolverTests : IDisposable
             started.TrySetResult();
             return release.Task;
         };
-        EmoteChannelResolver resolver = new(store, _poller, _clock);
+        EmoteChannelResolver resolver = new(store, _poller, _clock, Logger);
 
         Task<string?> first = resolver.ResolveAsync("chan", CancellationToken.None);
         await started.Task;
         Task<string?>[] others = Enumerable.Range(0, 4)
             .Select(_ => resolver.ResolveAsync("chan", CancellationToken.None))
             .ToArray();
-        await Task.Delay(50);
 
         release.SetResult(new ChannelProfile("42", "Chan", null));
         string?[] results = await Task.WhenAll([first, .. others]);

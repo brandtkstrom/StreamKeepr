@@ -2,7 +2,6 @@ using Bunit.TestDoubles;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Storage;
 using Bunit;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -139,7 +138,6 @@ public sealed class HomePlayerTests
 
         // Production defaults: chat capture and third-party emotes are off.
         context.Services.AddSingleton(Options.Create(new ChatOptions()));
-        context.Services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         return context;
     }
 }

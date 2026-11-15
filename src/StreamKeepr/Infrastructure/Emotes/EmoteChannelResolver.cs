@@ -14,11 +14,12 @@ namespace StreamKeepr.Infrastructure.Emotes;
 internal sealed class EmoteChannelResolver(
     ChannelStore store,
     IStreamPoller poller,
-    TimeProvider clock)
+    TimeProvider clock,
+    ILogger<EmoteChannelResolver> logger)
 {
     public static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
 
-    private readonly ConcurrentDictionary<string, CacheSlot> _cache =
+    private readonly ConcurrentDictionary<string, SingleFlightSlot<CachedResolution>> _cache =
         new(StringComparer.Ordinal);
 
     public async Task<string?> ResolveAsync(string login, CancellationToken ct)
@@ -30,16 +31,17 @@ internal sealed class EmoteChannelResolver(
         if (FindStoredId(login) is { } stored)
             return stored;
 
-        CacheSlot slot = _cache.GetOrAdd(login, _ => new CacheSlot());
+        SingleFlightSlot<CachedResolution> slot = _cache.GetOrAdd(
+            login, static _ => new SingleFlightSlot<CachedResolution>());
         DateTimeOffset now = clock.GetUtcNow();
-        if (slot.Cached is { } cached && now - cached.ResolvedAt < CacheTtl)
+        if (slot.Value is { } cached && now - cached.ResolvedAt < CacheTtl)
             return cached.UserId;
 
         await slot.Gate.WaitAsync(ct);
         try
         {
             now = clock.GetUtcNow();
-            if (slot.Cached is { } refreshed && now - refreshed.ResolvedAt < CacheTtl)
+            if (slot.Value is { } refreshed && now - refreshed.ResolvedAt < CacheTtl)
                 return refreshed.UserId;
 
             ChannelProfile? profile;
@@ -47,16 +49,20 @@ internal sealed class EmoteChannelResolver(
             {
                 profile = await poller.GetUserAsync(login, ct);
             }
-            catch (Exception) when (!ct.IsCancellationRequested)
+            catch (Exception exception) when (!ct.IsCancellationRequested)
             {
-                // Unresolved for this request; a transient failure is not cached.
+                // A transient failure is not cached; replay still serves global emotes.
+                logger.LogWarning(
+                    exception,
+                    "Twitch user ID resolution failed; serving global emotes only: login={Login}",
+                    login);
                 return null;
             }
 
             string? userId = EmoteCatalogRules.IsValidChannelId(profile?.UserId)
                 ? profile!.UserId
                 : null;
-            slot.Cached = new CachedResolution(userId, clock.GetUtcNow());
+            slot.Value = new CachedResolution(userId, clock.GetUtcNow());
             return userId;
         }
         finally
@@ -77,19 +83,6 @@ internal sealed class EmoteChannelResolver(
         }
 
         return null;
-    }
-
-    private sealed class CacheSlot
-    {
-        private CachedResolution? _cached;
-
-        public SemaphoreSlim Gate { get; } = new(1, 1);
-
-        public CachedResolution? Cached
-        {
-            get => Volatile.Read(ref _cached);
-            set => Volatile.Write(ref _cached, value);
-        }
     }
 
     private sealed record CachedResolution(string? UserId, DateTimeOffset ResolvedAt);
