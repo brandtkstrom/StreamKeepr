@@ -2,10 +2,9 @@
 @inject IJSRuntime JS
 @inject UiPreferences Preferences
 @inject ILogger<ChatPane> Logger
-@inject IOptions<ChatOptions> ChatOptions
-@using Microsoft.Extensions.Options
-@using StreamKeepr.Configuration
+@inject IEnumerable<IEmoteProvider> EmoteProviders
 @using StreamKeepr.Hosting
+@using StreamKeepr.Infrastructure.Emotes
 @using StreamKeepr.Infrastructure.Storage
 
 @* Rendered once. ChatPane.razor.js owns the log, polling, sync controls, and auto-scroll;
@@ -133,7 +132,8 @@
         await Preferences.PersistAsync();
     }
 
-    private bool EmotesEnabled => ChatOptions.Value.Emotes.AnyEnabled;
+    // Provider registration is the single source of truth, so adding 7TV needs no pane change.
+    private bool EmotesEnabled => EmoteProviders.Any(provider => provider.Enabled);
 
     private object ToPayload(RecordingView recording, bool open) => new
     {

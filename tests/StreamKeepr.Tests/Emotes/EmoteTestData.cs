@@ -1,6 +1,4 @@
-using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Emotes;
-using StreamKeepr.Infrastructure.Twitch;
 
 namespace StreamKeepr.Tests.Emotes;
 
@@ -98,37 +96,53 @@ internal sealed class StubEmoteProvider : IEmoteProvider
             $"https://cdn.test/{entry.Id}/3x.webp 3x");
 }
 
-internal sealed class StubEmotePoller : IStreamPoller
+internal sealed class FakeEmoteChannelResolver : IEmoteChannelResolver
 {
+    private readonly TaskCompletionSource _started =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     private int _lookups;
 
-    public Func<string, CancellationToken, Task<ChannelProfile?>> Lookup { get; set; } =
-        (_, _) => Task.FromResult<ChannelProfile?>(null);
+    public FakeEmoteChannelResolver(string? userId = null) => UserId = userId;
+
+    public string? UserId { get; set; }
+
+    public bool Hang { get; set; }
+
+    public Func<string, CancellationToken, Task<string?>>? Resolve { get; set; }
 
     public int Lookups => Volatile.Read(ref _lookups);
 
-    public Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct)
+    /// <summary>Completes when the resolver is entered, so a test can advance the fake clock.</summary>
+    public Task Started => _started.Task;
+
+    public Task<string?> ResolveAsync(string login, CancellationToken ct)
     {
         Interlocked.Increment(ref _lookups);
-        return Lookup(login, ct);
+        _started.TrySetResult();
+        if (Resolve is not null)
+            return Resolve(login, ct);
+
+        return Hang ? WaitForeverAsync(ct) : Task.FromResult(UserId);
     }
 
-    public Task RunAsync(
-        Func<IReadOnlyList<string>> logins,
-        StreamObservationRoute route,
-        CancellationToken ct) =>
-        Task.Delay(Timeout.InfiniteTimeSpan, ct);
-
-    public Task<ChannelInfo?> GetChannelInfoAsync(string broadcasterId, CancellationToken ct) =>
-        Task.FromResult<ChannelInfo?>(null);
-
-    public void Nudge()
+    private static async Task<string?> WaitForeverAsync(CancellationToken ct)
     {
+        await EmoteTestData.NeverAsync(ct);
+        return null;
     }
 }
 
 internal static class EmoteTestData
 {
+    /// <summary>
+    /// A task that never completes unless cancelled, without a real timer. The test cancels it
+    /// through the injected clock or caller token, so tests stay deterministic.
+    /// </summary>
+    public static async Task NeverAsync(CancellationToken ct) =>
+        await new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+            .Task.WaitAsync(ct);
+
     public static HttpResponseMessage Json(string json) =>
         new(System.Net.HttpStatusCode.OK)
         {

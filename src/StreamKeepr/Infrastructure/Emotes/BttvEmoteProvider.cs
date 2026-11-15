@@ -102,8 +102,7 @@ internal sealed class BttvEmoteProvider(
                 !EmoteCatalogRules.IsValidEmoteId(emote.Id) ||
                 !EmoteCatalogRules.IsValidCode(emote.Code) ||
                 emote.Modifier ||
-                emote.Restrictions is { } restrictions &&
-                restrictions.ValueKind != JsonValueKind.Null)
+                HasRestrictions(emote.Restrictions))
             {
                 continue;
             }
@@ -112,6 +111,25 @@ internal sealed class BttvEmoteProvider(
         }
 
         return [.. entries];
+    }
+
+    /// <summary>
+    /// Absent, null, and empty restrictions mean "available to every viewer"; only a non-empty
+    /// array or object restricts the emote, and restricted emotes are dropped because there is
+    /// no viewer identity to evaluate them.
+    /// </summary>
+    private static bool HasRestrictions(JsonElement? restrictions)
+    {
+        if (restrictions is not { } value)
+            return false;
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Null or JsonValueKind.Undefined => false,
+            JsonValueKind.Array => value.GetArrayLength() > 0,
+            JsonValueKind.Object => value.EnumerateObject().Any(),
+            _ => true,
+        };
     }
 
     private static async Task<byte[]> ReadBodyAsync(
@@ -155,15 +173,8 @@ internal sealed class BttvEmoteProvider(
             $"BetterTTV returned an invalid {scope} catalog.",
             EmoteProviderFailureKind.InvalidPayload);
 
-    public EmoteImageSet GetStaticImage(EmoteCatalogEntry entry)
-    {
-        string folder = entry.Animated ? "static/" : "";
-        string Url(string size) =>
-            $"https://cdn.betterttv.net/emote/{entry.Id}/{folder}{size}.webp";
-
-        return new EmoteImageSet(
-            Url("1x"), $"{Url("1x")} 1x, {Url("2x")} 2x, {Url("3x")} 3x");
-    }
+    public EmoteImageSet GetStaticImage(EmoteCatalogEntry entry) =>
+        StaticEmoteImage.Create("https://cdn.betterttv.net", entry);
 }
 
 internal sealed record BttvEmote(

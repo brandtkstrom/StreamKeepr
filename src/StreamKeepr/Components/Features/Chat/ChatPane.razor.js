@@ -105,10 +105,15 @@ function isHttpsUrl(value) {
  */
 export function buildEmoteCatalog(entries) {
   const catalog = new Map();
+  const claimed = new Set();
   for (const entry of entries || []) {
     if (!entry || typeof entry.code !== "string" || entry.code === "") continue;
+    // First entry wins even when its src is invalid: the code then falls back to text and a
+    // later duplicate must not replace it.
+    if (claimed.has(entry.code)) continue;
+    claimed.add(entry.code);
     if (!isHttpsUrl(entry.src)) continue;
-    if (!catalog.has(entry.code)) catalog.set(entry.code, entry);
+    catalog.set(entry.code, entry);
   }
   return catalog;
 }

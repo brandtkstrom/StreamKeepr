@@ -53,12 +53,6 @@ public sealed class ChatOptions
 public sealed class ChatEmoteOptions
 {
     public BttvEmoteOptions Bttv { get; set; } = new();
-
-    /// <summary>
-    /// True when at least one provider is enabled. The pane reads this instead of a provider key,
-    /// so registering another provider does not edit the UI.
-    /// </summary>
-    public bool AnyEnabled => Bttv.Enabled;
 }
 
 public sealed class BttvEmoteOptions

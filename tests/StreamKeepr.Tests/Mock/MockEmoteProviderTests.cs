@@ -1,5 +1,3 @@
-using Microsoft.Extensions.Options;
-using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Emotes;
 using StreamKeepr.Mock;
 
@@ -46,22 +44,12 @@ public sealed class MockEmoteProviderTests
         Assert.EndsWith("/static/1x.webp", provider.GetStaticImage(animated).Src, StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void Enablement_follows_the_shared_bttv_option(bool enabled)
+    [Fact]
+    public void The_fixture_is_always_enabled()
     {
-        MockEmoteProvider provider = CreateProvider(enabled);
-
-        Assert.Equal(enabled, provider.Enabled);
+        // The Mock profile replaces BetterTTV entirely, so the production flag cannot disable it.
+        Assert.True(CreateProvider().Enabled);
     }
 
-    private static MockEmoteProvider CreateProvider(bool enabled = true) =>
-        new(Options.Create(new ChatOptions
-        {
-            Emotes = new ChatEmoteOptions
-            {
-                Bttv = new BttvEmoteOptions { Enabled = enabled },
-            },
-        }));
+    private static MockEmoteProvider CreateProvider() => new();
 }

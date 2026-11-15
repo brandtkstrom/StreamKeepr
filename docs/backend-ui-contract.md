@@ -140,7 +140,7 @@ public interface IConnectionStatusView : IDisposable
 - Unknown recordings are 404. A disabled feature or a provider failure with no catalog in either scope is 200 with `available:false` and an empty `entries` array; provider errors never block chat.
 - The endpoint resolves the channel's numeric Twitch user ID at replay (`ChannelStore`, then Helix). If unresolved, it returns global entries only. No session field is stored.
 - The endpoint caches global catalogs per provider and channel catalogs per provider and channel ID for five minutes. Each cache key has its own single-flight refresh, stale fallback, and failure boundary, so one scope's failure never discards the other's catalog; provider work is bounded to three seconds.
-- The pane's load payload carries `emotesEnabled` (true when any provider is enabled). The pane fetches the catalog once per recording load only when open and enabled; a failed fetch leaves text rendering.
+- The pane's load payload carries `emotesEnabled`, derived from the registered `IEmoteProvider` instances (true when any reports enabled). The pane fetches the catalog once per recording load only when open and enabled; a failed fetch leaves text rendering.
 - Third-party entries are optional decoration. Chat text and Twitch emotes never depend on them.
 
 ## 4. Progress store

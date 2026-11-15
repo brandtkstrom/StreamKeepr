@@ -7,6 +7,7 @@ using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Emotes;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Tests.Hosting;
+using StreamKeepr.Tests.Runtime;
 
 namespace StreamKeepr.Tests.Emotes;
 
@@ -18,7 +19,7 @@ public sealed class EmoteChannelResolverTests : IDisposable
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
     private readonly FakeTimeProvider _clock = new(Now);
-    private readonly StubEmotePoller _poller = new();
+    private readonly ScriptedStreamPoller _poller = new();
     private readonly ListLoggerProvider _logs = new();
     private readonly ILoggerFactory _loggerFactory;
 
@@ -125,19 +126,23 @@ public sealed class EmoteChannelResolverTests : IDisposable
     }
 
     [Fact]
-    public async Task The_channel_store_is_consulted_before_a_cached_poller_result()
+    public async Task A_store_resolution_is_cached_for_five_minutes()
     {
         ChannelStore store = await CreateStoreAsync("chan");
-        _poller.Lookup = (_, _) => Task.FromResult<ChannelProfile?>(
-            new ChannelProfile("42", "Chan", null));
+        await store.SetProfileAsync(
+            "chan", "42", "Chan", avatarUrl: null, CancellationToken.None);
         EmoteChannelResolver resolver = new(store, _poller, _clock, Logger);
+
         Assert.Equal("42", await resolver.ResolveAsync("chan", CancellationToken.None));
 
         await store.SetProfileAsync(
             "chan", "43", "Chan", avatarUrl: null, CancellationToken.None);
+        Assert.Equal("42", await resolver.ResolveAsync("chan", CancellationToken.None));
+        Assert.Equal(0, _poller.Lookups);
 
+        _clock.Advance(TimeSpan.FromMinutes(5));
         Assert.Equal("43", await resolver.ResolveAsync("chan", CancellationToken.None));
-        Assert.Equal(1, _poller.Lookups);
+        Assert.Equal(0, _poller.Lookups);
     }
 
     [Fact]

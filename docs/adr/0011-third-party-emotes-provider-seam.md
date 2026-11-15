@@ -12,11 +12,11 @@ Chat replay already renders Twitch emotes from the IRC `emotes` tag: the parser 
 
 - Add a server-side `IEmoteProvider` seam. BetterTTV ships now; 7TV is the expected second provider. FFZ is not in scope.
 - Serve one public aggregated endpoint, `GET /api/recordings/{id}/emotes`, returning `{v, available, stale, fetchedAt, entries}`. The server resolves the channel, fans out to enabled providers, orders providers by registration and channel before global within each provider (shared before channel in BetterTTV's channel scope), dedupes by exact case-sensitive code, drops modifiers and restricted entries, and returns static `src`/`srcset` URLs. The client never learns provider URL patterns.
-- Resolve the numeric Twitch user ID at replay from `ChannelStore`, then Helix `GetUserAsync`; cache the result. If unresolved, serve global emotes only. Do not add a session field.
+- Resolve the numeric Twitch user ID at replay through `IEmoteChannelResolver`: `ChannelStore` first, then Helix `GetUserAsync`; memoize either result, including an unresolved login, for five minutes. If unresolved, serve global emotes only. Do not add a session field.
 - Use replay-time catalogs. Do not snapshot catalogs or image bytes with the session.
 - Match only text outside Twitch emote ranges, using BetterTTV's semantics: case-sensitive, space-delimited tokens, punctuation part of the code, first entry wins. Reply quotes remain plain text.
-- Render static images only. Skip modifier/zero-width emotes in v1. Load images from the provider CDN with `referrerpolicy="no-referrer"`; do not proxy images.
-- Gate the feature with `Chat:Emotes:Bttv:Enabled=false`. Cache global and channel catalogs independently for five minutes, bound provider work to three seconds, serve stale data on failure, and return `200 {available:false}` rather than an error. A global or channel failure preserves the other scope's catalog. Emote failures never affect chat capture, replay, or health.
+- Render static images only. Skip modifier/zero-width emotes in v1. Load images from the provider CDN with `referrerpolicy="no-referrer"` and no `crossorigin` attribute; do not proxy images. `crossorigin="anonymous"` was evaluated and rejected because the CDN sends no `Access-Control-Allow-Origin`, which would fail the image load.
+- Gate the feature with `Chat:Emotes:Bttv:Enabled=false`. Start global catalog refreshes before channel-ID resolution so a slow resolver cannot keep a cold global catalog from being fetched, then fetch channel scopes once an ID is known. Cache global and channel catalogs independently for five minutes, bound all provider work to three seconds, serve stale data on failure, and return `200 {available:false}` rather than an error. A global or channel failure preserves the other scope's catalog. Emote failures never affect chat capture, replay, or health.
 
 ## Considered options
 
@@ -33,3 +33,4 @@ Chat replay already renders Twitch emotes from the IRC `emotes` tag: the parser 
 - Adding 7TV is a provider implementation plus registration; the endpoint, response shape, client matcher, and tests remain.
 - No session-store or chat-log schema change.
 - Third-party rendering is optional; chat text and Twitch emotes remain the fallback.
+- Provider image requests are ordinary no-CORS `<img>` loads. The pane sends no explicit credentials, but the browser may attach any provider cookies it already holds; that is an accepted residual risk for the private-home deployment. `crossorigin="anonymous"` would prevent the cookies but breaks because the CDN sends no `Access-Control-Allow-Origin`.
