@@ -17,12 +17,14 @@ internal sealed record EmoteCatalogResult(
 }
 
 /// <summary>
-/// Aggregates enabled provider catalogs. Global catalogs are cached once per provider for five
-/// minutes with a single in-flight refresh; a failed refresh serves the stale catalog when one
-/// exists and otherwise reports the catalog as unavailable.
+/// Aggregates enabled provider catalogs. Global catalogs are cached once per provider and
+/// channel catalogs once per provider and channel ID, both for five minutes with a single
+/// in-flight refresh. A failed refresh serves the cached catalog when one exists and otherwise
+/// leaves that scope out; all provider work shares one three-second budget.
 /// </summary>
 internal sealed class EmoteCatalogService(
     IEnumerable<IEmoteProvider> providers,
+    EmoteChannelResolver resolver,
     IOptions<ChatOptions> options,
     TimeProvider clock,
     ILogger<EmoteCatalogService> logger)
@@ -31,7 +33,11 @@ internal sealed class EmoteCatalogService(
 
     public static readonly TimeSpan ProviderTimeout = TimeSpan.FromSeconds(3);
 
-    private readonly ConcurrentDictionary<string, CacheSlot> _cache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, CacheSlot> _globalCatalogs =
+        new(StringComparer.Ordinal);
+
+    private readonly ConcurrentDictionary<string, CacheSlot> _channelCatalogs =
+        new(StringComparer.Ordinal);
 
     public async Task<EmoteCatalogResult> GetCatalogAsync(
         EmoteChannel channel, CancellationToken ct)
@@ -39,6 +45,31 @@ internal sealed class EmoteCatalogService(
         if (!options.Value.Emotes.Bttv.Enabled)
             return EmoteCatalogResult.Unavailable;
 
+        using var budget = new CancellationTokenSource();
+        using ITimer timer = clock.CreateTimer(
+            static state => ((CancellationTokenSource)state!).Cancel(),
+            budget,
+            ProviderTimeout,
+            Timeout.InfiniteTimeSpan);
+        using CancellationTokenSource linked =
+            CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
+
+        string? channelId = EmoteCatalogRules.IsValidChannelId(channel.TwitchUserId)
+            ? channel.TwitchUserId
+            : null;
+        if (channelId is null && !string.IsNullOrWhiteSpace(channel.Login))
+        {
+            try
+            {
+                channelId = await resolver.ResolveAsync(channel.Login, linked.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // The shared three-second budget expired; serve the global catalog only.
+            }
+        }
+
+        var resolved = channel with { TwitchUserId = channelId };
         var entries = new List<EmoteCatalogItem>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var available = false;
@@ -47,16 +78,17 @@ internal sealed class EmoteCatalogService(
 
         foreach (IEmoteProvider provider in providers)
         {
-            GlobalCatalog? global = await GetGlobalAsync(provider, channel, ct);
-            if (global is null)
+            ProviderCatalog? catalog = await GetProviderCatalogAsync(
+                provider, resolved, linked.Token, ct);
+            if (catalog is null)
                 continue;
 
             available = true;
-            stale |= global.Stale;
-            if (fetchedAt is null || global.FetchedAt < fetchedAt)
-                fetchedAt = global.FetchedAt;
+            stale |= catalog.Stale;
+            if (fetchedAt is null || catalog.FetchedAt < fetchedAt)
+                fetchedAt = catalog.FetchedAt;
 
-            foreach (EmoteCatalogEntry entry in global.Entries)
+            foreach (EmoteCatalogEntry entry in catalog.Entries)
             {
                 if (!seen.Add(entry.Code))
                     continue;
@@ -69,51 +101,99 @@ internal sealed class EmoteCatalogService(
         return new EmoteCatalogResult(available, stale, fetchedAt, entries);
     }
 
-    private async Task<GlobalCatalog?> GetGlobalAsync(
-        IEmoteProvider provider, EmoteChannel channel, CancellationToken ct)
+    private async Task<ProviderCatalog?> GetProviderCatalogAsync(
+        IEmoteProvider provider,
+        EmoteChannel channel,
+        CancellationToken work,
+        CancellationToken callerCt)
     {
-        CacheSlot slot = _cache.GetOrAdd(provider.Id, _ => new CacheSlot());
-        DateTimeOffset now = clock.GetUtcNow();
-        if (slot.Cached is { } cached && now - cached.FetchedAt < CacheTtl)
-            return new GlobalCatalog(cached.Entries, cached.FetchedAt, Stale: false);
+        CacheSlot globalSlot = _globalCatalogs.GetOrAdd(provider.Id, _ => new CacheSlot());
+        CacheSlot? channelSlot = EmoteCatalogRules.IsValidChannelId(channel.TwitchUserId)
+            ? _channelCatalogs.GetOrAdd(
+                $"{provider.Id}:{channel.TwitchUserId}", _ => new CacheSlot())
+            : null;
+        CacheSlot gate = channelSlot ?? globalSlot;
 
-        await slot.Gate.WaitAsync(ct);
+        // The shared budget may have expired during channel-ID resolution.
+        if (work.IsCancellationRequested)
+            return Read(globalSlot, channelSlot, clock.GetUtcNow());
+
+        DateTimeOffset now = clock.GetUtcNow();
+        if (IsFresh(globalSlot, now) && (channelSlot is null || IsFresh(channelSlot, now)))
+            return Read(globalSlot, channelSlot, now);
+
+        bool acquired = false;
         try
         {
+            try
+            {
+                await gate.Gate.WaitAsync(work);
+                acquired = true;
+            }
+            catch (OperationCanceledException) when (!callerCt.IsCancellationRequested)
+            {
+                return Read(globalSlot, channelSlot, clock.GetUtcNow());
+            }
+
             now = clock.GetUtcNow();
-            if (slot.Cached is { } refreshed && now - refreshed.FetchedAt < CacheTtl)
-                return new GlobalCatalog(refreshed.Entries, refreshed.FetchedAt, Stale: false);
+            if (IsFresh(globalSlot, now) && (channelSlot is null || IsFresh(channelSlot, now)))
+                return Read(globalSlot, channelSlot, now);
 
             try
             {
-                using var timeout = new CancellationTokenSource();
-                using ITimer timer = clock.CreateTimer(
-                    static state => ((CancellationTokenSource)state!).Cancel(),
-                    timeout,
-                    ProviderTimeout,
-                    Timeout.InfiniteTimeSpan);
-                using CancellationTokenSource linked =
-                    CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
-                EmoteProviderCatalog catalog =
-                    await provider.GetCatalogAsync(channel, linked.Token);
-                IReadOnlyList<EmoteCatalogEntry> entries = Normalize(catalog.Global);
+                EmoteProviderCatalog catalog = await provider.GetCatalogAsync(channel, work);
                 DateTimeOffset fetchedAt = clock.GetUtcNow();
-                slot.Cached = new CachedCatalog(entries, fetchedAt);
-                return new GlobalCatalog(entries, fetchedAt, Stale: false);
+                globalSlot.Publish(Normalize(catalog.Global), fetchedAt);
+                channelSlot?.Publish(Normalize(catalog.Channel), fetchedAt);
+                return Read(globalSlot, channelSlot, fetchedAt);
             }
-            catch (Exception exception) when (!ct.IsCancellationRequested)
+            catch (Exception exception) when (!callerCt.IsCancellationRequested)
             {
                 LogRefreshFailure(provider, channel, exception);
-                return slot.Cached is { } stale
-                    ? new GlobalCatalog(stale.Entries, stale.FetchedAt, Stale: true)
-                    : null;
+                return Read(globalSlot, channelSlot, clock.GetUtcNow());
             }
         }
         finally
         {
-            slot.Gate.Release();
+            if (acquired)
+                gate.Gate.Release();
         }
     }
+
+    /// <summary>Channel entries precede global entries; first entry wins the service-level dedupe.</summary>
+    private static ProviderCatalog? Read(
+        CacheSlot global, CacheSlot? channel, DateTimeOffset now)
+    {
+        CachedCatalog? globalCache = global.Cached;
+        CachedCatalog? channelCache = channel?.Cached;
+        if (globalCache is null && channelCache is null)
+            return null;
+
+        var entries = new List<EmoteCatalogEntry>(
+            (channelCache?.Entries.Count ?? 0) + (globalCache?.Entries.Count ?? 0));
+        var stale = false;
+        DateTimeOffset fetchedAt = now;
+
+        if (channelCache is not null)
+        {
+            entries.AddRange(channelCache.Entries);
+            stale |= now - channelCache.FetchedAt >= CacheTtl;
+            fetchedAt = channelCache.FetchedAt;
+        }
+
+        if (globalCache is not null)
+        {
+            entries.AddRange(globalCache.Entries);
+            stale |= now - globalCache.FetchedAt >= CacheTtl;
+            if (globalCache.FetchedAt < fetchedAt)
+                fetchedAt = globalCache.FetchedAt;
+        }
+
+        return new ProviderCatalog(entries, fetchedAt, stale);
+    }
+
+    private static bool IsFresh(CacheSlot slot, DateTimeOffset now) =>
+        slot.Cached is { } cached && now - cached.FetchedAt < CacheTtl;
 
     private void LogRefreshFailure(
         IEmoteProvider provider, EmoteChannel channel, Exception exception)
@@ -141,14 +221,26 @@ internal sealed class EmoteCatalogService(
 
     private sealed class CacheSlot
     {
+        private readonly object _sync = new();
+        private CachedCatalog? _cached;
+
         public SemaphoreSlim Gate { get; } = new(1, 1);
 
-        public CachedCatalog? Cached { get; set; }
+        public CachedCatalog? Cached => Volatile.Read(ref _cached);
+
+        public void Publish(IReadOnlyList<EmoteCatalogEntry> entries, DateTimeOffset fetchedAt)
+        {
+            lock (_sync)
+            {
+                if (_cached is null || fetchedAt >= _cached.FetchedAt)
+                    Volatile.Write(ref _cached, new CachedCatalog(entries, fetchedAt));
+            }
+        }
     }
 
     private sealed record CachedCatalog(
         IReadOnlyList<EmoteCatalogEntry> Entries, DateTimeOffset FetchedAt);
 
-    private sealed record GlobalCatalog(
+    private sealed record ProviderCatalog(
         IReadOnlyList<EmoteCatalogEntry> Entries, DateTimeOffset FetchedAt, bool Stale);
 }

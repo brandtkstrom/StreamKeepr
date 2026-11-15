@@ -100,6 +100,7 @@ builder.Services.AddSingleton<ProgressStore>();
 builder.Services.AddSingleton<ChatLogStore>();
 builder.Services.AddSingleton<ChatReader>();
 builder.Services.AddSingleton<TwitchChatParser>();
+builder.Services.AddSingleton<EmoteChannelResolver>();
 builder.Services.AddSingleton<EmoteCatalogService>();
 builder.Services.AddSingleton<IExportLeaseRegistry, ExportLeaseRegistry>();
 builder.Services.AddSingleton<IRecordingAdmin, RecordingAdmin>();
