@@ -2,6 +2,8 @@
 @inject IJSRuntime JS
 @inject UiPreferences Preferences
 @inject ILogger<ChatPane> Logger
+@inject IConfiguration Config
+@using Microsoft.Extensions.Configuration
 @using StreamKeepr.Hosting
 @using StreamKeepr.Infrastructure.Storage
 
@@ -52,6 +54,9 @@
 
 @code {
     private const string ModulePath = "./Components/Features/Chat/ChatPane.razor.js";
+    // The server owns provider enablement; BTTV is the only provider in this change, so the
+    // documented gate is also "any provider enabled". Off by default.
+    private const string EmotesEnabledKey = "Chat:Emotes:Bttv:Enabled";
 
     private readonly string _bodyId = $"sk-chat-{Guid.NewGuid():N}";
     private ElementReference _root;
@@ -130,10 +135,13 @@
         await Preferences.PersistAsync();
     }
 
+    private bool EmotesEnabled => Config.GetValue<bool>(EmotesEnabledKey);
+
     private object ToPayload(RecordingView recording, bool open) => new
     {
         recordingId = recording.Id,
         open,
+        emotesEnabled = EmotesEnabled,
         state = recording.State switch
         {
             RecordingState.Recording => ChatStates.Recording,
