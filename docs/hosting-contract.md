@@ -41,6 +41,7 @@ MapHealthChecks
 | Live/final index | `/media/{channel}/{id}/index.m3u8` | Public |
 | Progress write | `PUT /api/recordings/{id}/progress` | Public (viewing is open) |
 | Chat read | `GET /api/recordings/{id}/chat` | Public (viewing is open) |
+| Emote catalog read | `GET /api/recordings/{id}/emotes` | Public (viewing is open) |
 | Export download | `GET /api/exports/{exportId}/download` | Signed-in |
 | Twitch login | `GET /api/auth/twitch/login?returnUrl=` | Public |
 | Twitch callback | `/signin-twitch` | Public |
@@ -50,6 +51,8 @@ MapHealthChecks
 | Static assets | hashed `wwwroot` | Public |
 
 The Blazor circuit actions (delete, export start, settings, stop/resume) enforce authorization in the scoped service layer as well as the UI; a disabled button is never the only guard.
+
+Third-party emote rendering adds two runtime dependencies for each enabled provider. With BetterTTV enabled, the server fetches `https://api.betterttv.net` over HTTPS (unauthenticated, five-minute cache, three-second bound), and the browser loads static images from `https://cdn.betterttv.net` with `referrerpolicy="no-referrer"`. Neither changes the media allowlist; `chat/` remains unserved. Adding 7TV later adds its own API/CDN pair and updates this map.
 
 ## 4. Media surface
 

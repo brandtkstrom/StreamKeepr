@@ -31,6 +31,7 @@ Chat capture is isolated from the DVR path: a source or store failure is logged 
 | `Chat:` key | Default | Meaning |
 | --- | --- | --- |
 | `Enabled` | `false` | Turns capture on. While off, live recordings show no chat pane; recordings with captured chat still replay it. |
+| `Emotes:Bttv:Enabled` | `false` | Renders BetterTTV global and channel emotes in chat replay. Off makes no catalog request. Capture and chat text are unaffected. |
 | `TwitchUserOAuthToken`, `TwitchLogin` | unset | Optional dedicated `chat:read` identity (`docs/twitch-auth-contract.md`); a rejected token falls back to anonymous. |
 | `LeadInSeconds` | `12` | How much earlier the content at a part start aired than its first PDT. |
 | `BucketMinutes` | `10` | Bucket length; buckets are floored on Unix time, so any value 1–60 works. |
@@ -40,6 +41,8 @@ Chat capture is isolated from the DVR path: a source or store failure is logged 
 | `ReconnectMaxSeconds` | `300` | Cap on the doubling reconnect backoff (from 5 s, jittered). |
 | `MaxBytesPerSession` | 512 MiB | Per-session cap; a full log is marked `truncated` and capture stops for that session. |
 | `PurgeDeletedText` | `Off` | `OnFinalize` removes deleted text at finalize (ADR 0009). |
+
+Third-party emote catalogs are fetched on demand by `GET /api/recordings/{id}/emotes` behind an `IEmoteProvider` seam; the five-minute cache and three-second provider bound are constants, not configuration. Catalog and image failures never affect chat capture, replay, or health (ADR 0011).
 
 Only the coordinator loop mutates domain state. Readers use `DvrStatus` and `RecordingLibrary`; they never inspect a live coordinator.
 

@@ -92,6 +92,26 @@ _Avoid_: Chat history, transcript
 One user-authored Twitch chat message (`PRIVMSG`) for a channel, identified by its Twitch message ID and timestamped with `tmi-sent-ts` when available.
 _Avoid_: Chat line, comment
 
+**Emote**:
+A chat token that renders as an inline image, identified by its text code.
+_Avoid_: Emoji, reaction, custom emote
+
+**Twitch emote**:
+An emote Twitch identifies in a chat message's IRC `emotes` tag.
+_Avoid_: Native emote, built-in emote
+
+**Third-party emote**:
+An emote resolved by matching a chat message's text against an emote provider's catalog.
+_Avoid_: Custom emote, BTTV emote (unless the provider matters)
+
+**Emote provider**:
+A service that publishes emote catalogs for Twitch channels, such as BetterTTV or 7TV.
+_Avoid_: Emote source, emote service
+
+**Emote catalog**:
+A provider's global and channel-specific set of emote codes and image references.
+_Avoid_: Emote list, emote set
+
 **Chat log event**:
 A non-message record in the chat log: deletion, clear, room-state change, notice, gap, dropped events, truncation, end, or purge.
 _Avoid_: System message, moderation event (when the general record is meant)

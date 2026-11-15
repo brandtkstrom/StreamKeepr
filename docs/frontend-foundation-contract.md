@@ -141,7 +141,8 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 - `Editor`/player modules load later; hls.js is imported only by the player module, never by the shell.
 - `ChatPane.razor.js` owns the chat log, polling, auto-scroll, and sync controls; it listens to `sk:playhead` and never crosses the circuit for time updates.
 - Chat scrollback persists while playback runs on. A seek back, a seek more than 120 s ahead, a sync change, or a seek before the kept rows fetches a fresh window from 30 s before the playhead, then backfills earlier chat in 120 s chunks until the log overflows, the chat starts, a chunk hits the limit, or it reaches 30 minutes back. Otherwise each fetch continues from what is loaded: live panes poll every 0.5 s, and a complete recording reads ahead when the playhead is within 30 s of the loaded end. The log keeps the newest 1000 rows; older rows drop off the top.
-- `<ImportMap />` is kept; no CDN and no Node at runtime.
+- `ChatPane.razor.js` also owns optional third-party emote matching and rendering: it fetches the catalog once per recording load, matches only text outside Twitch emote ranges, renders server-provided static `src`/`srcset` images with `loading="lazy"`, `decoding="async"`, and `referrerpolicy="no-referrer"`, and falls back to text on image error. A catalog failure never blocks chat.
+- `<ImportMap />` is kept; no CDN and no Node for application assets at runtime. Chat emote images are content and may load from the Twitch and third-party emote CDNs; the pane never imports JavaScript or CSS from a CDN.
 - Anything changing more than once a second stays in JS (player/stats/scrubbing/pointer); shell state crosses the circuit only on user actions.
 
 ## 12. CSS and design-system source

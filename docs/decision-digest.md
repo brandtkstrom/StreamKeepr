@@ -3,7 +3,7 @@
 Status: accepted (2026-11-10)
 Owner: @brandtkstrom
 Entry point for: `to-spec`
-Source: map issue #1 and decision tickets #2–#18; the binding contracts; ADRs 0001–0005; the plan-review register; `GLOSSARY.md`; `docs/plans/streamkeepr-implementation-plan.md`; `docs/design-assets.md`.
+Source: map issue #1 and decision tickets #2–#18; the binding contracts; ADRs 0001–0011; the plan-review register; `GLOSSARY.md`; `docs/plans/streamkeepr-implementation-plan.md`; `docs/design-assets.md`.
 
 This is the single handoff for the full application specification. It records the decisions already made, the plan amendments that bind the spec, the accepted risks, the open items, and the post-implementation conformance review. It does not rewrite the plan and does not implement the app.
 
@@ -78,6 +78,7 @@ This is the single handoff for the full application specification. It records th
 | [#18](https://github.com/brandtkstrom/StreamKeepr/issues/18) Decision digest and post-implementation review criteria | This digest is the single `to-spec` entry point; it links every ticket, contract, ADR, and amendment; records accepted risks/open items; defines the post-implementation criteria, evidence, gates, and gap reporting. | This file |
 | [#152](https://github.com/brandtkstrom/StreamKeepr/issues/152) Private-home-use project scope | StreamKeepr is a personal project for private home use. Public hosting, multi-tenant deployment, and third-party distribution are outside the support scope. The MIT license is unchanged; the statement describes intent and support, not a license restriction. | [README](../README.md), [Security](../SECURITY.md), [Hosting](hosting-contract.md) |
 | [#153](https://github.com/brandtkstrom/StreamKeepr/issues/153) IRC chat capture and synchronized replay | Read-only IRC over WSS; anonymous default with optional dedicated `chat:read` token; per-session JSONL chat log; public bounded chat endpoint; JS-owned sidecar pane; opt-in finalize purge; chat never affects recording or `/health/live`. | [Twitch/auth](twitch-auth-contract.md), [Session store](session-store-contract.md), [Hosting](hosting-contract.md), [Backend UI](backend-ui-contract.md), [ADR-0008](adr/0008-anonymous-irc-chat-capture.md), [ADR-0009](adr/0009-chat-log-retention-and-purge.md), [ADR-0010](adr/0010-chat-module-dependency-direction.md) |
+| [#164](https://github.com/brandtkstrom/StreamKeepr/issues/164) BetterTTV emotes in chat replay | Server-side `IEmoteProvider` seam (BTTV now, 7TV later); one aggregated public catalog endpoint; replay-time catalogs; numeric channel ID resolved at replay; static-only images from the provider CDN with no image proxy; BTTV-style text matching outside Twitch ranges; off by default; failures isolated from chat. | [Backend UI](backend-ui-contract.md), [Hosting](hosting-contract.md), [Frontend foundation](frontend-foundation-contract.md), [Runtime](runtime-contract.md), [Spec](plans/betterttv-emotes.md), [ADR-0011](adr/0011-third-party-emotes-provider-seam.md) |
 
 ## 4. Backend decisions
 
@@ -214,6 +215,10 @@ This is the single handoff for the full application specification. It records th
 | [ADR-0005 Part 1 buildability](adr/0005-part1-part2-buildability.md) | Part 1 includes a minimal Blazor shell so the backend foundation builds/runs; full UI remains Part 2. |
 | [ADR-0006 EventSub reconnect handoff](adr/0006-eventsub-reconnect-handoff.md) | Keep the old socket until the new welcome; drain both; skip resubscribe; dedupe the overlap. |
 | [ADR-0007 EventSub conduit transport](adr/0007-eventsub-conduit-transport.md) | `Twitch:EventSubTransport` = `WebSocket` (default) or `Conduit`; conduit mode uses the app token, one conduit and shard, and does not depend on admin sign-in. |
+| [ADR-0008 Anonymous IRC chat capture](adr/0008-anonymous-irc-chat-capture.md) | Chat capture uses one read-only IRC connection over WSS, anonymous by default with a dedicated `chat:read` token fallback; chat failures never affect recording or health. |
+| [ADR-0009 Chat log retention and opt-in purge](adr/0009-chat-log-retention-and-purge.md) | Per-session JSONL chat log kept for the life of the recording; tombstones hide deletions; `Chat:PurgeDeletedText` is `Off` or `OnFinalize`; no retention service. |
+| [ADR-0010 Chat module dependency direction](adr/0010-chat-module-dependency-direction.md) | `Infrastructure/Twitch/Chat` may depend on `Infrastructure/Storage`; Storage must not import the chat transport; the chat log input records live in Storage. |
+| [ADR-0011 Third-party emotes via a provider seam](adr/0011-third-party-emotes-provider-seam.md) | Server-side `IEmoteProvider`; one aggregated endpoint; replay-time catalogs; static-only images from the provider CDN; off by default; no snapshot or image proxy. |
 
 ## 7. Plan amendment ledger
 

@@ -37,7 +37,7 @@ The source `components/bundle.css` has the Google Fonts import replaced by a loc
 
 - UI text uses the system monospace stack (`ui-monospace`, SF Mono, Menlo, Consolas); no text webfont is bundled.
 - Material Symbols Rounded is vendored under Apache-2.0 for icons.
-- No Google Fonts or other CDN request is made at runtime.
+- No Google Fonts or other CDN request is made for application assets at runtime. Chat emote images are message content and may load from the Twitch and third-party emote CDNs; they are not design-system assets.
 - A future text face must be licensed for web self-hosting, added under `design-system/fonts/`, declared in the design-system source, and regenerated into `wwwroot/css/`.
 
 ## Local setup for a fresh clone
