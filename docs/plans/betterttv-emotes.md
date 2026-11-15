@@ -193,7 +193,7 @@ internal sealed record EmoteImageSet(string Src, string SrcSet);
 - **AC-010**: Given an unresolved channel ID, when the catalog is fetched, then global entries render and channel entries are absent.
 - **AC-011**: Given an animated BTTV emote, when enabled, then its static first frame renders.
 - **AC-012**: Given a catalog response arriving after messages are already visible, when it arrives, then the log re-renders once with the catalog applied.
-- **AC-013**: Given 300 visible rows, when the pane opens, then no more than one catalog request is made per recording load.
+- **AC-013**: Given the pane's 1000-row cap, when the pane opens, then no more than one catalog request is made per recording load.
 
 ## 6. Test Automation Strategy
 
@@ -206,7 +206,7 @@ internal sealed record EmoteImageSet(string Src, string SrcSet);
 
 ## 7. Rationale & Context
 
-See `docs/research/betterttv-emotes.md` for the API/CDN probes and matching evidence, and `docs/adr/0011-third-party-emotes-provider-seam.md` for the decision. The key constraints are: BTTV channel catalogs require a numeric Twitch ID that only the server has; the pane already owns chat DOM and uses code-point ranges; animated assets are too large for the pane's re-render behavior; and replay-time catalogs are accepted as approximate.
+See `docs/research/betterttv-emotes.md` for the API/CDN probes and matching evidence, and `docs/adr/0011-third-party-emotes-provider-seam.md` for the decision. The key constraints are: BTTV channel catalogs require a numeric Twitch ID that only the server has; the pane already owns chat DOM and uses code-point ranges; animated assets are too large for the pane's 1000-row re-render behavior; and replay-time catalogs are accepted as approximate.
 
 ## 8. Dependencies & External Integrations
 

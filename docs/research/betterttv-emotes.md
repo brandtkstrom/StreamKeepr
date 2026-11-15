@@ -18,7 +18,7 @@ Conditions:
 
 1. **Owner accepts third-party CDN image loads.** Browser-side BTTV images reveal each viewer's IP and user agent to NightDev's CDN. A server-side proxy would hide that but is a much larger change. Recommended mitigation: `referrerpolicy="no-referrer"`, feature flag off by default, and a documented caveat.
 2. **Owner accepts replay-time catalog drift.** Channel emote sets change and emotes are renamed or removed. Rendering the current catalog against an old recording is approximate. A capture-time snapshot (Option C) is the only way to preserve the historical mapping, but it is deferred; it still does not preserve image bytes.
-3. **Static images only in v1.** Animated BTTV WebP/GIF assets are 0.9–3.8 MB each in the measured sample, versus 1–11 KB for static images. The pane rebuilds its 300-row DOM on visible-set changes, so animated images would restart repeatedly and cost far too much.
+3. **Static images only in v1.** Animated BTTV WebP/GIF assets are 0.9–3.8 MB each in the measured sample, versus 1–11 KB for static images. The pane rebuilds its 1000-row DOM on main (300 at the research HEAD) on visible-set changes, so animated images would restart repeatedly and cost far too much.
 4. **Keep BTTV optional and non-gating.** A BTTV failure must never affect chat text, native emotes, recording, or health checks.
 
 ## 2. What the repository already fixes
@@ -26,7 +26,7 @@ Conditions:
 | Fact | Evidence |
 |---|---|
 | The pane renders native emotes from stored code-point ranges in `appendText`, using `https://static-cdn.jtvnw.net/emoticons/v2/{id}/default/dark/{1.0,2.0,3.0}`. It validates the native ID and sets `alt`, `title`, `loading="lazy"`, and `decoding="async"`. | `src/StreamKeepr/Components/Features/Chat/ChatPane.razor.js:446-484`, especially `:465-473` |
-| The pane caps rendered rows at 300, polls every 500 ms, and rebuilds the log with `replaceChildren()` when the visible message set changes. | `ChatPane.razor.js:11,18,353-386` |
+| The pane caps rendered rows at 1000 on main (300 at the research HEAD), polls every 500 ms, and rebuilds the log with `replaceChildren()` when the visible message set changes. | `ChatPane.razor.js` on main (`MAX_ROWS`, `replaceChildren`); at the research HEAD `:11,18,353-386` |
 | The module is fetch-injectable: `createChatPane(root, { fetch, storage })`; the existing tests already exercise native emote rendering. | `ChatPane.razor.js:76-80`; `tests/js/chat-pane.test.js:95-116` |
 | The IRC parser converts the `emotes` tag into `ChatEmote(id, ranges)` and stores ranges as Unicode code points. ACTION messages subtract an 8-code-point prefix offset. | `src/StreamKeepr/Infrastructure/Twitch/Chat/TwitchChatParser.cs:14-15,51-61,196-242` |
 | Persisted messages carry `text` plus native `emotes: [{id, ranges:[{from,to}]}]`; there is no third-party catalog in the session. | `src/StreamKeepr/Infrastructure/Storage/ChatStorageModels.cs:5-33` |
@@ -195,11 +195,11 @@ Failure behavior for B-lite:
 | Sample channel catalog | 356 emotes, 64,223 bytes JSON. |
 | Static image | 1–3 KB at 1x; 2x/3x larger but still small. |
 | Animated image | 920 KB at 1x WebP; 3.77 MB at 3x GIF; 6.7 KB static first frame at 2x WebP. |
-| Rendered rows | ≤300 (`MAX_ROWS`); the pane rebuilds all rows on visible-set changes (`replaceChildren`). |
+| Rendered rows | ≤1000 (`MAX_ROWS` on main; 300 at the research HEAD); the pane rebuilds all rows on visible-set changes (`replaceChildren`). |
 | Polling | 500 ms; catalog is fetched once per recording open, not per poll. |
-| Initial image load | `loading="lazy"` limits loading to the viewport (roughly 20–30 rows), then scroll expands it. Worst case remains 300 image elements. |
+| Initial image load | `loading="lazy"` limits loading to the viewport (roughly 20–30 rows), then scroll expands it. Worst case is 1000 image elements. |
 
-At 300 rows, a static BTTV emote costs 1–11 KB each; a viewport with 30–60 images is comfortably sub-megabyte. Animated emotes are **not viable** at these sizes, especially because every render recreates `<img>` elements and restarts animation. Recommendation: static only; use `/static/{size}.webp` for `animated:true` and `/{size}.webp` for static. Add `loading="lazy"`, `decoding="async"`, and `referrerpolicy="no-referrer"`. Do not add a per-image retry loop. If animated support is ever wanted, gate it behind a separate flag, a hover/click action, `prefers-reduced-motion`, and a visible-emote cap.
+At 1000 rows, a static BTTV emote costs 1–11 KB each; a viewport with 30–60 images is comfortably sub-megabyte, and even a fully scrolled 1000-row log is roughly 1–11 MB of cached images. Animated emotes are **not viable** at these sizes, especially because every render recreates `<img>` elements and restarts animation. Recommendation: static only; use `/static/{size}.webp` for `animated:true` and `/{size}.webp` for static. Add `loading="lazy"`, `decoding="async"`, and `referrerpolicy="no-referrer"`. Do not add a per-image retry loop. If animated support is ever wanted, gate it behind a separate flag, a hover/click action, `prefers-reduced-motion`, and a visible-emote cap.
 
 ## 10. Testability and observability
 
@@ -222,7 +222,7 @@ The existing `fetch` seam makes B-lite testable without a browser or network:
 | `docs/hosting-contract.md` | Endpoint-map row; document the outbound HTTPS dependency on `api.betterttv.net` and `cdn.betterttv.net`; no media allowlist change; no `chat/` exposure. |
 | `docs/frontend-foundation-contract.md` | `ChatPane.razor.js` additionally owns optional third-party matching/rendering; image attributes; static-first policy; no layout change. |
 | `docs/testing-contract.md` | Vitest matcher/DOM tests; xUnit catalog/cache tests with fake HTTP; `WebApplicationFactory` endpoint tests; Mock/E2E catalog fixture; no external network. |
-| `docs/runtime-contract.md` | Add `Chat:BetterTtv:Enabled=false`, `CacheSeconds=300`, and `TimeoutSeconds=3` to the `Chat:` table. |
+| `docs/runtime-contract.md` | Add `Chat:Emotes:Bttv:Enabled=false`; cache and timeout are constants (ADR 0011). |
 | `docs/session-store-contract.md` | **No change for B-lite.** Option C would add `chat/bttv.json` and define its lifecycle/deletion. |
 | `docs/decision-digest.md` / `docs/adr/` | Optional ADR for the third-party CDN/privacy dependency if adopted. |
 
