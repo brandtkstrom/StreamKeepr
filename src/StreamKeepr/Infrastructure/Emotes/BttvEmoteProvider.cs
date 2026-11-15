@@ -1,15 +1,17 @@
+using System.Net;
 using System.Text.Json;
 
 namespace StreamKeepr.Infrastructure.Emotes;
 
 /// <summary>
-/// BetterTTV's unauthenticated cached catalogs. This tracer bullet fetches the global catalog;
-/// channel catalogs follow in a later change.
+/// BetterTTV's unauthenticated cached catalogs: the global catalog for every channel and the
+/// channel catalog when a numeric Twitch user ID is known.
 /// </summary>
 internal sealed class BttvEmoteProvider(IHttpClientFactory httpFactory) : IEmoteProvider
 {
     public const string ProviderId = "bttv";
     public const string GlobalPath = "3/cached/emotes/global";
+    public const string ChannelPath = "3/cached/users/twitch";
 
     public string Id => ProviderId;
 
@@ -17,16 +19,21 @@ internal sealed class BttvEmoteProvider(IHttpClientFactory httpFactory) : IEmote
         EmoteChannel channel, CancellationToken ct)
     {
         using HttpClient http = httpFactory.CreateClient(EmoteHttpClients.Bttv);
+        IReadOnlyList<EmoteCatalogEntry> global = await GetGlobalAsync(http, ct);
+        IReadOnlyList<EmoteCatalogEntry> channelEntries =
+            EmoteCatalogRules.IsValidChannelId(channel.TwitchUserId)
+                ? await GetChannelAsync(http, channel.TwitchUserId!, ct)
+                : [];
+        return new EmoteProviderCatalog(channelEntries, global);
+    }
+
+    private static async Task<IReadOnlyList<EmoteCatalogEntry>> GetGlobalAsync(
+        HttpClient http, CancellationToken ct)
+    {
         using HttpResponseMessage response = await http.GetAsync(
             GlobalPath, HttpCompletionOption.ResponseHeadersRead, ct);
-
         if (!response.IsSuccessStatusCode)
-        {
-            throw new EmoteProviderException(
-                ProviderId,
-                (int)response.StatusCode,
-                $"BetterTTV global catalog request failed with HTTP {(int)response.StatusCode}.");
-        }
+            throw Failure(response, "global");
 
         byte[] body = await ReadBodyAsync(response, ct);
         BttvEmote[]? emotes;
@@ -36,19 +43,49 @@ internal sealed class BttvEmoteProvider(IHttpClientFactory httpFactory) : IEmote
         }
         catch (JsonException)
         {
-            throw new EmoteProviderException(
-                ProviderId, (int)response.StatusCode,
-                "BetterTTV returned an invalid global catalog.");
+            throw Invalid(response, "global");
         }
 
-        if (emotes is null)
+        return emotes is null ? throw Invalid(response, "global") : Normalize(emotes);
+    }
+
+    private static async Task<IReadOnlyList<EmoteCatalogEntry>> GetChannelAsync(
+        HttpClient http, string channelId, CancellationToken ct)
+    {
+        using HttpResponseMessage response = await http.GetAsync(
+            $"{ChannelPath}/{channelId}", HttpCompletionOption.ResponseHeadersRead, ct);
+
+        // A numeric ID with no BetterTTV profile is an available channel without emotes.
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return [];
+
+        if (!response.IsSuccessStatusCode)
+            throw Failure(response, "channel");
+
+        byte[] body = await ReadBodyAsync(response, ct);
+        BttvChannel? payload;
+        try
         {
-            throw new EmoteProviderException(
-                ProviderId, (int)response.StatusCode,
-                "BetterTTV returned an invalid global catalog.");
+            payload = JsonSerializer.Deserialize<BttvChannel>(body, BttvJson.Options);
+        }
+        catch (JsonException)
+        {
+            throw Invalid(response, "channel");
         }
 
-        var entries = new List<EmoteCatalogEntry>(emotes.Length);
+        if (payload is null)
+            throw Invalid(response, "channel");
+
+        // Shared entries precede channel entries so shared codes win the first-entry-wins dedupe.
+        return [.. Normalize(payload.SharedEmotes), .. Normalize(payload.ChannelEmotes)];
+    }
+
+    private static EmoteCatalogEntry[] Normalize(IEnumerable<BttvEmote?>? emotes)
+    {
+        if (emotes is null)
+            return [];
+
+        var entries = new List<EmoteCatalogEntry>();
         foreach (BttvEmote? emote in emotes)
         {
             if (emote is null ||
@@ -65,7 +102,7 @@ internal sealed class BttvEmoteProvider(IHttpClientFactory httpFactory) : IEmote
                 emote.Id!, emote.Code!, emote.Animated, Modifier: false));
         }
 
-        return new EmoteProviderCatalog([], entries);
+        return [.. entries];
     }
 
     private static async Task<byte[]> ReadBodyAsync(
@@ -92,6 +129,16 @@ internal sealed class BttvEmoteProvider(IHttpClientFactory httpFactory) : IEmote
     private static EmoteProviderException TooLarge() =>
         new(ProviderId, 200, "BetterTTV catalog response exceeded two mebibytes.");
 
+    private static EmoteProviderException Failure(HttpResponseMessage response, string scope) =>
+        new(
+            ProviderId,
+            (int)response.StatusCode,
+            $"BetterTTV {scope} catalog request failed with HTTP {(int)response.StatusCode}.");
+
+    private static EmoteProviderException Invalid(HttpResponseMessage response, string scope) =>
+        new(ProviderId, (int)response.StatusCode,
+            $"BetterTTV returned an invalid {scope} catalog.");
+
     public EmoteImageSet GetStaticImage(EmoteCatalogEntry entry)
     {
         string folder = entry.Animated ? "static/" : "";
@@ -109,6 +156,11 @@ internal sealed record BttvEmote(
     bool Animated = false,
     bool Modifier = false,
     JsonElement? Restrictions = null);
+
+/// <summary>The BetterTTV channel payload; only the two emote lists are used.</summary>
+internal sealed record BttvChannel(
+    BttvEmote[]? ChannelEmotes = null,
+    BttvEmote[]? SharedEmotes = null);
 
 internal static class BttvJson
 {

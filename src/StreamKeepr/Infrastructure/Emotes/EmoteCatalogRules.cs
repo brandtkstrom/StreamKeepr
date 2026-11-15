@@ -25,6 +25,10 @@ internal static class EmoteCatalogRules
     public static bool IsValidCode(string? code) =>
         !string.IsNullOrEmpty(code) && code.Length <= MaxCodeLength;
 
+    /// <summary>Twitch user IDs are numeric and at most 20 digits.</summary>
+    public static bool IsValidChannelId(string? channelId) =>
+        channelId is { Length: >= 1 and <= 20 } && channelId.All(char.IsAsciiDigit);
+
     /// <summary>Modifiers, restricted entries, and invalid identifiers never leave a provider.</summary>
     public static bool IsUsable(EmoteCatalogEntry entry) =>
         !entry.Modifier && IsValidEmoteId(entry.Id) && IsValidCode(entry.Code);

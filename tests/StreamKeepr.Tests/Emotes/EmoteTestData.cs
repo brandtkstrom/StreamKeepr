@@ -1,4 +1,6 @@
+using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Emotes;
+using StreamKeepr.Infrastructure.Twitch;
 
 namespace StreamKeepr.Tests.Emotes;
 
@@ -76,10 +78,46 @@ internal sealed class StubEmoteProvider : IEmoteProvider
             $"https://cdn.test/{entry.Id}/3x.webp 3x");
 }
 
+internal sealed class StubEmotePoller : IStreamPoller
+{
+    private int _lookups;
+
+    public Func<string, CancellationToken, Task<ChannelProfile?>> Lookup { get; set; } =
+        (_, _) => Task.FromResult<ChannelProfile?>(null);
+
+    public int Lookups => Volatile.Read(ref _lookups);
+
+    public Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct)
+    {
+        Interlocked.Increment(ref _lookups);
+        return Lookup(login, ct);
+    }
+
+    public Task RunAsync(
+        Func<IReadOnlyList<string>> logins,
+        StreamObservationRoute route,
+        CancellationToken ct) =>
+        Task.Delay(Timeout.InfiniteTimeSpan, ct);
+
+    public Task<ChannelInfo?> GetChannelInfoAsync(string broadcasterId, CancellationToken ct) =>
+        Task.FromResult<ChannelInfo?>(null);
+
+    public void Nudge()
+    {
+    }
+}
+
 internal static class EmoteTestData
 {
     public static HttpResponseMessage Json(string json) =>
         new(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+        };
+
+    public static HttpResponseMessage Json(
+        System.Net.HttpStatusCode status, string json) =>
+        new(status)
         {
             Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
         };

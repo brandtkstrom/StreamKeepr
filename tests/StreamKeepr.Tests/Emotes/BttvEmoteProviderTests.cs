@@ -185,4 +185,204 @@ public sealed class BttvEmoteProviderTests
             request.Headers,
             header => header.Key.Equals("Cookie", StringComparison.OrdinalIgnoreCase));
     }
+
+    private const string ChannelJson = """
+        {
+          "id": "5d1b7c0e95e8e11f4f6f0a1c",
+          "displayName": "Chan",
+          "channelEmotes": [
+            {"id":"aaaaaaaaaaaaaaaaaaaaaaaa","code":"CHANNEL","animated":false,"modifier":false},
+            {"id":"bbbbbbbbbbbbbbbbbbbbbbbb","code":"DUP","animated":false,"modifier":false},
+            {"id":"cccccccccccccccccccccccc","code":"BRAZIL","animated":false,"modifier":false}
+          ],
+          "sharedEmotes": [
+            {"id":"dddddddddddddddddddddddd","code":"SHARED","animated":true,"modifier":false},
+            {"id":"eeeeeeeeeeeeeeeeeeeeeeee","code":"DUP","animated":false,"modifier":false},
+            {"id":"ffffffffffffffffffffffff","code":"brazil","animated":false,"modifier":false}
+          ]
+        }
+        """;
+
+    [Fact]
+    public async Task Channel_catalog_fetches_the_numeric_id_and_orders_shared_before_channel()
+    {
+        var handler = new StubHttpMessageHandler((request, _) =>
+            Task.FromResult(EmoteTestData.Json(
+                request.RequestUri!.AbsolutePath.Contains("/users/twitch/", StringComparison.Ordinal)
+                    ? ChannelJson
+                    : GlobalJson)));
+        var provider = new BttvEmoteProvider(new EmoteHttpClientFactory(handler));
+
+        EmoteProviderCatalog catalog = await provider.GetCatalogAsync(
+            new EmoteChannel("chan", "12345"), CancellationToken.None);
+
+        Assert.Equal(
+            ["SHARED", "DUP", "brazil", "CHANNEL", "DUP", "BRAZIL"],
+            catalog.Channel.Select(entry => entry.Code));
+        Assert.Equal([":tf:", "KEKW"], catalog.Global.Select(entry => entry.Code));
+        Assert.True(catalog.Channel[0].Animated);
+
+        Assert.Contains(
+            handler.Requests,
+            request => request.RequestUri?.AbsoluteUri ==
+                "https://api.betterttv.net/3/cached/emotes/global");
+        CapturedRequest channelRequest = Assert.Single(
+            handler.Requests,
+            request => request.RequestUri?.AbsoluteUri ==
+                "https://api.betterttv.net/3/cached/users/twitch/12345");
+        Assert.DoesNotContain(
+            channelRequest.Headers,
+            header => header.Key.Equals("Authorization", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            channelRequest.Headers,
+            header => header.Key.Equals("Cookie", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task An_unresolved_channel_fetches_only_the_global_catalog()
+    {
+        var handler = new StubHttpMessageHandler(
+            (_, _) => Task.FromResult(EmoteTestData.Json(GlobalJson)));
+        var provider = new BttvEmoteProvider(new EmoteHttpClientFactory(handler));
+
+        EmoteProviderCatalog catalog = await provider.GetCatalogAsync(
+            new EmoteChannel("chan", null), CancellationToken.None);
+
+        Assert.Empty(catalog.Channel);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task Channel_catalog_drops_invalid_modifier_and_restricted_entries_and_matches_code()
+    {
+        string channelJson = JsonSerializer.Serialize(new
+        {
+            id = "5d1b7c0e95e8e11f4f6f0a1c",
+            channelEmotes = new object[]
+            {
+                new { id = EmoteTestData.StaticId, code = "KEEP", animated = false, modifier = false },
+                new { id = "not-an-emote-id", code = "BROKEN", animated = false, modifier = false },
+                new { id = EmoteTestData.StaticId, code = "", animated = false, modifier = false },
+            },
+            sharedEmotes = new object[]
+            {
+                new { id = EmoteTestData.StaticId, code = "w!", animated = false, modifier = true },
+                new
+                {
+                    id = EmoteTestData.StaticId,
+                    code = "RESTRICTED",
+                    animated = false,
+                    modifier = false,
+                    restrictions = new { emoteSet = "night" },
+                },
+                new
+                {
+                    id = EmoteTestData.StaticId,
+                    code = "DUUR",
+                    animated = false,
+                    modifier = false,
+                    codeOriginal = "FeelsTastyMan",
+                },
+            },
+        });
+
+        var handler = new StubHttpMessageHandler((request, _) =>
+            Task.FromResult(EmoteTestData.Json(
+                request.RequestUri!.AbsolutePath.Contains("/users/twitch/", StringComparison.Ordinal)
+                    ? channelJson
+                    : GlobalJson)));
+        var provider = new BttvEmoteProvider(new EmoteHttpClientFactory(handler));
+
+        EmoteProviderCatalog catalog = await provider.GetCatalogAsync(
+            new EmoteChannel("chan", "12345"), CancellationToken.None);
+
+        Assert.Equal(["DUUR", "KEEP"], catalog.Channel.Select(entry => entry.Code));
+    }
+
+    [Fact]
+    public async Task An_unknown_channel_profile_is_an_empty_channel_catalog()
+    {
+        var handler = new StubHttpMessageHandler((request, _) =>
+            Task.FromResult(
+                request.RequestUri!.AbsolutePath.Contains("/users/twitch/", StringComparison.Ordinal)
+                    ? EmoteTestData.Json(
+                        HttpStatusCode.NotFound, """{"message":"user not found"}""")
+                    : EmoteTestData.Json(GlobalJson)));
+        var provider = new BttvEmoteProvider(new EmoteHttpClientFactory(handler));
+
+        EmoteProviderCatalog catalog = await provider.GetCatalogAsync(
+            new EmoteChannel("chan", "999999"), CancellationToken.None);
+
+        Assert.Empty(catalog.Channel);
+        Assert.Equal(2, catalog.Global.Count);
+    }
+
+    [Fact]
+    public async Task Channel_catalog_reports_a_non_success_http_status()
+    {
+        var handler = new StubHttpMessageHandler((request, _) =>
+            Task.FromResult(
+                request.RequestUri!.AbsolutePath.Contains("/users/twitch/", StringComparison.Ordinal)
+                    ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                    : EmoteTestData.Json(GlobalJson)));
+        var provider = new BttvEmoteProvider(new EmoteHttpClientFactory(handler));
+
+        EmoteProviderException error = await Assert.ThrowsAsync<EmoteProviderException>(() =>
+            provider.GetCatalogAsync(new EmoteChannel("chan", "12345"), CancellationToken.None));
+
+        Assert.Equal("bttv", error.ProviderId);
+        Assert.Equal(500, error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task Channel_catalog_treats_malformed_json_as_a_provider_failure()
+    {
+        var handler = new StubHttpMessageHandler((request, _) =>
+            Task.FromResult(
+                request.RequestUri!.AbsolutePath.Contains("/users/twitch/", StringComparison.Ordinal)
+                    ? EmoteTestData.Json("{not json")
+                    : EmoteTestData.Json(GlobalJson)));
+        var provider = new BttvEmoteProvider(new EmoteHttpClientFactory(handler));
+
+        EmoteProviderException error = await Assert.ThrowsAsync<EmoteProviderException>(() =>
+            provider.GetCatalogAsync(new EmoteChannel("chan", "12345"), CancellationToken.None));
+
+        Assert.Equal("bttv", error.ProviderId);
+        Assert.Equal(200, error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task Channel_catalog_rejects_a_body_over_two_mebibytes()
+    {
+        var handler = new StubHttpMessageHandler((request, _) =>
+            Task.FromResult(
+                request.RequestUri!.AbsolutePath.Contains("/users/twitch/", StringComparison.Ordinal)
+                    ? EmoteTestData.Json(
+                        new string('x', EmoteCatalogRules.MaxResponseBytes + 1))
+                    : EmoteTestData.Json(GlobalJson)));
+        var provider = new BttvEmoteProvider(new EmoteHttpClientFactory(handler));
+
+        EmoteProviderException error = await Assert.ThrowsAsync<EmoteProviderException>(() =>
+            provider.GetCatalogAsync(new EmoteChannel("chan", "12345"), CancellationToken.None));
+
+        Assert.Equal("bttv", error.ProviderId);
+        Assert.Equal(200, error.HttpStatus);
+    }
+
+    [Theory]
+    [InlineData("abc")]
+    [InlineData("")]
+    [InlineData("123456789012345678901")]
+    public async Task A_non_numeric_channel_id_skips_the_channel_request(string channelId)
+    {
+        var handler = new StubHttpMessageHandler(
+            (_, _) => Task.FromResult(EmoteTestData.Json(GlobalJson)));
+        var provider = new BttvEmoteProvider(new EmoteHttpClientFactory(handler));
+
+        EmoteProviderCatalog catalog = await provider.GetCatalogAsync(
+            new EmoteChannel("chan", channelId), CancellationToken.None);
+
+        Assert.Empty(catalog.Channel);
+        Assert.Single(handler.Requests);
+    }
 }
