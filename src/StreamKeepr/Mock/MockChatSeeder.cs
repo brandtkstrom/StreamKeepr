@@ -40,6 +40,8 @@ public sealed class MockChatSeeder(
                 .ToUnixTimeMilliseconds();
             Append(store, summary.Channel, baseAt, 5, "seed-1", "Welcome to the Mock stream",
                 "moderator", "1");
+            Append(store, summary.Channel, baseAt, 2, "seed-emotes",
+                "Fixture emotes KEKW :tf: CatJAM BrokenEmote", null, null);
             Append(store, summary.Channel, baseAt, 16, "seed-2", "Kappa this is a chat replay",
                 null, null);
             Append(store, summary.Channel, baseAt, 27, "seed-3", "PogChamp nice clip",
