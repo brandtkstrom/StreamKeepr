@@ -6,6 +6,7 @@ using StreamKeepr.Components;
 using StreamKeepr.Components.Features.Player;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
+using StreamKeepr.Infrastructure.Emotes;
 using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
@@ -99,6 +100,8 @@ builder.Services.AddSingleton<ProgressStore>();
 builder.Services.AddSingleton<ChatLogStore>();
 builder.Services.AddSingleton<ChatReader>();
 builder.Services.AddSingleton<TwitchChatParser>();
+builder.Services.AddSingleton<IEmoteProvider, BttvEmoteProvider>();
+builder.Services.AddSingleton<EmoteCatalogService>();
 builder.Services.AddSingleton<IExportLeaseRegistry, ExportLeaseRegistry>();
 builder.Services.AddSingleton<IRecordingAdmin, RecordingAdmin>();
 builder.Services.AddSingleton<ExportService>();
@@ -207,6 +210,9 @@ builder.Services.AddHttpClient(TwitchHttpClients.Auth, client =>
 builder.Services.AddHttpClient(TwitchHttpClients.Helix, client =>
                                    client.BaseAddress = new Uri("https://api.twitch.tv/"));
 
+builder.Services.AddHttpClient(EmoteHttpClients.Bttv, client =>
+                                   client.BaseAddress = new Uri(EmoteHttpClients.BttvBaseAddress));
+
 builder.Services.AddSingleton<IAdminTokenStore, AdminTokenStore>();
 
 if (mock)
@@ -312,6 +318,7 @@ app.MapMethods(LiveIndexEndpoint.Route,
 
 app.MapPut(ProgressEndpoint.Route, ProgressEndpoint.HandleAsync);
 app.MapGet(ChatEndpoint.Route, ChatEndpoint.Handle);
+app.MapGet(EmoteEndpoint.Route, EmoteEndpoint.HandleAsync);
 
 // The cookie scheme answers an API challenge with 401; the default challenge is Twitch OAuth.
 app.MapGet(ExportDownloadEndpoint.Route, ExportDownloadEndpoint.Handle)

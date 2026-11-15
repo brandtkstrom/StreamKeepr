@@ -42,7 +42,20 @@ public sealed class ChatOptions
 
     public ChatPurgeMode PurgeDeletedText { get; set; } = ChatPurgeMode.Off;
 
+    public ChatEmoteOptions Emotes { get; set; } = new();
+
     public int BucketSeconds => BucketMinutes * 60;
 
     public bool HasToken => !string.IsNullOrWhiteSpace(TwitchUserOAuthToken);
+}
+
+/// <summary>Third-party emote rendering in chat replay; off by default.</summary>
+public sealed class ChatEmoteOptions
+{
+    public BttvEmoteOptions Bttv { get; set; } = new();
+}
+
+public sealed class BttvEmoteOptions
+{
+    public bool Enabled { get; set; }
 }

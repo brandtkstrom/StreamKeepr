@@ -46,6 +46,9 @@ public sealed class WebAppSmokeTests
 
         var auth = factory.Services.GetRequiredService<IOptions<AuthOptions>>().Value;
         Assert.Equal(["allowed_login"], auth.AllowedTwitchLogins);
+
+        var chat = factory.Services.GetRequiredService<IOptions<ChatOptions>>().Value;
+        Assert.False(chat.Emotes.Bttv.Enabled);
     }
 
     [Fact]
