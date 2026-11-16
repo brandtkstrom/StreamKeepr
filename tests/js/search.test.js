@@ -163,6 +163,27 @@ describe("shortcuts.js", () => {
     expect(cleared).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["a native dialog", "<dialog open><button>Cancel</button></dialog>"],
+    ["a MudDialog", "<div role='dialog'><button>Cancel</button></div>"],
+    ["a menu", "<div role='menu'><button>Item</button></div>"],
+  ])("/ and Esc inside %s leave search alone", (_, markup) => {
+    const input = makeSearch();
+    const cleared = vi.fn();
+    input.addEventListener("sk:search-clear", cleared);
+    input.value = "chef";
+    const overlay = document.createElement("div");
+    overlay.innerHTML = markup;
+    document.body.append(overlay);
+    const button = overlay.querySelector("button");
+    button.focus();
+
+    expect(press(button, "/").defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(button);
+    press(button, "Escape");
+    expect(cleared).not.toHaveBeenCalled();
+  });
+
   it("Esc from a non-editable target clears a non-empty search", () => {
     const input = makeSearch();
     const cleared = vi.fn();
