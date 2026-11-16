@@ -68,6 +68,8 @@ builder.Services.AddOptions<AuthOptions>()
                  $"{AuthOptions.SectionName}:{nameof(AuthOptions.AllowedTwitchLogins)} contains an invalid Twitch login.")
        .ValidateOnStart();
 
+builder.Services.AddLinksOptions();
+
 builder.Services.AddOptions<ChatOptions>()
        .BindConfiguration(ChatOptions.SectionName)
        .ValidateDataAnnotations()
