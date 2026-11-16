@@ -1,3 +1,4 @@
+using Deque.AxeCore.Commons;
 using Microsoft.Playwright;
 using static StreamKeepr.E2E.LibraryJourneyTests;
 
@@ -23,8 +24,20 @@ public sealed class AuthJourneyTests(MockAppFixture app)
         await page.Keyboard.PressAsync("Enter");
         ILocator disconnect = page.GetByRole(AriaRole.Menuitem, new() { Name = "Disconnect" });
         await disconnect.WaitForAsync();
-        Assert.Contains("Connected to Twitch", await page.Locator("[data-account-header]").InnerTextAsync());
-        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "auth-account-menu");
+        ILocator header = page.Locator("[data-account-header]");
+        Assert.Contains("Connected to Twitch", await header.InnerTextAsync());
+        // Let the popover finish fading in, or axe measures contrast mid-transition.
+        await LibraryJourneyTests.Expect(
+            async () => await header.EvaluateAsync<bool>("""
+                e => { for (; e; e = e.parentElement) if (getComputedStyle(e).opacity !== "1") return false; return true; }
+                """) ? 1 : 0,
+            1);
+        // MudBlazor renders every popover in its provider at the end of <body>, outside the
+        // landmarks, so "region" cannot hold while a menu is open. Every closed-page check keeps it.
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(
+            page,
+            "auth-account-menu",
+            new AxeRunOptions { Rules = new() { ["region"] = new RuleOptions { Enabled = false } } });
         await disconnect.ClickAsync();
 
         // The antiforgery form post signs out and returns to the same page and query.

@@ -171,7 +171,9 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 
 /* Connected account (design system: TwitchAccount): a 40px hit area holding a 32px avatar. */
 .sk-account-trigger { display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: var(--radius-full); cursor: pointer; }
-.sk-account .mud-menu-activator { border-radius: var(--radius-full); }
+/* MudBlazor gives .mud-menu-activator display:contents, which can never take focus, so the
+   keyboard could not reach the account menu. A real box makes its tabindex and key handling work. */
+.sk-account.mud-menu > div.mud-menu-activator { display: inline-flex; border-radius: var(--radius-full); }
 .sk-account .mud-menu-activator:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .sk-account-avatar.mud-avatar { width: 32px; height: 32px; font: var(--text-subtitle2); }
 .sk-account-header { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); min-width: 240px; }

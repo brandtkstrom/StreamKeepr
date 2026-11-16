@@ -304,9 +304,9 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         return new Session(playwright, browser, context, page);
     }
 
-    internal async Task AssertAxeCleanAsync(IPage page, string name)
+    internal async Task AssertAxeCleanAsync(IPage page, string name, AxeRunOptions? options = null)
     {
-        AxeResult results = await page.RunAxe();
+        AxeResult results = options is null ? await page.RunAxe() : await page.RunAxe(options);
         await File.WriteAllTextAsync(
             Path.Combine(app.ArtifactsDirectory, $"{name}.axe.json"), results.ToString());
 
