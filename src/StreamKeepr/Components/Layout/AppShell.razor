@@ -115,10 +115,12 @@
                 </div>
             </MudBlazor.MudAppBar>
 
+            @* Breakpoint.Always: the shell picks the variant itself. A Mini drawer with
+               Breakpoint.None closes itself on load and ignores Open="true". *@
             <MudBlazor.MudDrawer Open="@DrawerOpen"
                                  OpenChanged="OnDrawerOpenChanged"
                                  Variant="@(_compact ? MudBlazor.DrawerVariant.Temporary : MudBlazor.DrawerVariant.Mini)"
-                                 Breakpoint="MudBlazor.Breakpoint.None"
+                                 Breakpoint="MudBlazor.Breakpoint.Always"
                                  ClipMode="MudBlazor.DrawerClipMode.Always"
                                  Elevation="@(_compact ? 4 : 0)"
                                  Class="sk-drawer-frame">

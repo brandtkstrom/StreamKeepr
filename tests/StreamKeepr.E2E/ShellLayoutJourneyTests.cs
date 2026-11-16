@@ -81,10 +81,13 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         IPage page = session.Page;
         ILocator drawer = page.Locator(LibraryHooks.Drawer);
         Assert.Equal("expanded", await drawer.GetAttributeAsync("data-drawer"));
+        // MudDrawer must actually be open, not just labelled expanded: the frame shows the full library.
+        await LibraryJourneyTests.Expect(async () => await VisibleWidthAsync(drawer) >= 280 ? 1 : 0, 1);
 
         await page.Locator(LibraryHooks.Row).First.ClickAsync();
         await page.WaitForURLAsync(url => url.Contains("/r/", StringComparison.Ordinal));
         await LibraryJourneyTests.Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
+        await LibraryJourneyTests.Expect(async () => await VisibleWidthAsync(drawer) <= 80 ? 1 : 0, 1);
 
         await ExpandLibraryOnWatchPageAsync(page);
         await page.ReloadAsync(new() { WaitUntil = WaitUntilState.DOMContentLoaded });
@@ -184,6 +187,17 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/settings");
         await page.Locator("main h1").WaitForAsync(new() { State = WaitForSelectorState.Attached });
     }
+
+    // The drawer's on-screen width, clipped by its MudDrawer frame.
+    private static Task<int> VisibleWidthAsync(ILocator drawer) =>
+        drawer.EvaluateAsync<int>("""
+            e => {
+              let right = e.getBoundingClientRect().right;
+              for (let p = e.parentElement; p; p = p.parentElement)
+                if (getComputedStyle(p).overflowX !== "visible") right = Math.min(right, p.getBoundingClientRect().right);
+              return Math.round(right - e.getBoundingClientRect().left);
+            }
+            """);
 
     private static Task<bool> IsOnScreenAsync(ILocator locator) =>
         locator.EvaluateAsync<bool>("""
