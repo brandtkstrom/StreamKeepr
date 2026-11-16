@@ -27,6 +27,7 @@ describe("TwitchAccount.razor.js", () => {
 
     expect(link.getAttribute("aria-busy")).toBe("true");
     expect(link.querySelector(".sk-spin")).not.toBeNull();
+    expect(link.querySelector("[data-spinner]")).not.toBeNull();
     expect(link.querySelector(".sk-icon")).toBeNull();
     expect(link.querySelector(".lbl").textContent).toBe("Waiting for Twitch…");
     expect(prevented).toBe(false);

@@ -24,7 +24,7 @@ public sealed class TwitchAccountTests
 
         IRenderedComponent<TwitchAccount> cut = context.Render<TwitchAccount>();
 
-        var link = cut.Find("a.sk-twitch[data-auth-state='disconnected']");
+        var link = cut.Find("a[data-auth-state='disconnected']");
         Assert.Equal("/api/auth/twitch/login?returnUrl=%2Fr%2Fabc%3Fq%3Dchef", link.GetAttribute("href"));
         Assert.Equal("false", link.GetAttribute("data-enhance-nav"));
         Assert.Contains("Connect with Twitch", link.TextContent);
@@ -43,7 +43,7 @@ public sealed class TwitchAccountTests
 
         cut.WaitForAssertion(() => Assert.Equal(
             "/api/auth/twitch/login?returnUrl=%2Fr%2Fxyz%3Fsort%3Daz",
-            cut.Find("a.sk-twitch").GetAttribute("href")));
+            cut.Find("a[data-twitch-connect]").GetAttribute("href")));
     }
 
     [Fact]
@@ -58,13 +58,13 @@ public sealed class TwitchAccountTests
 
         IRenderedComponent<TwitchAccount> cut = context.Render<TwitchAccount>();
 
-        var chip = cut.Find("[data-auth-state='connected'] button.sk-auth-chip");
+        var chip = cut.Find("[data-auth-state='connected'] button[data-menu-trigger]");
         // Named by its visible text plus a visually hidden prefix (label in name).
         Assert.Null(chip.GetAttribute("aria-label"));
-        Assert.Equal("Twitch account: Mock Admin", chip.QuerySelector(".lbl")?.TextContent);
+        Assert.Equal("Twitch account: Mock Admin", chip.QuerySelector("[data-account-label]")?.TextContent);
         Assert.Contains("Mock Admin", chip.TextContent);
-        Assert.NotNull(cut.Find(".sk-auth-chip .sk-auth-dot"));
-        Assert.Equal("mock_admin", cut.Find(".sk-auth-chip .login").TextContent);
+        Assert.NotNull(chip.QuerySelector("[data-auth-dot]"));
+        Assert.Equal("mock_admin", chip.QuerySelector("[data-account-login]")!.TextContent);
 
         var items = cut.FindAll("[role='menuitem']");
         Assert.Equal(["Manage Twitch connection", "Disconnect"], items.Select(i => i.TextContent.Trim().Replace("manage_accounts", "").Replace("logout", "").Trim()));
@@ -90,7 +90,7 @@ public sealed class TwitchAccountTests
         using BunitContext context = CreateContext(out AdminSessionState session);
         BunitAuthorizationContext authorization = context.AddAuthorization().SetAuthorized("mock_admin");
         IRenderedComponent<TwitchAccount> cut = context.Render<TwitchAccount>();
-        Assert.NotEmpty(cut.FindAll(".sk-auth-chip"));
+        Assert.NotEmpty(cut.FindAll("[data-auth-state='connected'] button[data-menu-trigger]"));
 
         cut.InvokeAsync(() =>
         {
@@ -103,7 +103,7 @@ public sealed class TwitchAccountTests
             var expired = cut.Find("[data-auth-state='expired']");
             Assert.Contains("Twitch session expired", expired.TextContent);
             Assert.StartsWith("/api/auth/twitch/login?returnUrl=", expired.QuerySelector("a")?.GetAttribute("href"));
-            Assert.Empty(cut.FindAll(".sk-auth-chip"));
+            Assert.Empty(cut.FindAll("[data-auth-state='connected'] button[data-menu-trigger]"));
             Assert.Empty(cut.FindAll("[data-auth-state='disconnected']"));
         });
     }
@@ -129,7 +129,7 @@ public sealed class TwitchAccountTests
         IRenderedComponent<TwitchAccount> account = context.Render<TwitchAccount>();
         IRenderedComponent<RequiresTwitch> admin = context.Render<RequiresTwitch>(p =>
             p.AddChildContent("<button data-admin>Export</button>"));
-        Assert.NotEmpty(account.FindAll(".sk-auth-chip"));
+        Assert.NotEmpty(account.FindAll("[data-auth-state='connected'] button[data-menu-trigger]"));
         Assert.Empty(admin.FindAll("[inert]"));
 
         clock.Advance(AdminAuthenticationStateProvider.RevalidationInterval);

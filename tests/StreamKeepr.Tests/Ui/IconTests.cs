@@ -13,7 +13,7 @@ public sealed class IconTests
         var cut = context.Render<Icon>(parameters => parameters
             .Add(component => component.Name, "home"));
 
-        var icon = cut.Find(".sk-icon");
+        var icon = cut.Find("[data-icon]");
         Assert.Equal("home", icon.TextContent);
         Assert.Equal("true", icon.GetAttribute("aria-hidden"));
         Assert.Null(icon.GetAttribute("role"));
@@ -28,28 +28,24 @@ public sealed class IconTests
             .Add(component => component.Name, "fiber_manual_record")
             .Add(component => component.Label, "Recording"));
 
-        var icon = cut.Find(".sk-icon");
+        var icon = cut.Find("[data-icon]");
         Assert.Equal("img", icon.GetAttribute("role"));
         Assert.Equal("Recording", icon.GetAttribute("aria-label"));
         Assert.Null(icon.GetAttribute("aria-hidden"));
     }
 
     [Theory]
-    [InlineData(IconSize.Small, "xs")]
-    [InlineData(IconSize.Medium, "sm")]
-    [InlineData(IconSize.Large, null)]
-    public void Sizes_map_to_the_design_system_classes(IconSize size, string? expectedClass)
+    [InlineData(IconSize.Small, "small")]
+    [InlineData(IconSize.Medium, "medium")]
+    [InlineData(IconSize.Large, "large")]
+    public void Exposes_the_size(IconSize size, string expectedSize)
     {
         using var context = new BunitContext();
         var cut = context.Render<Icon>(parameters => parameters
             .Add(component => component.Name, "home")
             .Add(component => component.Size, size));
 
-        var classes = cut.Find(".sk-icon").ClassList;
-        if (expectedClass is null)
-            Assert.DoesNotContain("sm", classes);
-        else
-            Assert.Contains(expectedClass, classes);
+        Assert.Equal(expectedSize, cut.Find("[data-icon]").GetAttribute("data-size"));
     }
 
     [Fact]
@@ -60,7 +56,7 @@ public sealed class IconTests
             .Add(component => component.Name, "fiber_manual_record")
             .Add(component => component.Fill, true));
 
-        Assert.Contains("fill", cut.Find(".sk-icon").ClassList);
+        Assert.True(cut.Find("[data-icon]").HasAttribute("data-fill"));
     }
 
     [Fact]
@@ -71,7 +67,7 @@ public sealed class IconTests
             .Add(component => component.Name, "home")
             .AddUnmatched("data-testid", "home-icon"));
 
-        Assert.Equal("home-icon", cut.Find(".sk-icon").GetAttribute("data-testid"));
+        Assert.Equal("home-icon", cut.Find("[data-icon]").GetAttribute("data-testid"));
     }
 
     [Fact]
@@ -84,8 +80,7 @@ public sealed class IconTests
 
         var button = cut.Find("button");
         Assert.Equal("Settings", button.GetAttribute("aria-label"));
-        Assert.Contains("sk-icon-btn", button.ClassList);
-        Assert.Equal("settings", cut.Find(".sk-icon").TextContent);
+        Assert.Equal("settings", button.QuerySelector("[data-icon]")!.TextContent);
         Assert.Null(button.GetAttribute("aria-pressed"));
     }
 
@@ -100,7 +95,7 @@ public sealed class IconTests
             .Add(component => component.Toggle, true));
 
         var button = cut.Find("button");
-        Assert.Contains("on", button.ClassList);
+        Assert.True(button.HasAttribute("data-active"));
         Assert.Equal("true", button.GetAttribute("aria-pressed"));
     }
 

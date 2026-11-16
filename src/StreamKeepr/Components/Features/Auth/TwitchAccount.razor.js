@@ -13,6 +13,7 @@ export function showConnecting(link) {
   link.setAttribute("aria-busy", "true");
   const spinner = document.createElement("span");
   spinner.className = "sk-spin";
+  spinner.dataset.spinner = "";
   spinner.setAttribute("aria-hidden", "true");
   link.querySelector(".sk-icon")?.replaceWith(spinner);
   const label = link.querySelector(".lbl");

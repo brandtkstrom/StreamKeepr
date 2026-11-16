@@ -42,13 +42,13 @@ public sealed class LibraryDrawerTests
         using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
-        var groups = cut.FindAll(".sk-group");
+        var groups = cut.FindAll("[role='treeitem'][aria-level='1']");
         Assert.Equal(2, groups.Count);
         Assert.Contains("Live Star", groups[0].TextContent);
         Assert.Contains("Recording now", groups[0].TextContent);
         Assert.Contains("Idle Star", groups[1].TextContent);
 
-        Assert.Equal(3, cut.FindAll("a.sk-row").Count);
+        Assert.Equal(3, cut.FindAll("a[data-recording-id]").Count);
         Assert.Equal("/r/r1", cut.Find("a[data-recording-id='r1']").GetAttribute("href"));
     }
 
@@ -68,14 +68,14 @@ public sealed class LibraryDrawerTests
         using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
-        var image = cut.Find("a[data-recording-id='r1'] .sk-thumb img");
+        var image = cut.Find("a[data-recording-id='r1'] img");
         Assert.Equal("/media/alpha/r1/thumb.jpg", image.GetAttribute("src"));
         Assert.Equal("", image.GetAttribute("alt"));
         Assert.Equal("lazy", image.GetAttribute("loading"));
-        Assert.Empty(cut.FindAll("a[data-recording-id='r1'] .sk-thumb .sk-icon"));
+        Assert.Empty(cut.FindAll("a[data-recording-id='r1'] [data-icon='movie']"));
 
-        Assert.Empty(cut.FindAll("a[data-recording-id='r2'] .sk-thumb img"));
-        Assert.Single(cut.FindAll("a[data-recording-id='r2'] .sk-thumb .sk-icon"));
+        Assert.Empty(cut.FindAll("a[data-recording-id='r2'] img"));
+        Assert.Single(cut.FindAll("a[data-recording-id='r2'] [data-icon='movie']"));
     }
 
     [Fact]
@@ -96,14 +96,14 @@ public sealed class LibraryDrawerTests
         using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
-        Assert.Contains("Rec", cut.Find("[data-recording-id='rec'] .sk-status.rec").TextContent);
+        Assert.Contains("Rec", cut.Find("[data-recording-id='rec'] [data-status='rec']").TextContent);
         Assert.Contains(
             "Reconnecting",
-            cut.Find("[data-recording-id='reconnect'] .sk-status.partial").TextContent);
+            cut.Find("[data-recording-id='reconnect'] [data-status='reconnecting']").TextContent);
         Assert.Contains(
             "Partial",
-            cut.Find("[data-recording-id='partial'] .sk-status.partial").TextContent);
-        Assert.Empty(cut.Find("[data-recording-id='saved']").QuerySelectorAll(".sk-status"));
+            cut.Find("[data-recording-id='partial'] [data-status='partial']").TextContent);
+        Assert.Empty(cut.Find("[data-recording-id='saved']").QuerySelectorAll("[data-status]"));
     }
 
     [Fact]
@@ -154,7 +154,7 @@ public sealed class LibraryDrawerTests
         using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
-        IReadOnlyList<string> days = cut.FindAll(".sk-day").Select(day => day.TextContent).ToArray();
+        IReadOnlyList<string> days = cut.FindAll("[data-day-header]").Select(day => day.TextContent).ToArray();
         Assert.Equal(
             [
                 "Today",
@@ -202,15 +202,15 @@ public sealed class LibraryDrawerTests
         using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
-        cut.Find(".sk-group-head").Click();
+        cut.Find("[role='treeitem'][aria-level='1']").Click();
 
         cut.WaitForAssertion(() =>
         {
-            var header = cut.Find(".sk-group-head");
+            var header = cut.Find("[role='treeitem'][aria-level='1']");
             Assert.Equal("false", header.GetAttribute("aria-expanded"));
             Assert.Equal(
                 header.GetAttribute("aria-controls"),
-                cut.Find(".sk-group-body").GetAttribute("id"));
+                cut.Find("[role='tree'] [role='group']").GetAttribute("id"));
         });
     }
 
@@ -256,7 +256,7 @@ public sealed class LibraryDrawerTests
         cut.WaitForAssertion(() =>
         {
             Assert.True(rowRenders > 0);
-            Assert.NotNull(cut.Find("[data-recording-id='r1'] .sk-status.partial"));
+            Assert.NotNull(cut.Find("[data-recording-id='r1'] [data-status='partial']"));
         });
     }
 
@@ -275,7 +275,7 @@ public sealed class LibraryDrawerTests
         using BunitContext context = CreateContext(view, timeZoneId: "Asia/Tokyo");
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
-        Assert.Equal("Today", cut.Find(".sk-day").TextContent);
+        Assert.Equal("Today", cut.Find("[data-day-header]").TextContent);
     }
 
     [Fact]
@@ -296,9 +296,9 @@ public sealed class LibraryDrawerTests
             parameters.Add(component => component.Body, fragment =>
                 fragment.AddMarkupContent(0, "<div data-test='body'>Body</div>")));
 
-        Assert.NotNull(cut.Find(".sk-wordmark .rec-dot"));
-        Assert.True(cut.Find(".sk-storage").ClassList.Contains("warning"));
-        Assert.Contains("5.0 GB free of 100.0 GB", cut.Find(".sk-storage").GetAttribute("title"));
+        Assert.NotNull(cut.Find("header a[href='/'] [data-rec-dot]"));
+        Assert.Equal("low", cut.Find("[data-storage]").GetAttribute("data-storage"));
+        Assert.Contains("5.0 GB free of 100.0 GB", cut.Find("[data-storage]").GetAttribute("title"));
     }
 
     [Theory]
@@ -312,7 +312,7 @@ public sealed class LibraryDrawerTests
         IRenderedComponent<RecordingRow> cut = context.Render<RecordingRow>(parameters => parameters
             .Add(component => component.Recording, live));
 
-        Assert.Equal(width, cut.Find(".prog i").GetAttribute("style"));
+        Assert.Equal(width, cut.Find("[data-progress] i").GetAttribute("style"));
     }
 
     [Fact]
@@ -328,8 +328,8 @@ public sealed class LibraryDrawerTests
             .Add(component => component.Expanded, true)
             .Add(component => component.Now, Now));
 
-        Assert.Contains("Paused", cut.Find(".meta").TextContent);
-        Assert.Empty(cut.FindAll(".sk-live-ring"));
+        Assert.Contains("Paused", cut.Find("[data-group-meta]").TextContent);
+        Assert.Empty(cut.FindAll("[data-live-ring]"));
     }
 
     [Fact]

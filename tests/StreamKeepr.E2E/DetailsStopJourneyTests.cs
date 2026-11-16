@@ -19,7 +19,7 @@ public sealed class DetailsStopJourneyTests : IAsyncLifetime
         await using Session session = await OpenAsync(_app.BaseUrl);
         IPage page = session.Page;
 
-        ILocator row = page.Locator("nav#sk-drawer a.sk-row", new() { HasTextString = "Community day" });
+        ILocator row = page.Locator(LibraryHooks.Row, new() { HasTextString = "Community day" });
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
         await row.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -35,17 +35,17 @@ public sealed class DetailsStopJourneyTests : IAsyncLifetime
         await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "stop-dialog");
         await page.Locator("[data-stop-confirm]").ClickAsync();
 
-        await page.Locator(".sk-snackbar", new() { HasTextString = "Channel paused" }).WaitForAsync();
+        await page.Locator("[data-snackbar]", new() { HasTextString = "Channel paused" }).WaitForAsync();
         await page.WaitForSelectorAsync("[data-stop-recording]", new() { State = WaitForSelectorState.Hidden });
 
         await page.GotoAsync(_app.BaseUrl);
-        await page.Locator("nav#sk-drawer .sk-group").First.WaitForAsync();
+        await page.Locator(LibraryHooks.Group).First.WaitForAsync();
         Assert.Contains(
             "Paused",
-            await page.Locator("[data-tree-key='g:mock_rain'] .meta").TextContentAsync());
+            await page.Locator("[data-tree-key='g:mock_rain'] [data-group-meta]").TextContentAsync());
         Assert.Equal(
             0,
-            await page.Locator("[data-tree-key='g:mock_rain'] .sk-live-ring").CountAsync());
+            await page.Locator("[data-tree-key='g:mock_rain'] [data-live-ring]").CountAsync());
         await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "paused");
     }
 }

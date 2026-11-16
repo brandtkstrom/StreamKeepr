@@ -15,9 +15,9 @@ public sealed class CollapsibleSwitchTests
             .Add(component => component.Header, "<h3>Recording details</h3>")
             .AddChildContent("<p>Body</p>"));
 
-        var section = cut.Find("section.sk-collapse");
-        var header = cut.Find("button.sk-collapse-head");
-        var body = cut.Find(".sk-collapse-body");
+        var section = cut.Find("section[data-collapsible]");
+        var header = cut.Find("button[data-collapsible-toggle]");
+        var body = cut.Find($"#{header.GetAttribute("aria-controls")}");
 
         Assert.Equal("false", section.GetAttribute("data-expanded"));
         Assert.Equal("false", header.GetAttribute("aria-expanded"));
@@ -35,8 +35,9 @@ public sealed class CollapsibleSwitchTests
             .Add(component => component.Header, "<h3>Recording details</h3>")
             .AddChildContent("<p>Body</p>"));
 
-        Assert.Equal("true", cut.Find("section.sk-collapse").GetAttribute("data-expanded"));
-        Assert.False(cut.Find(".sk-collapse-body").HasAttribute("inert"));
+        var header = cut.Find("button[data-collapsible-toggle]");
+        Assert.Equal("true", cut.Find("section[data-collapsible]").GetAttribute("data-expanded"));
+        Assert.False(cut.Find($"#{header.GetAttribute("aria-controls")}").HasAttribute("inert"));
     }
 
     [Fact]
@@ -51,7 +52,7 @@ public sealed class CollapsibleSwitchTests
                 EventCallback.Factory.Create<bool>(this, value => toggle = value))
             .AddChildContent("<p>Body</p>"));
 
-        cut.Find("button.sk-collapse-head").Click();
+        cut.Find("button[data-collapsible-toggle]").Click();
 
         Assert.True(toggle);
     }
@@ -65,12 +66,10 @@ public sealed class CollapsibleSwitchTests
             .Add(component => component.Label, "Stats for nerds"));
 
         var toggle = cut.Find("[role='switch']");
-        var label = cut.Find(".sk-switch-label");
+        var label = cut.Find($"#{toggle.GetAttribute("aria-labelledby")}");
 
         Assert.Equal("false", toggle.GetAttribute("aria-checked"));
-        Assert.Equal(label.GetAttribute("id"), toggle.GetAttribute("aria-labelledby"));
         Assert.Equal("Stats for nerds", label.TextContent);
-        Assert.Contains("sk-switch", toggle.ClassList);
     }
 
     [Theory]

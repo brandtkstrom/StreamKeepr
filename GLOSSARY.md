@@ -28,9 +28,21 @@ _Avoid_: Eligible channel, linked channel
 A watched channel whose Twitch user ID is not known; it stays on polling until the profile is resolved.
 _Avoid_: Unlinked channel, profile-less channel
 
+**Channel colour**:
+The colour that identifies a channel's Twitch login wherever it appears, such as its avatar and its name in chat. It belongs to the login, not to the watch, so recordings of a removed channel keep it.
+_Avoid_: Streamer colour, user colour
+
 **Session**:
 One continuous recording of a stream, identified by the stream's start time and stream ID. A session owns one or more parts and a manifest.
 _Avoid_: Recording (use “recording” for the product concept, not the domain object), capture
+
+**Open session**:
+A session that is still being written: its channel is Recording, or the session is reconnecting after its recorder stopped.
+_Avoid_: Active session, live session, in-progress session
+
+**Complete session**:
+A session that is no longer being written, whether it was saved in one part or in several.
+_Avoid_: Finished session, finalized session, done session
 
 **Part**:
 One recorder run's media within a session, stored as `pNNN` files.
@@ -57,7 +69,7 @@ The state in which a recorder job is running for a channel.
 _Avoid_: Capturing, live (live describes the stream, not the recorder)
 
 **Idle**:
-The state in which no recorder is running; it may hold a resumable or finished session.
+The state in which no recorder is running; it may hold a resumable or complete session.
 _Avoid_: Stopped, inactive
 
 **Paused**:
@@ -77,7 +89,7 @@ Why a recorder process ended: `Exited` (on its own), `Stopped` (coordinator requ
 _Avoid_: Exit code, status
 
 **Session recovery**:
-The startup reconstruction of the newest session for a channel as resumable or finished.
+The startup reconstruction of the newest session for a channel as resumable or complete.
 _Avoid_: Rebuild, restore
 
 **Chat capture**:

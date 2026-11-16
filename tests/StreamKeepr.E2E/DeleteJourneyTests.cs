@@ -20,9 +20,9 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         await using Session session = await OpenAsync(_app.BaseUrl);
         IPage page = session.Page;
 
-        string topId = (await page.Locator("nav#sk-drawer a.sk-row").First
+        string topId = (await page.Locator(LibraryHooks.Row).First
             .GetAttributeAsync("data-recording-id"))!;
-        ILocator row = page.Locator("nav#sk-drawer a.sk-row", new() { HasTextString = "Retro marathon" });
+        ILocator row = page.Locator(LibraryHooks.Row, new() { HasTextString = "Retro marathon" });
         string deletedId = (await row.GetAttributeAsync("data-recording-id"))!;
         Assert.NotEqual(topId, deletedId);
 
@@ -33,7 +33,7 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         await delete.WaitForAsync();
         if (await delete.IsDisabledAsync())
         {
-            string reason = await page.Locator("[data-delete-blocked] .sk-tooltip-bubble")
+            string reason = await page.Locator("[data-delete-blocked] [role=tooltip]")
                 .TextContentAsync() ?? "";
             Assert.Fail($"Delete was disabled: {reason}");
         }
@@ -48,7 +48,7 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         await page.Locator("[data-delete-cancel]").ClickAsync();
         await dialog.WaitForAsync(new() { State = WaitForSelectorState.Hidden });
         Assert.True(await delete.EvaluateAsync<bool>("b => b === document.activeElement"));
-        Assert.Equal(1, await page.Locator($"a.sk-row[data-recording-id='{deletedId}']").CountAsync());
+        Assert.Equal(1, await page.Locator($"a[data-recording-id='{deletedId}']").CountAsync());
 
         // Confirm: the row disappears, the snackbar names the outcome, and Home opens the
         // first remaining recording in the current query.
@@ -56,9 +56,9 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         await page.Locator("[data-delete-dialog][open]").WaitForAsync();
         await page.Locator("[data-delete-confirm]").ClickAsync();
 
-        await page.Locator(".sk-snackbar", new() { HasTextString = "Recording deleted" }).WaitForAsync();
+        await page.Locator("[data-snackbar]", new() { HasTextString = "Recording deleted" }).WaitForAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{topId}", StringComparison.Ordinal));
-        await page.Locator($"a.sk-row[data-recording-id='{deletedId}']")
+        await page.Locator($"a[data-recording-id='{deletedId}']")
             .WaitForAsync(new() { State = WaitForSelectorState.Detached });
         await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "delete");
     }
@@ -69,14 +69,14 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         await using Session session = await OpenAsync(_app.BaseUrl);
         IPage page = session.Page;
 
-        await page.Locator("nav#sk-drawer a.sk-row", new() { HasTextString = "Community day" }).ClickAsync();
+        await page.Locator(LibraryHooks.Row, new() { HasTextString = "Community day" }).ClickAsync();
 
         ILocator delete = page.Locator("button[data-delete]");
         await delete.WaitForAsync();
         Assert.True(await delete.IsDisabledAsync());
         Assert.Contains(
             "finishes",
-            await page.Locator("[data-delete-blocked] .sk-tooltip-bubble").TextContentAsync());
+            await page.Locator("[data-delete-blocked] [role=tooltip]").TextContentAsync());
         await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "live-actions-disabled");
     }
 }

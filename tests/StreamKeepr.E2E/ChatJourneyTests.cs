@@ -13,7 +13,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             await LibraryJourneyTests.OpenAsync(app.BaseUrl);
         IPage page = session.Page;
 
-        ILocator saved = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").First;
+        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -55,7 +55,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         };
 
         ILocator growing = page.Locator(
-            "nav#sk-drawer a.sk-row", new() { HasTextString = "Community day" });
+            LibraryHooks.Row, new() { HasTextString = "Community day" });
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
         await growing.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -70,7 +70,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             "v => { v.muted = true; return v.play(); }");
 
         // The Mock source writes a message every 0.5 s near the live edge.
-        await page.Locator("[data-sk='chat-log'] .sk-chat-row").First
+        await page.Locator("[data-sk='chat-log'] [data-message-id]").First
             .WaitForAsync(new() { Timeout = 30_000 });
         await page.WaitForFunctionAsync(
             "() => document.querySelector('[data-sk=chat-state]').dataset.state === 'live'");
@@ -91,7 +91,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         IPage page = session.Page;
 
         ILocator growing = page.Locator(
-            "nav#sk-drawer a.sk-row", new() { HasTextString = "Community day" });
+            LibraryHooks.Row, new() { HasTextString = "Community day" });
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
         await growing.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -109,8 +109,8 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await page.WaitForFunctionAsync(
             """
             () => {
-              const rows = [...document.querySelectorAll('[data-sk=chat-log] .sk-chat-row')];
-              const player = document.querySelector('.sk-player').getBoundingClientRect();
+              const rows = [...document.querySelectorAll('[data-sk=chat-log] [data-message-id]')];
+              const player = document.querySelector('[data-sk-player]').getBoundingClientRect();
               return rows.reduce((sum, row) => sum + row.getBoundingClientRect().height, 0) >
                 player.height;
             }
@@ -122,10 +122,10 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             """
             () => {
               const pane = document.querySelector('[data-sk-chat]').getBoundingClientRect();
-              const player = document.querySelector('.sk-player').getBoundingClientRect();
+              const player = document.querySelector('[data-sk-player]').getBoundingClientRect();
               const log = document.querySelector('[data-sk=chat-log]');
-              const footer = document.querySelector('.sk-chat-footer').getBoundingClientRect();
-              const rows = log.querySelectorAll('.sk-chat-row');
+              const footer = document.querySelector('[data-sk=chat-footer]').getBoundingClientRect();
+              const rows = log.querySelectorAll('[data-message-id]');
               const last = rows[rows.length - 1].getBoundingClientRect();
               const logBox = log.getBoundingClientRect();
               return {
@@ -158,7 +158,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             await LibraryJourneyTests.OpenAsync(app.BaseUrl);
         IPage page = session.Page;
 
-        ILocator saved = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").First;
+        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -181,7 +181,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             """
             () => {
               const log = document.querySelector('[data-sk=chat-log]');
-              const rows = log.querySelectorAll('.sk-chat-row');
+              const rows = log.querySelectorAll('[data-message-id]');
               const style = getComputedStyle(log);
               const box = log.getBoundingClientRect();
               return {

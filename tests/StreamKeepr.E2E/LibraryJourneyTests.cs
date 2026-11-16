@@ -20,7 +20,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         await page.Locator(Search).FillAsync("NIGHT");
         await page.WaitForURLAsync(url => url.Contains("q=NIGHT", StringComparison.Ordinal));
         await Expect(() => Rows(page).CountAsync(), 2);
-        Assert.Equal(2, await page.Locator("a.sk-row mark.sk-hl").CountAsync());
+        Assert.Equal(2, await page.Locator("a[data-recording-id] mark").CountAsync());
         await AssertAxeCleanAsync(page, "library-search");
 
         await page.Locator(Search).PressAsync("Escape");
@@ -32,10 +32,10 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         Assert.True(await page.Locator(Search).EvaluateAsync<bool>("el => el === document.activeElement"));
         await page.Locator("main").ClickAsync();
 
-        await page.Locator(".sk-filters [data-filter='saved']").ClickAsync();
+        await page.Locator("[data-filter='saved']").ClickAsync();
         await page.WaitForURLAsync(url => url.Contains("state=saved", StringComparison.Ordinal));
         await Expect(
-            () => page.Locator("a.sk-row[data-state='rec'], a.sk-row[data-state='reconnecting']").CountAsync(),
+            () => page.Locator("a[data-recording-id][data-state='rec'], a[data-recording-id][data-state='reconnecting']").CountAsync(),
             0);
         Assert.True(await Rows(page).CountAsync() >= 5);
 
@@ -43,26 +43,26 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         await Rows(page).First.ClickAsync();
         await page.WaitForURLAsync(url => url.Contains("/r/", StringComparison.Ordinal) &&
             url.Contains("state=saved", StringComparison.Ordinal));
-        Assert.Equal("true", await page.Locator(".sk-filters [data-filter='saved']").GetAttributeAsync("aria-pressed"));
+        Assert.Equal("true", await page.Locator("[data-filter='saved']").GetAttributeAsync("aria-pressed"));
         historyLength++; // selecting a recording is real navigation; view changes are not
 
         await page.GetByRole(AriaRole.Button, new() { Name = "Library options" }).ClickAsync();
         await page.GetByRole(AriaRole.Menuitem, new() { Name = "A–Z by streamer" }).ClickAsync();
         await page.WaitForURLAsync(url => url.Contains("sort=az", StringComparison.Ordinal));
-        Assert.Contains("A–Z by streamer", await page.Locator(".sk-sort").InnerTextAsync());
+        Assert.Contains("A–Z by streamer", await page.Locator("[data-sort]").InnerTextAsync());
 
         // Every view change replaced the current entry instead of adding history.
         Assert.Equal(historyLength, await page.EvaluateAsync<int>("history.length"));
 
         await page.ReloadAsync();
         await page.Locator($"{Search}[data-sk-ready]").WaitForAsync();
-        Assert.Equal("true", await page.Locator(".sk-filters [data-filter='saved']").GetAttributeAsync("aria-pressed"));
-        Assert.Contains("A–Z by streamer", await page.Locator(".sk-sort").InnerTextAsync());
+        Assert.Equal("true", await page.Locator("[data-filter='saved']").GetAttributeAsync("aria-pressed"));
+        Assert.Contains("A–Z by streamer", await page.Locator("[data-sort]").InnerTextAsync());
 
         await page.Locator(Search).FillAsync("zzzz-no-match");
         await page.Locator("[data-library-empty]").WaitForAsync();
         Assert.Equal("No recordings match", await page.Locator("[data-library-empty]").InnerTextAsync());
-        Assert.Equal(0, await page.Locator(".sk-group").CountAsync());
+        Assert.Equal(0, await page.Locator("[data-streamer-group]").CountAsync());
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         IPage page = session.Page;
         ILocator tree = page.Locator("[role='tree']");
 
-        await page.Locator(".sk-filters [data-filter='saved']").FocusAsync();
+        await page.Locator("[data-filter='saved']").FocusAsync();
         await page.Keyboard.PressAsync("Tab");
         Assert.True(await IsFocusedInsideAsync(tree));
         Assert.Equal(1, await tree.Locator("[role='treeitem'][tabindex='0']").CountAsync());
@@ -91,7 +91,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         Assert.False(string.IsNullOrEmpty(id));
         await page.Keyboard.PressAsync("Enter");
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
-        await page.Locator($"a.sk-row[data-recording-id='{id}'][aria-current='true']").WaitForAsync();
+        await page.Locator($"a[data-recording-id='{id}'][aria-current='true']").WaitForAsync();
 
         // The whole list is a single tab stop.
         await tree.Locator($"[data-recording-id='{id}']").FocusAsync();
@@ -106,17 +106,17 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator drawer = page.Locator("nav#sk-drawer");
+        ILocator drawer = page.Locator(LibraryHooks.Drawer);
 
         await page.Locator("[data-drawer-toggle]").ClickAsync();
-        await Expect(async () => await drawer.GetAttributeAsync("class") is { } c && c.Contains("rail") ? 1 : 0, 1);
+        await Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
         await AssertAxeCleanAsync(page, "library-rail");
 
         ILocator lastHead = drawer.Locator("[role='treeitem'][aria-level='1']").Last;
         string? key = await lastHead.GetAttributeAsync("data-tree-key");
         await lastHead.ClickAsync();
 
-        await Expect(async () => await drawer.GetAttributeAsync("class") is { } c && !c.Contains("rail") ? 1 : 0, 1);
+        await Expect(async () => await drawer.GetAttributeAsync("data-drawer") != "rail" ? 1 : 0, 1);
         await Expect(async () => await lastHead.GetAttributeAsync("aria-expanded") == "true" ? 1 : 0, 1);
         Assert.Equal(key, await drawer.Locator("[role='treeitem'][tabindex='0']").GetAttributeAsync("data-tree-key"));
     }
@@ -126,10 +126,10 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator group = page.Locator("nav#sk-drawer .sk-group").First;
-        ILocator head = group.Locator(".sk-group-head");
-        ILocator body = group.Locator(".sk-group-body");
-        ILocator firstRow = body.Locator("a.sk-row").First;
+        ILocator group = page.Locator(LibraryHooks.Group).First;
+        ILocator head = group.Locator("[role=treeitem][aria-level='1']");
+        ILocator body = group.Locator("[role=group]");
+        ILocator firstRow = body.Locator("a[data-recording-id]").First;
 
         Assert.Equal("true", await head.GetAttributeAsync("aria-expanded"));
         Assert.True(await firstRow.IsVisibleAsync());
@@ -157,7 +157,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator drawer = page.Locator("nav#sk-drawer");
+        ILocator drawer = page.Locator(LibraryHooks.Drawer);
         ILocator trigger = page.GetByRole(AriaRole.Button, new() { Name = "Library options" });
         ILocator menu = page.Locator("[role='menu']:not([hidden])");
 
@@ -171,7 +171,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
 
         await page.Locator("[data-drawer-toggle]").ClickAsync();
         await Expect(
-            async () => await drawer.GetAttributeAsync("class") is { } c && c.Contains("rail") ? 1 : 0, 1);
+            async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
 
         await trigger.ClickAsync();
         await menu.WaitForAsync();
@@ -180,7 +180,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
             () => {
               const menu = document.querySelector("[role='menu']:not([hidden])");
               const trigger = document.querySelector("[aria-label='Library options']");
-              const drawer = document.querySelector('#sk-drawer');
+              const drawer = document.querySelector('nav[aria-label=Library]');
               if (!menu || !trigger || !drawer) return [];
               const m = menu.getBoundingClientRect();
               const t = trigger.getBoundingClientRect();
@@ -248,13 +248,13 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
             null,
             new PageWaitForFunctionOptions { Timeout = 30_000 });
         Assert.False(await note.IsVisibleAsync());
-        await page.Locator("nav#sk-drawer .sk-group").First.WaitForAsync();
+        await page.Locator(LibraryHooks.Group).First.WaitForAsync();
     }
 
     private static Task<bool> IsFocusedInsideAsync(ILocator locator) =>
         locator.EvaluateAsync<bool>("el => el.contains(document.activeElement)");
 
-    internal static ILocator Rows(IPage page) => page.Locator("nav#sk-drawer a.sk-row");
+    internal static ILocator Rows(IPage page) => page.Locator(LibraryHooks.Row);
 
     internal static async Task Expect(Func<Task<int>> actual, int expected)
     {
@@ -282,7 +282,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         IPage page = await context.NewPageAsync();
         await page.GotoAsync(url, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
         await page.Locator($"{Search}[data-sk-ready]").WaitForAsync();
-        await page.Locator("nav#sk-drawer .sk-group").First.WaitForAsync();
+        await page.Locator(LibraryHooks.Group).First.WaitForAsync();
         return new Session(playwright, browser, context, page);
     }
 

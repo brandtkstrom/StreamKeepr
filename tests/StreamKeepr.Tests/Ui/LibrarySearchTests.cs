@@ -25,8 +25,8 @@ public sealed class LibrarySearchTests
         Assert.Equal(new LibraryQuery("saved", "Chef", "oldest"), view.LastQuery);
         Assert.Equal("true", Chip(cut, "saved").GetAttribute("aria-pressed"));
         Assert.Equal("false", Chip(cut, "all").GetAttribute("aria-pressed"));
-        Assert.Contains("Oldest first", cut.Find(".sk-sort").TextContent);
-        Assert.Contains("arrow_upward", cut.Find(".sk-sort").TextContent);
+        Assert.Contains("Oldest first", cut.Find("[data-sort]").TextContent);
+        Assert.Contains("arrow_upward", cut.Find("[data-sort]").TextContent);
     }
 
     [Theory]
@@ -40,7 +40,7 @@ public sealed class LibrarySearchTests
 
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
-        Assert.Contains(label, cut.Find(".sk-sort").TextContent);
+        Assert.Contains(label, cut.Find("[data-sort]").TextContent);
     }
 
     [Fact]
@@ -70,10 +70,10 @@ public sealed class LibrarySearchTests
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
 
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
-        cut.FindAll(".sk-menu-item").Single(item => item.TextContent.Contains("A–Z")).Click();
+        cut.FindAll("[role='menuitem']").Single(item => item.TextContent.Contains("A–Z")).Click();
 
         Assert.EndsWith("/?sort=az", navigation.Uri);
-        cut.WaitForAssertion(() => Assert.Contains("A–Z by streamer", cut.Find(".sk-sort").TextContent));
+        cut.WaitForAssertion(() => Assert.Contains("A–Z by streamer", cut.Find("[data-sort]").TextContent));
     }
 
     [Fact]
@@ -84,9 +84,9 @@ public sealed class LibrarySearchTests
 
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
-        Assert.Equal("Chef", cut.Find(".sk-group-head .name mark.sk-hl").TextContent);
-        Assert.Equal("chef", cut.Find("[data-recording-id='r1'] .sk-row-title mark.sk-hl").TextContent);
-        Assert.Equal("Night chef special", cut.Find("[data-recording-id='r1'] .sk-row-title").TextContent);
+        Assert.Equal("Chef", cut.Find("[role='treeitem'][aria-level='1'] mark").TextContent);
+        Assert.Equal("chef", cut.Find("[data-recording-id='r1'] [data-row-title] mark").TextContent);
+        Assert.Equal("Night chef special", cut.Find("[data-recording-id='r1'] [data-row-title]").TextContent);
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public sealed class LibrarySearchTests
     }
 
     private static AngleSharp.Dom.IElement Chip(IRenderedComponent<LibraryDrawer> cut, string filter) =>
-        cut.Find($".sk-filters [data-filter='{filter}']");
+        cut.Find($"[role='group'][aria-label='Filter recordings'] [data-filter='{filter}']");
 
     private static TestLibraryView OneStreamer()
     {

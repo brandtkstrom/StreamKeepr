@@ -240,6 +240,7 @@ export function createPlayer(
     if (el.live) {
       el.live.hidden = !live;
       el.live.classList.toggle("at-edge", live && following);
+      el.live.toggleAttribute("data-at-edge", live && following);
     }
     if (el.edge) {
       const end = seekableEnd();
@@ -481,12 +482,18 @@ export function createPlayer(
       && !keyboardFocusInside();
   }
 
+  /** Idle hides the overlays; data-idle mirrors the class as a test and automation hook. */
+  function setIdle(idle) {
+    root.classList.toggle("idle", idle);
+    root.toggleAttribute("data-idle", idle);
+  }
+
   /** Reveals the overlays and restarts the 3 s idle timer. */
   function wake() {
-    root.classList.remove("idle");
+    setIdle(false);
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
-      if (canIdle()) root.classList.add("idle");
+      if (canIdle()) setIdle(true);
     }, IDLE_MS);
   }
 
@@ -659,7 +666,7 @@ export function createPlayer(
   }
 
   function openSpeedMenu() {
-    root.classList.remove("idle");
+    setIdle(false);
     el["speed-menu"].hidden = false;
     el.speed.setAttribute("aria-expanded", "true");
     const items = speedItems();
@@ -722,7 +729,7 @@ export function createPlayer(
   on(video, "pause", () => {
     dispatchPlayhead(true);
     renderPlayState();
-    root.classList.remove("idle"); // never idle while paused
+    setIdle(false); // never idle while paused
     // A pause leaves the live edge; Live edge or a seek to it follows again.
     if (live && following) {
       following = false;

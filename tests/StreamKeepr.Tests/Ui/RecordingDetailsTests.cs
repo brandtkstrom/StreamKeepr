@@ -24,8 +24,8 @@ public sealed class RecordingDetailsTests
 
         var section = cut.Find("[data-recording-details]");
         Assert.Equal("true", section.GetAttribute("data-expanded"));
-        Assert.Equal("true", cut.Find(".sk-collapse-head").GetAttribute("aria-expanded"));
-        Assert.Contains("Recording details", cut.Find(".sk-collapse-head").TextContent);
+        Assert.Equal("true", cut.Find("[data-recording-details] [data-collapsible-toggle]").GetAttribute("aria-expanded"));
+        Assert.Contains("Recording details", cut.Find("[data-recording-details] [data-collapsible-toggle]").TextContent);
         Assert.Contains("Wed, Nov 11, 2026 · 9:00 PM", cut.Find("[data-details-date]").TextContent);
 
         Assert.Equal("Title", cut.Find("[data-details-title]").TextContent);
@@ -49,8 +49,8 @@ public sealed class RecordingDetailsTests
 
         var section = cut.Find("[data-recording-details]");
         Assert.Equal("false", section.GetAttribute("data-expanded"));
-        Assert.Equal("false", cut.Find(".sk-collapse-head").GetAttribute("aria-expanded"));
-        Assert.True(cut.Find(".sk-collapse-body").HasAttribute("inert"));
+        Assert.Equal("false", cut.Find("[data-recording-details] [data-collapsible-toggle]").GetAttribute("aria-expanded"));
+        Assert.True(cut.Find($"#{cut.Find("[data-recording-details] [data-collapsible-toggle]").GetAttribute("aria-controls")}").HasAttribute("inert"));
         Assert.Contains("Wed, Nov 11, 2026 · 12:00 PM", cut.Find("[data-details-date]").TextContent);
     }
 
@@ -61,7 +61,7 @@ public sealed class RecordingDetailsTests
         UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
-        cut.Find(".sk-collapse-head").Click();
+        cut.Find("[data-recording-details] [data-collapsible-toggle]").Click();
 
         cut.WaitForAssertion(() =>
         {
@@ -182,7 +182,7 @@ public sealed class RecordingDetailsTests
             ]));
 
         Assert.Empty(cut.FindAll("[data-chapter]"));
-        Assert.Empty(cut.FindAll(".sk-chapters"));
+        Assert.Empty(cut.FindAll("[role='group'][aria-label='Chapters']"));
     }
 
     [Fact]
@@ -211,7 +211,7 @@ public sealed class RecordingDetailsTests
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
         // Copying needs no sign-in; only admin actions such as Export sit behind RequiresTwitch.
-        Assert.Empty(cut.FindAll(".sk-requires-twitch [data-copy-playlist]"));
+        Assert.Empty(cut.FindAll("[data-requires-twitch] [data-copy-playlist]"));
 
         cut.Find("[data-copy-playlist]").Click();
 

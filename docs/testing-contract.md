@@ -103,7 +103,19 @@ Rules:
 - Dispose services, `WebApplicationFactory`, child processes, and temp directories in `IAsyncLifetime`/`IDisposable`.
 - Tests must pass in any order and in parallel unless explicitly isolated.
 
-## 7. CI
+## 7. Selectors
+
+bUnit and Playwright tests find elements in this order (ADR 0012):
+
+1. **Role and accessible name**: `GetByRole(AriaRole.Button, new() { Name = "Retry" })`, `[role='treeitem'][aria-level='1']`, `nav[aria-label=Library]`, `dialog`, `main`, or an ARIA relationship such as the element named by `aria-controls` or `aria-labelledby`.
+2. **A `data-*` hook** where no role fits: `[data-recording-id]`, `[data-snackbar]`, `[data-status='rec']`, `[data-shell][data-theater-mode]`. State a test needs to observe is exposed as an ARIA attribute or a `data-*` attribute, never as a modifier class.
+3. **Never a styling class.** Tests do not select or assert `sk-*` or `mud-*` classes, or the unprefixed modifiers that go with them (`.rail`, `.theater`, `.idle`, `.warning`), and do not assert class lists or keyframe names. Styling changes during the MudBlazor migration; behaviour tests must pass unchanged across it.
+
+When a test needs an element that has neither a role nor a hook, add the missing role, accessible name or `data-*` attribute to the markup; do not fall back to a class. `TestSelectorGuardTests` fails the unit suite when a file in `tests/StreamKeepr.Tests` or `tests/StreamKeepr.E2E` contains an `sk-*` or `mud-*` class selector (`.sk-row`) or `class` attribute match (`class="sk-shell`, `[class*='sk-chip']`), uses a class-list API (`ClassList`, `classList`, `className`, `HasClass`, `ToHaveClass`), or reads the `class` attribute (`HasAttribute`/`GetAttribute`, `hasAttribute`/`getAttribute`, either quote style). It does not catch a bare `sk-*` token in a string, because cookie and storage names such as `sk-auth` look the same, and it does not catch unprefixed class selectors such as `.dot`, which look like other dotted text. Review catches those.
+
+The Vitest suite under `tests/js` is outside the guard. Its fixtures reproduce the markup the production JavaScript modules query, including the classes those modules select, and its assertions check classes the module itself sets (`idle`, `at-edge`, `sk-spin`), which the shared `components.css` consumes; asserting them checks the module's output to that stylesheet, not a selector the test chose. Where a module also exposes a state as a hook (`data-idle`, `data-at-edge`, `data-spinner`, `data-crosshair`), Vitest asserts the hook as well, and the .NET tests use only the hook. A module that moves to a `data-*` hook moves its fixture with it.
+
+## 8. CI
 
 One workflow `.github/workflows/ci.yml` (replacing the current main-only build) with jobs:
 
@@ -122,7 +134,7 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 - The Docker job does not need Twitch credentials; use dummy values and no channels.
 - CI installs ffmpeg for the recorder/fake-Streamlink tests.
 
-## 8. Budgets and quality gates
+## 9. Budgets and quality gates
 
 - **Coverage:** collect it (`coverlet` or `dotnet test --collect`); no percentage gate initially. Add a threshold once the pure core is covered; do not block early work on an arbitrary number.
 - **Performance:** enforce the plan's first-paint JS budget (≤ 200 KB gzipped, including `blazor.web.js`) once the frontend exists. hls.js and the player module load only on recording pages. CI fails over budget.
@@ -131,7 +143,7 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 - **No automatic retries** for unit, integration, or E2E. A flaky test is fixed or quarantined with a linked issue and a deadline; quarantine is explicit and reported, never a silent skip.
 - Do not delete, skip, or weaken tests to make a build pass.
 
-## 9. Per-area matrix
+## 10. Per-area matrix
 
 | Area | Required tests |
 |---|---|
@@ -145,7 +157,7 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 | Emotes | Provider normalization and static URL assembly; cache TTL/stale/single-flight and bounds; channel-ID fallback and memoization; cold global with a slow resolver; endpoint shape/disabled/failure; matcher precedence and native-range protection; image attributes and text fallback; Mock/E2E fixture; no external network |
 | Container | Build; non-root; health; deep links; volume; secrets; stop finalize; restart recovery |
 
-## 10. Failure modes
+## 11. Failure modes
 
 | Scenario | Behaviour |
 |---|---|
@@ -157,13 +169,13 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 | Flaky test | No retry; fix or quarantine with an issue |
 | Coverage below future threshold | Gate once introduced, not before |
 
-## 11. Binding versus implementation freedom
+## 12. Binding versus implementation freedom
 
-Binding: layer responsibilities, project layout, `IStreamPoller`/`IEventSubClient` seams, fake harness variants, Mock profile behavior, determinism/isolation rules, CI jobs/gates, no-retry policy, coverage/performance/a11y/visual posture, and per-area minimums.
+Binding: layer responsibilities, project layout, `IStreamPoller`/`IEventSubClient` seams, fake harness variants, Mock profile behavior, determinism/isolation rules, the selector rule (§7) and its guard, CI jobs/gates, no-retry policy, coverage/performance/a11y/visual posture, and per-area minimums.
 
 Freedom: test framework details within xUnit/bUnit/Playwright/Vitest, fixture builder style, assertions, CI caching, and artifact naming.
 
-## 12. Related
+## 13. Related
 
 - `docs/domain-model.md`, `docs/recorder-contract.md`, `docs/session-store-contract.md`, `docs/runtime-contract.md`, `docs/twitch-auth-contract.md`, `docs/hosting-contract.md`.
 - `docs/reviews/implementation-plan-amendments.md` (B-03, B-04, B-06, B-07).

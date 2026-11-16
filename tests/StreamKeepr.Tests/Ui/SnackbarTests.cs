@@ -107,7 +107,7 @@ public sealed class SnackbarTests
 
         cut.WaitForAssertion(() =>
         {
-            var snackbar = cut.Find(".sk-snackbar");
+            var snackbar = cut.Find("[data-snackbar]");
             Assert.Equal("status", snackbar.GetAttribute("role"));
             Assert.Contains("Recording deleted", snackbar.TextContent);
             Assert.Contains("Undo", snackbar.TextContent);
@@ -128,12 +128,12 @@ public sealed class SnackbarTests
             .Add(component => component.OnDismiss,
                 EventCallback.Factory.Create(this, () => dismissed = true)));
 
-        Assert.Single(cut.FindAll(".sk-snackbar-action"));
-        Assert.Equal("Dismiss notification",
-            cut.Find(".sk-snackbar-dismiss").GetAttribute("aria-label"));
+        var actionButton = Assert.Single(cut.FindAll("[data-snackbar-action]"));
+        Assert.Equal("Undo", actionButton.TextContent);
+        Assert.Single(cut.FindAll("button[aria-label='Dismiss notification']"));
 
-        cut.Find(".sk-snackbar-action").Click();
-        cut.Find(".sk-snackbar-dismiss").Click();
+        actionButton.Click();
+        cut.Find("button[aria-label='Dismiss notification']").Click();
 
         Assert.True(action);
         Assert.True(dismissed);

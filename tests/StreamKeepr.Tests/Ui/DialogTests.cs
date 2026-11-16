@@ -14,14 +14,14 @@ public sealed class DialogTests
         using var context = CreateContext();
         var cut = RenderDialog(context, open: false);
 
-        var dialog = cut.Find("dialog.sk-dialog");
-        var title = cut.Find(".sk-dialog h2");
+        var dialog = cut.Find("dialog");
+        var title = cut.Find("dialog h2");
 
         Assert.False(dialog.HasAttribute("open"));
         Assert.Equal(title.GetAttribute("id"), dialog.GetAttribute("aria-labelledby"));
         Assert.Equal("Delete recording?", title.TextContent);
-        Assert.Contains("This cannot be undone", cut.Find(".sk-dialog-content").TextContent);
-        Assert.Equal("Cancel", cut.Find(".sk-dialog-actions button").TextContent);
+        Assert.Contains("This cannot be undone", cut.Find("[data-dialog-content]").TextContent);
+        Assert.Equal("Cancel", cut.Find("[data-dialog-actions] button").TextContent);
     }
 
     [Fact]

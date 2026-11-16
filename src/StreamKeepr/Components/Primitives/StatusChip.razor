@@ -1,8 +1,8 @@
 @* Small uppercase state chip; text carries the meaning and colour is the second cue. *@
-<span class="sk-status @CssClass" @attributes="AdditionalAttributes">
+<span class="sk-status @CssClass" data-status="@Status.ToString().ToLowerInvariant()" @attributes="AdditionalAttributes">
     @if (Status == StatusChipKind.Rec)
     {
-        <span class="dot" aria-hidden="true"></span>
+        <span class="dot" data-status-dot aria-hidden="true"></span>
     }
     else if (IconName is not null)
     {

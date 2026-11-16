@@ -1,6 +1,7 @@
 @* 40px icon target with a 24px glyph; the label is the accessible name. *@
 <button type="button"
         class="sk-icon-btn @(Active ? "on" : null)"
+        data-active="@(Active ? "" : null)"
         aria-label="@Label"
         aria-pressed="@(Toggle ? (Active ? "true" : "false") : null)"
         disabled="@Disabled"

@@ -12,7 +12,7 @@ public sealed class ExportJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator saved = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").First;
+        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -30,7 +30,7 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         ILocator download = page.Locator("a[data-export-download]");
         await download.WaitForAsync(new() { Timeout = 60_000 });
         Assert.StartsWith("MP4 ready", (await page.Locator("[data-export-row] [role='status']").InnerTextAsync()).Trim());
-        await page.Locator(".sk-snackbar", new() { HasTextString = "Export ready" }).WaitForAsync();
+        await page.Locator("[data-snackbar]", new() { HasTextString = "Export ready" }).WaitForAsync();
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "export-ready");
 
         IDownload file = await page.RunAndWaitForDownloadAsync(() => download.ClickAsync());
@@ -42,9 +42,9 @@ public sealed class ExportJourneyTests(MockAppFixture app)
 
         // The download leaves the page and its circuit alone: no reconnect, the card still reacts.
         await page.WaitForTimeoutAsync(1_000);
-        Assert.False(await page.Locator(".sk-reconnect-modal, dialog[open]").IsVisibleAsync());
+        Assert.False(await page.Locator("dialog[open]").IsVisibleAsync());
         await page.Locator("[data-copy-playlist]").ClickAsync();
-        await page.Locator(".sk-snackbar", new() { HasTextString = "Playlist URL" }).WaitForAsync();
+        await page.Locator("[data-snackbar]", new() { HasTextString = "Playlist URL" }).WaitForAsync();
 
         // A reload rehydrates the row from the service (E-22).
         await page.ReloadAsync();
@@ -57,7 +57,7 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
         // A different finished recording from the download journey, so the two never share a job.
-        ILocator saved = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").Nth(1);
+        ILocator saved = page.Locator(LibraryHooks.SavedRow).Nth(1);
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -71,13 +71,13 @@ public sealed class ExportJourneyTests(MockAppFixture app)
 
         await page.Locator("[data-export-row='Cancelled']").WaitForAsync();
         Assert.Equal("Export cancelled", (await status.InnerTextAsync()).Trim());
-        Assert.Equal(0, await page.Locator(".sk-snackbar", new() { HasTextString = "Export" }).CountAsync());
+        Assert.Equal(0, await page.Locator("[data-snackbar]", new() { HasTextString = "Export" }).CountAsync());
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "export-cancelled");
 
         await page.Locator("button[data-export-retry]").ClickAsync();
 
         await page.Locator("a[data-export-download]").WaitForAsync(new() { Timeout = 60_000 });
-        await page.Locator(".sk-snackbar", new() { HasTextString = "Export ready" }).WaitForAsync();
+        await page.Locator("[data-snackbar]", new() { HasTextString = "Export ready" }).WaitForAsync();
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public sealed class ExportJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator growing = page.Locator("nav#sk-drawer a.sk-row", new() { HasTextString = "Community day" });
+        ILocator growing = page.Locator(LibraryHooks.Row, new() { HasTextString = "Community day" });
         await growing.ClickAsync();
 
         ILocator export = page.Locator("button[data-export]");

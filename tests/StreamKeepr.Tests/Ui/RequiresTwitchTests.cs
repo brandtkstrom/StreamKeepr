@@ -15,7 +15,7 @@ public sealed class RequiresTwitchTests
         Assert.Equal("Export MP4", cut.Find("#export").TextContent.Trim());
 
         var wrapper = cut.Find("[data-requires-twitch]");
-        var inert = cut.Find(".sk-requires-twitch");
+        var inert = wrapper.QuerySelector("[inert]")!;
         var tooltip = cut.Find("[role='tooltip']");
 
         Assert.True(inert.HasAttribute("inert"));
@@ -31,7 +31,7 @@ public sealed class RequiresTwitchTests
         var cut = RenderRequiresTwitch(context);
 
         Assert.NotNull(cut.Find("#export"));
-        Assert.Empty(cut.FindAll(".sk-requires-twitch"));
+        Assert.Empty(cut.FindAll("[inert]"));
         Assert.Empty(cut.FindAll("[data-requires-twitch]"));
         Assert.Empty(cut.FindAll("[role='tooltip']"));
     }

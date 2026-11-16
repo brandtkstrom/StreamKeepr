@@ -29,7 +29,7 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
     private static readonly TimeSpan FrameBudget = TimeSpan.FromMilliseconds(250);
 
     // A string, not LibraryJourneyTests.Rows(page), because the waits run it inside the page.
-    private const string RowSelector = "nav#sk-drawer a.sk-row";
+    private const string RowSelector = LibraryHooks.Row;
     private const string Search = "input[data-search-input]";
 
     // The scale seed has its own app so the shared fixture's journeys keep their eight
@@ -74,7 +74,7 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
         int htmlKb = await page.EvaluateAsync<int>(
             "() => Math.round(performance.getEntriesByType('navigation')[0].decodedBodySize / 1024)");
         int flattened = await page.Locator(
-            "nav#sk-drawer :is(.sk-group, .sk-day, .sk-row)").CountAsync();
+            $"{LibraryHooks.Drawer} :is([data-streamer-group], [data-day-header], a[data-recording-id])").CountAsync();
 
         // Search: the first keystroke until one row is left. Includes the 250 ms debounce.
         double searchMs = await TimeUntilRowsAsync(
@@ -87,13 +87,13 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
         // State filter: Saved hides the live captures; All brings them back. Startup recovery
         // decides which seeded sessions are still capturing, so count them from the DOM.
         int capturing = await page.Locator(
-            "nav#sk-drawer a.sk-row:is([data-state='rec'], [data-state='reconnecting'])").CountAsync();
+            $"{LibraryHooks.Row}:is([data-state='rec'], [data-state='reconnecting'])").CountAsync();
         Assert.InRange(capturing, 1, SeededCount);
         double filterMs = await TimeUntilRowsAsync(
-            page, () => page.Locator(".sk-filters [data-filter='saved']").ClickAsync(),
+            page, () => page.Locator("[data-filter='saved']").ClickAsync(),
             totalRows - capturing);
         await TimeUntilRowsAsync(
-            page, () => page.Locator(".sk-filters [data-filter='all']").ClickAsync(), totalRows);
+            page, () => page.Locator("[data-filter='all']").ClickAsync(), totalRows);
 
         // Sort: Oldest first reorders every group, timed until the first row changes.
         string? firstRow = await page.Locator(RowSelector).First.GetAttributeAsync("data-recording-id");
@@ -110,7 +110,7 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
         // Scroll: step the drawer from top to bottom one frame at a time.
         JsonElement scroll = await page.EvaluateAsync<JsonElement>("""
             async steps => {
-              const list = document.querySelector('nav#sk-drawer .sk-drawer-list');
+              const list = document.querySelector('[data-drawer-list]');
               const frame = () => new Promise(requestAnimationFrame);
               const deltas = [];
               list.scrollTop = 0;

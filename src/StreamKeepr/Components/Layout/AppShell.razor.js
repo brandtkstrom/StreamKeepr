@@ -36,6 +36,9 @@ function focusableElements() {
 
 function applyMobileDrawer() {
   shell?.classList.toggle("drawer-modal-open", mobileOpen);
+  // Only this module knows the phone drawer is open (the menu button's aria-expanded is also
+  // server-rendered from the saved drawer mode), so it mirrors the state as a hook.
+  shell?.toggleAttribute("data-drawer-modal-open", mobileOpen);
   menuButton?.setAttribute("aria-expanded", mobileOpen ? "true" : "false");
 
   if (mobileOpen) {

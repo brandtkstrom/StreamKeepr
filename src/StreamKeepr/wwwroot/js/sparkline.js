@@ -104,6 +104,7 @@ export function drawSparkline(svg, values, { color = "var(--primary)" } = {}) {
 
   svg.append(element("line", {
     class: "xh",
+    "data-crosshair": "",
     x1: 0,
     x2: 0,
     y1: 0,

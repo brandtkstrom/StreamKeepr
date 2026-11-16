@@ -3,7 +3,7 @@
 Status: accepted (2026-11-10)
 Owner: @brandtkstrom
 Entry point for: `to-spec`
-Source: map issue #1 and decision tickets #2–#18; the binding contracts; ADRs 0001–0011; the plan-review register; `GLOSSARY.md`; `docs/plans/streamkeepr-implementation-plan.md`; `docs/design-assets.md`.
+Source: map issue #1 and decision tickets #2–#18; the binding contracts; ADRs 0001–0012; the plan-review register; `GLOSSARY.md`; `docs/plans/streamkeepr-implementation-plan.md`; `docs/design-assets.md`.
 
 This is the single handoff for the full application specification. It records the decisions already made, the plan amendments that bind the spec, the accepted risks, the open items, and the post-implementation conformance review. It does not rewrite the plan and does not implement the app.
 
@@ -219,6 +219,7 @@ This is the single handoff for the full application specification. It records th
 | [ADR-0009 Chat log retention and opt-in purge](adr/0009-chat-log-retention-and-purge.md) | Per-session JSONL chat log kept for the life of the recording; tombstones hide deletions; `Chat:PurgeDeletedText` is `Off` or `OnFinalize`; no retention service. |
 | [ADR-0010 Chat module dependency direction](adr/0010-chat-module-dependency-direction.md) | `Infrastructure/Twitch/Chat` may depend on `Infrastructure/Storage`; Storage must not import the chat transport; the chat log input records live in Storage. |
 | [ADR-0011 Third-party emotes via a provider seam](adr/0011-third-party-emotes-provider-seam.md) | Server-side `IEmoteProvider`; one aggregated endpoint; replay-time catalogs; static-only images from the provider CDN; off by default; no snapshot or image proxy. |
+| [ADR-0012 MudBlazor through an incremental, test-guarded migration](adr/0012-mudblazor-incremental-migration.md) | Small PRs to `main`, palette re-pointed in the foundation PR; `design-system/tokens.json` is the source of truth; layout ships with each surface and features as separate PRs; tests target roles, then `data-*` hooks, never `sk-*` or `mud-*` classes. |
 
 ## 7. Plan amendment ledger
 

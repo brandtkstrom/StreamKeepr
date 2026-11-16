@@ -23,36 +23,32 @@ public sealed class AppShellTests
             .Add(component => component.FreeBytes, 20L * 1024 * 1024 * 1024)
             .Add(component => component.TotalBytes, 100L * 1024 * 1024 * 1024));
 
-        Assert.NotNull(cut.Find(".sk-shell"));
-        Assert.NotNull(cut.Find(".sk-appbar"));
-        Assert.NotNull(cut.Find(".sk-drawer"));
-        Assert.NotNull(cut.Find(".sk-main .sk-main-inner [data-test='main']"));
-        var wordmark = cut.Find("a.sk-wordmark");
+        Assert.NotNull(cut.Find("[data-shell]"));
+        Assert.NotNull(cut.Find("header"));
+        Assert.NotNull(cut.Find("nav[aria-label='Library']"));
+        Assert.NotNull(cut.Find("main [data-test='main']"));
+        var wordmark = cut.Find("header a[href='/']");
         Assert.Equal("/", wordmark.GetAttribute("href"));
         Assert.Equal("StreamKeepr home", wordmark.GetAttribute("aria-label"));
-        Assert.NotNull(cut.Find(".sk-wordmark .rec-dot"));
-        Assert.NotNull(cut.Find(".sk-search input"));
-        Assert.Contains("20.0 GB free", cut.Find(".sk-storage").TextContent);
-        Assert.DoesNotContain("warning", cut.Find(".sk-storage").ClassList);
+        Assert.NotNull(wordmark.QuerySelector("[data-rec-dot]"));
+        Assert.NotNull(cut.Find("header input[aria-label='Search recordings']"));
+        Assert.Contains("20.0 GB free", cut.Find("[data-storage]").TextContent);
+        Assert.Equal("ok", cut.Find("[data-storage]").GetAttribute("data-storage"));
 
-        var actions = cut.FindAll(".sk-appbar-actions > *");
-        Assert.True(actions[^1].ClassList.Contains("sk-auth-placeholder"));
+        var placeholder = cut.Find("header [data-auth-placeholder]");
+        Assert.True(placeholder.NextElementSibling is null, "the auth control is the last app bar action");
     }
 
     [Theory]
-    [InlineData("""{"v":1,"drawer":"expanded","theater":false,"stats":false,"details":true,"collapsed":[]}""", "")]
+    [InlineData("""{"v":1,"drawer":"expanded","theater":false,"stats":false,"details":true,"collapsed":[]}""", "expanded")]
     [InlineData("""{"v":1,"drawer":"rail","theater":false,"stats":false,"details":true,"collapsed":[]}""", "rail")]
     [InlineData("""{"v":1,"drawer":"hidden","theater":false,"stats":false,"details":true,"collapsed":[]}""", "hidden")]
-    public void Renders_the_saved_drawer_mode(string cookie, string expectedClass)
+    public void Renders_the_saved_drawer_mode(string cookie, string expectedMode)
     {
         using var context = CreateContext(cookie);
         var cut = RenderShell(context);
 
-        var drawer = cut.Find(".sk-drawer");
-        if (expectedClass.Length == 0)
-            Assert.False(drawer.ClassList.Contains("rail"));
-        else
-            Assert.True(drawer.ClassList.Contains(expectedClass));
+        Assert.Equal(expectedMode, cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
     }
 
     [Fact]
@@ -64,14 +60,14 @@ public sealed class AppShellTests
         cut.Find("[data-drawer-toggle]").Click();
         cut.WaitForAssertion(() =>
         {
-            Assert.True(cut.Find(".sk-drawer").ClassList.Contains("rail"));
+            Assert.Equal("rail", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
             Assert.Equal("false", cut.Find("[data-drawer-toggle]").GetAttribute("aria-expanded"));
         });
 
         cut.Find("[data-drawer-toggle]").Click();
         cut.WaitForAssertion(() =>
         {
-            Assert.False(cut.Find(".sk-drawer").ClassList.Contains("rail"));
+            Assert.Equal("expanded", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
             Assert.Equal("true", cut.Find("[data-drawer-toggle]").GetAttribute("aria-expanded"));
         });
     }
@@ -83,7 +79,7 @@ public sealed class AppShellTests
             """{"v":1,"drawer":"expanded","theater":true,"stats":false,"details":true,"collapsed":[]}""");
         var cut = RenderShell(context);
 
-        Assert.NotNull(cut.Find(".sk-shell.theater"));
+        Assert.NotNull(cut.Find("[data-shell][data-theater-mode]"));
         Assert.True(cut.Find("[data-drawer-toggle]").HasAttribute("disabled"));
     }
 
@@ -95,8 +91,8 @@ public sealed class AppShellTests
             .Add(component => component.FreeBytes, 5L * 1024 * 1024 * 1024)
             .Add(component => component.TotalBytes, 100L * 1024 * 1024 * 1024));
 
-        Assert.True(cut.Find(".sk-storage").ClassList.Contains("warning"));
-        Assert.Equal("Recording disk: 5.0 GB free of 100.0 GB", cut.Find(".sk-storage").GetAttribute("title"));
+        Assert.Equal("low", cut.Find("[data-storage]").GetAttribute("data-storage"));
+        Assert.Equal("Recording disk: 5.0 GB free of 100.0 GB", cut.Find("[data-storage]").GetAttribute("title"));
     }
 
     [Fact]
@@ -109,9 +105,9 @@ public sealed class AppShellTests
             .Add(component => component.Drawer, fragment =>
                 fragment.AddMarkupContent(0, "<div id='custom-drawer'>Groups</div>")));
 
-        Assert.NotNull(cut.Find(".sk-appbar-actions #custom-auth"));
-        Assert.Empty(cut.FindAll(".sk-auth-placeholder"));
-        Assert.NotNull(cut.Find(".sk-drawer #custom-drawer"));
+        Assert.NotNull(cut.Find("header #custom-auth"));
+        Assert.Empty(cut.FindAll("[data-auth-placeholder]"));
+        Assert.NotNull(cut.Find("nav[aria-label='Library'] #custom-drawer"));
     }
 
     [Fact]
@@ -139,7 +135,7 @@ public sealed class AppShellTests
         cut.WaitForAssertion(() =>
         {
             Assert.Contains("Capture schedule is not available yet", cut.Markup);
-            Assert.Single(cut.FindAll(".sk-snackbar"));
+            Assert.Single(cut.FindAll("[data-snackbar]"));
         });
     }
 

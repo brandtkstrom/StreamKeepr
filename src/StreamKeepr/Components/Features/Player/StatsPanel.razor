@@ -12,7 +12,7 @@
          data-open="@(_open ? "true" : "false")"
          aria-labelledby="@_titleId"
          @ref="_root">
-    <h2 id="@_titleId" class="sk-visually-hidden">Stats for nerds</h2>
+    <h2 id="@_titleId" class="sk-visually-hidden" data-sr-only>Stats for nerds</h2>
     <button type="button"
             class="sk-toggle-bar"
             data-sk="stats-toggle"
@@ -44,7 +44,7 @@
                                  aria-hidden="true"
                                  focusable="false"></svg>
                             <span class="tip" data-sk="tip-bitrate" aria-hidden="true"></span>
-                            <table class="sk-visually-hidden" data-sk="table-bitrate">
+                            <table class="sk-visually-hidden" data-sr-only data-sk="table-bitrate">
                                 <caption>Bitrate samples</caption>
                                 <thead>
                                     <tr><th scope="col">Time</th><th scope="col">Value</th></tr>
@@ -61,7 +61,7 @@
                                  aria-hidden="true"
                                  focusable="false"></svg>
                             <span class="tip" data-sk="tip-frame" aria-hidden="true"></span>
-                            <table class="sk-visually-hidden" data-sk="table-frame">
+                            <table class="sk-visually-hidden" data-sr-only data-sk="table-frame">
                                 <caption>Frame rate samples</caption>
                                 <thead>
                                     <tr><th scope="col">Time</th><th scope="col">Value</th></tr>
@@ -94,7 +94,7 @@
                                  aria-hidden="true"
                                  focusable="false"></svg>
                             <span class="tip" data-sk="tip-bandwidth" aria-hidden="true"></span>
-                            <table class="sk-visually-hidden" data-sk="table-bandwidth">
+                            <table class="sk-visually-hidden" data-sr-only data-sk="table-bandwidth">
                                 <caption>Bandwidth samples</caption>
                                 <thead>
                                     <tr><th scope="col">Time</th><th scope="col">Value</th></tr>
@@ -111,7 +111,7 @@
                                  aria-hidden="true"
                                  focusable="false"></svg>
                             <span class="tip" data-sk="tip-buffer" aria-hidden="true"></span>
-                            <table class="sk-visually-hidden" data-sk="table-buffer">
+                            <table class="sk-visually-hidden" data-sr-only data-sk="table-buffer">
                                 <caption>Buffer samples</caption>
                                 <thead>
                                     <tr><th scope="col">Time</th><th scope="col">Value</th></tr>

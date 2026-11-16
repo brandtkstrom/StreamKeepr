@@ -190,7 +190,7 @@ public sealed class VideoPlayerTests
         IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(
             p => p.Add(c => c.Recording, Recording("r1", "First")));
 
-        var quality = cut.Find(".sk-quality");
+        var quality = cut.Find("[data-quality]");
         Assert.Equal("SPAN", quality.TagName);
         Assert.Equal("Source", quality.TextContent);
         Assert.Empty(cut.FindAll("[data-menu='m-quality']"));

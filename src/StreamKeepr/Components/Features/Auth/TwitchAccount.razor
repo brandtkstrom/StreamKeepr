@@ -31,12 +31,12 @@ else
                   data-auth-state="connected">
                 <TriggerContent>
                     <Avatar Name="@DisplayName(context.User)" Tone="AvatarTone.Tertiary" aria-hidden="true" />
-                    <span class="lbl"><span class="sk-visually-hidden">Twitch account: </span>@DisplayName(context.User)</span>
+                    <span class="lbl" data-account-label><span class="sk-visually-hidden">Twitch account: </span>@DisplayName(context.User)</span>
                     @if (DistinctLogin(context.User) is { } login)
                     {
-                        <span class="login">@login</span>
+                        <span class="login" data-account-login>@login</span>
                     }
-                    <span class="sk-auth-dot" aria-hidden="true" title="Connected to Twitch"></span>
+                    <span class="sk-auth-dot" data-auth-dot aria-hidden="true" title="Connected to Twitch"></span>
                     <span class="sk-icon sm" aria-hidden="true">expand_more</span>
                 </TriggerContent>
                 <ChildContent>

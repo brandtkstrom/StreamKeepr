@@ -36,7 +36,7 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         // The home page with no recording selected is the first paint; wait for the circuit
         // and every module the interactive shell imports.
         await page.GotoAsync(app.BaseUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
-        await page.Locator("nav#sk-drawer a.sk-row").First.WaitForAsync();
+        await page.Locator(LibraryHooks.Row).First.WaitForAsync();
         await page.WaitForLoadStateAsync(LoadState.NetworkIdle);
 
         // A module may be both preloaded and imported; the browser downloads it once.
@@ -60,7 +60,7 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         Assert.DoesNotContain(sizes, size => IsPlayerScript(size.Url));
 
         // Opening a recording is what brings in the player and hls.js.
-        await page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").First.ClickAsync();
+        await page.Locator(LibraryHooks.SavedRow).First.ClickAsync();
         await page.Locator("video").WaitForAsync();
         await Expect(() => Task.FromResult(scripts.Any(response => IsHlsScript(response.Url)) ? 1 : 0), 1);
         Assert.Contains(scripts, response => IsPlayerModule(response.Url));
@@ -71,18 +71,19 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator recDot = page.Locator(".sk-status.rec .dot").First;
+        ILocator recDot = page.Locator("[data-status=rec] [data-status-dot]").First;
         await recDot.WaitForAsync();
 
-        // Sanity: without the preference the REC dot pulses.
-        Assert.Equal("sk-pulse", await recDot.EvaluateAsync<string>("e => getComputedStyle(e).animationName"));
+        // Sanity: without the preference the REC dot pulses. The keyframes name is styling, so
+        // only its presence is asserted.
+        Assert.NotEqual("none", await recDot.EvaluateAsync<string>("e => getComputedStyle(e).animationName"));
 
         await page.EmulateMediaAsync(new PageEmulateMediaOptions { ReducedMotion = ReducedMotion.Reduce });
         Assert.Equal("none", await recDot.EvaluateAsync<string>("e => getComputedStyle(e).animationName"));
         await AssertNoMotionAsync(page, "home");
 
         // The recording page brings the player chrome, the details collapsible, and tooltips.
-        await page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").First.ClickAsync();
+        await page.Locator(LibraryHooks.SavedRow).First.ClickAsync();
         await page.Locator("[data-recording-details]").WaitForAsync();
         await AssertNoMotionAsync(page, "recording");
 
@@ -96,7 +97,7 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        await page.Locator("nav#sk-drawer a.sk-row").First.WaitForAsync();
+        await page.Locator(LibraryHooks.Row).First.WaitForAsync();
         await AssertTabReachesEveryControlAsync(page, "home");
 
         // Into the library tree by Tab; rows are one roving stop, moved with the arrow keys.
@@ -157,14 +158,14 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         await page.EmulateMediaAsync(new PageEmulateMediaOptions { ReducedMotion = ReducedMotion.Reduce });
         await TabToAsync(page, "e => e.hasAttribute('data-drawer-toggle')", "the drawer button");
         await page.Keyboard.PressAsync("Enter");
-        await page.Locator(".sk-shell.drawer-modal-open").WaitForAsync();
-        Assert.True(await FocusedMatchesAsync(page, "e => e.closest('nav#sk-drawer') !== null"), "focus moves into the drawer");
-        await AssertFocusStaysInsideAsync(page, "nav#sk-drawer", nativeModal: false);
+        await page.Locator("[data-shell][data-drawer-modal-open]").WaitForAsync();
+        Assert.True(await FocusedMatchesAsync(page, "e => e.closest('nav[aria-label=Library]') !== null"), "focus moves into the drawer");
+        await AssertFocusStaysInsideAsync(page, LibraryHooks.Drawer, nativeModal: false);
         await AssertNoMotionAsync(page, "phone drawer");
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "phone-drawer");
 
         await page.Keyboard.PressAsync("Escape");
-        await page.Locator(".sk-shell:not(.drawer-modal-open)").WaitForAsync();
+        await page.Locator("[data-shell]:not([data-drawer-modal-open])").WaitForAsync();
         Assert.True(await FocusedMatchesAsync(page, "e => e.hasAttribute('data-drawer-toggle')"), "Escape returns focus to the drawer button");
     }
 
@@ -274,9 +275,8 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         string[] moving = await page.EvaluateAsync<string[]>(
             """
             () => {
-              const describe = e => e.tagName.toLowerCase()
-                + (e.id ? '#' + e.id : '')
-                + (typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\s+/).join('.') : '');
+              // Failure messages name an element by its opening tag, attributes included.
+              const describe = e => e.outerHTML.slice(0, e.outerHTML.indexOf('>') + 1).slice(0, 160);
               const moving = [];
               const seconds = value => value.split(',').map(v => parseFloat(v) || 0);
               for (const element of document.querySelectorAll('*')) {
@@ -285,7 +285,7 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
                   const transition = seconds(style.transitionDuration).some(s => s > 0);
                   const animation = style.animationName !== 'none'
                     && seconds(style.animationDuration).some(s => s > 0)
-                    && !element.closest('.sk-spin');
+                    && !element.closest('[data-spinner]');
                   if (transition || animation)
                     moving.push(`${describe(element)}${pseudo ?? ''}: transition ${style.transitionDuration}, animation ${style.animationName}`);
                 }

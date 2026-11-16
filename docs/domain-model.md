@@ -230,10 +230,11 @@ A part that reaches `HealthyPart` resets `Streak` even though it still retries w
 
 - At startup, the recovery service scans the recordings root and returns the newest session for each channel.
 - An unfinished session (`Recording`) is delivered as `SessionRecovered(Resumable(Session, NextPart, Complete: false))`; it becomes `Idle.Resume`.
-- A finished session (`Complete`) is delivered as `SessionRecovered(Resumable(Session, NextPart, Complete: true))`; it becomes `Idle.Finished`. If the same stream is still live, the next `Live` reopens it as the next part instead of colliding with the existing folder.
+- A complete session (`Complete`) is delivered as `SessionRecovered(Resumable(Session, NextPart, Complete: true))`; it becomes `Idle.Finished`. If the same stream is still live, the next `Live` reopens it as the next part instead of colliding with the existing folder.
 - `NextPart` is one greater than the highest existing part.
 - A paused channel starts in `Paused`. The paused flag is the only persisted pause preference; the newest complete session may seed `Paused.Finished` from the startup scan. On `ResumeRequested`, the channel returns to `Idle(Finished: Paused.Finished)`; if no session is available, `Idle()`.
-- `Idle.Resume` is always unfinished. `Idle.Finished` is always complete or already finalized.
+- `Idle.Resume` is always unfinished. `Idle.Finished` is always a complete session or already finalized.
+- The field names `Idle.Finished` and `Paused.Finished` predate the glossary term **complete session**; both hold a complete session.
 
 ## 8. Metadata
 

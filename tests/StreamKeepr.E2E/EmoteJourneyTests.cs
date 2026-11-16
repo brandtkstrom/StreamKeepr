@@ -48,7 +48,7 @@ public sealed class EmoteJourneyTests(MockAppFixture app)
             });
         });
 
-        ILocator saved = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").First;
+        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -65,7 +65,7 @@ public sealed class EmoteJourneyTests(MockAppFixture app)
         for (int i = 0; i < 4; i++)
             await page.Keyboard.PressAsync("ArrowRight");
 
-        ILocator row = page.Locator("[data-sk='chat-log'] .sk-chat-row")
+        ILocator row = page.Locator("[data-sk='chat-log'] [data-message-id]")
             .Filter(new() { HasTextString = "Fixture emotes" });
         await row.WaitForAsync(new() { Timeout = 20_000 });
 

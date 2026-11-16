@@ -42,17 +42,17 @@ public sealed class ShellJourneyTests(MockAppFixture app)
 
             Assert.Equal("Stream Keepr", await page.TitleAsync());
 
-            ILocator shell = page.Locator(".sk-shell");
+            ILocator shell = page.Locator("[data-shell]");
             await shell.WaitForAsync(new LocatorWaitForOptions
             {
                 State = WaitForSelectorState.Visible,
             });
 
-            Assert.True(await page.Locator("header.sk-appbar").IsVisibleAsync());
-            Assert.Contains("StreamKeepr", await page.Locator("header.sk-appbar .sk-wordmark").InnerTextAsync());
-            Assert.True(await page.Locator("nav#sk-drawer").IsVisibleAsync());
+            Assert.True(await page.GetByRole(AriaRole.Banner).IsVisibleAsync());
+            Assert.Contains("StreamKeepr", await page.Locator("header a[aria-label='StreamKeepr home']").InnerTextAsync());
+            Assert.True(await page.Locator(LibraryHooks.Drawer).IsVisibleAsync());
 
-            ILocator main = page.Locator("main.sk-main");
+            ILocator main = page.Locator("main");
             await main.WaitForAsync(new LocatorWaitForOptions
             {
                 State = WaitForSelectorState.Attached,
@@ -61,7 +61,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             Assert.Equal(
                 "24px",
                 await page.EvaluateAsync<string>(
-                    "getComputedStyle(document.querySelector('main.sk-main')).paddingTop"));
+                    "getComputedStyle(document.querySelector('main')).paddingTop"));
 
             // The shell must be styled, not just parsed: an empty static-asset body would
             // still leave the DOM present while axe color-contrast checks see no CSS.
@@ -99,21 +99,21 @@ public sealed class ShellJourneyTests(MockAppFixture app)
 
         await page.Locator("input[data-search-input]").FillAsync("NIGHT");
         await page.WaitForURLAsync(url => url.Contains("q=NIGHT", StringComparison.Ordinal));
-        await page.Locator("nav#sk-drawer a.sk-row").First.ClickAsync();
+        await page.Locator(LibraryHooks.Row).First.ClickAsync();
         await page.WaitForURLAsync(url => url.Contains("/r/", StringComparison.Ordinal));
         await page.Locator("[data-sk='seek'][aria-disabled='false']")
             .WaitForAsync(new() { Timeout = 20_000 });
 
         await page.Locator("[data-sk='theater']").ClickAsync();
-        await page.Locator(".sk-shell.theater").WaitForAsync();
+        await page.Locator("[data-shell][data-theater-mode]").WaitForAsync();
 
-        await page.Locator("a.sk-wordmark").ClickAsync();
+        await page.Locator("a[aria-label='StreamKeepr home']").ClickAsync();
         await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/");
 
-        await page.Locator(".sk-shell:not(.theater)").WaitForAsync();
+        await page.Locator("[data-shell]:not([data-theater-mode])").WaitForAsync();
         Assert.Equal("", await page.Locator("input[data-search-input]").InputValueAsync());
-        Assert.Equal("newest", await page.Locator(".sk-sort").GetAttributeAsync("data-sort"));
-        Assert.True(await page.Locator("nav#sk-drawer").IsVisibleAsync());
+        Assert.Equal("newest", await page.Locator("[data-sort]").GetAttributeAsync("data-sort"));
+        Assert.True(await page.Locator(LibraryHooks.Drawer).IsVisibleAsync());
 
         await AssertAxeCleanAsync(page, "shell-wordmark-home");
     }
@@ -134,34 +134,34 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             app.BaseUrl,
             new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
 
-        await page.Locator("nav#sk-drawer .sk-group").First.WaitForAsync(
+        await page.Locator(LibraryHooks.Group).First.WaitForAsync(
             new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
 
-        Assert.True(await page.Locator("nav#sk-drawer .sk-group").CountAsync() >= 4);
-        Assert.True(await page.Locator("nav#sk-drawer a.sk-row").CountAsync() >= 7);
+        Assert.True(await page.Locator(LibraryHooks.Group).CountAsync() >= 4);
+        Assert.True(await page.Locator(LibraryHooks.Row).CountAsync() >= 7);
 
-        await page.Locator(".sk-wordmark .rec-dot").WaitForAsync(
+        await page.Locator("[data-rec-dot]").WaitForAsync(
             new LocatorWaitForOptions
             {
                 State = WaitForSelectorState.Visible,
                 Timeout = 30_000,
             });
-        await page.Locator("a.sk-row .sk-status.rec").First.WaitForAsync(
+        await page.Locator("a[data-recording-id] [data-status=rec]").First.WaitForAsync(
             new LocatorWaitForOptions
             {
                 State = WaitForSelectorState.Visible,
                 Timeout = 30_000,
             });
 
-        await Assertions.Expect(page.Locator("nav#sk-drawer .sk-group").First)
+        await Assertions.Expect(page.Locator(LibraryHooks.Group).First)
             .ToContainTextAsync(
                 "Recording now",
                 new LocatorAssertionsToContainTextOptions { Timeout = 30_000 });
 
-        string href = await page.Locator("a.sk-row").First.GetAttributeAsync("href") ?? "";
+        string href = await page.Locator("a[data-recording-id]").First.GetAttributeAsync("href") ?? "";
         Assert.StartsWith("/r/", href);
 
-        ILocator storage = page.Locator(".sk-storage");
+        ILocator storage = page.Locator("[data-storage]");
         Assert.True(await storage.IsVisibleAsync());
         Assert.Contains("free of", await storage.GetAttributeAsync("title") ?? "");
 
@@ -185,7 +185,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             app.BaseUrl,
             new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
 
-        ILocator row = page.Locator("a.sk-row", new PageLocatorOptions
+        ILocator row = page.Locator("a[data-recording-id]", new PageLocatorOptions
         {
             HasText = "Ranked climb to Diamond",
         });
@@ -215,7 +215,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             WaitUntil = WaitUntilState.DOMContentLoaded,
         });
 
-        row = page.Locator($"a.sk-row[data-recording-id='{id}']");
+        row = page.Locator($"a[data-recording-id='{id}']");
         await row.WaitForAsync(new LocatorWaitForOptions
         {
             State = WaitForSelectorState.Visible,
@@ -268,7 +268,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             app.BaseUrl,
             new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
 
-        ILocator storage = page.Locator(".sk-storage");
+        ILocator storage = page.Locator("[data-storage]");
         await storage.WaitForAsync(new LocatorWaitForOptions
         {
             State = WaitForSelectorState.Visible,
@@ -327,7 +327,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
             await page.Locator("input[data-search-input][data-sk-ready]").WaitForAsync();
 
-            ILocator first = page.Locator("nav#sk-drawer a.sk-row", new PageLocatorOptions
+            ILocator first = page.Locator(LibraryHooks.Row, new PageLocatorOptions
             {
                 HasText = "Ranked climb to Diamond",
             });
@@ -354,8 +354,8 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             Assert.Equal(1, await details.CountAsync());
             Assert.Equal(
                 "true",
-                await details.Locator(".sk-collapse-head").GetAttributeAsync("aria-expanded"));
-            Assert.Contains("Recording details", await details.Locator(".sk-collapse-head").InnerTextAsync());
+                await details.Locator("[data-collapsible-toggle]").GetAttributeAsync("aria-expanded"));
+            Assert.Contains("Recording details", await details.Locator("[data-collapsible-toggle]").InnerTextAsync());
             string date = (await details.Locator("[data-details-date]").InnerTextAsync()).Trim();
             Assert.Contains("2026", date);
 
@@ -375,8 +375,8 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             Assert.NotEmpty(await details.Locator("[data-details-size]").InnerTextAsync());
 
             // The collapsed state is layout preference state and survives a reload.
-            await details.Locator(".sk-collapse-head").ClickAsync();
-            await Assertions.Expect(details.Locator(".sk-collapse-head")).ToHaveAttributeAsync(
+            await details.Locator("[data-collapsible-toggle]").ClickAsync();
+            await Assertions.Expect(details.Locator("[data-collapsible-toggle]")).ToHaveAttributeAsync(
                 "aria-expanded",
                 "false",
                 new LocatorAssertionsToHaveAttributeOptions { Timeout = 10_000 });
@@ -393,14 +393,14 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 State = WaitForSelectorState.Visible,
                 Timeout = 30_000,
             });
-            await Assertions.Expect(details.Locator(".sk-collapse-head")).ToHaveAttributeAsync(
+            await Assertions.Expect(details.Locator("[data-collapsible-toggle]")).ToHaveAttributeAsync(
                 "aria-expanded",
                 "false",
                 new LocatorAssertionsToHaveAttributeOptions { Timeout = 10_000 });
             Assert.Equal(1, await details.CountAsync());
 
-            await details.Locator(".sk-collapse-head").ClickAsync();
-            await Assertions.Expect(details.Locator(".sk-collapse-head")).ToHaveAttributeAsync(
+            await details.Locator("[data-collapsible-toggle]").ClickAsync();
+            await Assertions.Expect(details.Locator("[data-collapsible-toggle]")).ToHaveAttributeAsync(
                 "aria-expanded",
                 "true",
                 new LocatorAssertionsToHaveAttributeOptions { Timeout = 10_000 });
@@ -427,7 +427,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
 
             // Copy is public and uses the absolute playlist URL built from the app origin.
             await page.Locator("[data-copy-playlist]").ClickAsync();
-            await Assertions.Expect(page.Locator(".sk-snackbar-text")).ToHaveTextAsync(
+            await Assertions.Expect(page.Locator("[data-snackbar-text]")).ToHaveTextAsync(
                 "Playlist URL copied",
                 new LocatorAssertionsToHaveTextOptions { Timeout = 10_000 });
             Assert.False(string.IsNullOrWhiteSpace(playlistUrl), "the player requested a playlist");
@@ -435,7 +435,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             Assert.Equal(playlistUrl, copied);
 
             // Swapping recordings updates the one details card instead of adding another.
-            ILocator second = page.Locator("nav#sk-drawer a.sk-row", new PageLocatorOptions
+            ILocator second = page.Locator(LibraryHooks.Row, new PageLocatorOptions
             {
                 HasText = "Co-op horror night",
             });

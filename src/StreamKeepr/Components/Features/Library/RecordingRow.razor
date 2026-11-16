@@ -24,15 +24,15 @@
         <span class="dur">@Format.Timecode(Recording.DurationSec)</span>
         @if (Recording.ResumeSec is double resume)
         {
-            <span class="prog" aria-hidden="true"><i style="width:@Progress(resume)"></i></span>
+            <span class="prog" data-progress aria-hidden="true"><i style="width:@Progress(resume)"></i></span>
         }
         else if (IsRecording)
         {
-            <span class="prog" aria-hidden="true"><i style="width:100%"></i></span>
+            <span class="prog" data-progress aria-hidden="true"><i style="width:100%"></i></span>
         }
     </span>
     <span class="sk-row-text">
-        <span class="sk-row-title"><Highlight Text="@Recording.Title" Search="@Search" /></span>
+        <span class="sk-row-title" data-row-title><Highlight Text="@Recording.Title" Search="@Search" /></span>
         <span class="sk-row-meta">@Meta</span>
         @if (Status is StatusChipKind status)
         {
