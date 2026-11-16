@@ -124,6 +124,8 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 }
 .sk-btn:hover::before, .sk-icon-btn:hover::before, .sk-toggle-bar:hover::before, .sk-collapse-head:hover::before { opacity: var(--sk-state-hover); }
 .sk-btn:active::before, .sk-icon-btn:active::before, .sk-toggle-bar:active::before, .sk-collapse-head:active::before { opacity: var(--sk-state-pressed); }
+/* MudBlazor's buttons and chips only tint on focus; the Keyboard card sets the ring once for all of them. */
+.mud-button-root:focus-visible, .mud-chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 :where(.sk-btn, .sk-icon-btn, .sk-toggle-bar, .sk-collapse-head, .sk-seek, .sk-switch, .sk-tooltip-wrap[tabindex]):focus-visible {
   outline: 2px solid var(--sk-primary); outline-offset: 2px;
 }
@@ -210,15 +212,27 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 .mud-chip.sk-status-saved .mud-chip-icon { color: var(--text-secondary); }
 .mud-chip.sk-status-rec { background: var(--rec); color: var(--rec-contrast-text); }
 .mud-chip.sk-status-rec .dot { width: 6px; height: 6px; border-radius: var(--radius-full); background: var(--rec-contrast-text); animation: sk-pulse 1.6s ease-in-out infinite; }
+/* Legacy span chips, still hand-built by the player island (VideoPlayer.razor.js CHIPS) and the
+   expired account chip (TwitchAccount.razor). Remove when those surfaces move to StatusChip. */
+.sk-status:not(.mud-chip) {
+  display: inline-flex; align-items: center; gap: var(--sk-space-1); height: 20px; padding: 0 6px; border-radius: var(--sk-radius-xs);
+  font: var(--sk-text-label-small); letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap;
+}
+.sk-status:not(.mud-chip) .sk-icon { font-size: 14px; font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 20; }
+.sk-status:not(.mud-chip).rec { background: var(--sk-rec); color: var(--sk-on-rec); }
+.sk-status:not(.mud-chip).rec .dot { width: 6px; height: 6px; border-radius: var(--sk-radius-full); background: var(--sk-on-rec); animation: sk-pulse 1.6s ease-in-out infinite; }
+.sk-status:not(.mud-chip).processing { background: var(--sk-tertiary-container); color: var(--sk-on-tertiary-container); }
+.sk-status:not(.mud-chip).saved { background: transparent; color: var(--sk-on-surface-variant); box-shadow: inset 0 0 0 1px var(--sk-outline); }
+.sk-status:not(.mud-chip).failed { background: var(--sk-error-container); color: var(--sk-on-error-container); }
+.sk-status:not(.mud-chip).partial { background: var(--sk-warning-container); color: var(--sk-on-warning-container); }
 @keyframes sk-pulse { 50% { opacity: 0.35; } }
-@media (prefers-reduced-motion: reduce) { .mud-chip.sk-status-rec .dot, .sk-twitch .sk-spin { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .mud-chip.sk-status-rec .dot, .sk-status:not(.mud-chip).rec .dot, .sk-twitch .sk-spin { animation: none; } }
 
 /* ---------- top app bar (MudAppBar; design system: TopAppBar) ----------
    New shell rules read tokens.css directly, not the legacy --sk-* aliases (ADR 0012). */
 .sk-appbar { border-bottom: 1px solid var(--divider); }
 .sk-appbar .mud-toolbar { gap: var(--space-2); padding: 0 var(--space-4) 0 var(--space-2); }
 .sk-appbar .mud-icon-button { color: var(--action-default); }
-.sk-appbar .mud-icon-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .sk-appbar.scrolled { box-shadow: var(--elevation-4); }
 .sk-wordmark { display: flex; align-items: center; gap: var(--space-2); margin-left: var(--space-1); border-radius: var(--radius-sm); color: var(--text-primary); font: var(--text-wordmark); letter-spacing: var(--text-wordmark-letter-spacing); text-decoration: none; white-space: nowrap; }
 .sk-wordmark:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
@@ -462,6 +476,23 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-player-overlay .actions { display: flex; gap: var(--sk-space-2); }
 .sk-player-overlay .sk-btn.text { color: var(--sk-on-player); }
 .sk-player-menu { top: auto; bottom: calc(100% + var(--sk-space-2)); right: 0; min-width: 160px; }
+/* The player's speed menu is still a hand-built menu (VideoPlayer.razor); these are the deleted Menu
+   primitive's rules it relies on, after .sk-player-menu as before so the 180px width still wins. Remove when the player island moves to MudMenu. */
+.sk-menu-anchor { position: relative; display: inline-flex; }
+.sk-menu {
+  position: absolute; min-width: 180px; padding: var(--sk-space-2) 0; border-radius: var(--sk-radius-sm); background: var(--sk-surface-container); color: var(--sk-on-surface);
+  box-shadow: var(--sk-elevation-2); font: var(--sk-text-body-medium); z-index: 5;
+}
+.sk-menu.align-end { top: calc(100% + var(--sk-space-1)); right: 0; }
+.sk-menu.align-start { top: calc(100% + var(--sk-space-1)); left: 0; }
+.sk-menu .hd { padding: 4px var(--sk-space-3) 8px; color: var(--sk-on-surface-variant); font: var(--sk-text-label-medium); }
+.sk-menu button { display: flex; align-items: center; gap: var(--sk-space-3); width: 100%; height: 40px; padding: 0 var(--sk-space-3); border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.sk-menu button:hover { background: var(--sk-surface-container-high); }
+.sk-menu button:disabled { opacity: var(--sk-state-disabled); cursor: default; }
+.sk-menu button:disabled:hover { background: transparent; }
+.sk-menu button .sk-icon { font-size: 20px; color: var(--sk-primary); width: 20px; }
+.sk-menu button .sp { flex: 1; }
+.sk-menu button small { color: var(--sk-on-surface-variant); font: 500 12px/16px var(--sk-font-sans); }
 @media (prefers-reduced-motion: reduce) { .sk-player-spinner .sk-spin { animation-duration: 2400ms; } }
 
 .sk-controls { display: flex; align-items: center; gap: 2px; height: var(--sk-control-bar-height); padding: 0 var(--sk-space-2); }
