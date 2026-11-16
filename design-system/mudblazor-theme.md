@@ -7,8 +7,8 @@
 - In `Program.cs`, call `builder.Services.AddMudServices();`.
 - In `App.razor`, link `_content/MudBlazor/MudBlazor.min.css` **before** the app's own `tokens.css`, `fonts.css` and `components.css`, and load `_content/MudBlazor/MudBlazor.min.js` after `blazor.web.js`.
 - **Roboto.** MudBlazor's typography names Roboto but does not ship the font. StreamKeepr makes no CDN requests at runtime, so it self-hosts one variable `woff2` (`wwwroot/fonts/roboto-latin.woff2`), subset to Latin with the `tnum` feature kept, built from the official `Roboto[wdth,wght].ttf` (OFL-1.1) by `scripts/build-roboto.sh`. `fonts.css` declares it with one `@font-face` covering weights 100–900 and `font-display: swap`; the licence sits beside the file. Do not use the Google Fonts link from MudBlazor's template.
-- In the layout, render `<MudThemeProvider Theme="StreamKeeprTheme.Theme" IsDarkMode="true" />`, `<MudPopoverProvider />`, `<MudDialogProvider />` and `<MudSnackbarProvider />` once, above `MudLayout`.
-- Add `@using MudBlazor` to `Components/_Imports.razor`.
+- In `Routes.razor`, the one interactive boundary, render `<MudThemeProvider Theme="StreamKeeprTheme.Theme" IsDarkMode="true" />`, `<MudPopoverProvider />`, `<MudDialogProvider />` and `<MudSnackbarProvider />` once, above the `Router`.
+- `@using MudBlazor` stays out of `Components/_Imports.razor` for now: it makes `SnackbarService` ambiguous with the app's own service, which the snackbar migration removes. Until then, name MudBlazor types fully qualified (`MudBlazor.MudThemeProvider`).
 - The app is dark only: `IsDarkMode` is always `true`, there is no theme preference, and `PaletteLight` stays at MudBlazor's defaults, unused.
 
 ## Theme
