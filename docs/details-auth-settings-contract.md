@@ -98,10 +98,11 @@ The details card subscribes to `IExportService.Changed`, calls `FindByRecording`
 
 - **Disconnected:** a real `<a class="sk-twitch">` labelled “Connect with Twitch” to `/api/auth/twitch/login?returnUrl=<current path+query>`; `data-enhance-nav="false"` so the OAuth redirect is a full-page navigation. A tiny collocated JS handler may set `aria-busy`, the spinner, and “Waiting for Twitch…” on click; the link works without JS.
 - **Connecting:** `aria-busy="true"`, spinner, “Waiting for Twitch…”, Twitch hover fill. No circuit call is required.
-- **Connected:** `.sk-auth-chip` with avatar/initials, login (and display name when available), a success dot, and a menu:
-  - “Manage Twitch connection” → `/settings#twitch`;
-  - “Disconnect” → a submit button for a real `POST /api/auth/logout` form containing `<AntiforgeryToken />` and a hidden local `returnUrl`; the form post signs out, clears the admin token, and redirects to the current local path (or `/`).
-- **Expired:** the account chip is replaced by an `error-container` chip “Twitch session expired” and a text Reconnect link to the login endpoint with the current return URL. The current page and playback continue; admin actions are inert because the revalidating provider signs the circuit out. No dismiss action.
+- **Connected** (amended for the MudBlazor shell, #174): the avatar only, at every width. A `MudMenu` (`[data-auth-state=connected]`, anchored bottom-right) whose activator is a 32px `MudAvatar` with the account's initial and a `success` `MudBadge` dot; its accessible name is “Twitch account: {display name}”, from visually hidden text. The menu opens with a header that is not a menu item (avatar, display name, the login when it differs, and “Connected to Twitch” beside a success dot), a divider, then:
+  - “Manage Twitch connection” → link to `/settings#twitch`;
+  - “Settings” → link to `/settings` (the settings sheet, F2, replaces it);
+  - “Disconnect” → submits a real `POST /api/auth/logout` form containing `<AntiforgeryToken />` and a hidden local `returnUrl` (`TwitchAccount.razor.js` `submitForm`, because a `MudMenuItem` cannot be a submit button); the form post signs out, clears the admin token, and redirects to the current local path (or `/`).
+- **Expired:** the account avatar is replaced by an `error-container` chip “Twitch session expired” and a text Reconnect link to the login endpoint with the current return URL. The current page and playback continue; admin actions are inert because the revalidating provider signs the circuit out. No dismiss action.
 
 ### Expiry
 
@@ -143,7 +144,7 @@ The details card subscribes to `IExportService.Changed`, calls `FindByRecording`
      - Remove dialog: “Remove {name}? Recordings are kept. An open capture is finalized first.” On confirm, close the dialog, show “Removing…” on the row, disable its actions, and await `RemoveAsync` (up to ~35 s). Success removes the row and raises “Channel removed”; failure restores the row and shows the user-safe error. The row's `@key` is the login.
      - Stop confirmation: “Stop recording for {name}? The current capture is finalized, and the channel stays paused until you resume.” For an idle channel the label may read “Pause channel” with equivalent copy. Resume has no confirmation.
   4. **Add channel**: a labelled login input and Add button (or form submit). Trim and lowercase; disable while empty/busy; show a spinner/`aria-busy`; on success clear the input, keep focus in it, and raise “Channel added”. Inline error (`role="alert"`) for unknown login, already watched, invalid login, Helix/network failure, or unauthorized/expired session. `ChannelsView.AddAsync` validates through Helix.
-- No schedule section; the top-bar schedule icon remains a stub and shows “Capture schedule is not available yet” in a snackbar.
+- No schedule section, and no schedule control in the top bar (removed with the MudBlazor shell, #174).
 - The page subscribes to `ChannelsView.Changed` (500 ms throttle) and re-renders rows with `@key`; it disposes the subscription. `ChannelsView.All` and every mutation throw when signed out; the signed-out branch never instantiates the channel component.
 - Authorization is enforced by `ChannelsView` and the services as well as `RequiresTwitch`; a disabled control is never the only guard.
 
