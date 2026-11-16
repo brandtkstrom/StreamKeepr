@@ -22,7 +22,7 @@ The frontend foundation is the Blazor Web App host, routes, app shell, design-sy
 
 ## 2a. MudBlazor theme and providers
 
-- `Program.cs` calls `AddMudServices()`.
+- `Program.cs` calls `AddMudServices(options => StreamKeeprSnackbars.Configure(options.SnackbarConfiguration))`, so the snackbar defaults in §8 apply app-wide.
 - `Routes.razor`, the one interactive boundary, renders `MudThemeProvider` (`Theme="StreamKeeprTheme.Theme"`, `IsDarkMode="true"`), `MudPopoverProvider`, `MudDialogProvider` and `MudSnackbarProvider` once, before the `Router`. The app is dark only: there is no theme preference, and `PaletteLight` keeps MudBlazor's defaults, unused.
 - `Ui/StreamKeeprTheme.cs` is hand-written from `design-system/tokens.json`: the `PaletteDark` values, MudBlazor's default `Typography` with the one override `Button.TextTransform = "none"`, and `LayoutProperties` (8px radius, 64px app bar, 320px drawer, 72px rail). `StreamKeeprThemeTests` compares every Palette value, the layout sizes and every MudBlazor type style with `tokens.json`, and fails when the theme sets a palette value other than MudBlazor's default that no token describes.
 - Components name MudBlazor types fully qualified (`MudBlazor.MudThemeProvider`) until `@using MudBlazor` can go into `_Imports.razor`: the app's own `SnackbarService` that once made it ambiguous is gone (#177), and adding the using is left to the cleanup (#181).
@@ -149,7 +149,7 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
   - `failed`: “Couldn’t rejoin the server” — Reload · Retry;
   - `paused`: “Session paused” — Resume;
   - `resume-failed`: “Couldn’t resume the session” — Reload · Resume.
-- `reconnect.js` mirrors the state onto `body[data-sk-reconnect]`, opens the dialog only for those three states (a brief `show`/`retrying` never does), names it by the shown state's title (`aria-labelledby`), reloads on `rejected`, and serves every reconnect button through one capturing document click listener: `[data-reconnect-retry]` (`Blazor.reconnect()`, then `resumeCircuit()`, else reload), `[data-reconnect-resume]` and `[data-reconnect-reload]`.
+- `reconnect.js` mirrors the state onto `body[data-sk-reconnect]`, opens the dialog only for those three states (a brief `show`/`retrying` never does), names it by the shown state's title (`aria-labelledby`), reloads on `rejected`, and serves every reconnect button through one capturing document click listener: `[data-reconnect-retry]` (`Blazor.reconnect()`, then `resumeCircuit()`, else reload; if reconnecting throws, Retry in an alert reloads the page while the modal's Retry waits for the tab to become visible), `[data-reconnect-resume]` and `[data-reconnect-reload]`.
 - `ReconnectNotice` is a `MudAlert` Warning Dense (`role="status"`) for “live updates paused” or an SSR/backend error, with a Retry served by `reconnect.js` (`data-reconnect-retry`), like the drawer’s note. It is not shown while the reconnect modal is visible; never both.
 - `LibraryView`/`RecordingLibrary.IsLoaded` gates skeleton rows. Empty library shows “No recordings yet”. Unknown `/r/{id}` shows a message and a link back.
 - The top bar auth slot uses `TwitchAccount`/`AuthorizeView`: signed out shows Connect with Twitch (link to `/api/auth/twitch/login?returnUrl=<current>`); signed in shows the account avatar, a `MudMenu` activator (see `docs/details-auth-settings-contract.md` §7). Settings and admin actions stay visible but disabled with the `RequiresTwitch` tooltip. Viewing, playback, media, health, and progress remain public.

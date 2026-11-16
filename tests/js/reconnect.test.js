@@ -131,6 +131,29 @@ describe("reconnect.js", () => {
       expect(window.Blazor.resumeCircuit).toHaveBeenCalledOnce();
     });
 
+    it("reloads when a retry from an alert throws", async () => {
+      window.Blazor = { reconnect: vi.fn().mockRejectedValue(new Error("down")), resumeCircuit: vi.fn() };
+
+      button("data-reconnect-retry").click();
+
+      await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
+    });
+
+    it("waits for the tab instead of reloading when the modal's retry throws", async () => {
+      window.Blazor = { reconnect: vi.fn().mockRejectedValue(new Error("down")), resumeCircuit: vi.fn() };
+      const retry = document.createElement("button");
+      retry.setAttribute("data-reconnect-retry", "");
+      modal.append(retry);
+
+      retry.click();
+
+      await vi.waitFor(() => expect(window.Blazor.reconnect).toHaveBeenCalledOnce());
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(reload).not.toHaveBeenCalled();
+      expect(added.some(([type]) => type === "visibilitychange")).toBe(true);
+    });
+
     it("resumes from [data-reconnect-resume] and closes the modal", async () => {
       window.Blazor = { reconnect: vi.fn(), resumeCircuit: vi.fn().mockResolvedValue(true) };
       emit(modal, "paused");

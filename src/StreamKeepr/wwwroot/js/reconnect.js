@@ -4,6 +4,7 @@
 // resumes or reloads. Every button it serves works while the circuit is down, so they are
 // found by data hook through one document-level listener rather than Blazor events:
 //   [data-reconnect-retry]   the modal's Retry and the "Live updates paused" alerts' Retry
+//                            (a failed retry from an alert reloads; from the modal it waits)
 //   [data-reconnect-resume]  the modal's Resume
 //   [data-reconnect-reload]  the modal's Reload
 const reconnectModal = document.getElementById("components-reconnect-modal");
@@ -20,7 +21,10 @@ document.addEventListener("click", onClick, true);
 
 function onClick(event) {
   const target = event.target instanceof Element ? event.target : null;
-  if (target?.closest("[data-reconnect-retry]")) void retry();
+  const retryButton = target?.closest("[data-reconnect-retry]");
+  // Outside the modal (a "Live updates paused" alert) a failed retry reloads the page, as
+  // ReconnectNotice's Retry always did; the modal's own Retry waits for the tab instead.
+  if (retryButton) void retry({ reloadOnError: !retryButton.closest("#components-reconnect-modal") });
   else if (target?.closest("[data-reconnect-resume]")) void resume();
   else if (target?.closest("[data-reconnect-reload]")) location.reload();
 }
@@ -58,7 +62,7 @@ function handleReconnectStateChanged(event) {
   }
 }
 
-async function retry() {
+async function retry({ reloadOnError = false } = {}) {
   document.removeEventListener(
     "visibilitychange",
     retryWhenDocumentBecomesVisible,
@@ -78,7 +82,8 @@ async function retry() {
       else reconnectModal?.close();
     }
   } catch {
-    document.addEventListener("visibilitychange", retryWhenDocumentBecomesVisible);
+    if (reloadOnError) location.reload();
+    else document.addEventListener("visibilitychange", retryWhenDocumentBecomesVisible);
   }
 }
 
