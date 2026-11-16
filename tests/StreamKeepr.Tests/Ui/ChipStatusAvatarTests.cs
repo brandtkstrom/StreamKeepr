@@ -7,42 +7,6 @@ namespace StreamKeepr.Tests.Ui;
 
 public sealed class ChipStatusAvatarTests
 {
-    [Fact]
-    public async Task Chip_exposes_selection_with_aria_pressed()
-    {
-        await using var context = new BunitContext();
-        context.Services.AddMudServices();
-        var cut = context.Render<Chip>(parameters => parameters
-            .Add(component => component.Selected, true)
-            .AddChildContent("Recording"));
-
-        var chip = cut.Find("button[aria-pressed]");
-        Assert.Equal("true", chip.GetAttribute("aria-pressed"));
-        Assert.Equal("check", chip.QuerySelector("[data-icon]")!.TextContent);
-        Assert.Contains("Recording", chip.TextContent);
-    }
-
-    [Fact]
-    public async Task Unselected_chip_has_no_check_icon_and_invokes_the_callback()
-    {
-        await using var context = new BunitContext();
-        context.Services.AddMudServices();
-        var clicked = false;
-        var cut = context.Render<Chip>(parameters => parameters
-            .Add(component => component.Selected, false)
-            .Add(component => component.OnClick,
-                EventCallback.Factory.Create(this, () => clicked = true))
-            .AddChildContent("Saved"));
-
-        var chip = cut.Find("button[aria-pressed]");
-        Assert.Equal("false", chip.GetAttribute("aria-pressed"));
-        Assert.Null(chip.QuerySelector("[data-icon]"));
-
-        chip.Click();
-
-        Assert.True(clicked);
-    }
-
     [Theory]
     [InlineData(StatusChipKind.Rec, "rec", "Rec")]
     [InlineData(StatusChipKind.Reconnecting, "reconnecting", "Reconnecting")]

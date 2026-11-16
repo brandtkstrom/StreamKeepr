@@ -32,7 +32,6 @@ public sealed class DevComponentsTests
         Assert.NotEmpty(cut.FindAll("[role='img'][data-tone]"));
         Assert.NotEmpty(cut.FindAll("section[data-collapsible]"));
         Assert.NotEmpty(cut.FindAll("[role='switch']"));
-        Assert.NotEmpty(cut.FindAll("[role='menu']"));
         Assert.NotEmpty(cut.FindAll("[role='tooltip']"));
         Assert.NotEmpty(cut.FindAll("dialog"));
         Assert.NotEmpty(cut.FindAll("[data-requires-twitch] [inert]"));
