@@ -89,7 +89,7 @@ Why a recorder process ended: `Exited` (on its own), `Stopped` (coordinator requ
 _Avoid_: Exit code, status
 
 **Session recovery**:
-The startup reconstruction of the newest session for a channel as resumable or finished.
+The startup reconstruction of the newest session for a channel as resumable or complete.
 _Avoid_: Rebuild, restore
 
 **Chat capture**:
