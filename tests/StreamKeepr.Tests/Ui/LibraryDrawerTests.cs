@@ -56,6 +56,35 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
+    public void Each_group_avatar_takes_its_logins_channel_colour()
+    {
+        // The library lists any login with recordings, watched or not, so a removed channel's
+        // recordings keep the colour: it comes from the login alone.
+        var view = new TestLibraryView
+        {
+            StreamerItems =
+            [
+                Streamer("live", "Live Star", recording: true, count: 1, last: Now),
+                Streamer("removed_one", "Gone Now", recording: false, count: 1, last: Now.AddDays(-2)),
+            ],
+        };
+        view.RecordingsByLogin["live"] = [Recording("r1", "live", RecordingState.Recording, Now)];
+        view.RecordingsByLogin["removed_one"] = [Recording("r2", "removed_one", RecordingState.Saved, Now.AddDays(-2))];
+
+        using BunitContext context = CreateContext(view);
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        foreach (string login in new[] { "live", "removed_one" })
+        {
+            var avatar = cut.Find($"[data-tree-key='g:{login}'] [role='img']");
+            Assert.Equal(ChannelColor.For(login).ToString(), avatar.GetAttribute("data-channel-color"));
+        }
+
+        Assert.NotNull(cut.Find("[data-tree-key='g:live'] [data-live-ring]"));
+        Assert.Empty(cut.FindAll("[data-tree-key='g:removed_one'] [data-live-ring]"));
+    }
+
+    [Fact]
     public void Rows_show_the_thumbnail_image_when_one_exists_and_the_placeholder_icon_otherwise()
     {
         var view = new TestLibraryView

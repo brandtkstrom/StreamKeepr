@@ -11,10 +11,10 @@
          data-tree-key="@($"g:{Streamer.Login}")"
          title="@Streamer.Login"
          @onclick="OnToggle">
-        <Avatar Name="@Streamer.DisplayName"
-                ImageUrl="@Streamer.AvatarUrl"
-                Recording="@Streamer.IsRecording"
-                Large="true" />
+        <ChannelAvatar Login="@Streamer.Login"
+                       Name="@Streamer.DisplayName"
+                       ImageUrl="@Streamer.AvatarUrl"
+                       Live="@Streamer.IsRecording" />
         <span class="who">
             <span class="name"><Highlight Text="@Streamer.DisplayName" Search="@Search" /></span>
             <span class="meta" data-group-meta>@Meta</span>

@@ -42,15 +42,18 @@ else
                                             BadgeClass="sk-account-badge"
                                             aria-hidden="true"
                                             data-auth-dot>
-                            <MudBlazor.MudAvatar Color="MudBlazor.Color.Tertiary" Class="sk-account-avatar" data-account-avatar>
-                                @Initial(context.User)
-                            </MudBlazor.MudAvatar>
+                            <ChannelAvatar Login="@Login(context.User)"
+                                           Name="@DisplayName(context.User)"
+                                           Size="MudBlazor.Size.Small"
+                                           Class="sk-account-avatar"
+                                           Decorative="true"
+                                           data-account-avatar />
                         </MudBlazor.MudBadge>
                     </span>
                 </ActivatorContent>
                 <ChildContent>
                     <div class="sk-account-header" role="presentation" data-account-header>
-                        <MudBlazor.MudAvatar Color="MudBlazor.Color.Tertiary" aria-hidden="true">@Initial(context.User)</MudBlazor.MudAvatar>
+                        <ChannelAvatar Login="@Login(context.User)" Name="@DisplayName(context.User)" Size="MudBlazor.Size.Medium" Decorative="true" />
                         <div class="who">
                             <div class="name">@DisplayName(context.User)</div>
                             @if (DistinctLogin(context.User) is { } login)
@@ -137,11 +140,8 @@ else
             ? null
             : Login(user);
 
-    // The menu shows the account's first letter until account images arrive.
-    internal static string Initial(ClaimsPrincipal user) =>
-        DisplayName(user) is { Length: > 0 } name
-            ? System.Text.Rune.ToUpperInvariant(System.Text.Rune.GetRuneAt(name, 0)).ToString()
-            : "?";
+    // The avatar shows the account's first letter on its channel colour until account images arrive.
+    internal static string Initial(ClaimsPrincipal user) => Format.Initial(DisplayName(user));
 
     // MudMenuItem renders a div, not a submit button, so the module submits the real form.
     private async Task DisconnectAsync()

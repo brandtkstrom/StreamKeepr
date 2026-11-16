@@ -1,0 +1,65 @@
+@using StreamKeepr.Ui
+
+@* A channel's avatar (design system: ChannelAvatar in LibraryDrawer): the channel's image, or
+   its initial on its channel colour, plus the rec badge while it captures. The colour comes
+   from the login, so it is the same in the drawer, the rail and chat, and survives removal. *@
+<MudBlazor.MudBadge Dot="true"
+                    Overlap="true"
+                    Bordered="true"
+                    Visible="@Live"
+                    Origin="MudBlazor.Origin.TopRight"
+                    BadgeClass="sk-live"
+                    Class="sk-channel-avatar">
+    <MudBlazor.MudAvatar Size="@Size"
+                         Class="@Class"
+                         Style="@ColorStyle"
+                         role="@(Decorative ? null : "img")"
+                         aria-label="@(Decorative ? null : Name)"
+                         aria-hidden="@(Decorative ? "true" : null)"
+                         data-channel-color="@_color"
+                         @attributes="AdditionalAttributes">
+        @if (!string.IsNullOrWhiteSpace(ImageUrl))
+        {
+            <img src="@ImageUrl" alt="" loading="lazy" />
+        }
+        else
+        {
+            @Format.Initial(Name)
+        }
+    </MudBlazor.MudAvatar>
+    @if (Live)
+    {
+        @* A hook only: the dot is MudBadge's, and the group's meta line says "Recording now". *@
+        <span data-live-ring aria-hidden="true"></span>
+    }
+</MudBlazor.MudBadge>
+
+@code {
+    /// <summary>The Twitch login: it alone picks the channel colour.</summary>
+    [Parameter, EditorRequired] public string Login { get; set; } = "";
+
+    /// <summary>The display name: the accessible label and the source of the initial.</summary>
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+
+    [Parameter] public string? ImageUrl { get; set; }
+
+    /// <summary>Shows the filled <c>rec</c> badge while the channel is capturing.</summary>
+    [Parameter] public bool Live { get; set; }
+
+    [Parameter] public MudBlazor.Size Size { get; set; } = MudBlazor.Size.Large;
+
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Hides the avatar from assistive technology where the name is already beside it.</summary>
+    [Parameter] public bool Decorative { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private int _color;
+
+    private string ColorStyle =>
+        $"background-color: var(--channel-{_color}); color: var(--channel-contrast-text);";
+
+    protected override void OnParametersSet() => _color = ChannelColor.For(Login);
+}
