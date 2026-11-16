@@ -29,7 +29,7 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
     private static readonly TimeSpan FrameBudget = TimeSpan.FromMilliseconds(250);
 
     // A string, not LibraryJourneyTests.Rows(page), because the waits run it inside the page.
-    private const string RowSelector = "nav[aria-label=Library] a[data-recording-id]";
+    private const string RowSelector = LibraryHooks.Row;
     private const string Search = "input[data-search-input]";
 
     // The scale seed has its own app so the shared fixture's journeys keep their eight
@@ -74,7 +74,7 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
         int htmlKb = await page.EvaluateAsync<int>(
             "() => Math.round(performance.getEntriesByType('navigation')[0].decodedBodySize / 1024)");
         int flattened = await page.Locator(
-            "nav[aria-label=Library] :is([data-streamer-group], [data-day-header], a[data-recording-id])").CountAsync();
+            $"{LibraryHooks.Drawer} :is([data-streamer-group], [data-day-header], a[data-recording-id])").CountAsync();
 
         // Search: the first keystroke until one row is left. Includes the 250 ms debounce.
         double searchMs = await TimeUntilRowsAsync(
@@ -87,7 +87,7 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
         // State filter: Saved hides the live captures; All brings them back. Startup recovery
         // decides which seeded sessions are still capturing, so count them from the DOM.
         int capturing = await page.Locator(
-            "nav[aria-label=Library] a[data-recording-id]:is([data-state='rec'], [data-state='reconnecting'])").CountAsync();
+            $"{LibraryHooks.Row}:is([data-state='rec'], [data-state='reconnecting'])").CountAsync();
         Assert.InRange(capturing, 1, SeededCount);
         double filterMs = await TimeUntilRowsAsync(
             page, () => page.Locator("[data-filter='saved']").ClickAsync(),

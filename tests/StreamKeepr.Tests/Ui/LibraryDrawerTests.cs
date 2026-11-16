@@ -312,7 +312,7 @@ public sealed class LibraryDrawerTests
         IRenderedComponent<RecordingRow> cut = context.Render<RecordingRow>(parameters => parameters
             .Add(component => component.Recording, live));
 
-        Assert.Equal(width, cut.Find(".prog i").GetAttribute("style"));
+        Assert.Equal(width, cut.Find("[data-progress] i").GetAttribute("style"));
     }
 
     [Fact]

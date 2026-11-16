@@ -107,7 +107,7 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "settings-paused");
 
         await page.GotoAsync(app.BaseUrl);
-        await page.Locator("nav[aria-label=Library] [data-streamer-group]").First.WaitForAsync();
+        await page.Locator(LibraryHooks.Group).First.WaitForAsync();
         Assert.Contains(
             "Paused",
             await page.Locator("[data-tree-key='g:mock_nova'] [data-group-meta]").TextContentAsync());

@@ -1,7 +1,7 @@
 @* Material 3 action button. Danger actions are still confirmed by the caller. *@
 <button type="@Type"
-        class="sk-btn @VariantClass"
-        data-variant="@VariantClass"
+        class="sk-btn @VariantName"
+        data-variant="@VariantName"
         disabled="@Disabled"
         @onclick="OnClick"
         @attributes="AdditionalAttributes">
@@ -22,7 +22,8 @@
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
-    private string VariantClass => Variant switch
+    /// <summary>The variant's name, used both as its design-system class and as the test hook.</summary>
+    private string VariantName => Variant switch
     {
         ButtonVariant.Tonal => "tonal",
         ButtonVariant.Outlined => "outlined",

@@ -42,7 +42,7 @@ public sealed class StatsPanelTests
         Assert.Equal("false", toggle.GetAttribute("aria-checked"));
         Assert.Contains("Stats for nerds", toggle.TextContent);
         Assert.Empty(toggle.QuerySelectorAll("h1, h2, h3, h4, h5, h6"));
-        var heading = cut.Find("section > h2");
+        var heading = cut.Find("section > h2[data-sr-only]");
         Assert.Equal(heading.GetAttribute("id"), panel.GetAttribute("aria-labelledby"));
 
         // Copy is a body action, never part of the switch row.
@@ -60,6 +60,7 @@ public sealed class StatsPanelTests
         {
             Assert.Equal("true", cut.Find($"[data-sk='spark-{tile}']").GetAttribute("aria-hidden"));
             Assert.Single(cut.FindAll($"[data-sk='table-{tile}']"));
+            Assert.True(cut.Find($"[data-sk='table-{tile}']").HasAttribute("data-sr-only"));
         }
     }
 

@@ -79,7 +79,7 @@ public sealed class AppShellTests
             """{"v":1,"drawer":"expanded","theater":true,"stats":false,"details":true,"collapsed":[]}""");
         var cut = RenderShell(context);
 
-        Assert.NotNull(cut.Find("[data-shell][data-theater='true']"));
+        Assert.NotNull(cut.Find("[data-shell][data-theater-mode]"));
         Assert.True(cut.Find("[data-drawer-toggle]").HasAttribute("disabled"));
     }
 

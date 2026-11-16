@@ -50,7 +50,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
 
             Assert.True(await page.GetByRole(AriaRole.Banner).IsVisibleAsync());
             Assert.Contains("StreamKeepr", await page.Locator("header a[aria-label='StreamKeepr home']").InnerTextAsync());
-            Assert.True(await page.Locator("nav[aria-label=Library]").IsVisibleAsync());
+            Assert.True(await page.Locator(LibraryHooks.Drawer).IsVisibleAsync());
 
             ILocator main = page.Locator("main");
             await main.WaitForAsync(new LocatorWaitForOptions
@@ -99,21 +99,21 @@ public sealed class ShellJourneyTests(MockAppFixture app)
 
         await page.Locator("input[data-search-input]").FillAsync("NIGHT");
         await page.WaitForURLAsync(url => url.Contains("q=NIGHT", StringComparison.Ordinal));
-        await page.Locator("nav[aria-label=Library] a[data-recording-id]").First.ClickAsync();
+        await page.Locator(LibraryHooks.Row).First.ClickAsync();
         await page.WaitForURLAsync(url => url.Contains("/r/", StringComparison.Ordinal));
         await page.Locator("[data-sk='seek'][aria-disabled='false']")
             .WaitForAsync(new() { Timeout = 20_000 });
 
         await page.Locator("[data-sk='theater']").ClickAsync();
-        await page.Locator("[data-shell][data-theater=true]").WaitForAsync();
+        await page.Locator("[data-shell][data-theater-mode]").WaitForAsync();
 
         await page.Locator("a[aria-label='StreamKeepr home']").ClickAsync();
         await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/");
 
-        await page.Locator("[data-shell][data-theater=false]").WaitForAsync();
+        await page.Locator("[data-shell]:not([data-theater-mode])").WaitForAsync();
         Assert.Equal("", await page.Locator("input[data-search-input]").InputValueAsync());
         Assert.Equal("newest", await page.Locator("[data-sort]").GetAttributeAsync("data-sort"));
-        Assert.True(await page.Locator("nav[aria-label=Library]").IsVisibleAsync());
+        Assert.True(await page.Locator(LibraryHooks.Drawer).IsVisibleAsync());
 
         await AssertAxeCleanAsync(page, "shell-wordmark-home");
     }
@@ -134,11 +134,11 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             app.BaseUrl,
             new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
 
-        await page.Locator("nav[aria-label=Library] [data-streamer-group]").First.WaitForAsync(
+        await page.Locator(LibraryHooks.Group).First.WaitForAsync(
             new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
 
-        Assert.True(await page.Locator("nav[aria-label=Library] [data-streamer-group]").CountAsync() >= 4);
-        Assert.True(await page.Locator("nav[aria-label=Library] a[data-recording-id]").CountAsync() >= 7);
+        Assert.True(await page.Locator(LibraryHooks.Group).CountAsync() >= 4);
+        Assert.True(await page.Locator(LibraryHooks.Row).CountAsync() >= 7);
 
         await page.Locator("[data-rec-dot]").WaitForAsync(
             new LocatorWaitForOptions
@@ -153,7 +153,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 Timeout = 30_000,
             });
 
-        await Assertions.Expect(page.Locator("nav[aria-label=Library] [data-streamer-group]").First)
+        await Assertions.Expect(page.Locator(LibraryHooks.Group).First)
             .ToContainTextAsync(
                 "Recording now",
                 new LocatorAssertionsToContainTextOptions { Timeout = 30_000 });
@@ -327,7 +327,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
             await page.Locator("input[data-search-input][data-sk-ready]").WaitForAsync();
 
-            ILocator first = page.Locator("nav[aria-label=Library] a[data-recording-id]", new PageLocatorOptions
+            ILocator first = page.Locator(LibraryHooks.Row, new PageLocatorOptions
             {
                 HasText = "Ranked climb to Diamond",
             });
@@ -435,7 +435,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             Assert.Equal(playlistUrl, copied);
 
             // Swapping recordings updates the one details card instead of adding another.
-            ILocator second = page.Locator("nav[aria-label=Library] a[data-recording-id]", new PageLocatorOptions
+            ILocator second = page.Locator(LibraryHooks.Row, new PageLocatorOptions
             {
                 HasText = "Co-op horror night",
             });

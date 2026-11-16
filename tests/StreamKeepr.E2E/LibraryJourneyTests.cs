@@ -106,7 +106,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator drawer = page.Locator("nav[aria-label=Library]");
+        ILocator drawer = page.Locator(LibraryHooks.Drawer);
 
         await page.Locator("[data-drawer-toggle]").ClickAsync();
         await Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
@@ -126,7 +126,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator group = page.Locator("nav[aria-label=Library] [data-streamer-group]").First;
+        ILocator group = page.Locator(LibraryHooks.Group).First;
         ILocator head = group.Locator("[role=treeitem][aria-level='1']");
         ILocator body = group.Locator("[role=group]");
         ILocator firstRow = body.Locator("a[data-recording-id]").First;
@@ -157,7 +157,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator drawer = page.Locator("nav[aria-label=Library]");
+        ILocator drawer = page.Locator(LibraryHooks.Drawer);
         ILocator trigger = page.GetByRole(AriaRole.Button, new() { Name = "Library options" });
         ILocator menu = page.Locator("[role='menu']:not([hidden])");
 
@@ -248,13 +248,13 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
             null,
             new PageWaitForFunctionOptions { Timeout = 30_000 });
         Assert.False(await note.IsVisibleAsync());
-        await page.Locator("nav[aria-label=Library] [data-streamer-group]").First.WaitForAsync();
+        await page.Locator(LibraryHooks.Group).First.WaitForAsync();
     }
 
     private static Task<bool> IsFocusedInsideAsync(ILocator locator) =>
         locator.EvaluateAsync<bool>("el => el.contains(document.activeElement)");
 
-    internal static ILocator Rows(IPage page) => page.Locator("nav[aria-label=Library] a[data-recording-id]");
+    internal static ILocator Rows(IPage page) => page.Locator(LibraryHooks.Row);
 
     internal static async Task Expect(Func<Task<int>> actual, int expected)
     {
@@ -282,7 +282,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         IPage page = await context.NewPageAsync();
         await page.GotoAsync(url, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
         await page.Locator($"{Search}[data-sk-ready]").WaitForAsync();
-        await page.Locator("nav[aria-label=Library] [data-streamer-group]").First.WaitForAsync();
+        await page.Locator(LibraryHooks.Group).First.WaitForAsync();
         return new Session(playwright, browser, context, page);
     }
 

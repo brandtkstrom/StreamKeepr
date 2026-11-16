@@ -24,7 +24,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         };
         Assert.Empty(hlsRequests); // nothing on the library page
 
-        ILocator saved = page.Locator("nav[aria-label=Library] a[data-recording-id][data-state='saved']");
+        ILocator saved = page.Locator(LibraryHooks.SavedRow);
         string first = (await saved.Nth(0).GetAttributeAsync("data-recording-id"))!;
         await saved.Nth(0).ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{first}", StringComparison.Ordinal));
@@ -82,7 +82,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator saved = page.Locator("nav[aria-label=Library] a[data-recording-id][data-state='saved']").First;
+        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -108,7 +108,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl, hasTouch: true);
         IPage page = session.Page;
-        ILocator saved = page.Locator("nav[aria-label=Library] a[data-recording-id][data-state='saved']").First;
+        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -129,7 +129,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator saved = page.Locator("nav[aria-label=Library] a[data-recording-id][data-state='saved']");
+        ILocator saved = page.Locator(LibraryHooks.SavedRow);
         string id = (await saved.First.GetAttributeAsync("data-recording-id"))!;
 
         int failures = 0;
@@ -163,7 +163,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await session.Context.GrantPermissionsAsync(["clipboard-read", "clipboard-write"]);
 
         ILocator growing = page.Locator(
-            "nav[aria-label=Library] a[data-recording-id]",
+            LibraryHooks.Row,
             new() { HasTextString = "Community day" });
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
         await growing.ClickAsync();
@@ -307,7 +307,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator row = page.Locator("nav[aria-label=Library] a[data-recording-id][data-state='saved']").First;
+        ILocator row = page.Locator(LibraryHooks.SavedRow).First;
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
 
         await row.ClickAsync();
@@ -325,7 +325,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await page.Locator("[data-sk='play']").ClickAsync();
         double paused = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
 
-        ILocator bar = page.Locator($"nav[aria-label=Library] a[data-recording-id='{id}'] [data-progress] i");
+        ILocator bar = page.Locator($"{LibraryHooks.Drawer} a[data-recording-id='{id}'] [data-progress] i");
         await bar.WaitForAsync(new() { Timeout = 10_000 });
 
         await page.ReloadAsync();
@@ -341,7 +341,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator growing = page.Locator("nav[aria-label=Library] a[data-recording-id]", new() { HasTextString = "Community day" });
+        ILocator growing = page.Locator(LibraryHooks.Row, new() { HasTextString = "Community day" });
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
 
         await growing.ClickAsync();
@@ -394,7 +394,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator growing = page.Locator("nav[aria-label=Library] a[data-recording-id]", new() { HasTextString = "Community day" });
+        ILocator growing = page.Locator(LibraryHooks.Row, new() { HasTextString = "Community day" });
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
 
         await growing.ClickAsync();
@@ -457,7 +457,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator row = page.Locator("nav[aria-label=Library] a[data-recording-id][data-state='saved']").First;
+        ILocator row = page.Locator(LibraryHooks.SavedRow).First;
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
         await row.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -492,12 +492,12 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await page.EvaluateAsync("() => document.activeElement?.blur()");
 
         await page.Keyboard.PressAsync("t");
-        await page.Locator("[data-shell][data-theater=true]").WaitForAsync();
-        Assert.False(await page.Locator("nav[aria-label=Library]").IsVisibleAsync());
+        await page.Locator("[data-shell][data-theater-mode]").WaitForAsync();
+        Assert.False(await page.Locator(LibraryHooks.Drawer).IsVisibleAsync());
         Assert.Equal("true", await page.Locator("[data-sk='theater']").GetAttributeAsync("aria-pressed"));
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-theater");
         await page.Locator("[data-sk='theater']").ClickAsync();
-        await page.Locator("[data-shell][data-theater=false]").WaitForAsync();
+        await page.Locator("[data-shell]:not([data-theater-mode])").WaitForAsync();
 
         Assert.True(await page.Locator("[data-sk='fullscreen']").IsVisibleAsync());
         bool pipEnabled = await page.EvaluateAsync<bool>("() => document.pictureInPictureEnabled === true");

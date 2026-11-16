@@ -5,8 +5,11 @@ namespace StreamKeepr.Tests;
 /// <summary>
 /// Enforces the selector rule in docs/testing-contract.md: bUnit and Playwright tests find
 /// elements by role and accessible name, then by <c>data-*</c> hooks, and never select or
-/// assert a styling class (<c>sk-*</c> or <c>mud-*</c>). Styling classes change with the
-/// MudBlazor migration (ADR 0011); behaviour tests must survive that unchanged.
+/// assert a styling class. Styling classes change with the MudBlazor migration (ADR 0011);
+/// behaviour tests must survive that unchanged. The guard flags <c>sk-*</c> and <c>mud-*</c>
+/// class selectors and class attributes, and any class-list or <c>class</c> attribute read,
+/// which also covers unprefixed modifiers such as <c>rail</c>. Unprefixed class selectors
+/// (<c>.dot</c>) cannot be told from other dotted text, so review still owns those.
 /// </summary>
 /// <remarks>
 /// The Vitest suite under <c>tests/js</c> is out of scope: its fixtures reproduce the markup
@@ -52,11 +55,14 @@ public sealed partial class TestSelectorGuardTests
     [InlineData("page.Locator(\"nav#sk-drawer a.sk-row\")", "sk-row")]
     [InlineData("page.Locator(\".mud-nav-link\")", "mud-nav-link")]
     [InlineData("document.querySelector('.sk-player').getBoundingClientRect()", "sk-player")]
-    [InlineData("Assert.Contains(\"sk-btn\", button.ClassList);", "sk-btn")]
-    [InlineData("Assert.True(el.ClassList.Contains(\"sk-visually-hidden\"));", "sk-visually-hidden")]
-    [InlineData("await Assertions.Expect(row).ToHaveClassAsync(\"mud-selected\");", "mud-selected")]
+    [InlineData("Assert.Contains(\"sk-btn\", button.ClassList);", "ClassList")]
+    [InlineData("Assert.True(el.ClassList.Contains(\"sk-visually-hidden\"));", "ClassList")]
+    [InlineData("await Assertions.Expect(row).ToHaveClassAsync(\"mud-selected\");", "ToHaveClassAsync")]
     [InlineData("Assert.Contains(\"class=\\\"sk-drawer rail\\\"\", html);", "sk-drawer")]
     [InlineData("page.Locator(\"[class*='sk-chip']\")", "sk-chip")]
+    [InlineData("Assert.True(drawer.ClassList.Contains(\"rail\"));", "ClassList")]
+    [InlineData("await drawer.GetAttributeAsync(\"class\") is { } c && c.Contains(\"rail\")", "GetAttributeAsync(\"class\")")]
+    [InlineData("player.EvaluateAsync<bool>(\"p => p.classList.contains('idle')\")", "classList")]
     public void Detects_styling_class_references(string line, string expected) =>
         Assert.Contains(expected, StylingClassReferences(line));
 
@@ -68,10 +74,11 @@ public sealed partial class TestSelectorGuardTests
     [InlineData("Path.Combine(Path.GetTempPath(), $\"sk-export-{Guid.NewGuid():N}.mp4\")")]
     [InlineData("page.GetByRole(AriaRole.Navigation, new() { Name = \"Library\" })")]
     [InlineData("cut.Find(\"#sk-group-alpha\")")]
+    [InlineData("Assert.True(button.HasAttribute(\"data-active\"));")]
     public void Ignores_hooks_ids_and_cookie_names(string line) =>
         Assert.Empty(StylingClassReferences(line));
 
-    /// <summary>The styling classes a line selects or asserts.</summary>
+    /// <summary>The styling classes, class-list APIs and class attribute reads on a line.</summary>
     internal static IReadOnlyList<string> StylingClassReferences(string line)
     {
         var hits = new List<string>();
@@ -79,11 +86,8 @@ public sealed partial class TestSelectorGuardTests
             hits.Add(match.Groups["name"].Value);
         foreach (Match match in ClassAttribute().Matches(line))
             hits.Add(match.Groups["name"].Value);
-        if (ClassApi().IsMatch(line))
-        {
-            foreach (Match match in QuotedClassToken().Matches(line))
-                hits.Add(match.Groups["name"].Value);
-        }
+        foreach (Match match in ClassApi().Matches(line))
+            hits.Add(match.Value);
 
         return hits.Distinct().ToArray();
     }
@@ -102,11 +106,10 @@ public sealed partial class TestSelectorGuardTests
     [GeneratedRegex(@"\bclass\s*[~*^$|]?=\s*\\?[""'][^""'\\]*?(?<![\w-])(?<name>(?:sk|mud)-[A-Za-z0-9_-]+)")]
     private static partial Regex ClassAttribute();
 
-    /// <summary>A class-list API: AngleSharp ClassList/ClassName, DOM classList, Playwright ToHaveClass.</summary>
-    [GeneratedRegex(@"\b(?:ClassList|ClassName|classList|className|HasClass|ToHaveClass\w*)\b")]
+    /// <summary>
+    /// A class-list API (AngleSharp ClassList/ClassName, DOM classList/className, Playwright
+    /// ToHaveClass) or a read of the <c>class</c> attribute.
+    /// </summary>
+    [GeneratedRegex(@"\b(?:ClassList|ClassName|classList|className|HasClass|ToHaveClass\w*)\b|\bGetAttribute(?:Async)?\(""class""\)")]
     private static partial Regex ClassApi();
-
-    /// <summary>An <c>sk-</c> or <c>mud-</c> token at the start of a word inside a string literal.</summary>
-    [GeneratedRegex(@"[""'][^""']*?(?<![\w-])(?<name>(?:sk|mud)-[A-Za-z0-9_-]+)")]
-    private static partial Regex QuotedClassToken();
 }

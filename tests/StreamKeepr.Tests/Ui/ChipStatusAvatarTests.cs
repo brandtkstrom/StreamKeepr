@@ -72,7 +72,7 @@ public sealed class ChipStatusAvatarTests
             .Add(component => component.Status, StatusChipKind.Error)
             .Add(component => component.Label, "Twitch session expired"));
 
-        Assert.NotNull(rec.Find("[data-status='rec'] .dot"));
+        Assert.NotNull(rec.Find("[data-status='rec'] [data-status-dot]"));
         Assert.Equal("warning", error.Find("[data-status='error'] [data-icon]").TextContent);
         Assert.Contains("Twitch session expired", error.Markup);
     }

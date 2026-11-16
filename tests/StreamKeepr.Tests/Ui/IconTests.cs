@@ -56,7 +56,7 @@ public sealed class IconTests
             .Add(component => component.Name, "fiber_manual_record")
             .Add(component => component.Fill, true));
 
-        Assert.Equal("true", cut.Find("[data-icon]").GetAttribute("data-fill"));
+        Assert.True(cut.Find("[data-icon]").HasAttribute("data-fill"));
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public sealed class IconTests
             .Add(component => component.Toggle, true));
 
         var button = cut.Find("button");
-        Assert.Equal("true", button.GetAttribute("data-active"));
+        Assert.True(button.HasAttribute("data-active"));
         Assert.Equal("true", button.GetAttribute("aria-pressed"));
     }
 

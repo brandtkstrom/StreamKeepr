@@ -13,7 +13,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             await LibraryJourneyTests.OpenAsync(app.BaseUrl);
         IPage page = session.Page;
 
-        ILocator saved = page.Locator("nav[aria-label=Library] a[data-recording-id][data-state='saved']").First;
+        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -55,7 +55,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         };
 
         ILocator growing = page.Locator(
-            "nav[aria-label=Library] a[data-recording-id]", new() { HasTextString = "Community day" });
+            LibraryHooks.Row, new() { HasTextString = "Community day" });
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
         await growing.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -91,7 +91,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         IPage page = session.Page;
 
         ILocator growing = page.Locator(
-            "nav[aria-label=Library] a[data-recording-id]", new() { HasTextString = "Community day" });
+            LibraryHooks.Row, new() { HasTextString = "Community day" });
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
         await growing.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -158,7 +158,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             await LibraryJourneyTests.OpenAsync(app.BaseUrl);
         IPage page = session.Page;
 
-        ILocator saved = page.Locator("nav[aria-label=Library] a[data-recording-id][data-state='saved']").First;
+        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));

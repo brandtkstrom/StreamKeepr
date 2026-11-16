@@ -19,7 +19,7 @@ public sealed class DetailsStopJourneyTests : IAsyncLifetime
         await using Session session = await OpenAsync(_app.BaseUrl);
         IPage page = session.Page;
 
-        ILocator row = page.Locator("nav[aria-label=Library] a[data-recording-id]", new() { HasTextString = "Community day" });
+        ILocator row = page.Locator(LibraryHooks.Row, new() { HasTextString = "Community day" });
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
         await row.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -39,7 +39,7 @@ public sealed class DetailsStopJourneyTests : IAsyncLifetime
         await page.WaitForSelectorAsync("[data-stop-recording]", new() { State = WaitForSelectorState.Hidden });
 
         await page.GotoAsync(_app.BaseUrl);
-        await page.Locator("nav[aria-label=Library] [data-streamer-group]").First.WaitForAsync();
+        await page.Locator(LibraryHooks.Group).First.WaitForAsync();
         Assert.Contains(
             "Paused",
             await page.Locator("[data-tree-key='g:mock_rain'] [data-group-meta]").TextContentAsync());

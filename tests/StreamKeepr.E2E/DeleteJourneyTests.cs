@@ -20,9 +20,9 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         await using Session session = await OpenAsync(_app.BaseUrl);
         IPage page = session.Page;
 
-        string topId = (await page.Locator("nav[aria-label=Library] a[data-recording-id]").First
+        string topId = (await page.Locator(LibraryHooks.Row).First
             .GetAttributeAsync("data-recording-id"))!;
-        ILocator row = page.Locator("nav[aria-label=Library] a[data-recording-id]", new() { HasTextString = "Retro marathon" });
+        ILocator row = page.Locator(LibraryHooks.Row, new() { HasTextString = "Retro marathon" });
         string deletedId = (await row.GetAttributeAsync("data-recording-id"))!;
         Assert.NotEqual(topId, deletedId);
 
@@ -69,7 +69,7 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         await using Session session = await OpenAsync(_app.BaseUrl);
         IPage page = session.Page;
 
-        await page.Locator("nav[aria-label=Library] a[data-recording-id]", new() { HasTextString = "Community day" }).ClickAsync();
+        await page.Locator(LibraryHooks.Row, new() { HasTextString = "Community day" }).ClickAsync();
 
         ILocator delete = page.Locator("button[data-delete]");
         await delete.WaitForAsync();
