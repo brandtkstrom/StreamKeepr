@@ -103,6 +103,18 @@ Rules:
 - Dispose services, `WebApplicationFactory`, child processes, and temp directories in `IAsyncLifetime`/`IDisposable`.
 - Tests must pass in any order and in parallel unless explicitly isolated.
 
+### Selectors
+
+bUnit and Playwright tests find elements in this order (ADR 0011):
+
+1. **Role and accessible name**: `GetByRole(AriaRole.Button, new() { Name = "Retry" })`, `[role='treeitem'][aria-level='1']`, `nav[aria-label=Library]`, `dialog`, `main`, or an ARIA relationship such as the element named by `aria-controls` or `aria-labelledby`.
+2. **A `data-*` hook** where no role fits: `[data-recording-id]`, `[data-snackbar]`, `[data-status='rec']`, `[data-shell][data-theater=true]`. State a test needs to observe is exposed as an ARIA attribute or a `data-*` attribute, never as a modifier class.
+3. **Never a styling class.** Tests do not select or assert `sk-*` or `mud-*` classes, or the unprefixed modifiers that go with them (`.rail`, `.theater`, `.idle`, `.warning`), and do not assert class lists or keyframe names. Styling changes during the MudBlazor migration; behaviour tests must pass unchanged across it.
+
+When a test needs an element that has neither a role nor a hook, add the missing role, accessible name or `data-*` attribute to the markup; do not fall back to a class. `TestSelectorGuardTests` fails the unit suite when a file in `tests/StreamKeepr.Tests` or `tests/StreamKeepr.E2E` selects or asserts an `sk-*` or `mud-*` class.
+
+The Vitest suite under `tests/js` is outside the guard: its fixtures reproduce the markup that the production JavaScript modules query, including the classes those modules select, so the classes there are the module's input rather than the test's choice of selector. A module that moves to a `data-*` hook moves its fixture with it.
+
 ## 7. CI
 
 One workflow `.github/workflows/ci.yml` (replacing the current main-only build) with jobs:
