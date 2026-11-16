@@ -1,4 +1,4 @@
-/* StreamKeepr components. Every value comes from tokens.css.
+/* StreamKeepr components. Every colour, type and spacing value comes from tokens.css.
  *
  * Legacy aliases (ADR 0012): the variables these hand-built components read, re-pointed at the
  * MudBlazor design system in tokens.css. Each surface PR that moves to MudBlazor stops using its
