@@ -68,6 +68,18 @@ describe("build-tokens.mjs", () => {
     );
   });
 
+  it("rejects two tokens that would write the same custom property", () => {
+    const tokens = {
+      color: { tokens: [{ name: "text-primary", value: { dark: "#f5f5f5" } }] },
+      type: {
+        families: { sans: "Roboto" },
+        groups: [{ name: "g", styles: [{ name: "primary", fontSize: "1rem", lineHeight: "1.5", fontWeight: 400, letterSpacing: "0", fontStyle: "normal" }] }],
+      },
+    };
+
+    expect(() => buildTokensCss(tokens)).toThrow("--text-primary");
+  });
+
   it("keeps a usage note from closing its CSS comment early", () => {
     const css = buildTokensCss({
       color: { tokens: [{ name: "rec", value: { dark: "#ff5252" }, usage: "REC */ dot" }] },

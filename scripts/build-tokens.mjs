@@ -17,10 +17,19 @@ const REFERENCE = /^\{([a-z0-9-]+)\}$/;
  * - spacing, radius, shadow, size and opacity tokens are copied as they are;
  * - each type style becomes a `font` shorthand, `--text-<name>`, plus
  *   `--text-<name>-letter-spacing`, which the shorthand cannot carry.
+ * Throws when two tokens would write the same custom property (a colour `text-primary` and a
+ * type style `primary`, say), since the later one would silently win.
  * @param {object} tokens the parsed tokens.json
  * @returns {string}
  */
 export function buildTokensCss(tokens) {
+  const names = new Set();
+  const declaration = (name, value, usage) => {
+    if (names.has(name)) throw new Error(`tokens.json defines --${name} more than once`);
+    names.add(name);
+    const note = usage ? ` /* ${usage.replaceAll("*/", "* /")} */` : "";
+    return `  --${name}: ${value};${note}`;
+  };
   const lines = [
     "/* Generated from design-system/tokens.json by scripts/build-tokens.mjs. Do not edit. */",
     ":root {",
@@ -53,11 +62,6 @@ export function buildTokensCss(tokens) {
 
   lines.push("}", "");
   return lines.join("\n");
-}
-
-function declaration(name, value, usage) {
-  const note = usage ? ` /* ${usage.replaceAll("*/", "* /")} */` : "";
-  return `  --${name}: ${value};${note}`;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
