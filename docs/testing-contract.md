@@ -105,7 +105,7 @@ Rules:
 
 ### Selectors
 
-bUnit and Playwright tests find elements in this order (ADR 0011):
+bUnit and Playwright tests find elements in this order (ADR 0012):
 
 1. **Role and accessible name**: `GetByRole(AriaRole.Button, new() { Name = "Retry" })`, `[role='treeitem'][aria-level='1']`, `nav[aria-label=Library]`, `dialog`, `main`, or an ARIA relationship such as the element named by `aria-controls` or `aria-labelledby`.
 2. **A `data-*` hook** where no role fits: `[data-recording-id]`, `[data-snackbar]`, `[data-status='rec']`, `[data-shell][data-theater=true]`. State a test needs to observe is exposed as an ARIA attribute or a `data-*` attribute, never as a modifier class.

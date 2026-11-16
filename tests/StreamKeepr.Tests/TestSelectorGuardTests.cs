@@ -5,7 +5,7 @@ namespace StreamKeepr.Tests;
 /// <summary>
 /// Enforces the selector rule in docs/testing-contract.md: bUnit and Playwright tests find
 /// elements by role and accessible name, then by <c>data-*</c> hooks, and never select or
-/// assert a styling class. Styling classes change with the MudBlazor migration (ADR 0011);
+/// assert a styling class. Styling classes change with the MudBlazor migration (ADR 0012);
 /// behaviour tests must survive that unchanged. The guard flags <c>sk-*</c> and <c>mud-*</c>
 /// class selectors and class attributes, and any class-list or <c>class</c> attribute read,
 /// which also covers unprefixed modifiers such as <c>rail</c>. Unprefixed class selectors
