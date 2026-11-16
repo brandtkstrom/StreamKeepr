@@ -192,6 +192,31 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.Equal("true", await toggle.GetAttributeAsync("aria-checked"));
         Assert.False(await body.EvaluateAsync<bool>("b => b.inert"));
 
+        // The heading and the data tables are for screen readers only: rendered and exposed, but
+        // painting no visible area, so the data-sr-only hook cannot drift from the CSS. A table
+        // keeps its content width despite width: 1px, so a clip-path that insets half of each
+        // side (nothing left to paint) also counts as hidden.
+        string screenReaderOnlyJson = await panel.Locator("[data-sr-only]").EvaluateAllAsync<string>(
+            """
+            elements => JSON.stringify(elements.map(e => {
+              const box = e.getBoundingClientRect();
+              const style = getComputedStyle(e);
+              const clippedAway = /^inset\(50%/.test(style.clipPath);
+              const tiny = box.width <= 1 && box.height <= 1;
+              return { tag: e.tagName, width: box.width, height: box.height, clipPath: style.clipPath,
+                       hidden: tiny || clippedAway, display: style.display, visibility: style.visibility };
+            }))
+            """);
+        using JsonDocument screenReaderOnly = JsonDocument.Parse(screenReaderOnlyJson);
+        Assert.Equal(5, screenReaderOnly.RootElement.GetArrayLength());
+        Assert.All(screenReaderOnly.RootElement.EnumerateArray(), element =>
+        {
+            string tag = element.GetProperty("tag").GetString()!;
+            Assert.True(element.GetProperty("hidden").GetBoolean(), $"{tag} paints no visible area: {element}");
+            Assert.NotEqual("none", element.GetProperty("display").GetString());
+            Assert.NotEqual("hidden", element.GetProperty("visibility").GetString());
+        });
+
         // Play so the requestVideoFrameCallback frame-rate estimate has frames to count.
         await page.Locator("[data-sk='center']").ClickAsync();
 
