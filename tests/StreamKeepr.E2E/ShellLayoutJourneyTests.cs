@@ -188,6 +188,47 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         await page.Locator("main h1").WaitForAsync(new() { State = WaitForSelectorState.Attached });
     }
 
+    [Theory]
+    [InlineData(1280)]
+    [InlineData(375)]
+    public async Task The_first_paint_already_has_the_settled_shell_geometry(int width)
+    {
+        // The server renders before it knows the breakpoint; CSS must still paint the shell the
+        // circuit settles on, so nothing jumps when MudBreakpointProvider reports (#174).
+        ViewportSize viewport = width == Phone.Width ? Phone : Desktop;
+        string firstPaint = await ShellGeometryAsync(viewport, blockCircuit: true);
+        string settled = await ShellGeometryAsync(viewport, blockCircuit: false);
+        Assert.Equal(settled, firstPaint);
+    }
+
+    private async Task<string> ShellGeometryAsync(ViewportSize viewport, bool blockCircuit)
+    {
+        using IPlaywright playwright = await Playwright.CreateAsync();
+        await using IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
+        await using IBrowserContext context = await browser.NewContextAsync(new()
+        {
+            ViewportSize = viewport,
+            HasTouch = viewport == Phone,
+        });
+        if (blockCircuit)
+            await context.RouteAsync("**/_framework/blazor.web*.js", route => route.AbortAsync());
+        IPage page = await context.NewPageAsync();
+        // ?q= opens the phone's search row, so its position is measured too.
+        await page.GotoAsync($"{app.BaseUrl}/?q=a", new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+        if (!blockCircuit)
+            await page.Locator("[data-shell][data-breakpoint-known]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
+
+        return await page.EvaluateAsync<string>("""
+            () => {
+              const bar = document.querySelector('header').getBoundingClientRect();
+              const frame = getComputedStyle(document.querySelector('main').parentElement);
+              const search = document.querySelector('[data-search-open]');
+              return `bar ${bar.height}px, main frame ${frame.paddingTop} top ${frame.paddingBottom} bottom, ` +
+                `search row ${search ? search.getBoundingClientRect().top + 'px' : 'closed'}`;
+            }
+            """);
+    }
+
     // The drawer's on-screen width, clipped by its MudDrawer frame.
     private static Task<int> VisibleWidthAsync(ILocator drawer) =>
         drawer.EvaluateAsync<int>("""

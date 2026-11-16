@@ -40,7 +40,7 @@ MudBlazor's Layout 2 wireframe (design system: **AppShell**, **TopAppBar**, **Bo
 
 ```text
 MudBreakpointProvider
-  [data-shell] (data-layout, data-watching, data-theater-mode, data-drawer-frame, data-drawer-modal-open)
+  [data-shell] (data-layout, data-breakpoint-known, data-watching, data-theater-mode, data-drawer-frame, data-drawer-modal-open)
     MudLayout
       MudAppBar (header; Dense below Md)
       MudDrawer (ClipMode.Always; Mini on Md and up, Temporary below)
@@ -52,7 +52,7 @@ MudBreakpointProvider
       BottomNav (compact or breakpoint not yet known; not on watch pages)
 ```
 
-- **Breakpoints.** Compact is MudBlazor's `Xs` and `Sm` (below 960px); wide is `Md` and up. `MudBreakpointProvider` reports the breakpoint after the circuit starts and the shell mirrors it as `data-layout="compact|wide"`. The server renders the wide layout; `components.css` hides the wide-only controls and the mini drawer below 960px, so a phone's first paint already fits.
+- **Breakpoints.** Compact is MudBlazor's `Xs` and `Sm` (below 960px); wide is `Md` and up. `MudBreakpointProvider` reports the breakpoint after the circuit starts and the shell mirrors it as `data-layout="compact|wide"`, adding `data-breakpoint-known` once it has reported. The server renders the wide layout; `components.css` hides the wide-only controls and the mini drawer below 960px, so a phone's first paint already fits.
 - **Watch pages** are `/r/{id}` (`LibraryUrl.RecordingId`); the shell marks them `data-watching`.
 - **Top app bar**, in order: the menu toggle (wide only; disabled in theater), the wordmark linking to `/` (the logo mark `img/streamkeepr-mark.svg`, then "Stream**Keepr**"; a pulsing `rec` badge `[data-rec-dot]` on the mark while any streamer is recording), the compact search field (360px, 480px while focused), then the actions: a Search icon (compact only), the storage meter (wide only, until the library drawer slice moves it to the drawer footer), the GitHub and Twitch links, Settings (wide only), and the auth slot last. Compact watch pages replace the wordmark with an `ArrowBack` link to `/` named "Back to Home" and the recording title (`[data-watch-title]`). There is no capture schedule control.
 - **Links.** GitHub (`Icons.Custom.Brands.GitHub`) and Twitch open in a new tab (`target="_blank"`, `rel="noopener"`) with tooltips, named "StreamKeepr on GitHub (opens in a new tab)" and "Twitch (opens in a new tab)". Their URLs come from configuration (`Links:GitHub`, `Links:Twitch`, `LinksOptions`), validated at startup as absolute http(s) URLs. The Twitch icon is `LiveTv` until Twitch's official Glitch mark is added from its brand assets; the mark is never redrawn.

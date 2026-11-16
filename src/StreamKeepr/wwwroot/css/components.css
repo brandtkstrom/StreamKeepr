@@ -619,7 +619,6 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 .sk-bottomnav-item[aria-current="page"] .pill { background: color-mix(in srgb, var(--primary) 18%, transparent); color: var(--primary); }
 .sk-bottomnav-item:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .sk-bottomnav-item .rec-dot { position: absolute; top: 2px; right: 14px; width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--rec); box-shadow: 0 0 0 2px var(--appbar-background); }
-.sk-shell:has([data-bottom-nav]) .sk-main-frame { padding-bottom: calc(var(--bottom-bar-height) + env(safe-area-inset-bottom)); }
 
 /* ---------- compact shell (below Md, 960px) ----------
    The server renders the wide layout because the breakpoint is only known in the browser,
@@ -629,6 +628,11 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 }
 @media (max-width: 959.98px) {
   .sk-appbar .mud-toolbar { padding: 0 var(--space-2); }
+  /* Dense="_compact" only applies once the breakpoint is known, so the first paint matches the
+     settled dense bar (48px) here; the bottom bar's gutter exists only where the bar shows. */
+  .sk-appbar .mud-toolbar-appbar { height: var(--appbar-height-dense); }
+  .sk-shell .sk-main-frame.mud-main-content { padding-top: var(--appbar-height-dense); }
+  .sk-shell:has([data-bottom-nav]) .sk-main-frame { padding-bottom: calc(var(--bottom-bar-height) + env(safe-area-inset-bottom)); }
   .sk-appbar-menu, .sk-appbar-settings, .sk-storage { display: none; }
   .sk-appbar-search { display: inline-flex; }
   /* PhoneLayout: a watch page's bar holds the back arrow, the title and search. */

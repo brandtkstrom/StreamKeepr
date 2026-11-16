@@ -16,6 +16,7 @@
     <div class="sk-shell"
          data-shell
          data-layout="@(_compact ? "compact" : "wide")"
+         data-breakpoint-known="@(_breakpointKnown ? "" : null)"
          data-watching="@(Watching ? "" : null)"
          data-theater-mode="@(Preferences.Theater ? "" : null)"
          data-drawer-frame="@(DrawerFrameHidden ? "hidden" : null)"
@@ -179,6 +180,7 @@
     private DotNetObjectReference<AppShell>? _self;
     private bool _compact;
     private bool _wideKnown;
+    private bool _breakpointKnown;
     private bool _modalOpen;
     private bool _modalRendered;
     private bool _searchOpen;
@@ -291,6 +293,7 @@
     {
         bool compact = breakpoint is MudBlazor.Breakpoint.Xs or MudBlazor.Breakpoint.Sm;
         _wideKnown = !compact && breakpoint is not MudBlazor.Breakpoint.None;
+        _breakpointKnown = breakpoint is not MudBlazor.Breakpoint.None;
         if (compact == _compact)
             return;
 
