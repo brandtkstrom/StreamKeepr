@@ -57,6 +57,9 @@ public static class StreamKeeprSnackbars
                 return;
 
             options.Action = actionLabel;
+            // MudBlazor waits for the viewer when a snackbar has an action; the Feedback card
+            // hides every snackbar after about 4s, Undo included.
+            options.RequireInteraction = false;
             options.ActionColor = Color.Primary;
             options.ActionVariant = Variant.Text;
             options.OnClick = _ => action();

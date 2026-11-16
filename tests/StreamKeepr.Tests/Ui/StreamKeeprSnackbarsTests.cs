@@ -65,6 +65,36 @@ public sealed class StreamKeeprSnackbarsTests
         Assert.True(undone);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_snackbar_hides_on_its_own_with_or_without_an_action(bool withAction)
+    {
+        // The app's defaults with a short visible time, so the test waits well under a second.
+        await using var context = new BunitContext();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.Services.AddMudServices(options =>
+        {
+            StreamKeeprSnackbars.Configure(options.SnackbarConfiguration);
+            options.SnackbarConfiguration.VisibleStateDuration = 100;
+            options.SnackbarConfiguration.ShowTransitionDuration = 10;
+            options.SnackbarConfiguration.HideTransitionDuration = 10;
+        });
+        var snackbar = context.Services.GetRequiredService<ISnackbar>();
+        var provider = context.Render<MudSnackbarProvider>();
+
+        await provider.InvokeAsync(() =>
+        {
+            if (withAction)
+                snackbar.Show("Recording deleted", "Undo", () => Task.CompletedTask);
+            else
+                snackbar.Show("Recording deleted");
+        });
+
+        Assert.Single(snackbar.ShownSnackbars);
+        provider.WaitForAssertion(() => Assert.Empty(snackbar.ShownSnackbars), TimeSpan.FromSeconds(3));
+    }
+
     [Fact]
     public async Task Without_an_action_the_snackbar_has_no_buttons()
     {
