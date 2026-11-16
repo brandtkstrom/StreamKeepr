@@ -14,7 +14,6 @@
   --sk-error: var(--error);
   --sk-error-container: color-mix(in srgb, var(--error) calc(var(--tint-opacity) * 100%), transparent);
   --sk-font-icons: "Material Symbols Rounded";
-  --sk-font-mono: var(--font-sans);
   --sk-font-sans: var(--font-sans);
   --sk-highlight: var(--highlight);
   --sk-icon-button: var(--player-button);
@@ -295,7 +294,7 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .sk-thumb .dur {
   position: absolute; right: 4px; bottom: 4px; padding: 1px 4px; border-radius: var(--sk-radius-xs);
-  background: var(--sk-player-scrim); color: var(--sk-on-player); font: 500 11px/14px var(--sk-font-mono); font-variant-numeric: var(--sk-text-timecode-numeric);
+  background: var(--sk-player-scrim); color: var(--sk-on-player); font: 500 11px/14px var(--sk-font-sans); font-variant-numeric: var(--sk-text-timecode-numeric);
 }
 .sk-thumb .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--sk-player-scrim); }
 .sk-thumb .prog i { display: block; height: 100%; background: var(--sk-primary); }
@@ -429,7 +428,7 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-seek .edge { position: absolute; top: 3px; width: 4px; height: 14px; margin-left: -2px; border-radius: var(--sk-radius-full); background: var(--sk-rec); }
 .sk-seek .hover-time {
   position: absolute; bottom: 22px; transform: translateX(-50%); padding: 2px 6px; border-radius: var(--sk-radius-xs);
-  background: var(--sk-surface-bright); color: var(--sk-on-surface); font: 500 12px/16px var(--sk-font-mono); white-space: nowrap; pointer-events: none; opacity: 0; box-shadow: var(--sk-elevation-2);
+  background: var(--sk-surface-bright); color: var(--sk-on-surface); font: 500 12px/16px var(--sk-font-sans); white-space: nowrap; pointer-events: none; opacity: 0; box-shadow: var(--sk-elevation-2);
 }
 .sk-seek:hover .hover-time { opacity: 1; }
 .sk-seek[aria-disabled="true"] { cursor: default; }
@@ -494,7 +493,7 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-menu button:disabled:hover { background: transparent; }
 .sk-menu button .sk-icon { font-size: 20px; color: var(--sk-primary); width: 20px; }
 .sk-menu button .sp { flex: 1; }
-.sk-menu button small { color: var(--sk-on-surface-variant); font: 500 12px/16px var(--sk-font-mono); }
+.sk-menu button small { color: var(--sk-on-surface-variant); font: 500 12px/16px var(--sk-font-sans); }
 
 /* ---------- collapsible panel (details + stats) ---------- */
 .sk-panel { background: var(--sk-surface-container); border-radius: var(--sk-radius-md); overflow: hidden; }
@@ -503,7 +502,7 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
   border: 0; background: transparent; color: var(--sk-on-surface); text-align: left; border-radius: var(--sk-radius-md);
 }
 .sk-collapse-head :is(h2, h3), .sk-toggle-bar :is(h2, h3), .sk-toggle-bar .sk-toggle-title { margin: 0; flex: 1; font: var(--sk-text-title-medium); }
-.sk-collapse-head .hint, .sk-toggle-bar .hint { color: var(--sk-on-surface-variant); font: 500 12px/16px var(--sk-font-mono); white-space: nowrap; }
+.sk-collapse-head .hint, .sk-toggle-bar .hint { color: var(--sk-on-surface-variant); font: 500 12px/16px var(--sk-font-sans); white-space: nowrap; }
 .sk-collapse-head .chev { color: var(--sk-on-surface-variant); transition: transform 300ms cubic-bezier(0.2, 0, 0, 1); }
 .sk-collapse[data-expanded="false"] > .sk-collapse-head .chev { transform: rotate(-90deg); }
 .sk-collapse-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 300ms cubic-bezier(0.2, 0, 0, 1); }
@@ -537,7 +536,7 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-tile .pt { stroke: var(--sk-surface-container-high); stroke-width: 2; }
 .sk-tile .tip {
   position: absolute; top: 8px; right: 8px; padding: 2px 6px; border-radius: var(--sk-radius-xs); background: var(--sk-surface-bright); color: var(--sk-on-surface);
-  font: 500 12px/16px var(--sk-font-mono); box-shadow: var(--sk-elevation-2); pointer-events: none; opacity: 0; transition: opacity 120ms;
+  font: 500 12px/16px var(--sk-font-sans); box-shadow: var(--sk-elevation-2); pointer-events: none; opacity: 0; transition: opacity 120ms;
 }
 .sk-tile:hover .tip { opacity: 1; }
 /* After the seek, volume, and stats-tip rules so it wins on source order. */
