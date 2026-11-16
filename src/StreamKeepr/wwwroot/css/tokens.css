@@ -60,14 +60,14 @@
   --overlay-dark: rgba(33,33,33,0.5); /* Palette.OverlayDark, MudBlazor's default. The scrim behind dialogs and the temporary drawer. */
   --tooltip-background: var(--gray-darken-2); /* StreamKeepr addition, applied to `.mud-tooltip-default` in app CSS. */
   --tooltip-text: #ffffff; /* Tooltip label (6.2:1 on `tooltip-background`). */
-  --channel-1: var(--deep-purple-accent-1); /* Streamer identity colour 1 of 8. Assign by a stable hash of the login. Fills the avatar (initial in `gray-darken-4`, 6.0:1) and colours the streamer's name in chat. */
-  --channel-2: var(--cyan-accent-2); /* Streamer identity colour 2 of 8 (dark initial 12.9:1). */
-  --channel-3: var(--pink-accent-1); /* Streamer identity colour 3 of 8 (dark initial 6.8:1). */
-  --channel-4: var(--amber-accent-2); /* Streamer identity colour 4 of 8 (dark initial 11.5:1). */
-  --channel-5: var(--light-green-accent-2); /* Streamer identity colour 5 of 8 (dark initial 13.3:1). */
-  --channel-6: var(--orange-accent-1); /* Streamer identity colour 6 of 8 (dark initial 11.3:1). */
-  --channel-7: var(--indigo-accent-1); /* Streamer identity colour 7 of 8 (dark initial 6.5:1). */
-  --channel-8: var(--teal-accent-2); /* Streamer identity colour 8 of 8 (dark initial 12.9:1). */
+  --channel-1: var(--deep-purple-accent-1); /* Channel colour 1 of 8. Assigned by a stable hash of the Twitch login. Fills the channel's avatar (initial in `gray-darken-4`, 6.0:1) and colours the channel's name in chat. */
+  --channel-2: var(--cyan-accent-2); /* Channel colour 2 of 8 (dark initial 12.9:1). */
+  --channel-3: var(--pink-accent-1); /* Channel colour 3 of 8 (dark initial 6.8:1). */
+  --channel-4: var(--amber-accent-2); /* Channel colour 4 of 8 (dark initial 11.5:1). */
+  --channel-5: var(--light-green-accent-2); /* Channel colour 5 of 8 (dark initial 13.3:1). */
+  --channel-6: var(--orange-accent-1); /* Channel colour 6 of 8 (dark initial 11.3:1). */
+  --channel-7: var(--indigo-accent-1); /* Channel colour 7 of 8 (dark initial 6.5:1). */
+  --channel-8: var(--teal-accent-2); /* Channel colour 8 of 8 (dark initial 12.9:1). */
   --channel-contrast-text: var(--gray-darken-4); /* The initial on a channel-coloured avatar. */
   --rec: var(--red-accent-2); /* Reserved: a capture is being written right now. The REC dot, the REC chip fill, the live-edge tick and the live ring on an avatar. Never decoration, never text on a dark ground. */
   --rec-contrast-text: var(--gray-darken-4); /* The REC label on a `rec` fill (5.0:1). */
