@@ -67,6 +67,33 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
     }
 
     [Fact]
+    public async Task The_home_page_uses_self_hosted_Roboto_and_requests_nothing_off_origin()
+    {
+        using IPlaywright playwright = await Playwright.CreateAsync();
+        await using IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
+        await using IBrowserContext context = await browser.NewContextAsync();
+        IPage page = await context.NewPageAsync();
+
+        // Requests arrive on Playwright's event thread while the test reads the queue.
+        var requests = new ConcurrentQueue<string>();
+        page.Request += (_, request) => requests.Enqueue(request.Url);
+
+        await page.GotoAsync(app.BaseUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
+        await page.Locator(LibraryHooks.Row).First.WaitForAsync();
+        await page.EvaluateAsync("() => document.fonts.ready");
+
+        var origin = new Uri(app.BaseUrl).GetLeftPart(UriPartial.Authority);
+        string[] offOrigin = requests
+            .Where(url => url.StartsWith("http", StringComparison.Ordinal) && !url.StartsWith(origin, StringComparison.Ordinal))
+            .ToArray();
+        Assert.Empty(offOrigin);
+        Assert.Contains(requests, url => url.Contains("/fonts/roboto", StringComparison.Ordinal));
+        Assert.True(
+            await page.EvaluateAsync<bool>("() => document.fonts.check('400 16px Roboto') && [...document.fonts].some(f => f.family.replaceAll('\"', '') === 'Roboto' && f.status === 'loaded')"),
+            "Roboto did not load from the app");
+    }
+
+    [Fact]
     public async Task Reduced_motion_stops_the_rec_pulse_fades_and_collapse_animations()
     {
         await using Session session = await OpenAsync(app.BaseUrl);
