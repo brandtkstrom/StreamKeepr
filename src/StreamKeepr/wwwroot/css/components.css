@@ -766,17 +766,14 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 }
 #blazor-error-ui .dismiss { cursor: pointer; float: right; }
 
-/* ---------- tooltip ---------- */
-.sk-tooltip-wrap { position: relative; display: inline-flex; align-items: center; }
-.sk-tooltip-bubble {
-  position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%);
-  width: max-content; max-width: 240px; padding: 4px var(--sk-space-2); border-radius: var(--sk-radius-xs);
-  background: var(--sk-surface-bright); color: var(--sk-on-surface); font: var(--sk-text-label-medium);
-  box-shadow: var(--sk-elevation-2); pointer-events: none; z-index: 40;
-  opacity: 0; visibility: hidden; transition: opacity 120ms;
+/* ---------- tooltip (MudTooltip; design system Feedback card) ---------- */
+.sk-tooltip-root { display: inline-flex; }
+.sk-tooltip-wrap { display: inline-flex; align-items: center; }
+.mud-tooltip.mud-tooltip-default {
+  background-color: var(--tooltip-background); color: var(--tooltip-text);
+  font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
+  border-radius: var(--radius-sm);
 }
-.sk-tooltip-wrap:hover > .sk-tooltip-bubble,
-.sk-tooltip-wrap:focus-within > .sk-tooltip-bubble { opacity: 1; visibility: visible; }
 
 /* ---------- requires Twitch ---------- */
 .sk-requires-twitch { display: contents; }
@@ -817,7 +814,7 @@ body:has([data-bottom-nav]) .mud-snackbar-location-bottom-left {
 .sk-dev-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sk-space-3); }
 
 @media (prefers-reduced-motion: reduce) {
-  .sk-tooltip-bubble, .sk-switch, .sk-switch::after { transition: none; }
+  .sk-switch, .sk-switch::after { transition: none; }
 }
 
 /* Visually hidden but available to assistive technology; used for page headings. */

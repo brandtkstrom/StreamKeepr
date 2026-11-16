@@ -9,9 +9,9 @@ namespace StreamKeepr.Tests.Ui;
 public sealed class HomeDeleteTests
 {
     [Fact]
-    public void A_deleted_recording_notifies_and_opens_the_next_newest()
+    public async Task A_deleted_recording_notifies_and_opens_the_next_newest()
     {
-        using BunitContext context = HomePlayerTests.CreateContext(out _, out TestLibraryView view);
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out TestLibraryView view);
         SetLibrary(view);
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
         navigation.NavigateTo("/r/r1");
@@ -28,9 +28,9 @@ public sealed class HomeDeleteTests
     }
 
     [Fact]
-    public void Deleting_the_last_recording_opens_the_library()
+    public async Task Deleting_the_last_recording_opens_the_library()
     {
-        using BunitContext context = HomePlayerTests.CreateContext(out _, out TestLibraryView view);
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out TestLibraryView view);
         SetLibrary(view);
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
         navigation.NavigateTo("/r/r1");
@@ -44,9 +44,9 @@ public sealed class HomeDeleteTests
     }
 
     [Fact]
-    public void An_unknown_initial_id_does_not_navigate_or_notify()
+    public async Task An_unknown_initial_id_does_not_navigate_or_notify()
     {
-        using BunitContext context = HomePlayerTests.CreateContext(out _, out TestLibraryView view);
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out TestLibraryView view);
         SetLibrary(view);
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
         navigation.NavigateTo("/r/missing");

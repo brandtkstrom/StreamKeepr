@@ -6,9 +6,9 @@ namespace StreamKeepr.Tests.Ui;
 public sealed class RequiresTwitchTests
 {
     [Fact]
-    public void Signed_out_keeps_the_child_visible_but_inert_with_a_tooltip()
+    public async Task Signed_out_keeps_the_child_visible_but_inert_with_a_tooltip()
     {
-        using var context = CreateContext(signedIn: false);
+        await using var context = CreateContext(signedIn: false);
         var cut = RenderRequiresTwitch(context);
 
         Assert.NotNull(cut.Find("#export"));
@@ -25,9 +25,9 @@ public sealed class RequiresTwitchTests
     }
 
     [Fact]
-    public void Signed_in_renders_the_child_without_the_inert_wrapper()
+    public async Task Signed_in_renders_the_child_without_the_inert_wrapper()
     {
-        using var context = CreateContext(signedIn: true);
+        await using var context = CreateContext(signedIn: true);
         var cut = RenderRequiresTwitch(context);
 
         Assert.NotNull(cut.Find("#export"));
@@ -37,9 +37,9 @@ public sealed class RequiresTwitchTests
     }
 
     [Fact]
-    public void The_tooltip_message_can_be_overridden()
+    public async Task The_tooltip_message_can_be_overridden()
     {
-        using var context = CreateContext(signedIn: false);
+        await using var context = CreateContext(signedIn: false);
         var cut = context.Render<RequiresTwitch>(parameters => parameters
             .Add(component => component.Message, "Sign in to export")
             .AddChildContent("<button>Export</button>"));
@@ -50,6 +50,8 @@ public sealed class RequiresTwitchTests
     private static BunitContext CreateContext(bool signedIn)
     {
         var context = new BunitContext();
+        context.Services.AddStreamKeeprMudServices();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
         var authorization = context.AddAuthorization();
 
         if (signedIn)

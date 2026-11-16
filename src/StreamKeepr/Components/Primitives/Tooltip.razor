@@ -1,9 +1,13 @@
-@* Non-interactive hover/focus tooltip. Additional attributes apply to the wrapper,
-   which is also the element described by the tooltip. *@
-<span class="sk-tooltip-wrap" aria-describedby="@_tooltipId" @attributes="AdditionalAttributes">
-    @ChildContent
-    <span id="@_tooltipId" class="sk-tooltip-bubble" role="tooltip">@Text</span>
-</span>
+@* A MudTooltip (design system Feedback card) around a wrapper that is also the element the
+   text describes. MudTooltip renders its bubble only while shown, so the wrapper is described
+   by a visually hidden copy that is always present for assistive technology. Additional
+   attributes (tabindex, data hooks) apply to the wrapper. No interactive content inside. *@
+<MudBlazor.MudTooltip Text="@Text" Placement="MudBlazor.Placement.Top" RootClass="sk-tooltip-root">
+    <span class="sk-tooltip-wrap" aria-describedby="@_tooltipId" @attributes="AdditionalAttributes">
+        @ChildContent
+        <span id="@_tooltipId" class="sk-visually-hidden" role="tooltip">@Text</span>
+    </span>
+</MudBlazor.MudTooltip>
 
 @code {
     [Parameter, EditorRequired] public string Text { get; set; } = "";

@@ -17,9 +17,9 @@ public sealed class ChatPaneTests
     private const string Module = "./Components/Features/Chat/ChatPane.razor.js";
 
     [Fact]
-    public void Renders_a_collapsed_accessible_pane()
+    public async Task Renders_a_collapsed_accessible_pane()
     {
-        using BunitContext context = HomePlayerTests.CreateContext(
+        await using BunitContext context = HomePlayerTests.CreateContext(
             out BunitJSModuleInterop module, out TestLibraryView _);
         context.JSInterop.SetupModule(Module).Mode = JSRuntimeMode.Loose;
 
@@ -37,7 +37,7 @@ public sealed class ChatPaneTests
     [Fact]
     public async Task Persists_a_toggle_through_the_scoped_preferences()
     {
-        using BunitContext context = HomePlayerTests.CreateContext(
+        await using BunitContext context = HomePlayerTests.CreateContext(
             out BunitJSModuleInterop module, out TestLibraryView _);
         context.JSInterop.SetupModule(Module).Mode = JSRuntimeMode.Loose;
         IRenderedComponent<ChatPane> cut = context.Render<ChatPane>(parameters => parameters
@@ -54,10 +54,10 @@ public sealed class ChatPaneTests
     [InlineData(true, true, false, true)] // Live, capture on: waiting for chat.
     [InlineData(false, false, true, true)] // Finished with captured chat: replay.
     [InlineData(false, true, false, false)] // Finished without chat: nothing to show.
-    public void Home_shows_the_pane_for_captured_chat_or_for_live_capture_only_when_enabled(
+    public async Task Home_shows_the_pane_for_captured_chat_or_for_live_capture_only_when_enabled(
         bool live, bool enabled, bool hasChat, bool expected)
     {
-        using BunitContext context = HomePlayerTests.CreateContext(
+        await using BunitContext context = HomePlayerTests.CreateContext(
             out BunitJSModuleInterop _, out TestLibraryView view);
         context.JSInterop.SetupModule(Module).Mode = JSRuntimeMode.Loose;
         context.Services.AddSingleton(Options.Create(new ChatOptions { Enabled = enabled }));
@@ -75,7 +75,7 @@ public sealed class ChatPaneTests
     [Fact]
     public async Task A_live_library_refresh_does_not_reload_the_same_recording()
     {
-        using BunitContext context = HomePlayerTests.CreateContext(
+        await using BunitContext context = HomePlayerTests.CreateContext(
             out BunitJSModuleInterop module, out TestLibraryView _);
         module = context.JSInterop.SetupModule(Module);
         module.Mode = JSRuntimeMode.Loose;
@@ -103,9 +103,9 @@ public sealed class ChatPaneTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Initializes_the_module_with_the_any_provider_flag(bool enabled)
+    public async Task Initializes_the_module_with_the_any_provider_flag(bool enabled)
     {
-        using BunitContext context = HomePlayerTests.CreateContext(
+        await using BunitContext context = HomePlayerTests.CreateContext(
             out BunitJSModuleInterop module, out TestLibraryView _);
         module = context.JSInterop.SetupModule(Module);
         module.Mode = JSRuntimeMode.Loose;

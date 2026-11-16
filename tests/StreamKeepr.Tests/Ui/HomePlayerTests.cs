@@ -17,9 +17,9 @@ public sealed class HomePlayerTests
     private static readonly DateTimeOffset Now = new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void A_known_recording_renders_the_player_in_the_player_slot()
+    public async Task A_known_recording_renders_the_player_in_the_player_slot()
     {
-        using BunitContext context = CreateContext(out _);
+        await using BunitContext context = CreateContext(out _);
 
         IRenderedComponent<Home> cut = context.Render<Home>(p => p.Add(c => c.RecordingId, "r1"));
 
@@ -29,9 +29,9 @@ public sealed class HomePlayerTests
     }
 
     [Fact]
-    public void The_library_page_has_no_player()
+    public async Task The_library_page_has_no_player()
     {
-        using BunitContext context = CreateContext(out _);
+        await using BunitContext context = CreateContext(out _);
 
         IRenderedComponent<Home> cut = context.Render<Home>();
 
@@ -40,11 +40,11 @@ public sealed class HomePlayerTests
     }
 
     [Fact]
-    public void The_library_page_clears_theater_when_no_recording_is_selected()
+    public async Task The_library_page_clears_theater_when_no_recording_is_selected()
     {
         const string theaterCookie =
             """{"v":1,"drawer":"expanded","theater":true,"stats":false,"details":true,"collapsed":[]}""";
-        using BunitContext context = CreateContext(out _, theaterCookie);
+        await using BunitContext context = CreateContext(out _, theaterCookie);
         UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
 
         IRenderedComponent<Home> cut = context.Render<Home>(p => p.Add(c => c.RecordingId, "r1"));
@@ -56,11 +56,11 @@ public sealed class HomePlayerTests
     }
 
     [Fact]
-    public void The_stats_panel_renders_once_and_shares_the_open_state_with_the_player_button()
+    public async Task The_stats_panel_renders_once_and_shares_the_open_state_with_the_player_button()
     {
         const string openCookie =
             """{"v":1,"drawer":"expanded","theater":false,"stats":true,"details":true,"collapsed":[]}""";
-        using BunitContext context = CreateContext(out _, openCookie);
+        await using BunitContext context = CreateContext(out _, openCookie);
 
         IRenderedComponent<Home> cut = context.Render<Home>(p => p.Add(c => c.RecordingId, "r1"));
 
@@ -72,9 +72,9 @@ public sealed class HomePlayerTests
     }
 
     [Fact]
-    public void Changing_recording_keeps_the_same_player_instance()
+    public async Task Changing_recording_keeps_the_same_player_instance()
     {
-        using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+        await using BunitContext context = CreateContext(out BunitJSModuleInterop module);
         IRenderedComponent<Home> cut = context.Render<Home>(p => p.Add(c => c.RecordingId, "r1"));
         VideoPlayer before = cut.FindComponent<VideoPlayer>().Instance;
 
@@ -86,9 +86,9 @@ public sealed class HomePlayerTests
     }
 
     [Fact]
-    public void The_details_card_renders_once_and_survives_a_recording_change()
+    public async Task The_details_card_renders_once_and_survives_a_recording_change()
     {
-        using BunitContext context = CreateContext(out _);
+        await using BunitContext context = CreateContext(out _);
         IRenderedComponent<Home> cut = context.Render<Home>(p => p.Add(c => c.RecordingId, "r1"));
         RecordingDetails before = cut.FindComponents<RecordingDetails>().Single().Instance;
 
