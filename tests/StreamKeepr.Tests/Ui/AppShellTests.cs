@@ -201,9 +201,11 @@ public sealed class AppShellTests
     public async Task A_watch_page_shows_the_rail_by_default_and_the_menu_keeps_its_own_choice()
     {
         await using var context = CreateContext();
+        // Home starts on the rail, so a toggle that wrote both choices would show.
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
+        preferences.SetDrawer(DrawerMode.Rail, watching: false);
         context.Services.GetRequiredService<NavigationManager>().NavigateTo("/r/abc");
         var cut = RenderShell(context);
-        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
 
         Assert.Equal("rail", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
         Assert.NotNull(cut.Find("[data-shell][data-watching]"));
@@ -213,7 +215,7 @@ public sealed class AppShellTests
         cut.WaitForAssertion(() =>
             Assert.Equal("expanded", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer")));
         Assert.Equal(DrawerMode.Expanded, preferences.WatchDrawer);
-        Assert.Equal(DrawerMode.Expanded, preferences.Drawer);
+        Assert.Equal(DrawerMode.Rail, preferences.Drawer);
     }
 
     [Fact]

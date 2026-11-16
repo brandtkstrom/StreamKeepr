@@ -24,11 +24,13 @@ public sealed class AppShellDocumentTests
         Assert.Matches(new Regex(@"css/fonts\.[a-z0-9]+\.css"), html);
         Assert.Matches(new Regex(@"css/components\.[a-z0-9]+\.css"), html);
         Assert.DoesNotContain("fonts.googleapis.com", html);
-        // No asset loads from another origin. The app bar's GitHub and Twitch links are
-        // outbound anchors (#174), so the check is on what the page loads, not on every URL.
-        Assert.DoesNotMatch(new Regex(@"<link\b[^>]*\bhref=""(?:https?:)?//", RegexOptions.IgnoreCase), html);
-        Assert.DoesNotMatch(new Regex(@"\bsrc=""(?:https?:)?//", RegexOptions.IgnoreCase), html);
-        Assert.DoesNotMatch(new Regex(@"\bsrcset=""[^""]*(?:https?:)?//", RegexOptions.IgnoreCase), html);
+        // Nothing loads from another origin. The app bar's GitHub and Twitch links are outbound
+        // anchors (#174), so only <a> tags may carry an absolute URL; any other attribute, srcset
+        // or inline url() pointing off-origin (absolute or protocol-relative) fails.
+        string withoutAnchors = Regex.Replace(html, @"<a\b[^>]*>", "<a>", RegexOptions.IgnoreCase);
+        Assert.DoesNotContain("https://", withoutAnchors, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotMatch(new Regex(@"=\s*""(?:[^""]*[\s,])?//", RegexOptions.IgnoreCase), withoutAnchors);
+        Assert.DoesNotMatch(new Regex(@"url\(\s*['""]?(?:https?:)?//", RegexOptions.IgnoreCase), withoutAnchors);
     }
 
     [Fact]
