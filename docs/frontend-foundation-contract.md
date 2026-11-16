@@ -54,14 +54,14 @@ MudBreakpointProvider
 
 - **Breakpoints.** Compact is MudBlazor's `Xs` and `Sm` (below 960px); wide is `Md` and up. `MudBreakpointProvider` reports the breakpoint after the circuit starts and the shell mirrors it as `data-layout="compact|wide"`, adding `data-breakpoint-known` once it has reported. The server renders the wide layout; `components.css` hides the wide-only controls and the mini drawer below 960px, so a phone's first paint already fits.
 - **Watch pages** are `/r/{id}` (`LibraryUrl.RecordingId`); the shell marks them `data-watching`.
-- **Top app bar**, in order: the menu toggle (wide only; disabled in theater), the wordmark linking to `/` (the logo mark `img/streamkeepr-mark.svg`, then "Stream**Keepr**"; a pulsing `rec` badge `[data-rec-dot]` on the mark while any streamer is recording), the compact search field (360px, 480px while focused), then the actions: a Search icon (compact only), the storage meter (wide only, until the library drawer slice moves it to the drawer footer), the GitHub and Twitch links, Settings (wide only), and the auth slot last. Compact watch pages replace the wordmark with an `ArrowBack` link to `/` named "Back to Home" and the recording title (`[data-watch-title]`), and hide the GitHub and Twitch links to give the title room (PhoneLayout). There is no capture schedule control.
+- **Top app bar**, in order: the menu toggle (wide only; disabled in theater), the wordmark linking to `/` (the logo mark `img/streamkeepr-mark.svg`, then "Stream**Keepr**"; a pulsing `rec` badge `[data-rec-dot]` on the mark while any streamer is recording), the compact search field (360px, 480px while focused), then the actions: a Search icon (compact only), the GitHub and Twitch links, Settings (wide only), and the auth slot last. Compact watch pages replace the wordmark with an `ArrowBack` link to `/` named "Back to Home" and the recording title (`[data-watch-title]`), and hide the GitHub and Twitch links to give the title room (PhoneLayout). There is no capture schedule control.
 - **Links.** GitHub (`Icons.Custom.Brands.GitHub`) and Twitch open in a new tab (`target="_blank"`, `rel="noopener"`) with tooltips, named "StreamKeepr on GitHub (opens in a new tab)" and "Twitch (opens in a new tab)". Their URLs come from configuration (`Links:GitHub`, `Links:Twitch`, `LinksOptions`), validated at startup as absolute http(s) URLs. The Twitch icon is `LiveTv` until Twitch's official Glitch mark is added from its brand assets; the mark is never redrawn.
 - **Settings** is a real link to `/settings` (the settings sheet is feature F2). Every link in the bars, the wordmark, the back arrow, and Connect with Twitch are real `<a>` elements that work before the circuit connects. The logout `<form>` is a real antiforgery POST in the page, but its trigger, Disconnect in the account menu, needs the circuit.
 - **Compact search.** The field is hidden until the Search icon (`aria-expanded`, `aria-controls="sk-search"`) opens it as a full-width row under the bar (`[data-search-open]`). It starts open when the URL has `q`.
 - The wordmark returns to the default library home: it clears `q`/`state`/`sort`, closes the selected recording, preserves the drawer mode, and exits theater on the empty home because theater hides the drawer.
-- REC badge is lit while any streamer is recording; storage meter turns `warning` below 10% free.
+- REC badge is lit while any streamer is recording. Disk usage is in the library drawer's footer (`docs/library-contract.md` §5), not the app bar.
 - The main column (`main`) is the scroll container, with 24px (`--space-6`) top padding below the app bar on every route, breakpoint, and theater mode.
-- **Drawer, wide.** A `Mini` drawer: the 320px library when open, the 72px rail when closed, with the saved `hidden` mode taking it out of the layout. `nav#sk-drawer` carries `data-drawer` (`expanded`, `rail`, `hidden`) and the `rail` class for the library's CSS. The menu toggles expanded ↔ rail. The choice is remembered per kind of page (§5): Home and other pages open the full library by default, and watch pages show the rail by default. Theater hides the drawer (`data-drawer-frame="hidden"`) and sets the main column to `background-gray`.
+- **Drawer, wide.** A `Mini` drawer: the 320px library when open, the 72px rail when closed, with the saved `hidden` mode taking it out of the layout. `nav#sk-drawer` carries `data-drawer` (`expanded`, `rail`, `hidden`) and the `rail` class for the library's CSS. The menu toggles expanded ↔ rail, at once rather than with MudDrawer's width slide (see `docs/library-contract.md` §5). `AppShell` cascades `LibraryRail` to the drawer's contents. The choice is remembered per kind of page (§5): Home and other pages open the full library by default, and watch pages show the rail by default. Theater hides the drawer (`data-drawer-frame="hidden"`) and sets the main column to `background-gray`.
 - **Drawer, compact.** A `Temporary` drawer over `overlay-dark` at `elevation-4`, always the full library, opened from the bottom bar's Library button; `[data-shell][data-drawer-modal-open]` marks it open. `AppShell.razor.js` moves focus into it, traps Tab, and closes it on Escape, returning focus to the opener; the overlay closes it too; navigating (picking a recording) closes it.
 - **Bottom bar (compact, not on watch pages).** A fixed `MudAppBar Bottom` (`bottom-bar-height`, with the safe-area inset) holding `nav[aria-label=Main]`: Home (link to `/`), Library (a button with `aria-controls="sk-drawer"` and `aria-expanded`, and a `rec` dot while anything records) and Settings (link to `/settings`). The current destination has `aria-current="page"`; Library is current while the drawer is open. The main column is padded so nothing hides under it.
 - **Phone landscape** (PhoneLayout: below 500px height the top bar hides and the player fills the screen) is part of the watch layout, #175; this shell does not implement it yet.
@@ -112,7 +112,7 @@ public sealed class UiPreferences
 - `Streamers` includes streamers with at least one recording; `RecordingCount`, `LastRecordedAt?`, `IsWatched`, and current recording/paused state.
 - `Recordings` applies state/search/sort with the deterministic rules; `Find` resolves `/r/{id}`. `Storage` reads `StorageMonitor.Current`.
 - The state derivation is Recording/Reconnecting/Partial/Saved exactly as the backend-ui contract defines.
-- The shell uses `Streamers` for the REC dot and `Storage` for the meter; components never read files or backend stores directly.
+- The shell uses `Streamers` for the REC dot and the library drawer uses `Storage` for its footer meter; components never read files or backend stores directly.
 
 ## 8. Design-system primitives
 
@@ -123,12 +123,10 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 | `Button` | `Variant` Filled/Tonal/Outlined/Text/Danger; `Type`, `Disabled`, `OnClick`, `ChildContent`; `AdditionalAttributes`; one Filled action per view; Danger requires confirmation |
 | `IconButton` | `Icon`, `Label` (aria-label), `Active`, `Disabled`, `OnClick`; 40px target, 24px glyph |
 | `Icon` | Material Symbols name, size 18/20/24, optional fill; decorative by default, labelled when meaningful |
-| `Chip` | Filter chip; `Selected`, `OnClick`, `ChildContent`; `aria-pressed`, check icon |
-| `StatusChip` | Rec / Processing / Partial / Saved / Error; uppercase label; REC pulse stops under reduced motion |
-| `Avatar` | Image URL or initials; `Name` for alt; recording ring |
+| `StatusChip` | A passive `MudChip` (#176): Rec / Reconnecting / Processing / Partial / Saved / Error; overline label in `text-primary`, icon in the kind's colour, REC filled; REC pulse stops under reduced motion |
+| `Avatar` | Image URL or initials; `Name` for alt; recording ring. The library and the account menu use `ChannelAvatar` (channel colour, #176) instead; Settings and Details move to it with their surfaces |
 | `Collapsible` | `Open`, `Header`, `ChildContent`, `OnToggle`; `aria-expanded`; 300ms; reduced motion |
 | `Switch` | `Checked`, `Label`, `OnChange`; `role="switch"` |
-| `Menu` / `MenuItem` | Anchored menu; keyboard navigation, Esc/outside close, focus return; `role="menu"`/`menuitem` |
 | `Tooltip` | Hover/focus text; `aria-describedby`; no interactive content |
 | `Dialog` | `<dialog>` + `showModal()` via JS; focus trap/Esc; return focus; title, content, actions |
 | `Snackbar` | Scoped `SnackbarService` queue, one action, auto-dismiss; `SnackbarHost` in the shell |
@@ -180,7 +178,7 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 
 bUnit:
 
-- Shell layout, drawer modes per page kind, theater, compact layout (through a test `IBrowserViewportService`), bottom bar, top bar slots and links, REC dot, storage warning.
+- Shell layout, drawer modes per page kind, theater, compact layout (through a test `IBrowserViewportService`), bottom bar, top bar slots and links, REC dot.
 - `UiPreferences` parse/defaults/cap/write/Changed/dispose; malformed cookie.
 - `ViewerClock` cookie/invalid zone/UTC fallback/DST; `Format` values.
 - `LibraryView` state/sort/search/query/throttle/dispose; unknown id.

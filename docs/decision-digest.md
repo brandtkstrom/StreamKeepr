@@ -174,7 +174,7 @@ This is the single handoff for the full application specification. It records th
 ### 5.2 Library
 
 - Recording-first streamer groups; `newest`/`oldest`/`az` with deterministic ties; recordings newest-first except oldest.
-- URL `q`/`state`/`sort`; `state=recording` matches Recording/Reconnecting, `saved` matches Saved/Partial; search 250 ms debounce over title/category/streamer with `mark.sk-hl`.
+- URL `q`/`state`/`sort`; `state=recording` matches Recording/Reconnecting, `saved` matches Saved/Partial; search 250 ms debounce over title/category/streamer with `mark.sk-mark` (`MudHighlighter`, #176).
 - Viewer-zone day headers; empty groups/headers hide; no-results/empty messages.
 - Drawer: streamer group (avatar/initials, live ring, count/state, chevron, persisted collapse), rows (thumbnail/duration/resume/live bar, two-line title, meta, status chip except Saved, selected `aria-current`), rail.
 - Keyboard tree: one tab stop, roving focus, ↑/↓, Home/End, ←/→ collapse/expand, Enter opens, `aria-expanded`/`aria-current`; `/` focuses search, Esc clears.
