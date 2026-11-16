@@ -112,7 +112,7 @@ public sealed class LibraryTreeTests
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
         var note = cut.Find("[data-updates-paused]");
-        Assert.EndsWith("Live updates paused", note.TextContent.Trim());
+        Assert.Equal("Live updates paused", note.QuerySelector("[data-updates-paused-msg]")!.TextContent);
         Assert.Equal("status", note.GetAttribute("role"));
     }
 
