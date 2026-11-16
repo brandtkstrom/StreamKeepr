@@ -67,7 +67,7 @@ public sealed class AuthJourneyTests(MockAppFixture app)
         await using Session session = await OpenAsync($"{app.BaseUrl}?sort=az&authError=notAllowed");
         IPage page = session.Page;
 
-        ILocator snackbar = page.Locator("[data-snackbar]");
+        ILocator snackbar = Feedback.Snackbar(page, "This Twitch account is not allowed to manage Stream Keepr.");
         await snackbar.WaitForAsync(new() { Timeout = 15_000 });
         Assert.Contains("This Twitch account is not allowed to manage Stream Keepr.", await snackbar.InnerTextAsync());
         await page.WaitForURLAsync(url => url.EndsWith("/?sort=az", StringComparison.Ordinal));

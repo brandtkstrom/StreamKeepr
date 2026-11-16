@@ -74,7 +74,7 @@ function onKeyDown(event) {
 
 function onReconnectState(event) {
   const state = event.detail?.state;
-  // Mirrors HARD_LOSS in reconnect.js: only a hard circuit loss opens the template modal.
+  // Mirrors HARD_LOSS in reconnect.js: only a hard circuit loss opens the reconnect modal.
   const modalVisible =
     state === "paused" || state === "failed" || state === "resume-failed";
   void dotNetRef
@@ -86,23 +86,6 @@ function onUpdatesPaused(event) {
   void dotNetRef
     ?.invokeMethodAsync("SetUpdatesPaused", Boolean(event.detail))
     .catch(() => {});
-}
-
-async function retryConnection() {
-  if (!window.Blazor) {
-    location.reload();
-    return;
-  }
-
-  try {
-    const successful = await window.Blazor.reconnect();
-    if (successful === false) {
-      const resumed = await window.Blazor.resumeCircuit();
-      if (!resumed) location.reload();
-    }
-  } catch {
-    location.reload();
-  }
 }
 
 export function init(reference) {
@@ -141,4 +124,4 @@ export function dispose() {
   drawer = null;
 }
 
-export { setModalDrawer, retryConnection };
+export { setModalDrawer };

@@ -102,6 +102,10 @@ describe("player-keys.js", () => {
 
     document.body.innerHTML = "<dialog open><p>Hi</p></dialog>";
     expect(press("m")).toBeNull();
+
+    // A MudDialog is a div[role=dialog]; focus may sit on the page behind it.
+    document.body.innerHTML = "<div role='dialog'><p>Hi</p></div>";
+    expect(press("m")).toBeNull();
   });
 
   it("lets buttons, sliders, and the drawer keep their own keys", () => {

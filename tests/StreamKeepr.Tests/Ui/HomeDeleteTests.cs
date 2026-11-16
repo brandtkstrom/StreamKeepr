@@ -9,9 +9,9 @@ namespace StreamKeepr.Tests.Ui;
 public sealed class HomeDeleteTests
 {
     [Fact]
-    public void A_deleted_recording_notifies_and_opens_the_next_newest()
+    public async Task A_deleted_recording_notifies_and_opens_the_next_newest()
     {
-        using BunitContext context = HomePlayerTests.CreateContext(out _, out TestLibraryView view);
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out TestLibraryView view);
         SetLibrary(view);
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
         navigation.NavigateTo("/r/r1");
@@ -22,15 +22,15 @@ public sealed class HomeDeleteTests
         view.RecordingsByLogin["ann"] = [view.FindById["r2"]];
         view.RaiseChanged();
 
-        var snackbars = context.Services.GetRequiredService<SnackbarService>();
-        Assert.Equal("Recording deleted", snackbars.Current?.Text);
+        var snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
+        Assert.Equal("Recording deleted", snackbars.CurrentMessage());
         Assert.EndsWith("/r/r2", navigation.Uri, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Deleting_the_last_recording_opens_the_library()
+    public async Task Deleting_the_last_recording_opens_the_library()
     {
-        using BunitContext context = HomePlayerTests.CreateContext(out _, out TestLibraryView view);
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out TestLibraryView view);
         SetLibrary(view);
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
         navigation.NavigateTo("/r/r1");
@@ -44,9 +44,9 @@ public sealed class HomeDeleteTests
     }
 
     [Fact]
-    public void An_unknown_initial_id_does_not_navigate_or_notify()
+    public async Task An_unknown_initial_id_does_not_navigate_or_notify()
     {
-        using BunitContext context = HomePlayerTests.CreateContext(out _, out TestLibraryView view);
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out TestLibraryView view);
         SetLibrary(view);
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
         navigation.NavigateTo("/r/missing");
@@ -55,7 +55,7 @@ public sealed class HomeDeleteTests
 
         Assert.NotNull(cut.Find("[data-unknown-recording]"));
         Assert.Equal("/r/missing", new Uri(navigation.Uri).AbsolutePath);
-        Assert.Null(context.Services.GetRequiredService<SnackbarService>().Current);
+        Assert.Null(context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
     }
 
     private static void SetLibrary(TestLibraryView view)

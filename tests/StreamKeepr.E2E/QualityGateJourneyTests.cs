@@ -187,10 +187,13 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         // The delete dialog traps focus while open and gives it back on Escape. Nothing is deleted.
         await TabToAsync(page, "e => e.hasAttribute('data-delete')", "the delete button");
         await page.Keyboard.PressAsync("Enter");
-        await page.Locator("[data-delete-dialog][open]").WaitForAsync();
-        await AssertFocusStaysInsideAsync(page, "[data-delete-dialog]", nativeModal: true);
+        ILocator deleteDialog = Feedback.Dialog(page, "Delete recording?");
+        await deleteDialog.WaitForAsync();
+        // Focus lands on Cancel (details contract §6); MudDialog moves it there after opening.
+        await Assertions.Expect(deleteDialog.GetByRole(AriaRole.Button, new() { Name = "Cancel" })).ToBeFocusedAsync();
+        await AssertFocusStaysInsideAsync(page, "[role=dialog]", nativeModal: false);
         await page.Keyboard.PressAsync("Escape");
-        await page.Locator("[data-delete-dialog][open]").WaitForAsync(new() { State = WaitForSelectorState.Detached });
+        await Feedback.Dialog(page, "Delete recording?").WaitForAsync(new() { State = WaitForSelectorState.Detached });
         Assert.True(await FocusedMatchesAsync(page, "e => e.hasAttribute('data-delete')"), "Escape returns focus to Delete");
 
         // Settings by keyboard from the top bar.
@@ -307,6 +310,10 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         foreach (string key in new[] { "Tab", "Tab", "Tab", "Tab", "Tab", "Shift+Tab", "Shift+Tab", "Shift+Tab" })
         {
             await page.Keyboard.PressAsync(key);
+            // MudDialog's trap is a pair of empty focusable sentinels whose focus handler runs
+            // in .NET and sends focus back to the other end; wait for that hand-off.
+            await page.WaitForFunctionAsync(
+                "() => { const e = document.activeElement; return !(e?.tagName === 'DIV' && e.childElementCount === 0 && !e.hasAttribute('role') && e.closest('[role=dialog]')); }");
             string? escaped = await page.EvaluateAsync<string?>(
                 "([c, native]) => { const e = document.activeElement; if (!e || e === document.body) return native ? null : 'the page body'; return e.closest(c) ? null : e.outerHTML.slice(0, 160); }",
                 new object[] { container, nativeModal });

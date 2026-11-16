@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using static StreamKeepr.E2E.LibraryJourneyTests;
 
@@ -28,14 +29,14 @@ public sealed class DetailsStopJourneyTests : IAsyncLifetime
         await stop.WaitForAsync();
         await stop.ClickAsync();
 
-        ILocator dialog = page.Locator("[data-stop-dialog][open]");
+        ILocator dialog = Feedback.Dialog(page, new Regex("^Stop recording for "));
         await dialog.WaitForAsync();
         Assert.Contains("finalized", await dialog.InnerTextAsync());
         Assert.Contains("stays paused", await dialog.InnerTextAsync());
         await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "stop-dialog");
         await page.Locator("[data-stop-confirm]").ClickAsync();
 
-        await page.Locator("[data-snackbar]", new() { HasTextString = "Channel paused" }).WaitForAsync();
+        await Feedback.Snackbar(page, "Channel paused").WaitForAsync();
         await page.WaitForSelectorAsync("[data-stop-recording]", new() { State = WaitForSelectorState.Hidden });
 
         await page.GotoAsync(_app.BaseUrl);

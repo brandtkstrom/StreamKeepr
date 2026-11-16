@@ -22,10 +22,10 @@ The frontend foundation is the Blazor Web App host, routes, app shell, design-sy
 
 ## 2a. MudBlazor theme and providers
 
-- `Program.cs` calls `AddMudServices()`.
+- `Program.cs` calls `AddMudServices(options => StreamKeeprSnackbars.Configure(options.SnackbarConfiguration))`, so the snackbar defaults in §8 apply app-wide.
 - `Routes.razor`, the one interactive boundary, renders `MudThemeProvider` (`Theme="StreamKeeprTheme.Theme"`, `IsDarkMode="true"`), `MudPopoverProvider`, `MudDialogProvider` and `MudSnackbarProvider` once, before the `Router`. The app is dark only: there is no theme preference, and `PaletteLight` keeps MudBlazor's defaults, unused.
 - `Ui/StreamKeeprTheme.cs` is hand-written from `design-system/tokens.json`: the `PaletteDark` values, MudBlazor's default `Typography` with the one override `Button.TextTransform = "none"`, and `LayoutProperties` (8px radius, 64px app bar, 320px drawer, 72px rail). `StreamKeeprThemeTests` compares every Palette value, the layout sizes and every MudBlazor type style with `tokens.json`, and fails when the theme sets a palette value other than MudBlazor's default that no token describes.
-- Components name MudBlazor types fully qualified (`MudBlazor.MudThemeProvider`) until `@using MudBlazor` can go into `_Imports.razor`: today it makes `SnackbarService` ambiguous with the app's own service, which the snackbar migration removes.
+- Components name MudBlazor types fully qualified (`MudBlazor.MudThemeProvider`) until `@using MudBlazor` can go into `_Imports.razor`: the app's own `SnackbarService` that once made it ambiguous is gone (#177), and adding the using is left to the cleanup (#181).
 
 ## 3. Routing and query state
 
@@ -116,7 +116,7 @@ public sealed class UiPreferences
 
 ## 8. Design-system primitives
 
-All primitives use the design-system `sk-` classes and role tokens; no inline colours or font sizes; accessible names and keyboard behavior are mandatory.
+Primitives use the design-system role tokens (the hand-built ones through `sk-` classes; `ConfirmDialog`, `Tooltip` and snackbars are MudBlazor components restyled in `components.css`); no inline colours or font sizes; accessible names and keyboard behavior are mandatory.
 
 | Primitive | Contract |
 |---|---|
@@ -127,9 +127,9 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 | `Avatar` | Image URL or initials; `Name` for alt; recording ring. The library and the account menu use `ChannelAvatar` (channel colour, #176) instead; Settings and Details move to it with their surfaces |
 | `Collapsible` | `Open`, `Header`, `ChildContent`, `OnToggle`; `aria-expanded`; 300ms; reduced motion |
 | `Switch` | `Checked`, `Label`, `OnChange`; `role="switch"` |
-| `Tooltip` | Hover/focus text; `aria-describedby`; no interactive content |
-| `Dialog` | `<dialog>` + `showModal()` via JS; focus trap/Esc; return focus; title, content, actions |
-| `Snackbar` | Scoped `SnackbarService` queue, one action, auto-dismiss; `SnackbarHost` in the shell |
+| `Tooltip` | A `MudTooltip` (#177; top, restyled to `tooltip-background`/`tooltip-text`, `caption`, `radius-sm`) around a wrapper that takes the additional attributes. MudTooltip renders its bubble only while shown, so the wrapper is `aria-describedby` a visually hidden `role="tooltip"` copy that is always present. Hover or focus shows it; no interactive content |
+| `ConfirmDialog` | A destructive confirmation (#177): an inline `MudDialog` rendered by the `MudDialogProvider` while the owning component keeps its state, with `ConfirmDialogOptions.Value` (extra small, full width, no close button). Title `h6` names the `dialog`; focus lands on Cancel (`DefaultFocus.FirstChild`); Cancel (text) before the filled Error confirm (`ConfirmLabel`); `Busy` disables both and sets `aria-busy`; `ConfirmDisabled` disables the confirm alone. MudBlazor 9.12 renders an open dialog with the options it was shown with, so MudBlazor's own Escape closing is off and `ConfirmDialog` closes on Escape (from its content) and the backdrop itself, only while idle. Its content wrapper holds the body and the buttons and carries the hooks: `HookPrefix="delete"` gives `data-delete-dialog`, `data-delete-cancel` and `data-delete-confirm` (MudDialog applies its own attributes only when it opens). MudBlazor traps focus (its sentinels hand focus back through .NET, so the trap lags by one round trip) and returns it on close. Restyled to `surface`, `radius-lg`, `elevation-24` over `overlay-dark`. `/dev/components` demos it, busy included |
+| Snackbars | MudBlazor `ISnackbar` and the `MudSnackbarProvider` in `Routes.razor` (#177). `StreamKeeprSnackbars.Configure` sets the Feedback card's defaults for `Program.cs` and the tests: bottom left (above the phone's bottom navigation), one visible at a time with the rest queued, 4s, duplicates allowed, no close icon. `ISnackbar.Show(text, actionLabel, action)` adds at most one action; a blank text or half an action throws. A snackbar is a polite `alert` |
 
 - `RequiresTwitch`: renders `AuthorizeView`; when signed out, the child stays visible but is wrapped with `inert` and a tooltip “Connect Twitch to use this”; never hidden. The service/UI layer also enforces authorization.
 - `/dev/components` is Development-only, shows every primitive against its preview, and is not linked in production.
@@ -145,8 +145,12 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 
 ## 10. Reconnect, loading, empty, and auth states
 
-- `App.razor` keeps the Blazor template reconnect modal for a hard circuit loss.
-- `ReconnectNotice` is a non-modal banner for “live updates paused” or an SSR/backend error, with Retry. It is not shown while the reconnect modal is visible; never both.
+- `App.razor` keeps the framework-owned reconnect `<dialog id="components-reconnect-modal">` (`ReconnectModal.razor`) for a hard circuit loss. It must work while the circuit is down, so it stays a plain `<dialog>` with no MudBlazor components or Blazor events, styled like a MudDialog (design system Reconnect card; #177): `surface`, `radius-lg`, `elevation-24` over `overlay-dark`, about 360px wide. It has one section per hard loss (`[data-reconnect-state]`), shown by `[data-reconnect-shown]`, which `reconnect.js` sets: a 32px icon (MudBlazor's `WifiOff`/`Pause`/`Error` SVG, written into the static document), an `h2` title in `h6` type, one `body1` sentence in `text-secondary`, then the actions:
+  - `failed`: “Couldn’t rejoin the server” — Reload · Retry;
+  - `paused`: “Session paused” — Resume;
+  - `resume-failed`: “Couldn’t resume the session” — Reload · Resume.
+- `reconnect.js` mirrors the state onto `body[data-sk-reconnect]`, opens the dialog only for those three states (a brief `show`/`retrying` never does), names it by the shown state's title (`aria-labelledby`), reloads on `rejected`, and serves every reconnect button through one capturing document click listener: `[data-reconnect-retry]` (`Blazor.reconnect()`, then `resumeCircuit()`, else reload; if reconnecting throws, Retry in an alert reloads the page while the modal's Retry waits for the tab to become visible), `[data-reconnect-resume]` and `[data-reconnect-reload]`.
+- `UpdatesPausedAlert` is “Live updates paused”: a `MudAlert` Warning Dense (`role="status"`) with a Retry served by `reconnect.js` (`data-reconnect-retry`). The drawer’s note and `ReconnectNotice` (shown for `sk:updates-paused` or an SSR/backend error with its own message) both render it. `ReconnectNotice` is not shown while the reconnect modal is visible; never both.
 - `LibraryView`/`RecordingLibrary.IsLoaded` gates skeleton rows. Empty library shows “No recordings yet”. Unknown `/r/{id}` shows a message and a link back.
 - The top bar auth slot uses `TwitchAccount`/`AuthorizeView`: signed out shows Connect with Twitch (link to `/api/auth/twitch/login?returnUrl=<current>`); signed in shows the account avatar, a `MudMenu` activator (see `docs/details-auth-settings-contract.md` §7). Settings and admin actions stay visible but disabled with the `RequiresTwitch` tooltip. Viewing, playback, media, health, and progress remain public.
 - The actual OAuth/token flow belongs to the auth ticket; the foundation renders the shell states and the Mock fake.
@@ -154,7 +158,7 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 ## 11. JavaScript
 
 - `wwwroot/js/prefs.js` is a plain ES module loaded from `App.razor`; it exposes `window.skPrefs` with cookie read/write and the browser time zone, and sets `sk-tz` on first load.
-- `AppShell.razor.js` is a collocated module for the `.scrolled` observer, the compact drawer's focus handling (`setModalDrawer`, Tab trap, Escape → `CloseModalDrawer`), the paused-updates bridge and Retry; it disposes on component dispose. The drawer's open state lives in `AppShell.razor`.
+- `AppShell.razor.js` is a collocated module for the `.scrolled` observer, the compact drawer's focus handling (`setModalDrawer`, Tab trap, Escape → `CloseModalDrawer`) and the paused-updates bridge (`sk:updates-paused`, the reconnect modal's visibility); Retry belongs to `reconnect.js`; it disposes on component dispose. The drawer's open state lives in `AppShell.razor`.
 - `UiPreferences`/`ViewerClock` call `prefs.js` through `IJSRuntime`; no JS reads or writes layout state directly.
 - `Editor`/player modules load later; hls.js is imported only by the player module, never by the shell.
 - `ChatPane.razor.js` owns the chat log, polling, auto-scroll, and sync controls; it listens to `sk:playhead` and never crosses the circuit for time updates.

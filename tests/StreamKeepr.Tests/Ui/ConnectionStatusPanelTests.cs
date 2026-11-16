@@ -18,7 +18,7 @@ public sealed class ConnectionStatusPanelTests : IAsyncLifetime
 
     public ConnectionStatusPanelTests()
     {
-        _context.Services.AddMudServices();
+        _context.Services.AddStreamKeeprMudServices();
         _context.Services.AddLogging();
         _context.Services.AddSingleton<TimeProvider>(_clock);
         _context.Services.AddSingleton<IConnectionStatusView>(_view);

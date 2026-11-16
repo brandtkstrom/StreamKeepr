@@ -33,7 +33,7 @@ The backend contract wins over the plan's F10-T3: export is **always one MP4**. 
 
 - The button is an Outlined action and is public; it is never wrapped in `RequiresTwitch`.
 - The absolute URL is built from `NavigationManager.BaseUri` and the relative `RecordingView.PlaylistUrl` (`/media/{channel}/{id}/index.m3u8`). Use `new Uri(new Uri(NavigationManager.BaseUri), playlistUrl).AbsoluteUri`; never construct the media path by hand. Forwarded-header configuration makes this the public origin.
-- Copy through the clipboard API; confirm “Playlist URL copied” through `SnackbarService`. A missing/rejected clipboard shows “Could not copy playlist URL”. No legacy fallback.
+- Copy through the clipboard API; confirm “Playlist URL copied” through a snackbar (`ISnackbar.Show`). A missing/rejected clipboard shows “Could not copy playlist URL”. No legacy fallback.
 - Copy failure is not an auth error and never opens a dialog.
 
 ## 5. Export MP4
@@ -83,11 +83,12 @@ The details card subscribes to `IExportService.Changed`, calls `FindByRecording`
 ## 6. Delete recording
 
 - The Delete action is an icon button (`aria-label="Delete recording"`) in the details actions, wrapped in `RequiresTwitch`. It is disabled for Recording/Reconnecting and while this recording has a Queued/Running export, with a visible tooltip reason.
-- On click, open the `Dialog` primitive:
-  - title “Delete recording?”;
-  - an `error-container` banner naming the recording (`title — streamer`) and stating that the files and progress are removed permanently;
-  - Danger “Delete” and Text “Cancel”; focus lands on Cancel; Esc closes; focus returns to the trigger.
-- On confirm, set the dialog busy and call `IRecordingAdmin.DeleteAsync(id, user, ct)`; the server checks Complete-only, the session lock, and the export lease.
+- On click, open a `ConfirmDialog` (an inline `MudDialog`, design system Dialog card; #177; see the foundation contract §8): extra small, full width, no close button:
+  - title “Delete recording?” (`h6`), which names the `dialog`;
+  - a `MudAlert` Error banner (`Variant.Text`, dense) naming the recording (`title — streamer`) and stating that the files and progress are removed permanently; it is a `note` until it carries an error, then an `alert`;
+  - Text “Cancel” first, then filled Error “Delete”; focus lands on Cancel; Esc and the backdrop close it; focus returns to the trigger.
+  - MudDialog applies its own attributes only when it opens, so `data-delete-dialog` and `aria-busy` sit on the wrapper inside the content (which also holds the buttons), not on the `dialog` element.
+- On confirm, set the dialog busy (both buttons disabled, `aria-busy`, Esc and the backdrop ignored) and call `IRecordingAdmin.DeleteAsync(id, user, ct)`; the server checks Complete-only, the session lock, and the export lease.
 - Success: close the dialog, raise “Recording deleted”, let `ILibraryView.Changed` update the library, and navigate to the next newest recording in the current query (or `/`), per `docs/player-contract.md`. The dialog never remains over the next recording.
 - Refusal/race: an `InvalidOperationException` (live or leased) keeps the dialog open and shows its user-safe message in the banner; refresh the details state. `KeyNotFoundException` closes and shows “Recording was already deleted”. `UnauthorizedAccessException` closes and shows the reconnect message. Other failures stay in the dialog with a generic message.
 - Deleting a recording does not delete an already-produced export file; that file expires with the 24 h export sweep. The dialog copy does not promise otherwise (known limitation).

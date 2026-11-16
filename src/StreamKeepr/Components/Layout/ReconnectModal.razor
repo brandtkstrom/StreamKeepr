@@ -1,31 +1,57 @@
 <script type="module" src="@Assets["js/reconnect.js"]"></script>
 
+@* The framework-owned reconnect dialog, styled like a MudDialog (design system Reconnect card).
+   It must work while the circuit is down, so it stays a plain <dialog> driven by reconnect.js:
+   no MudBlazor components, and no Blazor event handlers. The icons are MudBlazor's SVG paths,
+   written into the static document when the page is served. A brief reconnect never opens it;
+   the library drawer's "Live updates paused" alert covers that. *@
 <dialog id="components-reconnect-modal" data-nosnippet>
-    <div class="components-reconnect-container">
-        <div class="components-rejoining-animation" aria-hidden="true">
-            <div></div>
-            <div></div>
-        </div>
-        <p class="components-reconnect-first-attempt-visible">
-            Rejoining the server...
-        </p>
-        <p class="components-reconnect-repeated-attempt-visible">
-            Rejoin failed... trying again in <span id="components-seconds-to-next-attempt"></span> seconds.
-        </p>
-        <p class="components-reconnect-failed-visible">
-            Failed to rejoin.<br />Please retry or reload the page.
-        </p>
-        <button id="components-reconnect-button" class="components-reconnect-failed-visible">
-            Retry
-        </button>
-        <p class="components-pause-visible">
-            The session has been paused by the server.
-        </p>
-        <p class="components-resume-failed-visible">
-            Failed to resume the session.<br />Please retry or reload the page.
-        </p>
-        <button id="components-resume-button" class="components-pause-visible components-resume-failed-visible">
-            Resume
-        </button>
-    </div>
+    @foreach (var state in States)
+    {
+        <section class="sk-reconnect-state" data-reconnect-state="@state.Key">
+            <svg class="sk-reconnect-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">@((MarkupString)state.Icon)</svg>
+            <h2 id="@TitleId(state.Key)" class="sk-reconnect-title">@state.Title</h2>
+            <p class="sk-reconnect-body">@state.Body</p>
+            <div class="sk-reconnect-actions">
+                @if (state.Reload)
+                {
+                    <button type="button" class="sk-reconnect-text" data-reconnect-reload>Reload</button>
+                }
+                <button type="button" class="sk-reconnect-filled" @attributes="ActionHook(state)">@state.Action</button>
+            </div>
+        </section>
+    }
 </dialog>
+
+@code {
+    /// <summary>The id of a state's title, which <c>reconnect.js</c> names as the dialog's label.</summary>
+    public static string TitleId(string state) => $"sk-reconnect-title-{state}";
+
+    // The hook reconnect.js serves for the main action, kept apart from its label.
+    private static Dictionary<string, object> ActionHook(HardLoss state) =>
+        new() { [state.ActionHook] = true };
+
+    private const string RetryHook = "data-reconnect-retry";
+    private const string ResumeHook = "data-reconnect-resume";
+
+    private sealed record HardLoss(
+        string Key, string Icon, string Title, string Body, bool Reload,
+        string Action, string ActionHook);
+
+    // The Reconnect card's copy, one entry per hard loss (reconnect.js HARD_LOSS).
+    private static readonly HardLoss[] States =
+    [
+        new("failed", MudBlazor.Icons.Material.Rounded.WifiOff,
+            "Couldn’t rejoin the server",
+            "Retry now, or reload the page. StreamKeepr also retries when you come back to this tab.",
+            Reload: true, Action: "Retry", ActionHook: RetryHook),
+        new("paused", MudBlazor.Icons.Material.Rounded.Pause,
+            "Session paused",
+            "The server paused this session. Resume to pick up where you left off.",
+            Reload: false, Action: "Resume", ActionHook: ResumeHook),
+        new("resume-failed", MudBlazor.Icons.Material.Rounded.Error,
+            "Couldn’t resume the session",
+            "Try again, or reload the page to start a new session.",
+            Reload: true, Action: "Resume", ActionHook: ResumeHook),
+    ];
+}

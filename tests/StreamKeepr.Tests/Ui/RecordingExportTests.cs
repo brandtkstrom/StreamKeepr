@@ -13,9 +13,9 @@ public sealed class RecordingExportTests
     private static readonly DateTimeOffset Now = new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void A_signed_in_admin_starts_an_export_and_sees_it_queued_then_running()
+    public async Task A_signed_in_admin_starts_an_export_and_sees_it_queued_then_running()
     {
-        using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        await using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
         Assert.Empty(cut.FindAll("[data-export-row]"));
 
@@ -28,7 +28,7 @@ public sealed class RecordingExportTests
             Assert.Equal("Queued — waiting for another export", cut.Find("[data-export-row] [role='status']").TextContent));
         Assert.True(cut.Find("button[data-export]").HasAttribute("disabled"));
 
-        cut.InvokeAsync(() => exports.Set(new ExportJob("e1", "r1", ExportState.Running, 0.42, null, null)));
+        await cut.InvokeAsync(() => exports.Set(new ExportJob("e1", "r1", ExportState.Running, 0.42, null, null)));
 
         cut.WaitForAssertion(() =>
         {
@@ -42,14 +42,14 @@ public sealed class RecordingExportTests
     }
 
     [Fact]
-    public void Success_shows_a_download_link_and_one_snackbar()
+    public async Task Success_shows_a_download_link_and_one_snackbar()
     {
-        using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        await using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
         cut.Find("button[data-export]").Click();
-        SnackbarService snackbars = context.Services.GetRequiredService<SnackbarService>();
+        MudBlazor.ISnackbar snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
 
-        cut.InvokeAsync(() => exports.Set(new ExportJob("e1", "r1", ExportState.Succeeded, 1, "ann_x.mp4", null)));
+        await cut.InvokeAsync(() => exports.Set(new ExportJob("e1", "r1", ExportState.Succeeded, 1, "ann_x.mp4", null)));
 
         cut.WaitForAssertion(() =>
         {
@@ -58,18 +58,18 @@ public sealed class RecordingExportTests
             Assert.Equal("/api/exports/e1/download", download.GetAttribute("href"));
             Assert.Equal("false", download.GetAttribute("data-enhance-nav"));
         });
-        Assert.Equal("Export ready", snackbars.Current?.Text);
+        Assert.Equal("Export ready", snackbars.CurrentMessage());
         Assert.False(cut.Find("button[data-export]").HasAttribute("disabled"));
 
         snackbars.Dismiss();
-        cut.InvokeAsync(() => exports.Set(new ExportJob("e1", "r1", ExportState.Succeeded, 1, "ann_x.mp4", null)));
-        Assert.Null(snackbars.Current);
+        await cut.InvokeAsync(() => exports.Set(new ExportJob("e1", "r1", ExportState.Succeeded, 1, "ann_x.mp4", null)));
+        Assert.Null(snackbars.CurrentMessage());
     }
 
     [Fact]
-    public void The_row_rehydrates_from_find_by_recording_and_never_shows_another_recordings_job()
+    public async Task The_row_rehydrates_from_find_by_recording_and_never_shows_another_recordings_job()
     {
-        using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        await using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
         exports.Set(new ExportJob("e7", "r1", ExportState.Running, 0.5, null, null));
 
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
@@ -82,9 +82,9 @@ public sealed class RecordingExportTests
     }
 
     [Fact]
-    public void Export_is_disabled_while_live_with_an_explanation()
+    public async Task Export_is_disabled_while_live_with_an_explanation()
     {
-        using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        await using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
 
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1", RecordingState.Recording));
 
@@ -94,9 +94,9 @@ public sealed class RecordingExportTests
     }
 
     [Fact]
-    public void Signed_out_the_export_action_is_inert_behind_requires_twitch()
+    public async Task Signed_out_the_export_action_is_inert_behind_requires_twitch()
     {
-        using BunitContext context = CreateContext(out _, signedIn: false);
+        await using BunitContext context = CreateContext(out _, signedIn: false);
 
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
 
@@ -104,9 +104,9 @@ public sealed class RecordingExportTests
     }
 
     [Fact]
-    public void A_refused_start_shows_the_service_message()
+    public async Task A_refused_start_shows_the_service_message()
     {
-        using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        await using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
         exports.StartFailure = _ => new InvalidOperationException("The recording can be exported when it finishes.");
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
 
@@ -114,18 +114,18 @@ public sealed class RecordingExportTests
 
         Assert.Equal(
             "The recording can be exported when it finishes.",
-            context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+            context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
         Assert.Empty(cut.FindAll("[data-export-row]"));
     }
 
     [Fact]
-    public void Queued_and_running_jobs_offer_cancel_which_ends_in_cancelled_with_retry_and_no_snackbar()
+    public async Task Queued_and_running_jobs_offer_cancel_which_ends_in_cancelled_with_retry_and_no_snackbar()
     {
-        using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        await using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
         cut.Find("button[data-export]").Click();
         cut.WaitForAssertion(() => Assert.NotNull(cut.Find("button[data-export-cancel]")));
-        cut.InvokeAsync(() => exports.Set(new ExportJob("e1", "r1", ExportState.Running, 0.3, null, null)));
+        await cut.InvokeAsync(() => exports.Set(new ExportJob("e1", "r1", ExportState.Running, 0.3, null, null)));
 
         cut.WaitForAssertion(() => cut.Find("button[data-export-cancel]").Click());
 
@@ -138,7 +138,7 @@ public sealed class RecordingExportTests
             Assert.NotNull(cut.Find("button[data-export-retry]"));
             Assert.Empty(cut.FindAll("button[data-export-cancel]"));
         });
-        Assert.Null(context.Services.GetRequiredService<SnackbarService>().Current);
+        Assert.Null(context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
 
         cut.Find("button[data-export-retry]").Click();
 
@@ -148,9 +148,9 @@ public sealed class RecordingExportTests
     }
 
     [Fact]
-    public void A_cancel_that_loses_the_race_with_completion_is_ignored()
+    public async Task A_cancel_that_loses_the_race_with_completion_is_ignored()
     {
-        using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        await using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
         exports.Set(new ExportJob("e1", "r1", ExportState.Running, 0.9, null, null));
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
         exports.CancelFailure = _ =>
@@ -158,23 +158,23 @@ public sealed class RecordingExportTests
             exports.Set(new ExportJob("e1", "r1", ExportState.Succeeded, 1, "x.mp4", null));
             return new InvalidOperationException("The export has already finished.");
         };
-        SnackbarService snackbars = context.Services.GetRequiredService<SnackbarService>();
+        MudBlazor.ISnackbar snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
 
         cut.Find("button[data-export-cancel]").Click();
 
         cut.WaitForAssertion(() => Assert.NotNull(cut.Find("a[data-export-download]")));
         // The finished job announces itself; the refused cancel adds nothing.
-        Assert.Equal("Export ready", snackbars.Current?.Text);
+        Assert.Equal("Export ready", snackbars.CurrentMessage());
     }
 
     [Fact]
-    public void A_failed_export_shows_the_safe_message_with_retry()
+    public async Task A_failed_export_shows_the_safe_message_with_retry()
     {
-        using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        await using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
         cut.Find("button[data-export]").Click();
 
-        cut.InvokeAsync(() => exports.Set(
+        await cut.InvokeAsync(() => exports.Set(
             new ExportJob("e1", "r1", ExportState.Failed, 0.2, null, "The export could not be completed.")));
 
         cut.WaitForAssertion(() =>
@@ -182,14 +182,14 @@ public sealed class RecordingExportTests
             Assert.Equal("The export could not be completed.", cut.Find("[data-export-row] [role='status']").TextContent);
             Assert.NotNull(cut.Find("button[data-export-retry]"));
         });
-        Assert.Equal("Export failed", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+        Assert.Equal("Export failed", context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
         Assert.False(cut.Find("button[data-export]").HasAttribute("disabled"));
     }
 
     [Fact]
-    public void Incompatible_parts_explain_why_offer_no_retry_and_keep_export_disabled()
+    public async Task Incompatible_parts_explain_why_offer_no_retry_and_keep_export_disabled()
     {
-        using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        await using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
         exports.Set(new ExportJob("e1", "r1", ExportState.Failed, 0, null, ExportService.IncompatibleParts));
 
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
@@ -210,13 +210,13 @@ public sealed class RecordingExportTests
     private static BunitContext CreateContext(out TestExportService exports, bool signedIn)
     {
         var context = new BunitContext();
+        context.Services.AddStreamKeeprMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddLogging();
         context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddScoped<ViewerClock>();
         context.Services.AddScoped<UiPreferences>();
-        context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<StreamKeepr.Components.Features.Player.PlayerBridge>();
         exports = new TestExportService();
         context.Services.AddSingleton<IExportService>(exports);

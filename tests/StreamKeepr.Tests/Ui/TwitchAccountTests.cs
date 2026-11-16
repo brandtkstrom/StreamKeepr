@@ -136,7 +136,7 @@ public sealed class TwitchAccountTests
 
         cut.WaitForAssertion(() => Assert.Equal(
             "Could not disconnect. Reload the page and try again.",
-            context.Services.GetRequiredService<StreamKeepr.Ui.SnackbarService>().Current?.Text));
+            context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage()));
     }
 
     [Fact]
@@ -205,11 +205,11 @@ public sealed class TwitchAccountTests
         await using BunitContext context = CreateContext(out _);
         var navigation = (BunitNavigationManager)context.Services.GetRequiredService<NavigationManager>();
         navigation.NavigateTo($"/r/abc?q=chef&authError={code}&sort=az");
-        StreamKeepr.Ui.SnackbarService snackbars = context.Services.GetRequiredService<StreamKeepr.Ui.SnackbarService>();
+        MudBlazor.ISnackbar snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
 
         context.Render<AuthErrorNotifier>();
 
-        Assert.Equal(message, snackbars.Current?.Text);
+        Assert.Equal(message, snackbars.CurrentMessage());
         Assert.EndsWith("/r/abc?q=chef&sort=az", navigation.Uri);
         Assert.True(navigation.History.First().Options.ReplaceHistoryEntry);
     }
@@ -224,7 +224,7 @@ public sealed class TwitchAccountTests
 
         context.Render<AuthErrorNotifier>();
 
-        Assert.Null(context.Services.GetRequiredService<StreamKeepr.Ui.SnackbarService>().Current);
+        Assert.Null(context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
         Assert.Equal(before, navigation.History.Count);
     }
 
@@ -250,10 +250,9 @@ public sealed class TwitchAccountTests
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddLogging();
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         session = new AdminSessionState();
         context.Services.AddSingleton(session);
-        context.Services.AddSingleton<StreamKeepr.Ui.SnackbarService>(new StreamKeepr.Ui.SnackbarService(new FakeTimeProvider()));
         context.Services.AddSingleton<AntiforgeryStateProvider>(new FixedAntiforgery());
         return context;
     }

@@ -82,16 +82,17 @@ public sealed class SettingsPageTests
         channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Recording, true, "EventSub connected")];
         var pending = new TaskCompletionSource();
         channels.OnStop = _ => pending.Task;
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
 
         cut.Find("[data-channel='ann'] [data-channel-stop]").Click();
 
-        Assert.Contains("Stop recording for Ann?", cut.Find("[data-channel-stop-dialog]").TextContent);
-        Assert.Contains("finalized", cut.Find("[data-channel-stop-dialog]").TextContent);
-        Assert.Contains("stays paused", cut.Find("[data-channel-stop-dialog]").TextContent);
+        Assert.True(dialogs.HasOpenDialog("Stop recording for Ann?"));
+        Assert.Contains("finalized", dialogs.Find("[data-channel-stop-dialog]").TextContent);
+        Assert.Contains("stays paused", dialogs.Find("[data-channel-stop-dialog]").TextContent);
         Assert.Empty(channels.Calls);
 
-        cut.Find("[data-channel-stop-confirm]").Click();
+        dialogs.Find("[data-channel-stop-confirm]").Click();
 
         Assert.Equal(["stop:ann"], channels.Calls);
         Assert.Equal("Stopping…", cut.Find("[data-channel='ann'] [role='status']").TextContent);
@@ -100,7 +101,7 @@ public sealed class SettingsPageTests
         await cut.InvokeAsync(pending.SetResult);
 
         cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-channel='ann'] [data-channel-resume]")));
-        Assert.Equal("Channel paused", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+        Assert.Equal("Channel paused", context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
     }
 
     [Fact]
@@ -121,7 +122,7 @@ public sealed class SettingsPageTests
         await cut.InvokeAsync(pending.SetResult);
 
         cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-channel='ann'] [data-channel-stop]")));
-        Assert.Equal("Recording resumed", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+        Assert.Equal("Recording resumed", context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
     }
 
     [Theory]
@@ -158,7 +159,7 @@ public sealed class SettingsPageTests
 
         cut.WaitForAssertion(() => Assert.Equal("", cut.Find("[data-channel-login]").GetAttribute("value")));
         Assert.Null(cut.Find("[data-channel-add]").GetAttribute("aria-busy"));
-        Assert.Equal("Channel added", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+        Assert.Equal("Channel added", context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
     }
 
     [Theory]
@@ -198,16 +199,18 @@ public sealed class SettingsPageTests
         channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Recording, true, "EventSub connected")];
         var pending = new TaskCompletionSource();
         channels.OnRemove = _ => pending.Task;
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
 
         cut.Find("[data-channel-remove]").Click();
-        Assert.Contains("Remove Ann?", cut.Find("[data-channel-remove-dialog]").TextContent);
-        Assert.Contains("Recordings are kept.", cut.Find("[data-channel-remove-dialog]").TextContent);
+        Assert.True(dialogs.HasOpenDialog("Remove Ann?"));
+        Assert.Contains("Recordings are kept.", dialogs.Find("[data-channel-remove-dialog]").TextContent);
         Assert.Empty(channels.Calls);
 
-        cut.Find("[data-channel-remove-confirm]").Click();
+        dialogs.Find("[data-channel-remove-confirm]").Click();
 
         Assert.Equal(["remove:ann"], channels.Calls);
+        Assert.False(dialogs.HasOpenDialog("Remove Ann?"));
         Assert.Equal("Removing…", cut.Find("[data-channel='ann'] [role='status']").TextContent);
         Assert.Empty(cut.FindAll("[data-channel='ann'] [data-channel-remove]"));
 
@@ -215,7 +218,7 @@ public sealed class SettingsPageTests
         await cut.InvokeAsync(pending.SetResult);
 
         cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-channels-empty]")));
-        Assert.Equal("Channel removed", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+        Assert.Equal("Channel removed", context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
     }
 
     [Fact]
@@ -224,10 +227,11 @@ public sealed class SettingsPageTests
         await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
         channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected")];
         channels.OnRemove = _ => Task.FromException(new IOException("disk"));
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
 
         cut.Find("[data-channel-remove]").Click();
-        cut.Find("[data-channel-remove-confirm]").Click();
+        dialogs.Find("[data-channel-remove-confirm]").Click();
 
         cut.WaitForAssertion(() =>
             Assert.Equal("Could not remove Ann. Try again.", cut.Find("[data-channel='ann'] [role='alert']").TextContent));
@@ -239,10 +243,9 @@ public sealed class SettingsPageTests
     {
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         context.Services.AddLogging();
         context.Services.AddSingleton(new AdminSessionState());
-        context.Services.AddSingleton(new SnackbarService(new FakeTimeProvider()));
         context.Services.AddSingleton<AntiforgeryStateProvider>(new FixedAntiforgery());
         channels = new TestChannelsView();
         context.Services.AddSingleton<IChannelsView>(channels);

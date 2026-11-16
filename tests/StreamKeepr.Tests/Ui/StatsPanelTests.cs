@@ -123,17 +123,17 @@ public sealed class StatsPanelTests
         using BunitContext context = CreateContext(out _);
         IRenderedComponent<StatsPanel> cut = context.Render<StatsPanel>(p =>
             p.Add(c => c.Recording, Recording("r1")));
-        SnackbarService snackbars = context.Services.GetRequiredService<SnackbarService>();
+        MudBlazor.ISnackbar snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
 
         await cut.InvokeAsync(() => cut.Instance.Notify("Stats copied"));
 
-        Assert.Equal("Stats copied", snackbars.Current?.Text);
+        Assert.Equal("Stats copied", snackbars.CurrentMessage());
 
         await cut.InvokeAsync(() => cut.Instance.Notify("Could not copy stats"));
 
-        Assert.Equal("Stats copied", snackbars.Current?.Text);
+        Assert.Equal("Stats copied", snackbars.CurrentMessage());
         snackbars.Dismiss();
-        Assert.Equal("Could not copy stats", snackbars.Current?.Text);
+        Assert.Equal("Could not copy stats", snackbars.CurrentMessage());
     }
 
     [Fact]
@@ -158,6 +158,7 @@ public sealed class StatsPanelTests
     private static BunitContext CreateContext(out BunitJSModuleInterop module, bool stats = false)
     {
         var context = new BunitContext();
+        context.Services.AddStreamKeeprMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         module = context.JSInterop.SetupModule(Module);
         module.Mode = JSRuntimeMode.Loose;
@@ -172,7 +173,6 @@ public sealed class StatsPanelTests
 
         context.Services.AddSingleton<IClientStateStore>(store);
         context.Services.AddScoped<UiPreferences>();
-        context.Services.AddScoped<SnackbarService>();
         context.Services.AddSingleton(TimeProvider.System);
         return context;
     }

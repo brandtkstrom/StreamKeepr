@@ -30,7 +30,7 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         ILocator download = page.Locator("a[data-export-download]");
         await download.WaitForAsync(new() { Timeout = 60_000 });
         Assert.StartsWith("MP4 ready", (await page.Locator("[data-export-row] [role='status']").InnerTextAsync()).Trim());
-        await page.Locator("[data-snackbar]", new() { HasTextString = "Export ready" }).WaitForAsync();
+        await Feedback.Snackbar(page, "Export ready").WaitForAsync();
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "export-ready");
 
         IDownload file = await page.RunAndWaitForDownloadAsync(() => download.ClickAsync());
@@ -44,7 +44,7 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         await page.WaitForTimeoutAsync(1_000);
         Assert.False(await page.Locator("dialog[open]").IsVisibleAsync());
         await page.Locator("[data-copy-playlist]").ClickAsync();
-        await page.Locator("[data-snackbar]", new() { HasTextString = "Playlist URL" }).WaitForAsync();
+        await Feedback.Snackbar(page, "Playlist URL").WaitForAsync();
 
         // A reload rehydrates the row from the service (E-22).
         await page.ReloadAsync();
@@ -71,13 +71,13 @@ public sealed class ExportJourneyTests(MockAppFixture app)
 
         await page.Locator("[data-export-row='Cancelled']").WaitForAsync();
         Assert.Equal("Export cancelled", (await status.InnerTextAsync()).Trim());
-        Assert.Equal(0, await page.Locator("[data-snackbar]", new() { HasTextString = "Export" }).CountAsync());
+        Assert.Equal(0, await Feedback.Snackbar(page, "Export").CountAsync());
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "export-cancelled");
 
         await page.Locator("button[data-export-retry]").ClickAsync();
 
         await page.Locator("a[data-export-download]").WaitForAsync(new() { Timeout = 60_000 });
-        await page.Locator("[data-snackbar]", new() { HasTextString = "Export ready" }).WaitForAsync();
+        await Feedback.Snackbar(page, "Export ready").WaitForAsync();
     }
 
     [Fact]

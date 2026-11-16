@@ -16,9 +16,9 @@ public sealed class RecordingDetailsTests
     private static readonly DateTimeOffset Now = new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void Expanded_card_shows_the_title_streamer_category_start_counts_and_size()
+    public async Task Expanded_card_shows_the_title_streamer_category_start_counts_and_size()
     {
-        using BunitContext context = CreateContext(out _, timeZoneId: "Asia/Tokyo");
+        await using BunitContext context = CreateContext(out _, timeZoneId: "Asia/Tokyo");
 
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
@@ -39,9 +39,9 @@ public sealed class RecordingDetailsTests
     }
 
     [Fact]
-    public void Collapsed_state_comes_from_sk_ui_and_the_header_keeps_the_start_date()
+    public async Task Collapsed_state_comes_from_sk_ui_and_the_header_keeps_the_start_date()
     {
-        using BunitContext context = CreateContext(
+        await using BunitContext context = CreateContext(
             out _,
             detailsCookie: "{\"v\":1,\"details\":false}");
 
@@ -55,9 +55,9 @@ public sealed class RecordingDetailsTests
     }
 
     [Fact]
-    public void Toggling_updates_the_preference_and_persists_sk_ui()
+    public async Task Toggling_updates_the_preference_and_persists_sk_ui()
     {
-        using BunitContext context = CreateContext(out _);
+        await using BunitContext context = CreateContext(out _);
         UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
@@ -76,9 +76,9 @@ public sealed class RecordingDetailsTests
     [Theory]
     [InlineData(RecordingState.Recording)]
     [InlineData(RecordingState.Reconnecting)]
-    public void Size_is_hidden_while_the_recording_is_in_progress(RecordingState state)
+    public async Task Size_is_hidden_while_the_recording_is_in_progress(RecordingState state)
     {
-        using BunitContext context = CreateContext(out _);
+        await using BunitContext context = CreateContext(out _);
 
         IRenderedComponent<RecordingDetails> cut = Render(
             context,
@@ -91,9 +91,9 @@ public sealed class RecordingDetailsTests
     }
 
     [Fact]
-    public void A_missing_category_reads_no_category()
+    public async Task A_missing_category_reads_no_category()
     {
-        using BunitContext context = CreateContext(out _);
+        await using BunitContext context = CreateContext(out _);
 
         IRenderedComponent<RecordingDetails> cut = Render(
             context,
@@ -105,7 +105,7 @@ public sealed class RecordingDetailsTests
     [Fact]
     public async Task Chapters_are_buttons_with_an_accessible_name_and_seek_through_the_bridge()
     {
-        using BunitContext context = CreateContext(out _);
+        await using BunitContext context = CreateContext(out _);
         var bridge = context.Services.GetRequiredService<PlayerBridge>();
         var seeks = new List<double>();
         bridge.Attach(seconds =>
@@ -136,9 +136,9 @@ public sealed class RecordingDetailsTests
     }
 
     [Fact]
-    public void Chapter_offsets_use_invariant_culture_and_duplicate_offsets_do_not_collide()
+    public async Task Chapter_offsets_use_invariant_culture_and_duplicate_offsets_do_not_collide()
     {
-        using BunitContext context = CreateContext(out _);
+        await using BunitContext context = CreateContext(out _);
         CultureInfo previous = CultureInfo.CurrentCulture;
         try
         {
@@ -168,9 +168,9 @@ public sealed class RecordingDetailsTests
     }
 
     [Fact]
-    public void Empty_and_invalid_chapters_produce_no_list()
+    public async Task Empty_and_invalid_chapters_produce_no_list()
     {
-        using BunitContext context = CreateContext(out _);
+        await using BunitContext context = CreateContext(out _);
 
         IRenderedComponent<RecordingDetails> cut = Render(
             context,
@@ -186,9 +186,9 @@ public sealed class RecordingDetailsTests
     }
 
     [Fact]
-    public void The_start_time_re_renders_when_the_viewer_clock_changes()
+    public async Task The_start_time_re_renders_when_the_viewer_clock_changes()
     {
-        using BunitContext context = CreateContext(out _);
+        await using BunitContext context = CreateContext(out _);
         ViewerClock clock = context.Services.GetRequiredService<ViewerClock>();
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
@@ -202,12 +202,12 @@ public sealed class RecordingDetailsTests
     }
 
     [Fact]
-    public void Copy_playlist_builds_the_absolute_url_and_confirms_without_auth()
+    public async Task Copy_playlist_builds_the_absolute_url_and_confirms_without_auth()
     {
-        using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+        await using BunitContext context = CreateContext(out BunitJSModuleInterop module);
         context.AddAuthorization().SetNotAuthorized();
         module.Setup<bool>("copyText", _ => true).SetResult(true);
-        SnackbarService snackbars = context.Services.GetRequiredService<SnackbarService>();
+        MudBlazor.ISnackbar snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
         // Copying needs no sign-in; only admin actions such as Export sit behind RequiresTwitch.
@@ -221,22 +221,22 @@ public sealed class RecordingDetailsTests
                 module.Invocations,
                 invocation => invocation.Identifier == "copyText");
             Assert.Equal("http://localhost/media/ann/r1/index.m3u8", copy.Arguments[0]);
-            Assert.Equal("Playlist URL copied", snackbars.Current?.Text);
+            Assert.Equal("Playlist URL copied", snackbars.CurrentMessage());
         });
     }
 
     [Fact]
-    public void A_rejected_clipboard_reports_the_failure_in_the_snackbar()
+    public async Task A_rejected_clipboard_reports_the_failure_in_the_snackbar()
     {
-        using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+        await using BunitContext context = CreateContext(out BunitJSModuleInterop module);
         module.Setup<bool>("copyText", _ => true).SetResult(false);
-        SnackbarService snackbars = context.Services.GetRequiredService<SnackbarService>();
+        MudBlazor.ISnackbar snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
         cut.Find("[data-copy-playlist]").Click();
 
         cut.WaitForAssertion(() =>
-            Assert.Equal("Could not copy playlist URL", snackbars.Current?.Text));
+            Assert.Equal("Could not copy playlist URL", snackbars.CurrentMessage()));
     }
 
     private static IRenderedComponent<RecordingDetails> Render(
@@ -251,6 +251,7 @@ public sealed class RecordingDetailsTests
         string? detailsCookie = null)
     {
         var context = new BunitContext();
+        context.Services.AddStreamKeeprMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         module = context.JSInterop.SetupModule(Module);
         module.Mode = JSRuntimeMode.Loose;
@@ -266,7 +267,6 @@ public sealed class RecordingDetailsTests
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddScoped<ViewerClock>();
         context.Services.AddScoped<UiPreferences>();
-        context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<PlayerBridge>();
         context.Services.AddSingleton<IExportService>(new TestExportService());
         context.Services.AddSingleton<IChannelsView>(new TestChannelsView());

@@ -28,13 +28,27 @@ function emit(modal, state) {
 describe("reconnect.js", () => {
   let modal;
 
+  // Each test imports a fresh module, which adds document listeners; remove them afterwards
+  // so earlier modules do not answer later tests' clicks.
+  let added;
+
   beforeEach(async () => {
     vi.resetModules();
+    added = [];
+    const addEventListener = document.addEventListener.bind(document);
+    vi.spyOn(document, "addEventListener").mockImplementation((type, listener, options) => {
+      added.push([type, listener, options]);
+      addEventListener(type, listener, options);
+    });
     modal = makeModal();
     await import("../../src/StreamKeepr/wwwroot/js/reconnect.js");
   });
 
   afterEach(() => {
+    vi.mocked(document.addEventListener).mockRestore();
+    for (const [type, listener, options] of added) {
+      document.removeEventListener(type, listener, options);
+    }
     document.body.replaceChildren();
     delete document.body.dataset.skReconnect;
   });
@@ -61,5 +75,110 @@ describe("reconnect.js", () => {
 
     emit(modal, "hide");
     expect(modal.close).toHaveBeenCalled();
+  });
+
+  it.each(["failed", "paused", "resume-failed"])(
+    "names the modal by the title of the state it shows (%s)",
+    (state) => {
+      emit(modal, state);
+
+      expect(modal.getAttribute("aria-labelledby")).toBe(`sk-reconnect-title-${state}`);
+      expect(modal.dataset.reconnectShown).toBe(state);
+    },
+  );
+
+  describe("buttons served without the circuit", () => {
+    let reload;
+
+    beforeEach(() => {
+      reload = vi.fn();
+      vi.stubGlobal("location", { reload });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      delete window.Blazor;
+    });
+
+    function button(hook) {
+      const element = document.createElement("button");
+      element.setAttribute(hook, "");
+      element.innerHTML = "<span>label</span>";
+      document.body.append(element);
+      return element;
+    }
+
+    it("retries from any [data-reconnect-retry], even when a component stops propagation", async () => {
+      window.Blazor = { reconnect: vi.fn().mockResolvedValue(true), resumeCircuit: vi.fn() };
+      const retry = button("data-reconnect-retry");
+      retry.addEventListener("click", (event) => event.stopPropagation());
+
+      retry.querySelector("span").click();
+      await Promise.resolve();
+
+      expect(window.Blazor.reconnect).toHaveBeenCalledOnce();
+      expect(reload).not.toHaveBeenCalled();
+    });
+
+    it("reloads when the server is reachable but the circuit cannot be resumed", async () => {
+      window.Blazor = {
+        reconnect: vi.fn().mockResolvedValue(false),
+        resumeCircuit: vi.fn().mockResolvedValue(false),
+      };
+
+      button("data-reconnect-retry").click();
+      await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
+      expect(window.Blazor.resumeCircuit).toHaveBeenCalledOnce();
+    });
+
+    it("reloads when a retry from an alert throws", async () => {
+      window.Blazor = { reconnect: vi.fn().mockRejectedValue(new Error("down")), resumeCircuit: vi.fn() };
+
+      button("data-reconnect-retry").click();
+
+      await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
+    });
+
+    it("waits for the tab instead of reloading when the modal's retry throws", async () => {
+      window.Blazor = { reconnect: vi.fn().mockRejectedValue(new Error("down")), resumeCircuit: vi.fn() };
+      const retry = document.createElement("button");
+      retry.setAttribute("data-reconnect-retry", "");
+      modal.append(retry);
+
+      retry.click();
+
+      await vi.waitFor(() => expect(window.Blazor.reconnect).toHaveBeenCalledOnce());
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(reload).not.toHaveBeenCalled();
+      expect(added.some(([type]) => type === "visibilitychange")).toBe(true);
+    });
+
+    it("resumes from [data-reconnect-resume] and closes the modal", async () => {
+      window.Blazor = { reconnect: vi.fn(), resumeCircuit: vi.fn().mockResolvedValue(true) };
+      emit(modal, "paused");
+
+      button("data-reconnect-resume").click();
+
+      await vi.waitFor(() => expect(modal.close).toHaveBeenCalled());
+      expect(reload).not.toHaveBeenCalled();
+    });
+
+    it("shows resume-failed, named by its title, when resuming throws", async () => {
+      window.Blazor = { reconnect: vi.fn(), resumeCircuit: vi.fn().mockRejectedValue(new Error("down")) };
+      emit(modal, "paused");
+
+      button("data-reconnect-resume").click();
+
+      await vi.waitFor(() => expect(modal.dataset.reconnectShown).toBe("resume-failed"));
+      expect(modal.getAttribute("aria-labelledby")).toBe("sk-reconnect-title-resume-failed");
+      expect(document.body.dataset.skReconnect).toBe("resume-failed");
+    });
+
+    it("reloads from [data-reconnect-reload]", () => {
+      button("data-reconnect-reload").click();
+
+      expect(reload).toHaveBeenCalledOnce();
+    });
   });
 });

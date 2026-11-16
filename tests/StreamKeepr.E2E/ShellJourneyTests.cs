@@ -429,9 +429,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
 
             // Copy is public and uses the absolute playlist URL built from the app origin.
             await page.Locator("[data-copy-playlist]").ClickAsync();
-            await Assertions.Expect(page.Locator("[data-snackbar-text]")).ToHaveTextAsync(
-                "Playlist URL copied",
-                new LocatorAssertionsToHaveTextOptions { Timeout = 10_000 });
+            await Feedback.Snackbar(page, "Playlist URL copied").WaitForAsync(new() { Timeout = 10_000 });
             Assert.False(string.IsNullOrWhiteSpace(playlistUrl), "the player requested a playlist");
             string copied = await page.EvaluateAsync<string>("navigator.clipboard.readText()");
             Assert.Equal(playlistUrl, copied);

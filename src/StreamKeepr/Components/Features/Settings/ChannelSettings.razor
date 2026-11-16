@@ -1,7 +1,7 @@
 @using StreamKeepr.Infrastructure.Runtime
 @implements IDisposable
 @inject IChannelsView Channels
-@inject SnackbarService Snackbars
+@inject MudBlazor.ISnackbar Snackbars
 @inject ILogger<ChannelSettings> Logger
 
 @* Rendered only for a signed-in admin. ChannelsView enforces the same rule on every call. *@
@@ -113,36 +113,28 @@
     </div>
 </section>
 
-<Dialog Open="@(_confirm is not null)"
-        OpenChanged="OnConfirmOpenChanged"
-        Title="@($"Remove {_confirm?.DisplayName}?")"
-        data-channel-remove-dialog>
-    <ChildContent>
-        <p>Recordings are kept. An open capture is finalized first.</p>
-    </ChildContent>
-    <Actions>
-        <Button Variant="ButtonVariant.Text" OnClick="CancelRemove">Cancel</Button>
-        <Button Variant="ButtonVariant.Danger" OnClick="ConfirmRemoveAsync" data-channel-remove-confirm>Remove</Button>
-    </Actions>
-</Dialog>
+@* Both confirmations close as soon as they are confirmed: the row shows the work in
+   progress, and a failure is reported on the row. *@
+<ConfirmDialog Visible="@(_confirm is not null)"
+               VisibleChanged="OnConfirmOpenChanged"
+               Title="@($"Remove {_confirm?.DisplayName}?")"
+               ConfirmLabel="Remove"
+               HookPrefix="channel-remove"
+               OnCancel="CancelRemove"
+               OnConfirm="ConfirmRemoveAsync">
+    <MudBlazor.MudText Typo="MudBlazor.Typo.body1">Recordings are kept. An open capture is finalized first.</MudBlazor.MudText>
+</ConfirmDialog>
 
-<Dialog Open="@(_stop is not null)"
-        OpenChanged="OnStopOpenChanged"
-        Title="@StopTitle"
-        data-channel-stop-dialog>
-    <ChildContent>
-        <p>@StopBody</p>
-    </ChildContent>
-    <Actions>
-        <Button Variant="ButtonVariant.Text" OnClick="CancelStop" data-channel-stop-cancel>Cancel</Button>
-        <Button Variant="ButtonVariant.Danger"
-                Disabled="@(_stop is not null && IsBusy(_stop.Login))"
-                OnClick="ConfirmStopAsync"
-                data-channel-stop-confirm>
-            @StopActionLabel
-        </Button>
-    </Actions>
-</Dialog>
+<ConfirmDialog Visible="@(_stop is not null)"
+               VisibleChanged="OnStopOpenChanged"
+               Title="@StopTitle"
+               ConfirmLabel="@StopActionLabel"
+               HookPrefix="channel-stop"
+               ConfirmDisabled="@(_stop is not null && IsBusy(_stop.Login))"
+               OnCancel="CancelStop"
+               OnConfirm="ConfirmStopAsync">
+    <MudBlazor.MudText Typo="MudBlazor.Typo.body1">@StopBody</MudBlazor.MudText>
+</ConfirmDialog>
 
 @code {
     private const string SessionEnded = "Your Twitch session ended. Reconnect to manage channels.";

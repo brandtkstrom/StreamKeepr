@@ -339,7 +339,7 @@ public sealed class AppShellTests
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddLogging();
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         context.Services.AddSingleton<IBrowserViewportService>(new TestBrowserViewport());
         context.Services.AddSingleton(Options.Create(new LinksOptions
         {
@@ -354,7 +354,6 @@ public sealed class AppShellTests
         context.Services.AddSingleton<IClientStateStore>(store);
         context.Services.AddScoped<UiPreferences>();
         context.Services.AddScoped<ViewerClock>();
-        context.Services.AddScoped<StreamKeepr.Ui.SnackbarService>();
         context.Services.AddSingleton(TimeProvider.System);
         return context;
     }

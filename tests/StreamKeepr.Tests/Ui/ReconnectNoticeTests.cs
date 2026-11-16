@@ -1,5 +1,4 @@
 using Bunit;
-using Microsoft.AspNetCore.Components;
 using StreamKeepr.Components.Layout;
 
 namespace StreamKeepr.Tests.Ui;
@@ -7,29 +6,27 @@ namespace StreamKeepr.Tests.Ui;
 public sealed class ReconnectNoticeTests
 {
     [Fact]
-    public void Renders_a_non_modal_status_banner_with_retry()
+    public async Task Renders_a_non_modal_status_with_a_retry_that_works_without_the_circuit()
     {
-        using var context = new BunitContext();
-        var retried = false;
+        await using var context = CreateContext();
 
         var notice = context.Render<ReconnectNotice>(parameters => parameters
-            .Add(component => component.Visible, true)
-            .Add(component => component.OnRetry,
-                EventCallback.Factory.Create(this, () => retried = true)));
+            .Add(component => component.Visible, true));
 
         var banner = notice.Find("[data-reconnect-notice]");
         Assert.Equal("status", banner.GetAttribute("role"));
         Assert.Contains("Live updates paused", banner.TextContent);
 
-        notice.Find("button").Click();
-
-        Assert.True(retried);
+        // reconnect.js serves the button by its hook: a Blazor handler would not fire while
+        // the circuit is down.
+        var retry = banner.QuerySelector("button[data-reconnect-retry]")!;
+        Assert.Equal("Retry", retry.TextContent.Trim());
     }
 
     [Fact]
-    public void Does_not_render_while_the_template_modal_is_visible()
+    public async Task Does_not_render_while_the_template_modal_is_visible()
     {
-        using var context = new BunitContext();
+        await using var context = CreateContext();
 
         var notice = context.Render<ReconnectNotice>(parameters => parameters
             .Add(component => component.Visible, true)
@@ -39,9 +36,9 @@ public sealed class ReconnectNoticeTests
     }
 
     [Fact]
-    public void Does_not_render_when_hidden()
+    public async Task Does_not_render_when_hidden()
     {
-        using var context = new BunitContext();
+        await using var context = CreateContext();
 
         var notice = context.Render<ReconnectNotice>(parameters => parameters
             .Add(component => component.Visible, false));
@@ -50,14 +47,22 @@ public sealed class ReconnectNoticeTests
     }
 
     [Fact]
-    public void Uses_a_custom_message()
+    public async Task Uses_a_custom_message()
     {
-        using var context = new BunitContext();
+        await using var context = CreateContext();
 
         var notice = context.Render<ReconnectNotice>(parameters => parameters
             .Add(component => component.Visible, true)
             .Add(component => component.Message, "The backend is unavailable."));
 
-        Assert.Contains("The backend is unavailable.", notice.Markup);
+        Assert.Contains("The backend is unavailable.", notice.Find("[data-reconnect-notice]").TextContent);
+    }
+
+    private static BunitContext CreateContext()
+    {
+        var context = new BunitContext();
+        context.Services.AddStreamKeeprMudServices();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        return context;
     }
 }

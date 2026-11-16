@@ -142,6 +142,20 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
+    public async Task The_updates_paused_note_is_a_polite_status_with_a_circuit_free_retry()
+    {
+        await using BunitContext context = CreateContext(new TestLibraryView());
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        var note = cut.Find("[data-updates-paused]");
+        Assert.Equal("status", note.GetAttribute("role"));
+        Assert.Contains("Live updates paused", note.TextContent);
+        // reconnect.js serves it by this hook, because no Blazor event fires while the
+        // circuit is down, which is when the note shows.
+        Assert.Equal("Retry", note.QuerySelector("button[data-reconnect-retry]")!.TextContent.Trim());
+    }
+
+    [Fact]
     public async Task An_unknown_disk_size_shows_no_meter()
     {
         await using BunitContext context = CreateContext(new TestLibraryView { Storage = new StorageView(0, 0) });
@@ -503,7 +517,6 @@ public sealed class LibraryDrawerTests
 
         context.Services.AddSingleton<IClientStateStore>(store);
         context.Services.AddScoped<ViewerClock>();
-        context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<PlayerBridge>();
         context.Services.AddSingleton<IExportService>(new TestExportService());
         context.Services.AddSingleton<IChannelsView>(new TestChannelsView());
@@ -513,7 +526,7 @@ public sealed class LibraryDrawerTests
         context.Services.AddSingleton<ILibraryView>(view);
         context.Services.AddScoped<UiPreferences>();
         // MainLayout hosts the MudBlazor shell, whose links come from configuration.
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         context.Services.AddSingleton<MudBlazor.IBrowserViewportService>(new TestBrowserViewport());
         context.Services.AddSingleton(Options.Create(new LinksOptions
         {

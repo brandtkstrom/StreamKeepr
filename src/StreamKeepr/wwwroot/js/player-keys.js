@@ -15,7 +15,7 @@ const LETTERS = {
 
 function overlayOpen(doc, target) {
   if (target instanceof Element && target.closest("dialog[open], [role='menu'], [role='dialog']")) return true;
-  return doc.querySelector("dialog[open], [role='menu']:not([hidden])") !== null;
+  return doc.querySelector("dialog[open], [role='dialog'], [role='menu']:not([hidden])") !== null;
 }
 
 /**

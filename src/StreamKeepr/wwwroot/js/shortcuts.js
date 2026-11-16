@@ -11,7 +11,7 @@ export function isEditable(element) {
 }
 
 function insideOverlay(element) {
-  return element instanceof Element && element.closest("dialog[open], [role='menu']") !== null;
+  return element instanceof Element && element.closest("dialog[open], [role='dialog'], [role='menu']") !== null;
 }
 
 export function install(doc = document) {

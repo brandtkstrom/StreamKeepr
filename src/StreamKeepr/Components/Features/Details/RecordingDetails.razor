@@ -4,7 +4,7 @@
 @implements IAsyncDisposable
 @inject UiPreferences Preferences
 @inject ViewerClock Clock
-@inject SnackbarService Snackbars
+@inject MudBlazor.ISnackbar Snackbars
 @inject PlayerBridge Bridge
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
@@ -198,53 +198,36 @@
     </ChildContent>
 </Collapsible>
 
-<Dialog Open="@_stopOpen"
-        OpenChanged="OnStopOpenChanged"
-        Title="@($"Stop recording for {Recording.StreamerLogin}?")"
-        aria-busy="@(_stopping ? "true" : null)"
-        data-stop-dialog>
-    <ChildContent>
-        <p>The current capture is finalized, and the channel stays paused until you resume.</p>
-    </ChildContent>
-    <Actions>
-        <Button Variant="ButtonVariant.Text"
-                Disabled="@_stopping"
-                OnClick="CancelStop"
-                data-stop-cancel>Cancel</Button>
-        <Button Variant="ButtonVariant.Danger"
-                Disabled="@_stopping"
-                OnClick="ConfirmStopAsync"
-                data-stop-confirm>Stop recording</Button>
-    </Actions>
-</Dialog>
-<Dialog Open="@_deleteOpen"
-        OpenChanged="OnDeleteOpenChanged"
-        Title="Delete recording?"
-        aria-busy="@(_deleting ? "true" : null)"
-        data-delete-dialog>
-    <ChildContent>
-        <p class="sk-error-banner"
-           role="@(_deleteError is null ? null : "alert")"
-           data-delete-banner>
-            <b>@Recording.Title — @Recording.StreamerLogin</b><br />
-            @(_deleteError ?? "The files and watch progress are removed permanently.")
-        </p>
-    </ChildContent>
-    <Actions>
-        <Button Variant="ButtonVariant.Text"
-                Disabled="@_deleting"
-                OnClick="CancelDelete"
-                data-delete-cancel>
-            Cancel
-        </Button>
-        <Button Variant="ButtonVariant.Danger"
-                Disabled="@(_deleting || DeleteBlockedReason is not null)"
-                OnClick="ConfirmDeleteAsync"
-                data-delete-confirm>
-            Delete
-        </Button>
-    </Actions>
-</Dialog>
+<ConfirmDialog Visible="@_stopOpen"
+               VisibleChanged="OnStopOpenChanged"
+               Title="@($"Stop recording for {Recording.StreamerLogin}?")"
+               ConfirmLabel="Stop recording"
+               HookPrefix="stop"
+               Busy="@_stopping"
+               OnCancel="CancelStop"
+               OnConfirm="ConfirmStopAsync">
+    <MudBlazor.MudText Typo="MudBlazor.Typo.body1">The current capture is finalized, and the channel stays paused until you resume.</MudBlazor.MudText>
+</ConfirmDialog>
+<ConfirmDialog Visible="@_deleteOpen"
+               VisibleChanged="OnDeleteOpenChanged"
+               Title="Delete recording?"
+               ConfirmLabel="Delete"
+               HookPrefix="delete"
+               Busy="@_deleting"
+               ConfirmDisabled="@(DeleteBlockedReason is not null)"
+               OnCancel="CancelDelete"
+               OnConfirm="ConfirmDeleteAsync">
+    @* The banner is an alert only once it carries an error; before that it states the
+       consequence, which the dialog's name already introduces. *@
+    <MudBlazor.MudAlert Severity="MudBlazor.Severity.Error"
+                        Variant="MudBlazor.Variant.Text"
+                        Dense="true"
+                        role="@(_deleteError is null ? "note" : "alert")"
+                        data-delete-banner>
+        <b>@Recording.Title — @Recording.StreamerLogin</b><br />
+        @(_deleteError ?? "The files and watch progress are removed permanently.")
+    </MudBlazor.MudAlert>
+</ConfirmDialog>
 
 @code {
     private const string ModulePath = "./Components/Features/Details/RecordingDetails.razor.js";

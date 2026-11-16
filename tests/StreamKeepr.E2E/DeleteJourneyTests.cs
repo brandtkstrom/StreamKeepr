@@ -40,7 +40,7 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
 
         // Cancel first: the dialog closes, focus returns to the trigger, and the recording stays.
         await delete.ClickAsync();
-        ILocator dialog = page.Locator("[data-delete-dialog][open]");
+        ILocator dialog = Feedback.Dialog(page, "Delete recording?");
         await dialog.WaitForAsync();
         Assert.Contains("Retro marathon", await page.Locator("[data-delete-banner]").InnerTextAsync());
         Assert.Contains("permanently", await page.Locator("[data-delete-banner]").InnerTextAsync());
@@ -53,10 +53,10 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         // Confirm: the row disappears, the snackbar names the outcome, and Home opens the
         // first remaining recording in the current query.
         await delete.ClickAsync();
-        await page.Locator("[data-delete-dialog][open]").WaitForAsync();
+        await Feedback.Dialog(page, "Delete recording?").WaitForAsync();
         await page.Locator("[data-delete-confirm]").ClickAsync();
 
-        await page.Locator("[data-snackbar]", new() { HasTextString = "Recording deleted" }).WaitForAsync();
+        await Feedback.Snackbar(page, "Recording deleted").WaitForAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{topId}", StringComparison.Ordinal));
         await page.Locator($"a[data-recording-id='{deletedId}']")
             .WaitForAsync(new() { State = WaitForSelectorState.Detached });

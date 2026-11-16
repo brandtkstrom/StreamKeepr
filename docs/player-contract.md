@@ -38,7 +38,7 @@ The stitched `index.m3u8` is a **single media playlist**, not a multi-variant ma
   - `durationSec`, `resumeSec`, `chapters[]`, `statsOpen`, `theater`
   - `chapters[]` is `{ startSeconds, title, game }` from `RecordingView.Chapters`.
 - `dispose()` flushes progress, destroys hls/native media, clears timers and listeners, and releases the module reference. The `DotNetObjectReference` is disposed by the component.
-- The .NET reference exposes `SaveProgress(string recordingId, double)`, `ClearProgress(string recordingId)`, `SetStatsOpen(bool)`, `SetTheater(bool)`, and `Notify(string)`. The progress calls carry the recording id so a save in flight across a recording change lands on the recording it belongs to. `Notify` raises a `SnackbarService` message; it is used only for copy-stats confirmation/failure.
+- The .NET reference exposes `SaveProgress(string recordingId, double)`, `ClearProgress(string recordingId)`, `SetStatsOpen(bool)`, `SetTheater(bool)`, and `Notify(string)`. The progress calls carry the recording id so a save in flight across a recording change lands on the recording it belongs to. `Notify` shows a snackbar (`ISnackbar.Show`); it is used only for copy-stats confirmation/failure.
 - `UiPreferences` is the single source for stats/theater state. JS applies `setStatsOpen(bool)`/`setTheater(bool)` when `UiPreferences.Changed` fires; the player's own buttons call .NET to persist.
 - The player dispatches a throttled `sk:playhead` DOM event (at most every 250 ms on `timeupdate`, and immediately after play, pause, seek, rate change, end, loaded metadata, and duration change) with `recordingId`, `time`, `duration`, `paused`, `rate`, and `live`. The chat pane listens on `document`; the event never crosses the Blazor circuit.
 
@@ -157,7 +157,7 @@ Control order, left to right, matches the design system:
     "errors": [{"at":0,"type":"networkError","details":"fragLoadError","fatal":false}]
   }
   ```
-  Samples are the last 20; errors the last 10; unavailable values are `null`. The clipboard call uses only public playback data. Success shows “Stats copied”; failure shows “Could not copy stats” through `SnackbarService`. No legacy clipboard fallback.
+  Samples are the last 20; errors the last 10; unavailable values are `null`. The clipboard call uses only public playback data. Success shows “Stats copied”; failure shows “Could not copy stats” as a snackbar (`ISnackbar.Show`). No legacy clipboard fallback.
 - The panel stacks to one column below 600 px; tiles remain two per section. Collapse motion is the design-system 300 ms and is removed under reduced motion.
 
 ## 11. Chapter seek
@@ -209,7 +209,7 @@ Control order, left to right, matches the design system:
 bUnit:
 
 - `VideoPlayer` renders the skeleton once, initializes with the correct payload, never re-renders, calls `load` on an id change and `update` on a same-id state/title/chapter change, ignores `ResumeSec` on update, and disposes.
-- `UiPreferences.Changed` drives `setStatsOpen`/`setTheater`; the component's buttons call the .NET setters; `Notify` reaches `SnackbarService`.
+- `UiPreferences.Changed` drives `setStatsOpen`/`setTheater`; the component's buttons call the .NET setters; `Notify` shows a snackbar (`ISnackbar.Show`).
 - The player dispatches `sk:playhead` with the recording id, time, duration, paused/rate/live flags, throttles `timeupdate` to 250 ms, and emits immediately on the state events above.
 - `PlayerBridge` queues until ready, clamps, flushes, and clears on detach.
 - `StatsPanel` initial open/closed markup, placeholders, inert collapsed body, and switch/player-button ARIA.

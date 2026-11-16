@@ -15,9 +15,10 @@ public sealed class RecordingStopTests
     private static readonly DateTimeOffset Now = new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void A_finished_recording_has_no_stop_action()
+    public async Task A_finished_recording_has_no_stop_action()
     {
-        using BunitContext context = CreateContext(out _, signedIn: true);
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
 
         var cut = Render(context, Recording(RecordingState.Saved));
 
@@ -25,9 +26,10 @@ public sealed class RecordingStopTests
     }
 
     [Fact]
-    public void A_live_recording_shows_stop_for_signed_in_admins()
+    public async Task A_live_recording_shows_stop_for_signed_in_admins()
     {
-        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
 
         var cut = Render(context, Recording(RecordingState.Recording));
 
@@ -36,9 +38,10 @@ public sealed class RecordingStopTests
     }
 
     [Fact]
-    public void Signed_out_stop_is_inert_behind_requires_twitch()
+    public async Task Signed_out_stop_is_inert_behind_requires_twitch()
     {
-        using BunitContext context = CreateContext(out _, signedIn: false);
+        await using BunitContext context = CreateContext(out _, signedIn: false);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
 
         var cut = Render(context, Recording(RecordingState.Reconnecting));
 
@@ -46,54 +49,56 @@ public sealed class RecordingStopTests
     }
 
     [Fact]
-    public void Stop_confirms_then_calls_the_channel_control()
+    public async Task Stop_confirms_then_calls_the_channel_control()
     {
-        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var cut = Render(context, Recording(RecordingState.Recording));
 
         cut.Find("button[data-stop-recording]").Click();
 
-        var dialog = StopDialog(cut);
-        Assert.True(dialog.Instance.Open);
-        Assert.Contains("finalized", cut.Find("[data-stop-dialog]").TextContent);
-        Assert.Contains("stays paused", cut.Find("[data-stop-dialog]").TextContent);
+        Assert.True(dialogs.HasOpenDialog(StopName));
+        Assert.Contains("finalized", dialogs.Find("[data-stop-dialog]").TextContent);
+        Assert.Contains("stays paused", dialogs.Find("[data-stop-dialog]").TextContent);
 
-        cut.Find("[data-stop-confirm]").Click();
+        dialogs.Find("[data-stop-confirm]").Click();
 
         Assert.Equal(["stop:ann"], channels.Calls);
-        Assert.False(StopDialog(cut).Instance.Open);
-        Assert.Equal("Channel paused", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+        Assert.False(dialogs.HasOpenDialog(StopName));
+        Assert.Equal("Channel paused", context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
     }
 
     [Fact]
-    public void A_finished_recording_closes_an_open_stop_dialog()
+    public async Task A_finished_recording_closes_an_open_stop_dialog()
     {
-        using BunitContext context = CreateContext(out _, signedIn: true);
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var cut = Render(context, Recording(RecordingState.Recording));
         cut.Find("button[data-stop-recording]").Click();
-        Assert.True(StopDialog(cut).Instance.Open);
+        Assert.True(dialogs.HasOpenDialog(StopName));
 
         cut.Render(parameters => parameters.Add(
             component => component.Recording,
             Recording(RecordingState.Saved)));
 
-        Assert.False(StopDialog(cut).Instance.Open);
+        Assert.False(dialogs.HasOpenDialog(StopName));
     }
 
     [Fact]
-    public void Unauthorized_stop_closes_with_the_reconnect_message()
+    public async Task Unauthorized_stop_closes_with_the_reconnect_message()
     {
-        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         channels.OnStop = _ => Task.FromException(new UnauthorizedAccessException());
         var cut = Render(context, Recording(RecordingState.Recording));
         cut.Find("button[data-stop-recording]").Click();
 
-        cut.Find("[data-stop-confirm]").Click();
+        dialogs.Find("[data-stop-confirm]").Click();
 
-        Assert.False(StopDialog(cut).Instance.Open);
+        Assert.False(dialogs.HasOpenDialog(StopName));
         Assert.Contains(
             "Reconnect to manage channels",
-            context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+            context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
     }
 
     private static BunitContext CreateContext(
@@ -101,13 +106,13 @@ public sealed class RecordingStopTests
         bool signedIn)
     {
         var context = new BunitContext();
+        context.Services.AddStreamKeeprMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddLogging();
         context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddScoped<ViewerClock>();
         context.Services.AddScoped<UiPreferences>();
-        context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<PlayerBridge>();
         context.Services.AddSingleton<IExportService>(new TestExportService());
         channels = new TestChannelsView();
@@ -121,10 +126,7 @@ public sealed class RecordingStopTests
         return context;
     }
 
-    private static IRenderedComponent<Dialog> StopDialog(
-        IRenderedComponent<RecordingDetails> cut) =>
-        cut.FindComponents<Dialog>().Single(dialog =>
-            dialog.Instance.Title == "Stop recording for ann?");
+    private const string StopName = "Stop recording for ann?";
 
     private static IRenderedComponent<RecordingDetails> Render(
         BunitContext context,

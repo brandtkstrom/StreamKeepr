@@ -149,6 +149,45 @@ public sealed class AppShellDocumentTests
         Assert.Contains("512x512", sizes);
     }
 
+    [Theory]
+    [InlineData("failed", "Couldn’t rejoin the server", "Retry now, or reload the page.", true, "data-reconnect-retry")]
+    [InlineData("paused", "Session paused", "The server paused this session.", false, "data-reconnect-resume")]
+    [InlineData("resume-failed", "Couldn’t resume the session", "Try again, or reload the page", true, "data-reconnect-resume")]
+    public async Task The_reconnect_modal_has_the_reconnect_cards_copy_for_each_hard_loss(
+        string state, string title, string body, bool reload, string action)
+    {
+        using var factory = new StreamKeeprAppFactory();
+        using var client = factory.CreateClient();
+
+        var html = await client.GetStringAsync("/");
+        var document = new AngleSharp.Html.Parser.HtmlParser().ParseDocument(html);
+
+        var modal = document.QuerySelector("dialog#components-reconnect-modal")!;
+        var section = modal.QuerySelector($"[data-reconnect-state='{state}']")!;
+        Assert.Equal(title, section.QuerySelector($"h2#sk-reconnect-title-{state}")!.TextContent);
+        Assert.Contains(body, section.TextContent);
+        Assert.Equal(reload, section.QuerySelector("button[data-reconnect-reload]") is not null);
+        Assert.NotNull(section.QuerySelector($"button[{action}]"));
+        // MudIcon needs the circuit, so the icon is MudBlazor's SVG written into the document.
+        Assert.NotEmpty(section.QuerySelector("svg[aria-hidden='true'] path")!.GetAttribute("d")!);
+    }
+
+    [Fact]
+    public async Task The_reconnect_modal_has_no_section_for_a_brief_reconnect()
+    {
+        using var factory = new StreamKeeprAppFactory();
+        using var client = factory.CreateClient();
+
+        var html = await client.GetStringAsync("/");
+        var document = new AngleSharp.Html.Parser.HtmlParser().ParseDocument(html);
+
+        var modal = document.QuerySelector("dialog#components-reconnect-modal")!;
+        Assert.Equal(
+            ["failed", "paused", "resume-failed"],
+            modal.QuerySelectorAll("[data-reconnect-state]").Select(section => section.GetAttribute("data-reconnect-state")));
+        Assert.DoesNotContain("Rejoining", modal.TextContent);
+    }
+
     [Fact]
     public async Task Document_shell_keeps_the_template_reconnect_modal_and_prefs_module()
     {
