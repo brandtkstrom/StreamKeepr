@@ -6,7 +6,7 @@
 @inject AdminSessionState Session
 @inject IJSRuntime JS
 @inject ILogger<TwitchAccount> Logger
-@inject SnackbarService Snackbars
+@inject MudBlazor.ISnackbar Snackbars
 
 @* Top-bar Twitch control (details/auth/settings contract §7). Every state is plain markup that
    works without the circuit: the login link is a full-page navigation and Disconnect posts a

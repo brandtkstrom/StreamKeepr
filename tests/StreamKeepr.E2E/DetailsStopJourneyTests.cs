@@ -35,7 +35,7 @@ public sealed class DetailsStopJourneyTests : IAsyncLifetime
         await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "stop-dialog");
         await page.Locator("[data-stop-confirm]").ClickAsync();
 
-        await page.Locator("[data-snackbar]", new() { HasTextString = "Channel paused" }).WaitForAsync();
+        await Feedback.Snackbar(page, "Channel paused").WaitForAsync();
         await page.WaitForSelectorAsync("[data-stop-recording]", new() { State = WaitForSelectorState.Hidden });
 
         await page.GotoAsync(_app.BaseUrl);

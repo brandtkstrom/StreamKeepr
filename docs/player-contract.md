@@ -209,7 +209,7 @@ Control order, left to right, matches the design system:
 bUnit:
 
 - `VideoPlayer` renders the skeleton once, initializes with the correct payload, never re-renders, calls `load` on an id change and `update` on a same-id state/title/chapter change, ignores `ResumeSec` on update, and disposes.
-- `UiPreferences.Changed` drives `setStatsOpen`/`setTheater`; the component's buttons call the .NET setters; `Notify` reaches `SnackbarService`.
+- `UiPreferences.Changed` drives `setStatsOpen`/`setTheater`; the component's buttons call the .NET setters; `Notify` shows a snackbar (`ISnackbar.Show`).
 - The player dispatches `sk:playhead` with the recording id, time, duration, paused/rate/live flags, throttles `timeupdate` to 250 ms, and emits immediately on the state events above.
 - `PlayerBridge` queues until ready, clamps, flushes, and clears on detach.
 - `StatsPanel` initial open/closed markup, placeholders, inert collapsed body, and switch/player-button ARIA.

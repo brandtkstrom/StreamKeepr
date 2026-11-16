@@ -56,7 +56,7 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         await page.Locator("[data-delete-dialog][open]").WaitForAsync();
         await page.Locator("[data-delete-confirm]").ClickAsync();
 
-        await page.Locator("[data-snackbar]", new() { HasTextString = "Recording deleted" }).WaitForAsync();
+        await Feedback.Snackbar(page, "Recording deleted").WaitForAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{topId}", StringComparison.Ordinal));
         await page.Locator($"a[data-recording-id='{deletedId}']")
             .WaitForAsync(new() { State = WaitForSelectorState.Detached });

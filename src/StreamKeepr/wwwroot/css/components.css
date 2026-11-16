@@ -798,21 +798,15 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
   background: var(--sk-error-container); color: var(--sk-on-error-container); font: var(--sk-text-body-medium);
 }
 
-/* ---------- snackbar ---------- */
-.sk-snackbar-host {
-  position: fixed; left: 50%; bottom: calc(var(--sk-space-6) + env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%); z-index: 100; width: min(560px, calc(100vw - 32px));
-  pointer-events: none;
+/* ---------- snackbar (MudSnackbarProvider; design system Feedback card) ---------- */
+.mud-snackbar.mud-snackbar-surface {
+  background: var(--surface); color: var(--text-primary);
+  border: 1px solid var(--lines-default); box-shadow: var(--elevation-8);
 }
-.sk-snackbar {
-  display: flex; align-items: center; gap: var(--sk-space-2); min-height: 48px;
-  padding: var(--sk-space-2) var(--sk-space-2) var(--sk-space-2) var(--sk-space-4);
-  border-radius: var(--sk-radius-sm); background: var(--sk-inverse-surface); color: var(--sk-inverse-on-surface);
-  box-shadow: var(--sk-elevation-3); font: var(--sk-text-body-medium); pointer-events: auto;
+/* Above the phone's bottom navigation, which would otherwise cover it. */
+body:has([data-bottom-nav]) .mud-snackbar-location-bottom-left {
+  bottom: calc(var(--bottom-bar-height) + env(safe-area-inset-bottom, 0px) + 8px);
 }
-.sk-snackbar-text { flex: 1; min-width: 0; }
-.sk-snackbar .sk-btn.text { color: var(--sk-inverse-primary); padding: 0 var(--sk-space-2); }
-.sk-snackbar .sk-icon-btn { color: var(--sk-inverse-on-surface); }
 
 /* ---------- development gallery ---------- */
 .sk-dev-note { margin: 0; color: var(--sk-on-surface-variant); font: var(--sk-text-body-medium); }

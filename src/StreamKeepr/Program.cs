@@ -251,13 +251,12 @@ builder.Services.AddScoped<ViewerClock>();
 builder.Services.AddScoped<PlayerBridge>();
 builder.Services.AddScoped<LibraryView>();
 builder.Services.AddScoped<ILibraryView>(services => services.GetRequiredService<LibraryView>());
-builder.Services.AddScoped<SnackbarService>();
 builder.Services.AddScoped<IChannelsView, ChannelsView>();
 builder.Services.AddScoped<IConnectionStatusView, ConnectionStatusView>();
 
 builder.Services.AddRazorComponents()
        .AddInteractiveServerComponents();
-builder.Services.AddMudServices();
+builder.Services.AddMudServices(options => StreamKeeprSnackbars.Configure(options.SnackbarConfiguration));
 
 var app = builder.Build();
 

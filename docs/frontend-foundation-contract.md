@@ -25,7 +25,7 @@ The frontend foundation is the Blazor Web App host, routes, app shell, design-sy
 - `Program.cs` calls `AddMudServices()`.
 - `Routes.razor`, the one interactive boundary, renders `MudThemeProvider` (`Theme="StreamKeeprTheme.Theme"`, `IsDarkMode="true"`), `MudPopoverProvider`, `MudDialogProvider` and `MudSnackbarProvider` once, before the `Router`. The app is dark only: there is no theme preference, and `PaletteLight` keeps MudBlazor's defaults, unused.
 - `Ui/StreamKeeprTheme.cs` is hand-written from `design-system/tokens.json`: the `PaletteDark` values, MudBlazor's default `Typography` with the one override `Button.TextTransform = "none"`, and `LayoutProperties` (8px radius, 64px app bar, 320px drawer, 72px rail). `StreamKeeprThemeTests` compares every Palette value, the layout sizes and every MudBlazor type style with `tokens.json`, and fails when the theme sets a palette value other than MudBlazor's default that no token describes.
-- Components name MudBlazor types fully qualified (`MudBlazor.MudThemeProvider`) until `@using MudBlazor` can go into `_Imports.razor`: today it makes `SnackbarService` ambiguous with the app's own service, which the snackbar migration removes.
+- Components name MudBlazor types fully qualified (`MudBlazor.MudThemeProvider`) until `@using MudBlazor` can go into `_Imports.razor`: the app's own `SnackbarService` that once made it ambiguous is gone (#177), and adding the using is left to the cleanup (#181).
 
 ## 3. Routing and query state
 
@@ -129,7 +129,7 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 | `Switch` | `Checked`, `Label`, `OnChange`; `role="switch"` |
 | `Tooltip` | Hover/focus text; `aria-describedby`; no interactive content |
 | `Dialog` | `<dialog>` + `showModal()` via JS; focus trap/Esc; return focus; title, content, actions |
-| `Snackbar` | Scoped `SnackbarService` queue, one action, auto-dismiss; `SnackbarHost` in the shell |
+| Snackbars | MudBlazor `ISnackbar` and the `MudSnackbarProvider` in `Routes.razor` (#177). `StreamKeeprSnackbars.Configure` sets the Feedback card's defaults for `Program.cs` and the tests: bottom left (above the phone's bottom navigation), one visible at a time with the rest queued, 4s, duplicates allowed, no close icon. `ISnackbar.Show(text, actionLabel, action)` adds at most one action; a blank text or half an action throws. A snackbar is a polite `alert` |
 
 - `RequiresTwitch`: renders `AuthorizeView`; when signed out, the child stays visible but is wrapped with `inert` and a tooltip “Connect Twitch to use this”; never hidden. The service/UI layer also enforces authorization.
 - `/dev/components` is Development-only, shows every primitive against its preview, and is not linked in production.

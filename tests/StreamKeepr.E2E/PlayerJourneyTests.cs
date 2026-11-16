@@ -275,8 +275,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-stats");
 
         await page.Locator("[data-sk='copy-stats']").ClickAsync();
-        await page.Locator("[data-snackbar]").WaitForAsync();
-        Assert.Contains("Stats copied", await page.Locator("[data-snackbar]").InnerTextAsync());
+        await Feedback.Snackbar(page, "Stats copied").WaitForAsync();
 
         await page.WaitForFunctionAsync(
             "async () => (await navigator.clipboard.readText()).length > 0",

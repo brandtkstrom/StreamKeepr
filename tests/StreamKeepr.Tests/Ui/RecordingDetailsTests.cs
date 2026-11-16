@@ -207,7 +207,7 @@ public sealed class RecordingDetailsTests
         using BunitContext context = CreateContext(out BunitJSModuleInterop module);
         context.AddAuthorization().SetNotAuthorized();
         module.Setup<bool>("copyText", _ => true).SetResult(true);
-        SnackbarService snackbars = context.Services.GetRequiredService<SnackbarService>();
+        MudBlazor.ISnackbar snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
         // Copying needs no sign-in; only admin actions such as Export sit behind RequiresTwitch.
@@ -221,7 +221,7 @@ public sealed class RecordingDetailsTests
                 module.Invocations,
                 invocation => invocation.Identifier == "copyText");
             Assert.Equal("http://localhost/media/ann/r1/index.m3u8", copy.Arguments[0]);
-            Assert.Equal("Playlist URL copied", snackbars.Current?.Text);
+            Assert.Equal("Playlist URL copied", snackbars.CurrentMessage());
         });
     }
 
@@ -230,13 +230,13 @@ public sealed class RecordingDetailsTests
     {
         using BunitContext context = CreateContext(out BunitJSModuleInterop module);
         module.Setup<bool>("copyText", _ => true).SetResult(false);
-        SnackbarService snackbars = context.Services.GetRequiredService<SnackbarService>();
+        MudBlazor.ISnackbar snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
         cut.Find("[data-copy-playlist]").Click();
 
         cut.WaitForAssertion(() =>
-            Assert.Equal("Could not copy playlist URL", snackbars.Current?.Text));
+            Assert.Equal("Could not copy playlist URL", snackbars.CurrentMessage()));
     }
 
     private static IRenderedComponent<RecordingDetails> Render(
@@ -251,6 +251,7 @@ public sealed class RecordingDetailsTests
         string? detailsCookie = null)
     {
         var context = new BunitContext();
+        context.Services.AddStreamKeeprMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         module = context.JSInterop.SetupModule(Module);
         module.Mode = JSRuntimeMode.Loose;
@@ -266,7 +267,6 @@ public sealed class RecordingDetailsTests
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddScoped<ViewerClock>();
         context.Services.AddScoped<UiPreferences>();
-        context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<PlayerBridge>();
         context.Services.AddSingleton<IExportService>(new TestExportService());
         context.Services.AddSingleton<IChannelsView>(new TestChannelsView());

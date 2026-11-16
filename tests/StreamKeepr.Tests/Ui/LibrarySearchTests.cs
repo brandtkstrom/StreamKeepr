@@ -159,10 +159,9 @@ public sealed class LibrarySearchTests
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddLogging();
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
         context.Services.AddScoped<ViewerClock>();
-        context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<UiPreferences>();
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddSingleton<ILibraryView>(view);

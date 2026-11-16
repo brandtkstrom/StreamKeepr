@@ -139,7 +139,7 @@ public sealed class RecordingDeleteTests
     [Fact]
     public void An_already_deleted_recording_closes_with_a_notice()
     {
-        using BunitContext context = CreateContext(out TestRecordingAdmin admin, out SnackbarService snackbars, signedIn: true);
+        using BunitContext context = CreateContext(out TestRecordingAdmin admin, out MudBlazor.ISnackbar snackbars, signedIn: true);
         admin.Failure = _ => new KeyNotFoundException("That recording was already deleted.");
         var cut = Render(context, Recording());
         cut.Find("button[data-delete]").Click();
@@ -147,13 +147,13 @@ public sealed class RecordingDeleteTests
         cut.Find("[data-delete-confirm]").Click();
 
         Assert.False(DeleteDialog(cut).Instance.Open);
-        Assert.Contains("already deleted", snackbars.Current?.Text);
+        Assert.Contains("already deleted", snackbars.CurrentMessage());
     }
 
     [Fact]
     public void Unauthorized_closes_with_the_reconnect_message()
     {
-        using BunitContext context = CreateContext(out TestRecordingAdmin admin, out SnackbarService snackbars, signedIn: true);
+        using BunitContext context = CreateContext(out TestRecordingAdmin admin, out MudBlazor.ISnackbar snackbars, signedIn: true);
         admin.Failure = _ => new UnauthorizedAccessException("Connect Twitch to delete recordings.");
         var cut = Render(context, Recording());
         cut.Find("button[data-delete]").Click();
@@ -161,22 +161,22 @@ public sealed class RecordingDeleteTests
         cut.Find("[data-delete-confirm]").Click();
 
         Assert.False(DeleteDialog(cut).Instance.Open);
-        Assert.Contains("Reconnect to delete recordings", snackbars.Current?.Text);
+        Assert.Contains("Reconnect to delete recordings", snackbars.CurrentMessage());
     }
 
     private static BunitContext CreateContext(
         out TestRecordingAdmin admin,
-        out SnackbarService snackbars,
+        out MudBlazor.ISnackbar snackbars,
         bool signedIn)
     {
         var context = new BunitContext();
+        context.Services.AddStreamKeeprMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddLogging();
         context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddScoped<ViewerClock>();
         context.Services.AddScoped<UiPreferences>();
-        context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<StreamKeepr.Components.Features.Player.PlayerBridge>();
         context.Services.AddSingleton<IExportService>(new TestExportService());
         admin = new TestRecordingAdmin();
@@ -187,7 +187,7 @@ public sealed class RecordingDeleteTests
             auth.SetAuthorized("mock_admin");
         else
             auth.SetNotAuthorized();
-        snackbars = context.Services.GetRequiredService<SnackbarService>();
+        snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
         return context;
     }
 

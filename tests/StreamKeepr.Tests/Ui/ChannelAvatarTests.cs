@@ -56,7 +56,7 @@ public sealed class ChannelAvatarTests
     private static BunitContext CreateContext()
     {
         var context = new BunitContext();
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         return context;
     }
 }

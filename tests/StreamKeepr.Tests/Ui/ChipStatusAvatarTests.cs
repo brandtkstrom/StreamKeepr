@@ -20,7 +20,7 @@ public sealed class ChipStatusAvatarTests
         string expectedText)
     {
         await using var context = new BunitContext();
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         var cut = context.Render<StatusChip>(parameters => parameters
             .Add(component => component.Status, status));
 
@@ -34,7 +34,7 @@ public sealed class ChipStatusAvatarTests
     public async Task A_status_chip_states_a_condition_and_is_never_a_control()
     {
         await using var context = new BunitContext();
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         var cut = context.Render<StatusChip>(parameters => parameters
             .Add(component => component.Status, StatusChipKind.Partial)
             .Add(component => component.Icon, "schedule"));
@@ -52,7 +52,7 @@ public sealed class ChipStatusAvatarTests
     public async Task An_unknown_icon_name_fails_fast()
     {
         await using var context = new BunitContext();
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         Assert.ThrowsAny<ArgumentException>(() => context.Render<StatusChip>(parameters => parameters
             .Add(component => component.Icon, "not_an_icon")));
     }
@@ -61,7 +61,7 @@ public sealed class ChipStatusAvatarTests
     public async Task Rec_chip_has_the_pulse_dot_and_error_chip_has_a_warning_icon()
     {
         await using var context = new BunitContext();
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         var rec = context.Render<StatusChip>(parameters => parameters
             .Add(component => component.Status, StatusChipKind.Rec));
         var error = context.Render<StatusChip>(parameters => parameters
@@ -78,7 +78,7 @@ public sealed class ChipStatusAvatarTests
     public async Task Avatar_uses_initials_and_announces_its_name()
     {
         await using var context = new BunitContext();
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         var cut = context.Render<Avatar>(parameters => parameters
             .Add(component => component.Name, "pixelwren")
             .Add(component => component.Tone, AvatarTone.Primary));
@@ -95,7 +95,7 @@ public sealed class ChipStatusAvatarTests
     public async Task Avatar_initials_use_the_first_two_words()
     {
         await using var context = new BunitContext();
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         var cut = context.Render<Avatar>(parameters => parameters
             .Add(component => component.Name, "lofi streams"));
 
@@ -106,7 +106,7 @@ public sealed class ChipStatusAvatarTests
     public async Task Avatar_can_use_an_image_and_show_the_recording_ring()
     {
         await using var context = new BunitContext();
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         var cut = context.Render<Avatar>(parameters => parameters
             .Add(component => component.Name, "pixelwren")
             .Add(component => component.ImageUrl, "https://example.test/avatar.png")

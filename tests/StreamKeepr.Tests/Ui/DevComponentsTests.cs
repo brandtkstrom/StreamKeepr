@@ -52,11 +52,10 @@ public sealed class DevComponentsTests
     {
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         context.AddAuthorization().SetNotAuthorized();
         context.Services.AddLogging();
         context.Services.AddSingleton<TimeProvider>(TimeProvider.System);
-        context.Services.AddScoped<SnackbarService>();
         context.Services.AddSingleton<IWebHostEnvironment>(
             new TestWebHostEnvironment { EnvironmentName = environmentName });
         return context;

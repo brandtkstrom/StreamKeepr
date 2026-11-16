@@ -47,7 +47,7 @@ public sealed class RecordingExportTests
         using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
         cut.Find("button[data-export]").Click();
-        SnackbarService snackbars = context.Services.GetRequiredService<SnackbarService>();
+        MudBlazor.ISnackbar snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
 
         cut.InvokeAsync(() => exports.Set(new ExportJob("e1", "r1", ExportState.Succeeded, 1, "ann_x.mp4", null)));
 
@@ -58,12 +58,12 @@ public sealed class RecordingExportTests
             Assert.Equal("/api/exports/e1/download", download.GetAttribute("href"));
             Assert.Equal("false", download.GetAttribute("data-enhance-nav"));
         });
-        Assert.Equal("Export ready", snackbars.Current?.Text);
+        Assert.Equal("Export ready", snackbars.CurrentMessage());
         Assert.False(cut.Find("button[data-export]").HasAttribute("disabled"));
 
         snackbars.Dismiss();
         cut.InvokeAsync(() => exports.Set(new ExportJob("e1", "r1", ExportState.Succeeded, 1, "ann_x.mp4", null)));
-        Assert.Null(snackbars.Current);
+        Assert.Null(snackbars.CurrentMessage());
     }
 
     [Fact]
@@ -114,7 +114,7 @@ public sealed class RecordingExportTests
 
         Assert.Equal(
             "The recording can be exported when it finishes.",
-            context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+            context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
         Assert.Empty(cut.FindAll("[data-export-row]"));
     }
 
@@ -138,7 +138,7 @@ public sealed class RecordingExportTests
             Assert.NotNull(cut.Find("button[data-export-retry]"));
             Assert.Empty(cut.FindAll("button[data-export-cancel]"));
         });
-        Assert.Null(context.Services.GetRequiredService<SnackbarService>().Current);
+        Assert.Null(context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
 
         cut.Find("button[data-export-retry]").Click();
 
@@ -158,13 +158,13 @@ public sealed class RecordingExportTests
             exports.Set(new ExportJob("e1", "r1", ExportState.Succeeded, 1, "x.mp4", null));
             return new InvalidOperationException("The export has already finished.");
         };
-        SnackbarService snackbars = context.Services.GetRequiredService<SnackbarService>();
+        MudBlazor.ISnackbar snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
 
         cut.Find("button[data-export-cancel]").Click();
 
         cut.WaitForAssertion(() => Assert.NotNull(cut.Find("a[data-export-download]")));
         // The finished job announces itself; the refused cancel adds nothing.
-        Assert.Equal("Export ready", snackbars.Current?.Text);
+        Assert.Equal("Export ready", snackbars.CurrentMessage());
     }
 
     [Fact]
@@ -182,7 +182,7 @@ public sealed class RecordingExportTests
             Assert.Equal("The export could not be completed.", cut.Find("[data-export-row] [role='status']").TextContent);
             Assert.NotNull(cut.Find("button[data-export-retry]"));
         });
-        Assert.Equal("Export failed", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+        Assert.Equal("Export failed", context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
         Assert.False(cut.Find("button[data-export]").HasAttribute("disabled"));
     }
 
@@ -210,13 +210,13 @@ public sealed class RecordingExportTests
     private static BunitContext CreateContext(out TestExportService exports, bool signedIn)
     {
         var context = new BunitContext();
+        context.Services.AddStreamKeeprMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddLogging();
         context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddScoped<ViewerClock>();
         context.Services.AddScoped<UiPreferences>();
-        context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<StreamKeepr.Components.Features.Player.PlayerBridge>();
         exports = new TestExportService();
         context.Services.AddSingleton<IExportService>(exports);

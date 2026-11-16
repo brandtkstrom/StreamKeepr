@@ -22,8 +22,8 @@ public sealed class HomeDeleteTests
         view.RecordingsByLogin["ann"] = [view.FindById["r2"]];
         view.RaiseChanged();
 
-        var snackbars = context.Services.GetRequiredService<SnackbarService>();
-        Assert.Equal("Recording deleted", snackbars.Current?.Text);
+        var snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
+        Assert.Equal("Recording deleted", snackbars.CurrentMessage());
         Assert.EndsWith("/r/r2", navigation.Uri, StringComparison.Ordinal);
     }
 
@@ -55,7 +55,7 @@ public sealed class HomeDeleteTests
 
         Assert.NotNull(cut.Find("[data-unknown-recording]"));
         Assert.Equal("/r/missing", new Uri(navigation.Uri).AbsolutePath);
-        Assert.Null(context.Services.GetRequiredService<SnackbarService>().Current);
+        Assert.Null(context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
     }
 
     private static void SetLibrary(TestLibraryView view)

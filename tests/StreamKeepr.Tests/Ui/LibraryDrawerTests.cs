@@ -503,7 +503,6 @@ public sealed class LibraryDrawerTests
 
         context.Services.AddSingleton<IClientStateStore>(store);
         context.Services.AddScoped<ViewerClock>();
-        context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<PlayerBridge>();
         context.Services.AddSingleton<IExportService>(new TestExportService());
         context.Services.AddSingleton<IChannelsView>(new TestChannelsView());
@@ -513,7 +512,7 @@ public sealed class LibraryDrawerTests
         context.Services.AddSingleton<ILibraryView>(view);
         context.Services.AddScoped<UiPreferences>();
         // MainLayout hosts the MudBlazor shell, whose links come from configuration.
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         context.Services.AddSingleton<MudBlazor.IBrowserViewportService>(new TestBrowserViewport());
         context.Services.AddSingleton(Options.Create(new LinksOptions
         {

@@ -33,7 +33,7 @@ The backend contract wins over the plan's F10-T3: export is **always one MP4**. 
 
 - The button is an Outlined action and is public; it is never wrapped in `RequiresTwitch`.
 - The absolute URL is built from `NavigationManager.BaseUri` and the relative `RecordingView.PlaylistUrl` (`/media/{channel}/{id}/index.m3u8`). Use `new Uri(new Uri(NavigationManager.BaseUri), playlistUrl).AbsoluteUri`; never construct the media path by hand. Forwarded-header configuration makes this the public origin.
-- Copy through the clipboard API; confirm “Playlist URL copied” through `SnackbarService`. A missing/rejected clipboard shows “Could not copy playlist URL”. No legacy fallback.
+- Copy through the clipboard API; confirm “Playlist URL copied” through a snackbar (`ISnackbar.Show`). A missing/rejected clipboard shows “Could not copy playlist URL”. No legacy fallback.
 - Copy failure is not an auth error and never opens a dialog.
 
 ## 5. Export MP4

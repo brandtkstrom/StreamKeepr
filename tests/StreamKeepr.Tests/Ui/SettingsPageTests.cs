@@ -100,7 +100,7 @@ public sealed class SettingsPageTests
         await cut.InvokeAsync(pending.SetResult);
 
         cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-channel='ann'] [data-channel-resume]")));
-        Assert.Equal("Channel paused", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+        Assert.Equal("Channel paused", context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public sealed class SettingsPageTests
         await cut.InvokeAsync(pending.SetResult);
 
         cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-channel='ann'] [data-channel-stop]")));
-        Assert.Equal("Recording resumed", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+        Assert.Equal("Recording resumed", context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
     }
 
     [Theory]
@@ -158,7 +158,7 @@ public sealed class SettingsPageTests
 
         cut.WaitForAssertion(() => Assert.Equal("", cut.Find("[data-channel-login]").GetAttribute("value")));
         Assert.Null(cut.Find("[data-channel-add]").GetAttribute("aria-busy"));
-        Assert.Equal("Channel added", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+        Assert.Equal("Channel added", context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
     }
 
     [Theory]
@@ -215,7 +215,7 @@ public sealed class SettingsPageTests
         await cut.InvokeAsync(pending.SetResult);
 
         cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-channels-empty]")));
-        Assert.Equal("Channel removed", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+        Assert.Equal("Channel removed", context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
     }
 
     [Fact]
@@ -239,10 +239,9 @@ public sealed class SettingsPageTests
     {
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddMudServices();
+        context.Services.AddStreamKeeprMudServices();
         context.Services.AddLogging();
         context.Services.AddSingleton(new AdminSessionState());
-        context.Services.AddSingleton(new SnackbarService(new FakeTimeProvider()));
         context.Services.AddSingleton<AntiforgeryStateProvider>(new FixedAntiforgery());
         channels = new TestChannelsView();
         context.Services.AddSingleton<IChannelsView>(channels);

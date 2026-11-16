@@ -62,7 +62,7 @@ public sealed class RecordingStopTests
 
         Assert.Equal(["stop:ann"], channels.Calls);
         Assert.False(StopDialog(cut).Instance.Open);
-        Assert.Equal("Channel paused", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+        Assert.Equal("Channel paused", context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public sealed class RecordingStopTests
         Assert.False(StopDialog(cut).Instance.Open);
         Assert.Contains(
             "Reconnect to manage channels",
-            context.Services.GetRequiredService<SnackbarService>().Current?.Text);
+            context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
     }
 
     private static BunitContext CreateContext(
@@ -101,13 +101,13 @@ public sealed class RecordingStopTests
         bool signedIn)
     {
         var context = new BunitContext();
+        context.Services.AddStreamKeeprMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddLogging();
         context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddScoped<ViewerClock>();
         context.Services.AddScoped<UiPreferences>();
-        context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<PlayerBridge>();
         context.Services.AddSingleton<IExportService>(new TestExportService());
         channels = new TestChannelsView();

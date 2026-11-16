@@ -114,6 +114,8 @@ public sealed class HomePlayerTests
         view.FindById["r2"] = VideoPlayerTests.Recording("r2", "Second");
 
         var context = new BunitContext();
+
+        context.Services.AddStreamKeeprMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         module = context.JSInterop.SetupModule("./Components/Features/Player/VideoPlayer.razor.js");
         module.Mode = JSRuntimeMode.Loose;
@@ -127,7 +129,6 @@ public sealed class HomePlayerTests
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddScoped<ViewerClock>();
         context.Services.AddScoped<UiPreferences>();
-        context.Services.AddScoped<SnackbarService>();
         context.Services.AddScoped<PlayerBridge>();
         context.Services.AddSingleton<IExportService>(new TestExportService());
         context.Services.AddSingleton<IChannelsView>(new TestChannelsView());

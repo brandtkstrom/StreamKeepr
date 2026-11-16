@@ -1,7 +1,7 @@
 @using StreamKeepr.Infrastructure.Runtime
 @implements IDisposable
 @inject IChannelsView Channels
-@inject SnackbarService Snackbars
+@inject MudBlazor.ISnackbar Snackbars
 @inject ILogger<ChannelSettings> Logger
 
 @* Rendered only for a signed-in admin. ChannelsView enforces the same rule on every call. *@
