@@ -21,7 +21,7 @@
   --sk-inverse-on-surface: var(--text-primary);
   --sk-inverse-primary: var(--primary);
   --sk-inverse-surface: var(--surface-raised);
-  --sk-on-error-container: var(--error);
+  --sk-on-error-container: var(--text-primary);
   --sk-on-highlight: var(--highlight-contrast-text);
   --sk-on-player: var(--player-text);
   --sk-on-primary: var(--primary-contrast-text);
@@ -30,9 +30,9 @@
   --sk-on-secondary-container: var(--text-primary);
   --sk-on-surface: var(--text-primary);
   --sk-on-surface-variant: var(--text-secondary);
-  --sk-on-tertiary-container: var(--info);
+  --sk-on-tertiary-container: var(--text-primary);
   --sk-on-twitch: var(--twitch-contrast-text);
-  --sk-on-warning-container: var(--warning);
+  --sk-on-warning-container: var(--text-primary);
   --sk-outline: var(--lines-inputs);
   --sk-outline-variant: var(--lines-default);
   --sk-player-bg: var(--player-background);
@@ -666,6 +666,10 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 #components-reconnect-modal button {
   border: 0; border-radius: var(--sk-radius-full); padding: var(--sk-space-1) var(--sk-space-6);
   background: var(--sk-primary); color: var(--sk-on-primary); font: var(--sk-text-label-large); cursor: pointer;
+  /* MudBlazor.min.css styles this template dialog too (transition, uppercase, tracking, and
+     `margin: 40px auto !important`). Undo that until the reconnect surface moves to MudBlazor;
+     the !important only answers MudBlazor's own on this element. */
+  transition: none; text-transform: none; letter-spacing: normal; min-width: 0; margin: 0 !important;
 }
 #components-reconnect-modal button:hover { box-shadow: var(--sk-elevation-1); }
 #components-reconnect-modal button:focus-visible { outline: 2px solid var(--sk-primary); outline-offset: 2px; }
