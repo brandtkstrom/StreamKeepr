@@ -166,16 +166,12 @@ describe("reconnect.js", () => {
 
     it("shows resume-failed, named by its title, when resuming throws", async () => {
       window.Blazor = { reconnect: vi.fn(), resumeCircuit: vi.fn().mockRejectedValue(new Error("down")) };
-      modal.classList.add("components-reconnect-paused");
       emit(modal, "paused");
 
       button("data-reconnect-resume").click();
 
-      await vi.waitFor(() =>
-        expect(modal.classList.contains("components-reconnect-resume-failed")).toBe(true),
-      );
+      await vi.waitFor(() => expect(modal.dataset.reconnectShown).toBe("resume-failed"));
       expect(modal.getAttribute("aria-labelledby")).toBe("sk-reconnect-title-resume-failed");
-      expect(modal.dataset.reconnectShown).toBe("resume-failed");
       expect(document.body.dataset.skReconnect).toBe("resume-failed");
     });
 

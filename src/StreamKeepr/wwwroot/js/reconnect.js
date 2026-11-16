@@ -98,10 +98,6 @@ async function resume() {
     if (!successful) location.reload();
     else reconnectModal?.close();
   } catch {
-    reconnectModal?.classList.replace(
-      "components-reconnect-paused",
-      "components-reconnect-resume-failed",
-    );
     setState("resume-failed");
     showLoss("resume-failed");
   }

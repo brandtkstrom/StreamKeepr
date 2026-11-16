@@ -1,0 +1,28 @@
+@* "Live updates paused" (design system Feedback card): a polite MudAlert Warning Dense with a
+   Retry. Retry is served by reconnect.js through its data-reconnect-retry hook, because the
+   alert is shown while the circuit may be down and no Blazor event would fire. The drawer's
+   note and ReconnectNotice both render it; additional attributes (data hooks) apply to the
+   alert. *@
+<MudBlazor.MudAlert Severity="MudBlazor.Severity.Warning"
+                    Variant="MudBlazor.Variant.Text"
+                    Dense="true"
+                    Icon="@MudBlazor.Icons.Material.Rounded.CloudOff"
+                    Class="@($"sk-alert-action {Class}")"
+                    role="status"
+                    @attributes="AdditionalAttributes">
+    <span class="msg" data-updates-paused-msg>@Message</span>
+    <MudBlazor.MudButton Variant="MudBlazor.Variant.Text"
+                         Size="MudBlazor.Size.Small"
+                         Color="MudBlazor.Color.Inherit"
+                         data-reconnect-retry>Retry</MudBlazor.MudButton>
+</MudBlazor.MudAlert>
+
+@code {
+    [Parameter] public string Message { get; set; } = "Live updates paused";
+
+    /// <summary>The placement class of the surface that shows it.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+}
