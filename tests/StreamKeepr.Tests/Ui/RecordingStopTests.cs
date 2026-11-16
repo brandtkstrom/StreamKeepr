@@ -42,7 +42,7 @@ public sealed class RecordingStopTests
 
         var cut = Render(context, Recording(RecordingState.Reconnecting));
 
-        Assert.NotNull(cut.Find(".sk-requires-twitch[inert] button[data-stop-recording]"));
+        Assert.NotNull(cut.Find("[data-requires-twitch] [inert] button[data-stop-recording]"));
     }
 
     [Fact]

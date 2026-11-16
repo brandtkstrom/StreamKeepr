@@ -100,7 +100,7 @@ public sealed class RecordingExportTests
 
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
 
-        Assert.NotNull(cut.Find(".sk-requires-twitch[inert] button[data-export]"));
+        Assert.NotNull(cut.Find("[data-requires-twitch] [inert] button[data-export]"));
     }
 
     [Fact]

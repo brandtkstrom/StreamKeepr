@@ -1,7 +1,7 @@
 @using StreamKeepr.Ui
 
 @* One streamer group: avatar, live ring, count/state, chevron, and day-grouped rows. *@
-<section class="sk-group" role="none">
+<section class="sk-group" role="none" data-streamer-group="@Streamer.Login">
     @* A treeitem rather than a button: tree-nav.js gives it Enter/Space and the roving tab stop. *@
     <div class="sk-group-head"
          role="treeitem"
@@ -17,7 +17,7 @@
                 Large="true" />
         <span class="who">
             <span class="name"><Highlight Text="@Streamer.DisplayName" Search="@Search" /></span>
-            <span class="meta">@Meta</span>
+            <span class="meta" data-group-meta>@Meta</span>
         </span>
         <span class="chev" aria-hidden="true"><Icon Name="expand_more" /></span>
     </div>
@@ -33,7 +33,7 @@
                 if (previousDay?.Date != local.Date)
                 {
                     previousDay = local;
-                    <div class="sk-day" role="none">@Format.DayHeader(recording.StartedAt, Now, TimeZone)</div>
+                    <div class="sk-day" role="none" data-day-header>@Format.DayHeader(recording.StartedAt, Now, TimeZone)</div>
                 }
 
                 <RecordingRow @key="recording.Id"

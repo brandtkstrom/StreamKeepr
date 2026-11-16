@@ -36,7 +36,7 @@
     </button>
 
     <div class="sk-player-spinner" data-sk="spinner" hidden>
-        <span class="sk-spin" aria-hidden="true"></span>
+        <span class="sk-spin" data-spinner aria-hidden="true"></span>
         <span class="sk-visually-hidden" data-sk="spinner-text">Loading video</span>
         <p class="sk-player-waiting" data-sk="waiting" role="status" hidden>Waiting for the first segment…</p>
     </div>
@@ -50,7 +50,7 @@
         </div>
     </div>
 
-    <div class="sk-player-bottom">
+    <div class="sk-player-bottom" data-sk="bottom-bar">
         <div class="sk-seek"
              data-sk="seek"
              role="slider"
@@ -127,7 +127,7 @@
                 </div>
             </div>
             @* One captured quality, so the quality control is static text (E-20). *@
-            <span class="sk-pill sk-quality" title="Quality: source">Source</span>
+            <span class="sk-pill sk-quality" data-quality title="Quality: source">Source</span>
             <button type="button"
                     class="sk-icon-btn"
                     data-sk="stats"

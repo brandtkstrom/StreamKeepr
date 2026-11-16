@@ -5,7 +5,9 @@
 @inject NavigationManager Navigation
 @inject ILogger<AppShell> Logger
 
-<div class="sk-shell @(Preferences.Theater ? "theater" : null)">
+<div class="sk-shell @(Preferences.Theater ? "theater" : null)"
+     data-shell
+     data-theater="@(Preferences.Theater ? "true" : "false")">
     <header class="sk-appbar">
         <button type="button"
                 class="sk-icon-btn"
@@ -21,7 +23,7 @@
         <a class="sk-wordmark" href="/" aria-label="StreamKeepr home">
             @if (RecordingActive)
             {
-                <span class="rec-dot" aria-hidden="true"></span>
+                <span class="rec-dot" data-rec-dot aria-hidden="true"></span>
             }
             <span>Stream<b>Keepr</b></span>
         </a>
@@ -53,7 +55,7 @@
 
             @if (AuthSlot is null)
             {
-                <span class="sk-twitch sk-auth-placeholder" aria-disabled="true">
+                <span class="sk-twitch sk-auth-placeholder" data-auth-placeholder aria-disabled="true">
                     <span class="sk-icon" aria-hidden="true">link</span>
                     <span class="lbl">Connect with Twitch</span>
                 </span>
@@ -70,7 +72,7 @@
                      OnRetry="RetryAsync" />
 
     <div class="sk-shell-body">
-        <nav id="sk-drawer" class="sk-drawer @DrawerClass" aria-label="Library">
+        <nav id="sk-drawer" class="sk-drawer @DrawerClass" data-drawer="@Preferences.Drawer.ToString().ToLowerInvariant()" aria-label="Library">
             @if (Drawer is null)
             {
                 <div class="sk-drawer-head">

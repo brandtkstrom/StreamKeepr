@@ -16,25 +16,25 @@ public sealed class DevComponentsTests
         var cut = RenderPage(context);
 
         Assert.Contains("Design-system primitives", cut.Markup);
-        Assert.NotEmpty(cut.FindAll(".sk-btn.filled"));
-        Assert.NotEmpty(cut.FindAll(".sk-btn.tonal"));
-        Assert.NotEmpty(cut.FindAll(".sk-btn.outlined"));
-        Assert.NotEmpty(cut.FindAll(".sk-btn.text"));
-        Assert.NotEmpty(cut.FindAll(".sk-btn.danger"));
-        Assert.NotEmpty(cut.FindAll(".sk-icon-btn"));
-        Assert.NotEmpty(cut.FindAll(".sk-chip[aria-pressed]"));
-        Assert.NotEmpty(cut.FindAll(".sk-status.rec"));
-        Assert.NotEmpty(cut.FindAll(".sk-status.partial"));
-        Assert.NotEmpty(cut.FindAll(".sk-status.processing"));
-        Assert.NotEmpty(cut.FindAll(".sk-status.saved"));
-        Assert.NotEmpty(cut.FindAll(".sk-status.failed"));
-        Assert.NotEmpty(cut.FindAll(".sk-avatar"));
-        Assert.NotEmpty(cut.FindAll("section.sk-collapse"));
+        Assert.NotEmpty(cut.FindAll("button[data-variant='filled']"));
+        Assert.NotEmpty(cut.FindAll("button[data-variant='tonal']"));
+        Assert.NotEmpty(cut.FindAll("button[data-variant='outlined']"));
+        Assert.NotEmpty(cut.FindAll("button[data-variant='text']"));
+        Assert.NotEmpty(cut.FindAll("button[data-variant='danger']"));
+        Assert.NotEmpty(cut.FindAll("button[aria-label='Stats'][aria-pressed='true']"));
+        Assert.NotEmpty(cut.FindAll("button[aria-pressed]"));
+        Assert.NotEmpty(cut.FindAll("[data-status='rec']"));
+        Assert.NotEmpty(cut.FindAll("[data-status='partial']"));
+        Assert.NotEmpty(cut.FindAll("[data-status='processing']"));
+        Assert.NotEmpty(cut.FindAll("[data-status='saved']"));
+        Assert.NotEmpty(cut.FindAll("[data-status='error']"));
+        Assert.NotEmpty(cut.FindAll("[role='img'][data-tone]"));
+        Assert.NotEmpty(cut.FindAll("section[data-collapsible]"));
         Assert.NotEmpty(cut.FindAll("[role='switch']"));
         Assert.NotEmpty(cut.FindAll("[role='menu']"));
         Assert.NotEmpty(cut.FindAll("[role='tooltip']"));
-        Assert.NotEmpty(cut.FindAll("dialog.sk-dialog"));
-        Assert.NotEmpty(cut.FindAll(".sk-requires-twitch[inert]"));
+        Assert.NotEmpty(cut.FindAll("dialog"));
+        Assert.NotEmpty(cut.FindAll("[data-requires-twitch] [inert]"));
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public sealed class DevComponentsTests
         var cut = RenderPage(context);
 
         Assert.Contains("Page not found", cut.Markup);
-        Assert.Empty(cut.FindAll(".sk-btn"));
+        Assert.Empty(cut.FindAll("button[data-variant]"));
         Assert.Empty(cut.FindAll("[role='menu']"));
     }
 

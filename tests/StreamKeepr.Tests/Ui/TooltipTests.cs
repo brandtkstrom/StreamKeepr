@@ -13,7 +13,7 @@ public sealed class TooltipTests
             .Add(component => component.Text, "Connect Twitch to use this")
             .AddChildContent("<button>Export</button>"));
 
-        var wrapper = cut.Find(".sk-tooltip-wrap");
+        var wrapper = cut.Find("[aria-describedby]");
         var bubble = cut.Find("[role='tooltip']");
 
         Assert.Equal(bubble.GetAttribute("id"), wrapper.GetAttribute("aria-describedby"));
@@ -31,7 +31,7 @@ public sealed class TooltipTests
             .AddUnmatched("data-requires-twitch", "true")
             .AddChildContent("<button>Export</button>"));
 
-        var wrapper = cut.Find(".sk-tooltip-wrap");
+        var wrapper = cut.Find("[aria-describedby]");
         Assert.Equal("0", wrapper.GetAttribute("tabindex"));
         Assert.True(wrapper.HasAttribute("data-requires-twitch"));
     }

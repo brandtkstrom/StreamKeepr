@@ -12,12 +12,12 @@
         @attributes="AdditionalAttributes">
     <div class="sk-dialog-inner">
         <h2 id="@_titleId">@Title</h2>
-        <div class="sk-dialog-content">
+        <div class="sk-dialog-content" data-dialog-content>
             @ChildContent
         </div>
         @if (Actions is not null)
         {
-            <div class="sk-dialog-actions">
+            <div class="sk-dialog-actions" data-dialog-actions>
                 @Actions
             </div>
         }

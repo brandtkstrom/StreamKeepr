@@ -28,13 +28,13 @@ public sealed class LibraryTreeTests
         Assert.Equal("true", heads[0].GetAttribute("aria-expanded"));
         Assert.Equal("false", heads[1].GetAttribute("aria-expanded"));
 
-        var rows = cut.FindAll("a.sk-row[role='treeitem'][aria-level='2']");
+        var rows = cut.FindAll("a[role='treeitem'][aria-level='2']");
         Assert.Equal(["r:a1", "r:b1"], rows.Select(row => row.GetAttribute("data-tree-key")));
 
         // Collapsed rows leave the accessibility tree and the focus order.
-        Assert.Null(cut.Find("#sk-group-alpha").GetAttribute("inert"));
-        Assert.NotNull(cut.Find("#sk-group-beta").GetAttribute("inert"));
-        Assert.All(cut.FindAll(".sk-day"), day => Assert.Equal("none", day.GetAttribute("role")));
+        Assert.Null(cut.Find($"#{heads[0].GetAttribute("aria-controls")}").GetAttribute("inert"));
+        Assert.NotNull(cut.Find($"#{heads[1].GetAttribute("aria-controls")}").GetAttribute("inert"));
+        Assert.All(cut.FindAll("[data-day-header]"), day => Assert.Equal("none", day.GetAttribute("role")));
     }
 
     [Fact]
@@ -111,8 +111,8 @@ public sealed class LibraryTreeTests
 
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
-        var note = cut.Find(".sk-drawer-note[data-updates-paused]");
-        Assert.Equal("Live updates paused", note.QuerySelector(".msg")!.TextContent);
+        var note = cut.Find("[data-updates-paused]");
+        Assert.EndsWith("Live updates paused", note.TextContent.Trim());
         Assert.Equal("status", note.GetAttribute("role"));
     }
 

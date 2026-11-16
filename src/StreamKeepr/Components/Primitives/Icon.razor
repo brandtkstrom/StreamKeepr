@@ -1,5 +1,8 @@
 @* Material Symbols Rounded glyph. Decorative unless a label makes it meaningful. *@
 <span class="@CssClass"
+      data-icon="@Name"
+      data-size="@SizeName"
+      data-fill="@(Fill ? "true" : null)"
       role="@(Label is null ? null : "img")"
       aria-hidden="@(Label is null ? "true" : null)"
       aria-label="@Label"
@@ -17,6 +20,13 @@
 
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string SizeName => Size switch
+    {
+        IconSize.Small => "small",
+        IconSize.Medium => "medium",
+        _ => "large",
+    };
 
     private string CssClass
     {

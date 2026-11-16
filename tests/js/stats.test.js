@@ -448,6 +448,7 @@ describe("sparkline", () => {
     expect(svg.querySelector("polyline.line").getAttribute("stroke")).toBe("var(--primary)");
     expect(svg.querySelector("polyline.line").getAttribute("vector-effect")).toBe("non-scaling-stroke");
     expect(svg.querySelector("line.xh").getAttribute("visibility")).toBe("hidden");
+    expect(svg.querySelector("[data-crosshair]")).toBe(svg.querySelector("line.xh"));
 
     drawSparkline(svg, [4]);
     expect(svg.querySelector("polyline")).toBeNull();

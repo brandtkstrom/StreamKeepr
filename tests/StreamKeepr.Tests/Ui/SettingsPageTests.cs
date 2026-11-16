@@ -25,7 +25,7 @@ public sealed class SettingsPageTests
         Assert.Contains("Connect Twitch to manage channels", cut.Find("[data-settings-signed-out]").TextContent);
         Assert.Equal(
             "/api/auth/twitch/login?returnUrl=%2Fsettings",
-            cut.Find("[data-settings-signed-out] a.sk-twitch").GetAttribute("href"));
+            cut.Find("[data-settings-signed-out] a[data-twitch-connect]").GetAttribute("href"));
         Assert.Empty(cut.FindAll("[data-channel-list]"));
         Assert.Equal(0, channels.AllReads);
     }
@@ -50,8 +50,8 @@ public sealed class SettingsPageTests
         Assert.Equal(
             ["Rec", "Paused", "Cooling down"],
             cut.FindAll("[data-channel-state]").Select(chip =>
-                chip.TextContent.Replace(chip.QuerySelector(".sk-icon")?.TextContent ?? "\u0000", "").Trim()));
-        Assert.Equal("pause", cut.Find("[data-channel='bob'] .sk-icon").TextContent);
+                chip.TextContent.Replace(chip.QuerySelector("[data-icon]")?.TextContent ?? "\u0000", "").Trim()));
+        Assert.Equal("pause", cut.Find("[data-channel='bob'] [data-icon]").TextContent);
     }
 
 

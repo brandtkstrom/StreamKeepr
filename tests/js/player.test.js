@@ -803,6 +803,7 @@ describe("VideoPlayer.razor.js", () => {
       expect(hook("video").currentTime).toBe(48);
       expect(hook("live").hidden).toBe(false);
       expect(hook("live").classList.contains("at-edge")).toBe(true);
+      expect(hook("live").hasAttribute("data-at-edge")).toBe(true);
       expect(hook("edge").hidden).toBe(false);
       expect(hook("edge").style.left).toBe("100%");
       expect(hook("video").play).not.toHaveBeenCalled();
@@ -815,6 +816,7 @@ describe("VideoPlayer.razor.js", () => {
       expect(hook("video").play).not.toHaveBeenCalled();
       expect(hook("live").hidden).toBe(false);
       expect(hook("live").classList.contains("at-edge")).toBe(false);
+      expect(hook("live").hasAttribute("data-at-edge")).toBe(false);
 
       // Playing from there stays put instead of jumping to the edge.
       hook("center").click();
@@ -1040,11 +1042,14 @@ describe("VideoPlayer.razor.js", () => {
 
       vi.advanceTimersByTime(2_999);
       expect(root().classList.contains("idle")).toBe(false);
+      expect(root().hasAttribute("data-idle")).toBe(false);
       vi.advanceTimersByTime(1);
       expect(root().classList.contains("idle")).toBe(true);
+      expect(root().hasAttribute("data-idle")).toBe(true);
 
       root().dispatchEvent(new Event("pointermove"));
       expect(root().classList.contains("idle")).toBe(false);
+      expect(root().hasAttribute("data-idle")).toBe(false);
 
       hook("speed").click();
       vi.advanceTimersByTime(5_000);

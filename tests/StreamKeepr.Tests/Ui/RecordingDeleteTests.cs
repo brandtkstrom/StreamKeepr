@@ -21,7 +21,7 @@ public sealed class RecordingDeleteTests
 
         var cut = Render(context, Recording());
 
-        Assert.NotNull(cut.Find(".sk-requires-twitch[inert] button[data-delete]"));
+        Assert.NotNull(cut.Find("[data-requires-twitch] [inert] button[data-delete]"));
     }
 
     [Fact]

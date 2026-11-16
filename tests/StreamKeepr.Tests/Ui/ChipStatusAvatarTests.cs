@@ -14,9 +14,9 @@ public sealed class ChipStatusAvatarTests
             .Add(component => component.Selected, true)
             .AddChildContent("Recording"));
 
-        var chip = cut.Find("button.sk-chip");
+        var chip = cut.Find("button[aria-pressed]");
         Assert.Equal("true", chip.GetAttribute("aria-pressed"));
-        Assert.Equal("check", cut.Find(".sk-chip .sk-icon").TextContent);
+        Assert.Equal("check", chip.QuerySelector("[data-icon]")!.TextContent);
         Assert.Contains("Recording", chip.TextContent);
     }
 
@@ -31,9 +31,9 @@ public sealed class ChipStatusAvatarTests
                 EventCallback.Factory.Create(this, () => clicked = true))
             .AddChildContent("Saved"));
 
-        var chip = cut.Find("button.sk-chip");
+        var chip = cut.Find("button[aria-pressed]");
         Assert.Equal("false", chip.GetAttribute("aria-pressed"));
-        Assert.Empty(cut.FindAll(".sk-chip .sk-icon"));
+        Assert.Null(chip.QuerySelector("[data-icon]"));
 
         chip.Click();
 
@@ -42,22 +42,22 @@ public sealed class ChipStatusAvatarTests
 
     [Theory]
     [InlineData(StatusChipKind.Rec, "rec", "Rec")]
-    [InlineData(StatusChipKind.Reconnecting, "partial", "Reconnecting")]
+    [InlineData(StatusChipKind.Reconnecting, "reconnecting", "Reconnecting")]
     [InlineData(StatusChipKind.Processing, "processing", "Processing")]
     [InlineData(StatusChipKind.Partial, "partial", "Partial")]
     [InlineData(StatusChipKind.Saved, "saved", "Saved")]
-    [InlineData(StatusChipKind.Error, "failed", "Error")]
-    public void Status_chip_maps_state_to_class_and_label(
+    [InlineData(StatusChipKind.Error, "error", "Error")]
+    public void Status_chip_exposes_its_state_and_label(
         StatusChipKind status,
-        string expectedClass,
+        string expectedStatus,
         string expectedText)
     {
         using var context = new BunitContext();
         var cut = context.Render<StatusChip>(parameters => parameters
             .Add(component => component.Status, status));
 
-        var chip = cut.Find(".sk-status");
-        Assert.Contains(expectedClass, chip.ClassList);
+        var chip = cut.Find("[data-status]");
+        Assert.Equal(expectedStatus, chip.GetAttribute("data-status"));
         // Material Symbols render their ligature name as text; the label follows it.
         Assert.EndsWith(expectedText, chip.TextContent.Trim());
     }
@@ -72,8 +72,8 @@ public sealed class ChipStatusAvatarTests
             .Add(component => component.Status, StatusChipKind.Error)
             .Add(component => component.Label, "Twitch session expired"));
 
-        Assert.NotNull(rec.Find(".sk-status.rec .dot"));
-        Assert.Equal("warning", error.Find(".sk-status.failed .sk-icon").TextContent);
+        Assert.NotNull(rec.Find("[data-status='rec'] .dot"));
+        Assert.Equal("warning", error.Find("[data-status='error'] [data-icon]").TextContent);
         Assert.Contains("Twitch session expired", error.Markup);
     }
 
@@ -85,12 +85,12 @@ public sealed class ChipStatusAvatarTests
             .Add(component => component.Name, "pixelwren")
             .Add(component => component.Tone, AvatarTone.Primary));
 
-        var avatar = cut.Find(".sk-avatar");
+        var avatar = cut.Find("[role='img']");
         Assert.Equal("img", avatar.GetAttribute("role"));
         Assert.Equal("pixelwren", avatar.GetAttribute("aria-label"));
         Assert.Equal("pi", avatar.TextContent.Trim());
-        Assert.Contains("c1", avatar.ClassList);
-        Assert.Empty(cut.FindAll(".sk-live-ring"));
+        Assert.Equal("primary", avatar.GetAttribute("data-tone"));
+        Assert.Empty(cut.FindAll("[data-live-ring]"));
     }
 
     [Fact]
@@ -100,7 +100,7 @@ public sealed class ChipStatusAvatarTests
         var cut = context.Render<Avatar>(parameters => parameters
             .Add(component => component.Name, "lofi streams"));
 
-        Assert.Equal("ls", cut.Find(".sk-avatar").TextContent.Trim());
+        Assert.Equal("ls", cut.Find("[role='img']").TextContent.Trim());
     }
 
     [Fact]
@@ -113,10 +113,10 @@ public sealed class ChipStatusAvatarTests
             .Add(component => component.Recording, true)
             .Add(component => component.Large, true));
 
-        var avatar = cut.Find(".sk-avatar");
-        Assert.Contains("lg", avatar.ClassList);
-        Assert.Equal("https://example.test/avatar.png", cut.Find(".sk-avatar img").GetAttribute("src"));
-        Assert.Equal("", cut.Find(".sk-avatar img").GetAttribute("alt"));
-        Assert.NotNull(cut.Find(".sk-avatar .sk-live-ring"));
+        var avatar = cut.Find("[role='img']");
+        Assert.Equal("large", avatar.GetAttribute("data-size"));
+        Assert.Equal("https://example.test/avatar.png", avatar.QuerySelector("img")!.GetAttribute("src"));
+        Assert.Equal("", avatar.QuerySelector("img")!.GetAttribute("alt"));
+        Assert.NotNull(avatar.QuerySelector("[data-live-ring]"));
     }
 }

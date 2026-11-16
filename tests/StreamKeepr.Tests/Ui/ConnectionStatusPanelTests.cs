@@ -39,12 +39,12 @@ public sealed class ConnectionStatusPanelTests : IDisposable
         IRenderedComponent<ConnectionStatusPanel> cut = _context.Render<ConnectionStatusPanel>();
 
         Assert.Equal("Connection status", cut.Find("[data-connection-status] h2").TextContent);
-        Assert.Equal("Healthy", Chip(cut, "[data-health] .sk-status"));
+        Assert.Equal("Healthy", Chip(cut, "[data-health] [data-status]"));
         Assert.Contains("3 channels watched.", cut.Find("[data-health]").TextContent);
         Assert.Equal("Conduit", cut.Find("[data-transport]").TextContent);
         Assert.Equal("Connected", Chip(cut, "[data-connection]"));
         Assert.Equal("3 of 3 channels", Chip(cut, "[data-coverage]"));
-        Assert.Contains("saved", cut.Find("[data-coverage]").ClassList);
+        Assert.Equal("saved", cut.Find("[data-coverage]").GetAttribute("data-status"));
         Assert.Empty(cut.FindAll("[data-coverage-note]"));
         Assert.Equal("8 s ago", cut.Find("[data-last-message]").TextContent);
         Assert.Equal("20 s ago", cut.Find("[data-last-poll]").TextContent.Trim());
@@ -60,41 +60,41 @@ public sealed class ConnectionStatusPanelTests : IDisposable
         IRenderedComponent<ConnectionStatusPanel> cut = _context.Render<ConnectionStatusPanel>();
 
         Assert.Equal("2 of 3 channels", Chip(cut, "[data-coverage]"));
-        Assert.Contains("partial", cut.Find("[data-coverage]").ClassList);
+        Assert.Equal("partial", cut.Find("[data-coverage]").GetAttribute("data-status"));
         Assert.Equal(
             "All channels are polled every 30 s until every channel is covered.",
-            cut.Find("[data-coverage-note] span:not(.sk-icon)").TextContent.Trim());
+            cut.Find("[data-coverage-note] span:not([aria-hidden])").TextContent.Trim());
     }
 
     [Theory]
-    [InlineData(EventSubConnection.Reconnecting, "Reconnecting", "partial")]
+    [InlineData(EventSubConnection.Reconnecting, "Reconnecting", "reconnecting")]
     [InlineData(EventSubConnection.WaitingForAdmin, "Waiting for admin sign-in", "partial")]
     [InlineData(EventSubConnection.Off, "Off", "saved")]
     public void Without_a_session_coverage_is_hidden(
-        EventSubConnection connection, string label, string css)
+        EventSubConnection connection, string label, string status)
     {
         _view.Status = Status() with { Connection = connection, Covered = 0 };
 
         IRenderedComponent<ConnectionStatusPanel> cut = _context.Render<ConnectionStatusPanel>();
 
         Assert.Equal(label, Chip(cut, "[data-connection]"));
-        Assert.Contains(css, cut.Find("[data-connection]").ClassList);
+        Assert.Equal(status, cut.Find("[data-connection]").GetAttribute("data-status"));
         Assert.Empty(cut.FindAll("[data-coverage]"));
         Assert.Empty(cut.FindAll("[data-coverage-note]"));
     }
 
     [Theory]
     [InlineData(HealthStatus.Degraded, "Degraded", "partial")]
-    [InlineData(HealthStatus.Unhealthy, "Unhealthy", "failed")]
+    [InlineData(HealthStatus.Unhealthy, "Unhealthy", "error")]
     public void Health_uses_amber_for_degraded_and_red_for_unhealthy(
-        HealthStatus health, string label, string css)
+        HealthStatus health, string label, string status)
     {
         _view.Status = Status() with { Health = health, HealthDescription = "The poller has stopped." };
 
         IRenderedComponent<ConnectionStatusPanel> cut = _context.Render<ConnectionStatusPanel>();
 
-        Assert.Equal(label, Chip(cut, "[data-health] .sk-status"));
-        Assert.Contains(css, cut.Find("[data-health] .sk-status").ClassList);
+        Assert.Equal(label, Chip(cut, "[data-health] [data-status]"));
+        Assert.Equal(status, cut.Find("[data-health] [data-status]").GetAttribute("data-status"));
         Assert.Contains("The poller has stopped.", cut.Find("[data-health]").TextContent);
     }
 
@@ -164,7 +164,7 @@ public sealed class ConnectionStatusPanelTests : IDisposable
     private static string Chip(IRenderedComponent<ConnectionStatusPanel> cut, string selector)
     {
         var chip = cut.Find(selector);
-        return chip.TextContent.Replace(chip.QuerySelector(".sk-icon")?.TextContent ?? "\u0000", "").Trim();
+        return chip.TextContent.Replace(chip.QuerySelector("[data-icon]")?.TextContent ?? "\u0000", "").Trim();
     }
 
     private static ConnectionStatus Status() => new(

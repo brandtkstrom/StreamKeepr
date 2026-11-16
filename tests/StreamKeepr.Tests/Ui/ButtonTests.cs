@@ -15,8 +15,7 @@ public sealed class ButtonTests
 
         var button = cut.Find("button");
         Assert.Equal("button", button.GetAttribute("type"));
-        Assert.Contains("sk-btn", button.ClassList);
-        Assert.Contains("filled", button.ClassList);
+        Assert.Equal("filled", button.GetAttribute("data-variant"));
         Assert.Equal("Save", button.TextContent);
     }
 
@@ -26,14 +25,14 @@ public sealed class ButtonTests
     [InlineData(ButtonVariant.Outlined, "outlined")]
     [InlineData(ButtonVariant.Text, "text")]
     [InlineData(ButtonVariant.Danger, "danger")]
-    public void Applies_the_variant_class(ButtonVariant variant, string expectedClass)
+    public void Exposes_the_variant(ButtonVariant variant, string expectedVariant)
     {
         using var context = new BunitContext();
         var cut = context.Render<Button>(parameters => parameters
             .Add(component => component.Variant, variant)
             .AddChildContent("Action"));
 
-        Assert.Contains(expectedClass, cut.Find("button").ClassList);
+        Assert.Equal(expectedVariant, cut.Find("button").GetAttribute("data-variant"));
     }
 
     [Fact]

@@ -123,7 +123,7 @@ public sealed class AppShellDocumentTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("data-unknown-recording", html);
         Assert.Contains("Back to library", html);
-        Assert.Contains("class=\"sk-shell", html);
+        Assert.Contains("data-shell", html);
         Assert.Contains("data-slot=\"player\"", html);
         Assert.Contains("data-slot=\"stats\"", html);
         Assert.Contains("data-slot=\"details\"", html);
@@ -161,7 +161,7 @@ public sealed class AppShellDocumentTests
         var html = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("class=\"sk-drawer rail\"", html);
+        Assert.Contains("data-drawer=\"rail\"", html);
         Assert.Contains("aria-expanded=\"false\"", html);
     }
 }

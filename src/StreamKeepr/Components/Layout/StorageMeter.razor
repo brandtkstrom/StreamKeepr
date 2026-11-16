@@ -5,6 +5,7 @@
     var warning = clampedFree < total / 10d;
 
     <span class="sk-storage @(warning ? "warning" : null)"
+          data-storage="@(warning ? "low" : "ok")"
           title="Recording disk: @Format.Bytes(clampedFree) free of @Format.Bytes(total)">
         <span class="sk-icon sm" aria-hidden="true">hard_drive</span>
         @Format.Bytes(clampedFree) free

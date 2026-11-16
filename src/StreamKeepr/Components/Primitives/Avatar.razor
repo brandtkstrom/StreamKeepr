@@ -1,5 +1,5 @@
 @* Streamer avatar: image when available, otherwise initials. The ring marks an active recording. *@
-<span class="@CssClass" role="img" aria-label="@Name" @attributes="AdditionalAttributes">
+<span class="@CssClass" data-tone="@Tone.ToString().ToLowerInvariant()" data-size="@(Large ? "large" : "default")" role="img" aria-label="@Name" @attributes="AdditionalAttributes">
     @if (!string.IsNullOrWhiteSpace(ImageUrl))
     {
         <img src="@ImageUrl" alt="" />
@@ -10,7 +10,7 @@
     }
     @if (Recording)
     {
-        <span class="sk-live-ring" title="Recording now" aria-hidden="true"></span>
+        <span class="sk-live-ring" data-live-ring title="Recording now" aria-hidden="true"></span>
     }
 </span>
 
