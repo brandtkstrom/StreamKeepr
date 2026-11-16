@@ -1,3 +1,4 @@
+using MudBlazor.Services;
 using Bunit;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,9 +11,9 @@ namespace StreamKeepr.Tests.Ui;
 public sealed class DevComponentsTests
 {
     [Fact]
-    public void Development_renders_every_primitive()
+    public async Task Development_renders_every_primitive()
     {
-        using var context = CreateContext("Development");
+        await using var context = CreateContext("Development");
         var cut = RenderPage(context);
 
         Assert.Contains("Design-system primitives", cut.Markup);
@@ -31,16 +32,15 @@ public sealed class DevComponentsTests
         Assert.NotEmpty(cut.FindAll("[role='img'][data-tone]"));
         Assert.NotEmpty(cut.FindAll("section[data-collapsible]"));
         Assert.NotEmpty(cut.FindAll("[role='switch']"));
-        Assert.NotEmpty(cut.FindAll("[role='menu']"));
         Assert.NotEmpty(cut.FindAll("[role='tooltip']"));
         Assert.NotEmpty(cut.FindAll("dialog"));
         Assert.NotEmpty(cut.FindAll("[data-requires-twitch] [inert]"));
     }
 
     [Fact]
-    public void Outside_development_the_page_does_not_show_the_gallery()
+    public async Task Outside_development_the_page_does_not_show_the_gallery()
     {
-        using var context = CreateContext("Production");
+        await using var context = CreateContext("Production");
         var cut = RenderPage(context);
 
         Assert.Contains("Page not found", cut.Markup);
@@ -52,6 +52,7 @@ public sealed class DevComponentsTests
     {
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.Services.AddMudServices();
         context.AddAuthorization().SetNotAuthorized();
         context.Services.AddLogging();
         context.Services.AddSingleton<TimeProvider>(TimeProvider.System);

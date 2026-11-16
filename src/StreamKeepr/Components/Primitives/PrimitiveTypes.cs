@@ -37,9 +37,3 @@ public enum StatusChipKind
     Saved,
     Error,
 }
-
-public enum MenuAlignment
-{
-    Start,
-    End,
-}

@@ -23,9 +23,7 @@ public sealed class AppShellTests
         await using var context = CreateContext();
         var cut = RenderShell(context, parameters => parameters
             .AddChildContent("<div data-test='main'>Main column</div>")
-            .Add(component => component.RecordingActive, true)
-            .Add(component => component.FreeBytes, 20L * 1024 * 1024 * 1024)
-            .Add(component => component.TotalBytes, 100L * 1024 * 1024 * 1024));
+            .Add(component => component.RecordingActive, true));
 
         Assert.NotNull(cut.Find("[data-shell]"));
         Assert.NotNull(cut.Find("header"));
@@ -36,8 +34,8 @@ public sealed class AppShellTests
         Assert.Equal("StreamKeepr home", wordmark.GetAttribute("aria-label"));
         Assert.NotNull(wordmark.QuerySelector("[data-rec-dot]"));
         Assert.NotNull(cut.Find("header input[aria-label='Search recordings']"));
-        Assert.Contains("20.0 GB free", cut.Find("[data-storage]").TextContent);
-        Assert.Equal("ok", cut.Find("[data-storage]").GetAttribute("data-storage"));
+        // Disk usage moved to the library drawer's footer (#176).
+        Assert.Empty(cut.FindAll("header [data-storage]"));
 
         var placeholder = cut.Find("header [data-auth-placeholder]");
         Assert.True(placeholder.NextElementSibling is null, "the auth control is the last app bar action");
@@ -85,18 +83,6 @@ public sealed class AppShellTests
 
         Assert.NotNull(cut.Find("[data-shell][data-theater-mode]"));
         Assert.True(cut.Find("[data-drawer-toggle]").HasAttribute("disabled"));
-    }
-
-    [Fact]
-    public async Task Storage_below_ten_percent_is_a_warning()
-    {
-        await using var context = CreateContext();
-        var cut = RenderShell(context, parameters => parameters
-            .Add(component => component.FreeBytes, 5L * 1024 * 1024 * 1024)
-            .Add(component => component.TotalBytes, 100L * 1024 * 1024 * 1024));
-
-        Assert.Equal("low", cut.Find("[data-storage]").GetAttribute("data-storage"));
-        Assert.Equal("Recording disk: 5.0 GB free of 100.0 GB", cut.Find("[data-storage]").GetAttribute("title"));
     }
 
     [Fact]

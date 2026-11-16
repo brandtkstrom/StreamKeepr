@@ -21,7 +21,7 @@ public sealed class LibraryDrawerTests
         new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void Renders_streamer_groups_and_rows_as_real_links()
+    public async Task Renders_streamer_groups_and_rows_as_real_links()
     {
         var view = new TestLibraryView
         {
@@ -42,7 +42,7 @@ public sealed class LibraryDrawerTests
             Recording("r3", "idle", RecordingState.Saved, Now.AddDays(-3)),
         ];
 
-        using BunitContext context = CreateContext(view);
+        await using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
         var groups = cut.FindAll("[role='treeitem'][aria-level='1']");
@@ -56,7 +56,128 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
-    public void Rows_show_the_thumbnail_image_when_one_exists_and_the_placeholder_icon_otherwise()
+    public async Task Each_group_avatar_takes_its_logins_channel_colour()
+    {
+        // The library lists any login with recordings, watched or not, so a removed channel's
+        // recordings keep the colour: it comes from the login alone.
+        var view = new TestLibraryView
+        {
+            StreamerItems =
+            [
+                Streamer("live", "Live Star", recording: true, count: 1, last: Now),
+                Streamer("removed_one", "Gone Now", recording: false, count: 1, last: Now.AddDays(-2)),
+            ],
+        };
+        view.RecordingsByLogin["live"] = [Recording("r1", "live", RecordingState.Recording, Now)];
+        view.RecordingsByLogin["removed_one"] = [Recording("r2", "removed_one", RecordingState.Saved, Now.AddDays(-2))];
+
+        await using BunitContext context = CreateContext(view);
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        foreach (string login in new[] { "live", "removed_one" })
+        {
+            var avatar = cut.Find($"[data-tree-key='g:{login}'] [role='img']");
+            Assert.Equal(ChannelColor.For(login).ToString(), avatar.GetAttribute("data-channel-color"));
+        }
+
+        Assert.NotNull(cut.Find("[data-tree-key='g:live'] [data-live-ring]"));
+        Assert.Empty(cut.FindAll("[data-tree-key='g:removed_one'] [data-live-ring]"));
+    }
+
+    [Fact]
+    public async Task The_footer_shows_disk_usage_and_warns_below_ten_percent()
+    {
+        const long GiB = 1024L * 1024 * 1024;
+        var view = new TestLibraryView { Storage = new StorageView(20 * GiB, 100 * GiB) };
+        await using BunitContext context = CreateContext(view);
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        var meter = cut.Find("[data-storage]");
+        Assert.Equal("ok", meter.GetAttribute("data-storage"));
+        Assert.Contains("20.0 GB free", meter.TextContent);
+        Assert.Contains("of 100.0 GB", meter.TextContent);
+        Assert.Equal("80", meter.QuerySelector("[data-storage-used]")!.GetAttribute("data-storage-used"));
+
+        view.Storage = new StorageView(5 * GiB, 100 * GiB);
+        view.RaiseChanged();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("low", cut.Find("[data-storage]").GetAttribute("data-storage"));
+            Assert.Equal("Recording disk: 5.0 GB free of 100.0 GB", cut.Find("[data-storage]").GetAttribute("title"));
+        });
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Only_the_rail_names_each_avatar_in_a_tooltip(bool rail)
+    {
+        var view = new TestLibraryView
+        {
+            StreamerItems = [Streamer("live", "Live Star", recording: true, count: 1, last: Now)],
+        };
+        view.RecordingsByLogin["live"] = [Recording("r1", "live", RecordingState.Recording, Now)];
+        await using BunitContext context = CreateContext(view);
+
+        var cut = context.Render<CascadingValue<bool>>(parameters => parameters
+            .Add(component => component.Name, "LibraryRail")
+            .Add(component => component.Value, rail)
+            .AddChildContent<LibraryDrawer>());
+
+        Assert.Equal(rail ? 1 : 0, cut.FindAll("[data-tree-key='g:live'] [data-rail-name]").Count);
+        Assert.Null(cut.Find("[data-tree-key='g:live']").GetAttribute("title"));
+    }
+
+    [Theory]
+    [InlineData(10L * 1024 * 1024 * 1024, "ok")]
+    [InlineData(10L * 1024 * 1024 * 1024 - 1, "low")]
+    public async Task The_warning_starts_just_below_ten_percent_free(long free, string expected)
+    {
+        var view = new TestLibraryView { Storage = new StorageView(free, 100L * 1024 * 1024 * 1024) };
+        await using BunitContext context = CreateContext(view);
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        Assert.Equal(expected, cut.Find("[data-storage]").GetAttribute("data-storage"));
+    }
+
+    [Fact]
+    public async Task An_unknown_disk_size_shows_no_meter()
+    {
+        await using BunitContext context = CreateContext(new TestLibraryView { Storage = new StorageView(0, 0) });
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        Assert.Empty(cut.FindAll("[data-storage]"));
+        Assert.Empty(cut.FindAll("[data-storage-rail]"));
+    }
+
+    [Fact]
+    public async Task In_the_rail_the_footer_is_a_storage_button_that_opens_the_drawer()
+    {
+        const long GiB = 1024L * 1024 * 1024;
+        var view = new TestLibraryView { Storage = new StorageView(5 * GiB, 100 * GiB) };
+        await using BunitContext context = CreateContext(view);
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
+        preferences.SetDrawer(DrawerMode.Rail);
+
+        var cut = context.Render<CascadingValue<bool>>(parameters => parameters
+            .Add(component => component.Name, "LibraryRail")
+            .Add(component => component.Value, true)
+            .AddChildContent<LibraryDrawer>());
+
+        Assert.Empty(cut.FindAll("[data-storage]"));
+        var button = cut.Find("button[data-storage-rail]");
+        Assert.Equal("low", button.GetAttribute("data-storage-rail"));
+        Assert.Equal("Recording disk: 5.0 GB free of 100.0 GB", button.GetAttribute("aria-label"));
+        Assert.Equal("/", cut.Find("a[aria-label='Home']").GetAttribute("href"));
+
+        await button.ClickAsync(new());
+
+        Assert.Equal(DrawerMode.Expanded, preferences.Drawer);
+    }
+
+    [Fact]
+    public async Task Rows_show_the_thumbnail_image_when_one_exists_and_the_placeholder_icon_otherwise()
     {
         var view = new TestLibraryView
         {
@@ -68,7 +189,7 @@ public sealed class LibraryDrawerTests
             Recording("r2", "alpha", RecordingState.Saved, Now.AddHours(-2)),
         ];
 
-        using BunitContext context = CreateContext(view);
+        await using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
         var image = cut.Find("a[data-recording-id='r1'] img");
@@ -82,7 +203,7 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
-    public void Renders_status_chips_except_saved()
+    public async Task Renders_status_chips_except_saved()
     {
         var view = new TestLibraryView
         {
@@ -96,7 +217,7 @@ public sealed class LibraryDrawerTests
             Recording("saved", "alpha", RecordingState.Saved, Now.AddHours(-3)),
         ];
 
-        using BunitContext context = CreateContext(view);
+        await using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
         Assert.Contains("Rec", cut.Find("[data-recording-id='rec'] [data-status='rec']").TextContent);
@@ -110,7 +231,7 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
-    public void Marks_the_selected_row_current_and_follows_navigation()
+    public async Task Marks_the_selected_row_current_and_follows_navigation()
     {
         var view = new TestLibraryView
         {
@@ -122,7 +243,7 @@ public sealed class LibraryDrawerTests
             Recording("r2", "alpha", RecordingState.Saved, Now.AddHours(-2)),
         ];
 
-        using BunitContext context = CreateContext(view);
+        await using BunitContext context = CreateContext(view);
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
         navigation.NavigateTo("/r/r2");
 
@@ -141,7 +262,7 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
-    public void Groups_rows_under_viewer_zone_day_headers()
+    public async Task Groups_rows_under_viewer_zone_day_headers()
     {
         var view = new TestLibraryView
         {
@@ -154,7 +275,7 @@ public sealed class LibraryDrawerTests
             "older", "alpha", RecordingState.Saved, Now.AddDays(-8));
         view.RecordingsByLogin["alpha"] = [today, yesterday, older];
 
-        using BunitContext context = CreateContext(view);
+        await using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
         IReadOnlyList<string> days = cut.FindAll("[data-day-header]").Select(day => day.TextContent).ToArray();
@@ -169,11 +290,11 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
-    public void Shows_skeletons_until_loaded_and_an_empty_message_afterward()
+    public async Task Shows_skeletons_until_loaded_and_an_empty_message_afterward()
     {
         var view = new TestLibraryView { IsLoaded = false };
 
-        using BunitContext context = CreateContext(view);
+        await using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
         Assert.Equal(6, cut.FindAll("[data-library-skeleton]").Count);
@@ -191,7 +312,7 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
-    public void Collapsing_a_group_sets_aria_expanded()
+    public async Task Collapsing_a_group_sets_aria_expanded()
     {
         var view = new TestLibraryView
         {
@@ -202,7 +323,7 @@ public sealed class LibraryDrawerTests
             Recording("r1", "alpha", RecordingState.Saved, Now.AddHours(-1)),
         ];
 
-        using BunitContext context = CreateContext(view);
+        await using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
         cut.Find("[role='treeitem'][aria-level='1']").Click();
@@ -228,7 +349,7 @@ public sealed class LibraryDrawerTests
             "r1", "alpha", RecordingState.Saved, Now.AddHours(-1));
         view.RecordingsByLogin["alpha"] = [original];
 
-        using BunitContext context = CreateContext(view);
+        await using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
         IRenderedComponent<StreamerGroup> group = cut.FindComponent<StreamerGroup>();
@@ -264,7 +385,7 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
-    public void Day_headers_use_the_viewer_time_zone()
+    public async Task Day_headers_use_the_viewer_time_zone()
     {
         var view = new TestLibraryView
         {
@@ -275,7 +396,7 @@ public sealed class LibraryDrawerTests
             Recording("r1", "alpha", RecordingState.Saved, Now.AddHours(-14)),
         ];
 
-        using BunitContext context = CreateContext(view, timeZoneId: "Asia/Tokyo");
+        await using BunitContext context = CreateContext(view, timeZoneId: "Asia/Tokyo");
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
         Assert.Equal("Today", cut.Find("[data-day-header]").TextContent);
@@ -307,9 +428,9 @@ public sealed class LibraryDrawerTests
     [Theory]
     [InlineData(105.0, "width:25%")]
     [InlineData(null, "width:100%")]
-    public void A_live_row_shows_its_resume_bar_or_the_full_live_bar(double? resume, string width)
+    public async Task A_live_row_shows_its_resume_bar_or_the_full_live_bar(double? resume, string width)
     {
-        using BunitContext context = CreateContext(new TestLibraryView());
+        await using BunitContext context = CreateContext(new TestLibraryView());
         RecordingView live = Recording("r1", "ann", RecordingState.Recording, Now) with { ResumeSec = resume };
 
         IRenderedComponent<RecordingRow> cut = context.Render<RecordingRow>(parameters => parameters
@@ -319,9 +440,9 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
-    public void A_paused_streamer_shows_paused_without_a_live_ring()
+    public async Task A_paused_streamer_shows_paused_without_a_live_ring()
     {
-        using BunitContext context = CreateContext(new TestLibraryView());
+        await using BunitContext context = CreateContext(new TestLibraryView());
         StreamerView paused = Streamer(
             "ann", "Ann", recording: false, count: 2, last: Now, paused: true);
 
@@ -336,11 +457,11 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
-    public void Unknown_recording_renders_a_message_and_link_back()
+    public async Task Unknown_recording_renders_a_message_and_link_back()
     {
         var view = new TestLibraryView { IsLoaded = true };
 
-        using BunitContext context = CreateContext(view);
+        await using BunitContext context = CreateContext(view);
         IRenderedComponent<Home> cut = context.Render<Home>(parameters =>
             parameters.Add(component => component.RecordingId, "missing"));
 
@@ -350,12 +471,12 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
-    public void Known_recording_renders_the_selected_title()
+    public async Task Known_recording_renders_the_selected_title()
     {
         var view = new TestLibraryView { IsLoaded = true };
         view.FindById["r1"] = Recording("r1", "alpha", RecordingState.Saved, Now.AddHours(-1));
 
-        using BunitContext context = CreateContext(view);
+        await using BunitContext context = CreateContext(view);
         IRenderedComponent<Home> cut = context.Render<Home>(parameters =>
             parameters.Add(component => component.RecordingId, "r1"));
 

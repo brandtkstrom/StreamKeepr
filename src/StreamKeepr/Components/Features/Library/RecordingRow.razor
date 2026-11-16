@@ -32,7 +32,9 @@
         }
     </span>
     <span class="sk-row-text">
-        <span class="sk-row-title" data-row-title><Highlight Text="@Recording.Title" Search="@Search" /></span>
+        <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle2" HtmlTag="span" Class="sk-row-title" data-row-title>
+            <MudBlazor.MudHighlighter Text="@Recording.Title" HighlightedText="@Search" Class="sk-mark" />
+        </MudBlazor.MudText>
         <span class="sk-row-meta">@Meta</span>
         @if (Status is StatusChipKind status)
         {

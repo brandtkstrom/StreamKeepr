@@ -92,4 +92,11 @@ public static class Format
             ? string.Create(CultureInfo.InvariantCulture, $"{value:0} B")
             : string.Create(CultureInfo.InvariantCulture, $"{value:0.0} {ByteUnits[unit]}");
     }
+
+    /// <summary>The first letter of a name, upper-cased by rune so an emoji or accented
+    /// letter is never split; "?" for a blank name.</summary>
+    public static string Initial(string? name) =>
+        name?.Trim() is { Length: > 0 } trimmed
+            ? System.Text.Rune.ToUpperInvariant(System.Text.Rune.GetRuneAt(trimmed, 0)).ToString()
+            : "?";
 }

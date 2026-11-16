@@ -112,23 +112,21 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 .sk-icon.xs { font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20; }
 
 /* ---------- focus + state layers ---------- */
-.sk-btn, .sk-icon-btn, .sk-chip, .sk-row, .sk-group-head, .sk-toggle-bar, .sk-collapse-head {
+.sk-btn, .sk-icon-btn, .sk-toggle-bar, .sk-collapse-head {
   position: relative; isolation: isolate; cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-.sk-btn::before, .sk-icon-btn::before, .sk-chip::before, .sk-row::before, .sk-group-head::before,
-.sk-toggle-bar::before, .sk-collapse-head::before {
+.sk-btn::before, .sk-icon-btn::before, .sk-toggle-bar::before, .sk-collapse-head::before {
   content: ""; position: absolute; inset: 0; border-radius: inherit; background: currentColor;
   opacity: 0; transition: opacity 150ms cubic-bezier(0.2, 0, 0, 1); z-index: -1; pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .sk-btn::before, .sk-icon-btn::before, .sk-chip::before, .sk-row::before, .sk-group-head::before,
-  .sk-toggle-bar::before, .sk-collapse-head::before { transition: none; }
+  .sk-btn::before, .sk-icon-btn::before, .sk-toggle-bar::before, .sk-collapse-head::before { transition: none; }
 }
-.sk-btn:hover::before, .sk-icon-btn:hover::before, .sk-chip:hover::before, .sk-row:hover::before,
-.sk-group-head:hover::before, .sk-toggle-bar:hover::before, .sk-collapse-head:hover::before { opacity: var(--sk-state-hover); }
-.sk-btn:active::before, .sk-icon-btn:active::before, .sk-chip:active::before, .sk-row:active::before,
-.sk-group-head:active::before, .sk-toggle-bar:active::before, .sk-collapse-head:active::before { opacity: var(--sk-state-pressed); }
-:where(.sk-btn, .sk-icon-btn, .sk-chip, .sk-row, .sk-group-head, .sk-toggle-bar, .sk-collapse-head, .sk-seek, .sk-switch, .sk-menu-item, .sk-tooltip-wrap[tabindex]):focus-visible {
+.sk-btn:hover::before, .sk-icon-btn:hover::before, .sk-toggle-bar:hover::before, .sk-collapse-head:hover::before { opacity: var(--sk-state-hover); }
+.sk-btn:active::before, .sk-icon-btn:active::before, .sk-toggle-bar:active::before, .sk-collapse-head:active::before { opacity: var(--sk-state-pressed); }
+/* MudBlazor's buttons and chips only tint on focus; the Keyboard card sets the ring once for all of them. */
+.mud-button-root:focus-visible, .mud-chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+:where(.sk-btn, .sk-icon-btn, .sk-toggle-bar, .sk-collapse-head, .sk-seek, .sk-switch, .sk-tooltip-wrap[tabindex]):focus-visible {
   outline: 2px solid var(--sk-primary); outline-offset: 2px;
 }
 
@@ -181,7 +179,6 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 .sk-account-header .login { font: var(--text-caption); color: var(--text-secondary); }
 .sk-account-header .status { display: flex; align-items: center; gap: var(--space-2); font: var(--text-caption); color: var(--text-secondary); }
 .sk-auth-dot { width: 8px; height: 8px; border-radius: var(--sk-radius-full); background: var(--sk-success); flex: none; }
-mark.sk-hl { background: var(--sk-highlight); color: var(--sk-on-highlight); border-radius: 2px; padding: 0 1px; }
 
 /* ---------- avatar ---------- */
 .sk-avatar {
@@ -195,36 +192,47 @@ mark.sk-hl { background: var(--sk-highlight); color: var(--sk-on-highlight); bor
 .sk-avatar img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
 .sk-avatar .sk-live-ring { position: absolute; right: -1px; bottom: -1px; width: 12px; height: 12px; border-radius: var(--sk-radius-full); background: var(--sk-rec); box-shadow: 0 0 0 2px var(--sk-surface-container-low); }
 
-/* ---------- status chips ---------- */
-.sk-status {
+/* ---------- status chips (design system: StatusChip) ----------
+   A MudChip: overline type, a tint-opacity fill of the kind's colour, the label in text-primary
+   and only the icon in the kind's colour. REC is the one filled chip. */
+.mud-chip.sk-status {
+  --sk-chip-color: var(--text-primary);
+  height: 20px; margin: 0; padding: 0 6px; gap: var(--space-1); border-radius: var(--radius-sm);
+  font: var(--text-overline); letter-spacing: var(--text-overline-letter-spacing); text-transform: uppercase; white-space: nowrap;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--sk-chip-color) calc(var(--tint-opacity) * 100%), transparent);
+}
+.mud-chip.sk-status .mud-chip-icon { margin: 0; font-size: 14px; width: 14px; height: 14px; color: var(--sk-chip-color); }
+.mud-chip.sk-status .mud-chip-content { gap: var(--space-1); padding: 0; }
+.mud-chip.sk-status-reconnecting, .mud-chip.sk-status-partial { --sk-chip-color: var(--warning); }
+.mud-chip.sk-status-processing { --sk-chip-color: var(--secondary); }
+.mud-chip.sk-status-error { --sk-chip-color: var(--error); }
+/* Saved and the other neutral kinds: 8% text-primary, the icon in text-secondary. */
+.mud-chip.sk-status-saved { background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
+.mud-chip.sk-status-saved .mud-chip-icon { color: var(--text-secondary); }
+.mud-chip.sk-status-rec { background: var(--rec); color: var(--rec-contrast-text); }
+.mud-chip.sk-status-rec .dot { width: 6px; height: 6px; border-radius: var(--radius-full); background: var(--rec-contrast-text); animation: sk-pulse 1.6s ease-in-out infinite; }
+/* Legacy span chips, still hand-built by the player island (VideoPlayer.razor.js CHIPS) and the
+   expired account chip (TwitchAccount.razor). Remove when those surfaces move to StatusChip. */
+.sk-status:not(.mud-chip) {
   display: inline-flex; align-items: center; gap: var(--sk-space-1); height: 20px; padding: 0 6px; border-radius: var(--sk-radius-xs);
   font: var(--sk-text-label-small); letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap;
 }
-.sk-status .sk-icon { font-size: 14px; font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 20; }
-.sk-status.rec { background: var(--sk-rec); color: var(--sk-on-rec); }
-.sk-status.rec .dot { width: 6px; height: 6px; border-radius: var(--sk-radius-full); background: var(--sk-on-rec); animation: sk-pulse 1.6s ease-in-out infinite; }
-.sk-status.processing { background: var(--sk-tertiary-container); color: var(--sk-on-tertiary-container); }
-.sk-status.saved { background: transparent; color: var(--sk-on-surface-variant); box-shadow: inset 0 0 0 1px var(--sk-outline); }
-.sk-status.failed { background: var(--sk-error-container); color: var(--sk-on-error-container); }
-.sk-status.partial { background: var(--sk-warning-container); color: var(--sk-on-warning-container); }
+.sk-status:not(.mud-chip) .sk-icon { font-size: 14px; font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 20; }
+.sk-status:not(.mud-chip).rec { background: var(--sk-rec); color: var(--sk-on-rec); }
+.sk-status:not(.mud-chip).rec .dot { width: 6px; height: 6px; border-radius: var(--sk-radius-full); background: var(--sk-on-rec); animation: sk-pulse 1.6s ease-in-out infinite; }
+.sk-status:not(.mud-chip).processing { background: var(--sk-tertiary-container); color: var(--sk-on-tertiary-container); }
+.sk-status:not(.mud-chip).saved { background: transparent; color: var(--sk-on-surface-variant); box-shadow: inset 0 0 0 1px var(--sk-outline); }
+.sk-status:not(.mud-chip).failed { background: var(--sk-error-container); color: var(--sk-on-error-container); }
+.sk-status:not(.mud-chip).partial { background: var(--sk-warning-container); color: var(--sk-on-warning-container); }
 @keyframes sk-pulse { 50% { opacity: 0.35; } }
-@media (prefers-reduced-motion: reduce) { .sk-status.rec .dot, .sk-twitch .sk-spin { animation: none; } }
-
-/* ---------- filter chips ---------- */
-.sk-chip {
-  display: inline-flex; align-items: center; gap: var(--sk-space-1); height: 32px; padding: 0 var(--sk-space-3);
-  border: 0; border-radius: var(--sk-radius-sm); background: transparent; color: var(--sk-on-surface-variant);
-  box-shadow: inset 0 0 0 1px var(--sk-outline); font: var(--sk-text-label-medium);
-}
-.sk-chip[aria-pressed="true"] { background: var(--sk-secondary-container); color: var(--sk-on-secondary-container); box-shadow: none; }
-.sk-chip .sk-icon { font-size: 18px; margin-left: -4px; }
+@media (prefers-reduced-motion: reduce) { .mud-chip.sk-status-rec .dot, .sk-status:not(.mud-chip).rec .dot, .sk-twitch .sk-spin { animation: none; } }
 
 /* ---------- top app bar (MudAppBar; design system: TopAppBar) ----------
    New shell rules read tokens.css directly, not the legacy --sk-* aliases (ADR 0012). */
 .sk-appbar { border-bottom: 1px solid var(--divider); }
 .sk-appbar .mud-toolbar { gap: var(--space-2); padding: 0 var(--space-4) 0 var(--space-2); }
 .sk-appbar .mud-icon-button { color: var(--action-default); }
-.sk-appbar .mud-icon-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .sk-appbar.scrolled { box-shadow: var(--elevation-4); }
 .sk-wordmark { display: flex; align-items: center; gap: var(--space-2); margin-left: var(--space-1); border-radius: var(--radius-sm); color: var(--text-primary); font: var(--text-wordmark); letter-spacing: var(--text-wordmark-letter-spacing); text-decoration: none; white-space: nowrap; }
 .sk-wordmark:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
@@ -245,86 +253,97 @@ mark.sk-hl { background: var(--sk-highlight); color: var(--sk-on-highlight); bor
 .sk-search-field input::placeholder { color: var(--text-secondary); opacity: 1; }
 .sk-appbar-actions { display: flex; align-items: center; gap: var(--space-1); flex: none; }
 .sk-appbar-search { display: none; }
-.sk-storage { display: inline-flex; align-items: center; gap: var(--sk-space-1); margin-right: var(--sk-space-2); color: var(--sk-on-surface-variant); font: var(--sk-text-label-medium); white-space: nowrap; }
-.sk-storage .meter { width: 48px; height: 4px; border-radius: var(--sk-radius-full); background: var(--sk-surface-container-highest); overflow: hidden; }
-.sk-storage .meter i { display: block; height: 100%; background: var(--sk-primary); border-radius: var(--sk-radius-full); }
 
-/* ---------- library drawer ---------- */
-/* The MudDrawer frame sets the width (320px library, 72px rail); the library fills it. */
-.sk-drawer { width: 100%; height: 100%; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-.sk-drawer-head { display: flex; align-items: center; gap: var(--sk-space-2); padding: var(--sk-space-4) var(--sk-space-2) var(--sk-space-2) var(--sk-space-4); }
-.sk-drawer-head h2 { flex: 1; margin: 0; font: var(--sk-text-title-medium); white-space: nowrap; }
-.sk-sort { display: inline-flex; align-items: center; gap: 2px; color: var(--sk-on-surface-variant); font: var(--sk-text-label-medium); white-space: nowrap; }
-.sk-sort .sk-icon { font-size: 16px; }
-.sk-filters { display: flex; gap: var(--sk-space-2); padding: 0 var(--sk-space-4) var(--sk-space-3); flex-wrap: nowrap; }
+/* ---------- library drawer (design system: LibraryDrawer, RecordingRow) ----------
+   New rules read tokens.css directly (ADR 0012). The MudDrawer frame sets the width (320px
+   library, 72px rail); the library fills it, with the tree scrolling between head and footer. */
+.sk-drawer { width: 100%; height: 100%; display: flex; flex-direction: column; min-height: 0; overflow: hidden; color: var(--drawer-text); }
+.sk-drawer-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-4) var(--space-2) var(--space-2) var(--space-4); }
+.sk-drawer-head h2 { flex: 1; margin: 0; white-space: nowrap; color: var(--text-primary); }
+.sk-sort { display: inline-flex; align-items: center; gap: 2px; color: var(--text-secondary); white-space: nowrap; }
+.sk-filters { display: flex; flex-wrap: nowrap; gap: var(--space-2); padding: 0 var(--space-4) var(--space-3); }
+.sk-filters .mud-chip { margin: 0; }
+.sk-filters [data-filter="recording"]:not(.mud-chip-selected) .mud-chip-icon { color: var(--rec); }
 /* Quiet note while the circuit reconnects (reconnect.js sets body[data-sk-reconnect]). */
-.sk-drawer-note { display: none; align-items: center; gap: var(--sk-space-2); margin: 0 var(--sk-space-4) var(--sk-space-2); color: var(--sk-on-surface-variant); font: var(--sk-text-label-medium); }
-body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying"] .sk-drawer-note { display: flex; }
+.sk-drawer-note.mud-alert { display: none; margin: 0 var(--space-4) var(--space-2); }
+body[data-sk-reconnect="show"] .sk-drawer-note.mud-alert, body[data-sk-reconnect="retrying"] .sk-drawer-note.mud-alert { display: flex; }
 .sk-drawer.rail .sk-drawer-note .msg { display: none; }
-.sk-drawer-list { flex: 1; overflow-y: auto; padding: 0 var(--sk-space-2) var(--sk-space-4); scrollbar-width: thin; scrollbar-color: var(--sk-surface-container-highest) transparent; }
+.sk-drawer-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--space-2) var(--space-4); scrollbar-width: thin; scrollbar-color: var(--lines-default) transparent; }
+.sk-drawer-foot { flex: none; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--divider); }
+.sk-storage-line { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); font: var(--text-caption); color: var(--text-secondary); }
+.sk-storage-line .free { font-weight: 500; color: var(--text-primary); }
+.sk-storage-line .of { margin-left: auto; }
+.sk-storage.low .sk-storage-line .free { color: var(--warning); }
 
-.sk-group + .sk-group { border-top: 1px solid var(--sk-outline-variant); }
+.sk-group + .sk-group { border-top: 1px solid var(--divider); }
 /* Long lists stay in the DOM (E-19): skip off-screen layout and paint, keep remembered sizes. */
-.sk-group { content-visibility: auto; contain-intrinsic-size: auto 56px; }
+.sk-group { content-visibility: auto; contain-intrinsic-size: auto 72px; }
 .sk-day { content-visibility: auto; contain-intrinsic-size: auto 28px; }
-.sk-row { content-visibility: auto; contain-intrinsic-size: auto 72px; }
+.sk-row { content-visibility: auto; contain-intrinsic-size: auto 80px; }
 /* Containment clips anything drawn outside a group, so drawer focus rings sit inside the item. */
-.sk-drawer :is(.sk-row, .sk-group-head):focus-visible { outline-offset: -2px; }
+.sk-drawer :is(.sk-row, .sk-group-head):focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .sk-group-head {
-  display: flex; align-items: center; gap: var(--sk-space-3); width: 100%; min-height: 56px; padding: var(--sk-space-2) var(--sk-space-2) var(--sk-space-2) var(--sk-space-2);
-  border: 0; border-radius: var(--sk-radius-md); background: transparent; color: var(--sk-on-surface); text-align: left;
+  position: relative; display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 72px; padding: var(--space-2);
+  border-radius: var(--radius-md); color: var(--text-primary); text-align: left; cursor: pointer; user-select: none;
 }
-.sk-group-head { cursor: pointer; user-select: none; }
 .sk-group-head .who { flex: 1; min-width: 0; }
-.sk-group-head .name { display: block; font: var(--sk-text-title-medium); }
-.sk-group-head .meta { display: block; color: var(--sk-on-surface-variant); font: var(--sk-text-body-small); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sk-group-head .chev { color: var(--sk-on-surface-variant); transition: transform 300ms cubic-bezier(0.2, 0, 0, 1); }
-.sk-group[aria-expanded="false"] .chev, .sk-group-head[aria-expanded="false"] .chev { transform: rotate(-90deg); }
+.sk-group-head .name { display: block; font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing); }
+.sk-group-head .meta { display: block; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-group-head .chev { color: var(--action-default); transition: transform 300ms cubic-bezier(0.2, 0, 0, 1); }
+.sk-group-head[aria-expanded="false"] .chev { transform: rotate(-90deg); }
 .sk-group-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 300ms cubic-bezier(0.2, 0, 0, 1); }
 .sk-group-body > div { min-height: 0; overflow: hidden; }
-.sk-group[aria-expanded="false"] .sk-group-body,
 .sk-group-head[aria-expanded="false"] + .sk-group-body { grid-template-rows: 0fr; }
-.sk-day { padding: var(--sk-space-2) var(--sk-space-2) var(--sk-space-1); color: var(--sk-on-surface-variant); font: var(--sk-text-label-medium); }
+.sk-day { padding: var(--space-2) var(--space-2) var(--space-1); color: var(--text-secondary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
+/* The live badge on a channel avatar (MudBadge Dot) is the rec colour, never a state colour. */
+.sk-channel-avatar .mud-badge.sk-live { background-color: var(--rec); }
 
 .sk-row {
-  display: flex; gap: var(--sk-space-3); align-items: flex-start; width: 100%; padding: var(--sk-space-2); margin-bottom: 2px;
-  border: 0; border-radius: var(--sk-radius-md); background: transparent; color: var(--sk-on-surface); text-align: left;
+  position: relative; display: flex; gap: var(--space-3); align-items: flex-start; width: 100%; padding: var(--space-2); margin-bottom: 2px;
+  border-radius: var(--radius-md); color: var(--text-primary); text-decoration: none; text-align: left;
 }
-.sk-row[aria-current="true"] { background: var(--sk-secondary-container); color: var(--sk-on-secondary-container); }
-.sk-row[aria-current="true"] .sk-row-meta { color: var(--sk-on-secondary-container); }
+/* Hover lays text-primary at hover-opacity over the row; selection fills it and keeps every line text-primary. */
+.sk-row::after, .sk-group-head::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--text-primary); opacity: 0; pointer-events: none; }
+.sk-row:hover::after, .sk-group-head:hover::after { opacity: var(--hover-opacity); }
+.sk-row[aria-current="true"] { background: var(--selection); }
+.sk-row[aria-current="true"] .sk-row-meta { color: var(--text-primary); }
 .sk-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 1px; }
-.sk-row-title { font: var(--sk-text-title-small); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.sk-row-meta { color: var(--sk-on-surface-variant); font: var(--sk-text-body-small); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-row-title { font: var(--text-subtitle2); letter-spacing: var(--text-subtitle2-letter-spacing); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sk-row-meta { color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sk-row .sk-status { align-self: flex-start; margin-top: 2px; }
+mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-text); border-radius: 2px; padding: 0 1px; }
 
 .sk-thumb {
-  position: relative; flex: none; width: var(--sk-thumb-width); aspect-ratio: 16 / 9; border-radius: var(--sk-radius-sm); overflow: hidden;
-  background: var(--sk-surface-container-highest); display: grid; place-items: center; color: var(--sk-on-surface-variant);
+  position: relative; flex: none; width: var(--thumb-width); aspect-ratio: 16 / 9; border-radius: var(--radius-md); overflow: hidden;
+  background: var(--surface-raised); display: grid; place-items: center; color: var(--text-secondary);
 }
-.sk-thumb .sk-icon { opacity: 0.7; }
+.sk-thumb.mud-skeleton { height: auto; transform: none; }
 .sk-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .sk-thumb .dur {
-  position: absolute; right: 4px; bottom: 4px; padding: 1px 4px; border-radius: var(--sk-radius-xs);
-  background: var(--sk-player-scrim); color: var(--sk-on-player); font: 500 11px/14px var(--sk-font-sans); font-variant-numeric: var(--sk-text-timecode-numeric);
+  position: absolute; right: 4px; bottom: 6px; padding: 1px 4px; border-radius: 2px;
+  background: var(--player-scrim); color: var(--player-text); font: var(--text-timecode); font-variant-numeric: var(--text-timecode-numeric);
 }
-.sk-thumb .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--sk-player-scrim); }
-.sk-thumb .prog i { display: block; height: 100%; background: var(--sk-primary); }
-.sk-row[aria-current="true"] .sk-thumb { box-shadow: 0 0 0 2px var(--sk-primary); }
-.sk-thumb.live .prog i { background: var(--sk-rec); }
+.sk-thumb .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--player-scrim); }
+.sk-thumb .prog i { display: block; height: 100%; background: var(--player-accent); }
+.sk-thumb.live .prog i { background: var(--rec); }
 
-/* rail (collapsed drawer) */
+/* The mini drawer switches between library and rail at once, as the drawer did before MudBlazor.
+   MudDrawer's 225ms width slide moved the sort menu's trigger after MudPopover had placed the
+   menu against it, leaving an opened menu stranded mid-slide. */
+.sk-drawer-frame.mud-drawer-mini { transition: none; }
+
+/* rail (desktop mini drawer): Home, avatars, the storage icon */
+.sk-rail-home { display: grid; justify-items: center; gap: var(--space-2); padding: var(--space-2) 0 0; }
+.sk-rail-home .mud-divider { width: 32px; }
 .sk-drawer.rail .sk-drawer-head h2, .sk-drawer.rail .sk-sort, .sk-drawer.rail .sk-filters,
 .sk-drawer.rail .sk-group-body, .sk-drawer.rail .who, .sk-drawer.rail .chev { display: none; }
-.sk-drawer.rail .sk-drawer-head { justify-content: center; padding: var(--sk-space-4) 0 var(--sk-space-2); }
-.sk-drawer.rail .sk-group-head { justify-content: center; padding: var(--sk-space-2) 0; }
+.sk-drawer.rail .sk-drawer-head { justify-content: center; padding: var(--space-2) 0; }
+.sk-drawer.rail .sk-group-head { justify-content: center; padding: var(--space-2) 0; min-height: 0; }
 .sk-drawer.rail .sk-group + .sk-group { border-top: 0; }
-
-/* The rail is too narrow for a left-opening menu. Let the header menu escape
-   the drawer and grow rightward; the mobile modal keeps the normal alignment. */
-@media (min-width: 960px) {
-  .sk-drawer-frame.mud-drawer--closed, .sk-drawer-frame.mud-drawer--closed > .mud-drawer-content, .sk-drawer.rail { overflow: visible; }
-  .sk-drawer.rail .sk-menu.align-end { left: 0; right: auto; }
-}
+.sk-drawer.rail .sk-row[aria-current="true"] { background: none; }
+.sk-drawer.rail .sk-drawer-foot { display: grid; justify-items: center; padding: var(--space-2) 0; }
+/* The open streamer's avatar is ringed in primary. */
+.sk-drawer.rail .sk-group:has(.sk-row[aria-current="true"]) .sk-group-head .mud-avatar { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
 
 /* ---------- player ---------- */
 .sk-player {
@@ -457,6 +476,23 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-player-overlay .actions { display: flex; gap: var(--sk-space-2); }
 .sk-player-overlay .sk-btn.text { color: var(--sk-on-player); }
 .sk-player-menu { top: auto; bottom: calc(100% + var(--sk-space-2)); right: 0; min-width: 160px; }
+/* The player's speed menu is still a hand-built menu (VideoPlayer.razor); these are the deleted Menu
+   primitive's rules it relies on, after .sk-player-menu as before so the 180px width still wins. Remove when the player island moves to MudMenu. */
+.sk-menu-anchor { position: relative; display: inline-flex; }
+.sk-menu {
+  position: absolute; min-width: 180px; padding: var(--sk-space-2) 0; border-radius: var(--sk-radius-sm); background: var(--sk-surface-container); color: var(--sk-on-surface);
+  box-shadow: var(--sk-elevation-2); font: var(--sk-text-body-medium); z-index: 5;
+}
+.sk-menu.align-end { top: calc(100% + var(--sk-space-1)); right: 0; }
+.sk-menu.align-start { top: calc(100% + var(--sk-space-1)); left: 0; }
+.sk-menu .hd { padding: 4px var(--sk-space-3) 8px; color: var(--sk-on-surface-variant); font: var(--sk-text-label-medium); }
+.sk-menu button { display: flex; align-items: center; gap: var(--sk-space-3); width: 100%; height: 40px; padding: 0 var(--sk-space-3); border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.sk-menu button:hover { background: var(--sk-surface-container-high); }
+.sk-menu button:disabled { opacity: var(--sk-state-disabled); cursor: default; }
+.sk-menu button:disabled:hover { background: transparent; }
+.sk-menu button .sk-icon { font-size: 20px; color: var(--sk-primary); width: 20px; }
+.sk-menu button .sp { flex: 1; }
+.sk-menu button small { color: var(--sk-on-surface-variant); font: 500 12px/16px var(--sk-font-sans); }
 @media (prefers-reduced-motion: reduce) { .sk-player-spinner .sk-spin { animation-duration: 2400ms; } }
 
 .sk-controls { display: flex; align-items: center; gap: 2px; height: var(--sk-control-bar-height); padding: 0 var(--sk-space-2); }
@@ -488,21 +524,6 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-quality:hover { background: rgba(255, 255, 255, 0.12); }
 .sk-golive.at-edge { box-shadow: none; background: rgba(255, 255, 255, 0.12); }
 
-.sk-menu-anchor { position: relative; display: inline-flex; }
-.sk-menu {
-  position: absolute; min-width: 180px; padding: var(--sk-space-2) 0; border-radius: var(--sk-radius-sm); background: var(--sk-surface-container); color: var(--sk-on-surface);
-  box-shadow: var(--sk-elevation-2); font: var(--sk-text-body-medium); z-index: 5;
-}
-.sk-menu.align-end { top: calc(100% + var(--sk-space-1)); right: 0; }
-.sk-menu.align-start { top: calc(100% + var(--sk-space-1)); left: 0; }
-.sk-menu .hd { padding: 4px var(--sk-space-3) 8px; color: var(--sk-on-surface-variant); font: var(--sk-text-label-medium); }
-.sk-menu button { display: flex; align-items: center; gap: var(--sk-space-3); width: 100%; height: 40px; padding: 0 var(--sk-space-3); border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.sk-menu button:hover { background: var(--sk-surface-container-high); }
-.sk-menu button:disabled { opacity: var(--sk-state-disabled); cursor: default; }
-.sk-menu button:disabled:hover { background: transparent; }
-.sk-menu button .sk-icon { font-size: 20px; color: var(--sk-primary); width: 20px; }
-.sk-menu button .sp { flex: 1; }
-.sk-menu button small { color: var(--sk-on-surface-variant); font: 500 12px/16px var(--sk-font-sans); }
 
 /* ---------- collapsible panel (details + stats) ---------- */
 .sk-panel { background: var(--sk-surface-container); border-radius: var(--sk-radius-md); overflow: hidden; }
@@ -592,8 +613,6 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-shell[data-theater-mode] .sk-main { background: var(--background-gray); padding-left: var(--space-6); }
 .sk-shell[data-drawer-frame="hidden"] .sk-drawer-frame { display: none; }
 .sk-shell[data-drawer-frame="hidden"] .sk-main-frame { margin-left: 0; }
-.sk-storage.warning { color: var(--sk-warning); }
-.sk-storage.warning .meter i { background: var(--sk-warning); }
 .sk-auth-placeholder { opacity: var(--sk-state-disabled); pointer-events: none; cursor: default; }
 
 .sk-reconnect-notice {
@@ -633,7 +652,7 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
   .sk-appbar .mud-toolbar-appbar { height: var(--appbar-height-dense); }
   .sk-shell .sk-main-frame.mud-main-content { padding-top: var(--appbar-height-dense); }
   .sk-shell:has([data-bottom-nav]) .sk-main-frame { padding-bottom: calc(var(--bottom-bar-height) + env(safe-area-inset-bottom)); }
-  .sk-appbar-menu, .sk-appbar-settings, .sk-storage { display: none; }
+  .sk-appbar-menu, .sk-appbar-settings { display: none; }
   .sk-appbar-search { display: inline-flex; }
   /* PhoneLayout: a watch page's bar holds the back arrow, the title and search. */
   .sk-shell[data-watching] .sk-appbar-link { display: none; }

@@ -92,4 +92,13 @@ public sealed class FormatTests
     [InlineData(90, "Every 90 s")]
     public void Every_names_a_poll_cadence(int? seconds, string expected) =>
         Assert.Equal(expected, Format.Every(seconds is { } s ? TimeSpan.FromSeconds(s) : null));
+
+    [Theory]
+    [InlineData("mock admin", "M")]
+    [InlineData("  émile", "É")]
+    [InlineData("🎮 gamer", "🎮")]
+    [InlineData("", "?")]
+    [InlineData(null, "?")]
+    public void Initial_takes_the_first_rune_upper_cased(string? name, string expected) =>
+        Assert.Equal(expected, Format.Initial(name));
 }

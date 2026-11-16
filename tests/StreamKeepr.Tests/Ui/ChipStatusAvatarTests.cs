@@ -1,3 +1,4 @@
+using MudBlazor.Services;
 using Bunit;
 using Microsoft.AspNetCore.Components;
 using StreamKeepr.Components.Primitives;
@@ -6,40 +7,6 @@ namespace StreamKeepr.Tests.Ui;
 
 public sealed class ChipStatusAvatarTests
 {
-    [Fact]
-    public void Chip_exposes_selection_with_aria_pressed()
-    {
-        using var context = new BunitContext();
-        var cut = context.Render<Chip>(parameters => parameters
-            .Add(component => component.Selected, true)
-            .AddChildContent("Recording"));
-
-        var chip = cut.Find("button[aria-pressed]");
-        Assert.Equal("true", chip.GetAttribute("aria-pressed"));
-        Assert.Equal("check", chip.QuerySelector("[data-icon]")!.TextContent);
-        Assert.Contains("Recording", chip.TextContent);
-    }
-
-    [Fact]
-    public void Unselected_chip_has_no_check_icon_and_invokes_the_callback()
-    {
-        using var context = new BunitContext();
-        var clicked = false;
-        var cut = context.Render<Chip>(parameters => parameters
-            .Add(component => component.Selected, false)
-            .Add(component => component.OnClick,
-                EventCallback.Factory.Create(this, () => clicked = true))
-            .AddChildContent("Saved"));
-
-        var chip = cut.Find("button[aria-pressed]");
-        Assert.Equal("false", chip.GetAttribute("aria-pressed"));
-        Assert.Null(chip.QuerySelector("[data-icon]"));
-
-        chip.Click();
-
-        Assert.True(clicked);
-    }
-
     [Theory]
     [InlineData(StatusChipKind.Rec, "rec", "Rec")]
     [InlineData(StatusChipKind.Reconnecting, "reconnecting", "Reconnecting")]
@@ -47,12 +14,13 @@ public sealed class ChipStatusAvatarTests
     [InlineData(StatusChipKind.Partial, "partial", "Partial")]
     [InlineData(StatusChipKind.Saved, "saved", "Saved")]
     [InlineData(StatusChipKind.Error, "error", "Error")]
-    public void Status_chip_exposes_its_state_and_label(
+    public async Task Status_chip_exposes_its_state_and_label(
         StatusChipKind status,
         string expectedStatus,
         string expectedText)
     {
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
+        context.Services.AddMudServices();
         var cut = context.Render<StatusChip>(parameters => parameters
             .Add(component => component.Status, status));
 
@@ -63,9 +31,37 @@ public sealed class ChipStatusAvatarTests
     }
 
     [Fact]
-    public void Rec_chip_has_the_pulse_dot_and_error_chip_has_a_warning_icon()
+    public async Task A_status_chip_states_a_condition_and_is_never_a_control()
     {
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
+        context.Services.AddMudServices();
+        var cut = context.Render<StatusChip>(parameters => parameters
+            .Add(component => component.Status, StatusChipKind.Partial)
+            .Add(component => component.Icon, "schedule"));
+
+        var chip = cut.Find("[data-status='partial']");
+        // MudChip leaves a passive chip at tabindex -1: never in the Tab order.
+        Assert.NotEqual("0", chip.GetAttribute("tabindex") ?? "-1");
+        Assert.Null(chip.GetAttribute("role"));
+        Assert.Empty(cut.FindAll("button, a"));
+        Assert.Equal("schedule", chip.GetAttribute("data-status-icon"));
+        Assert.Equal("Partial", chip.TextContent.Trim());
+    }
+
+    [Fact]
+    public async Task An_unknown_icon_name_fails_fast()
+    {
+        await using var context = new BunitContext();
+        context.Services.AddMudServices();
+        Assert.ThrowsAny<ArgumentException>(() => context.Render<StatusChip>(parameters => parameters
+            .Add(component => component.Icon, "not_an_icon")));
+    }
+
+    [Fact]
+    public async Task Rec_chip_has_the_pulse_dot_and_error_chip_has_a_warning_icon()
+    {
+        await using var context = new BunitContext();
+        context.Services.AddMudServices();
         var rec = context.Render<StatusChip>(parameters => parameters
             .Add(component => component.Status, StatusChipKind.Rec));
         var error = context.Render<StatusChip>(parameters => parameters
@@ -73,14 +69,16 @@ public sealed class ChipStatusAvatarTests
             .Add(component => component.Label, "Twitch session expired"));
 
         Assert.NotNull(rec.Find("[data-status='rec'] [data-status-dot]"));
-        Assert.Equal("warning", error.Find("[data-status='error'] [data-icon]").TextContent);
+        // MudChip draws its icon as SVG, so the chip names it in a hook (#176).
+        Assert.Equal("warning", error.Find("[data-status='error']").GetAttribute("data-status-icon"));
         Assert.Contains("Twitch session expired", error.Markup);
     }
 
     [Fact]
-    public void Avatar_uses_initials_and_announces_its_name()
+    public async Task Avatar_uses_initials_and_announces_its_name()
     {
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
+        context.Services.AddMudServices();
         var cut = context.Render<Avatar>(parameters => parameters
             .Add(component => component.Name, "pixelwren")
             .Add(component => component.Tone, AvatarTone.Primary));
@@ -94,9 +92,10 @@ public sealed class ChipStatusAvatarTests
     }
 
     [Fact]
-    public void Avatar_initials_use_the_first_two_words()
+    public async Task Avatar_initials_use_the_first_two_words()
     {
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
+        context.Services.AddMudServices();
         var cut = context.Render<Avatar>(parameters => parameters
             .Add(component => component.Name, "lofi streams"));
 
@@ -104,9 +103,10 @@ public sealed class ChipStatusAvatarTests
     }
 
     [Fact]
-    public void Avatar_can_use_an_image_and_show_the_recording_ring()
+    public async Task Avatar_can_use_an_image_and_show_the_recording_ring()
     {
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
+        context.Services.AddMudServices();
         var cut = context.Render<Avatar>(parameters => parameters
             .Add(component => component.Name, "pixelwren")
             .Add(component => component.ImageUrl, "https://example.test/avatar.png")

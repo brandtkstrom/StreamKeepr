@@ -1,0 +1,53 @@
+@using System.Globalization
+
+@* Disk usage (design system: LibraryDrawer, disk usage footer). The expanded drawer shows the
+   meter; the rail shows only the Storage icon, which opens the drawer to it. Under 10% free the
+   icon becomes Warning and the meter turns warning. Nothing renders while the size is unknown. *@
+@if (FreeBytes is long free && TotalBytes is long total && total > 0)
+{
+    long clampedFree = Math.Clamp(free, 0, total);
+    double usedPercent = Math.Clamp((total - clampedFree) * 100d / total, 0, 100);
+    bool low = clampedFree < total / 10d;
+    string summary = $"Recording disk: {Format.Bytes(clampedFree)} free of {Format.Bytes(total)}";
+    string icon = low ? MudBlazor.Icons.Material.Rounded.Warning : MudBlazor.Icons.Material.Rounded.Storage;
+    MudBlazor.Color tone = low ? MudBlazor.Color.Warning : MudBlazor.Color.Default;
+
+    if (Rail)
+    {
+        <MudBlazor.MudTooltip Text="@summary" Placement="MudBlazor.Placement.Right">
+            <MudBlazor.MudIconButton Icon="@icon"
+                                     Color="@tone"
+                                     aria-label="@summary"
+                                     data-storage-rail="@(low ? "low" : "ok")"
+                                     OnClick="OnOpen" />
+        </MudBlazor.MudTooltip>
+    }
+    else
+    {
+        <div class="sk-storage @(low ? "low" : null)" data-storage="@(low ? "low" : "ok")" title="@summary">
+            <div class="sk-storage-line">
+                <MudBlazor.MudIcon Icon="@icon" Size="MudBlazor.Size.Small" Color="@tone" aria-hidden="true" />
+                <span class="free">@Format.Bytes(clampedFree) free</span>
+                <span class="of">of @Format.Bytes(total)</span>
+            </div>
+            <MudBlazor.MudProgressLinear Value="@usedPercent"
+                                         Size="MudBlazor.Size.Small"
+                                         Rounded="true"
+                                         Color="@(low ? MudBlazor.Color.Warning : MudBlazor.Color.Primary)"
+                                         aria-hidden="true"
+                                         data-storage-used="@usedPercent.ToString("0.#", CultureInfo.InvariantCulture)" />
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public long? FreeBytes { get; set; }
+
+    [Parameter] public long? TotalBytes { get; set; }
+
+    /// <summary>Draws the rail's icon button instead of the full meter.</summary>
+    [Parameter] public bool Rail { get; set; }
+
+    /// <summary>The rail button's action: open the drawer where the meter is.</summary>
+    [Parameter] public EventCallback OnOpen { get; set; }
+}

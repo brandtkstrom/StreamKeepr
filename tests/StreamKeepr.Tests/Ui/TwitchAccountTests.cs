@@ -139,19 +139,6 @@ public sealed class TwitchAccountTests
             context.Services.GetRequiredService<StreamKeepr.Ui.SnackbarService>().Current?.Text));
     }
 
-    [Theory]
-    [InlineData("Mock Admin", "M")]
-    [InlineData("élan", "É")]
-    [InlineData("🎮 Gamer", "🎮")]
-    public async Task The_avatar_initial_is_the_first_whole_character(string displayName, string expected)
-    {
-        await Task.CompletedTask;
-        var user = new ClaimsPrincipal(new ClaimsIdentity(
-            [new Claim(StreamKeepr.Infrastructure.Twitch.AdminAuth.DisplayNameClaim, displayName)]));
-
-        Assert.Equal(expected, TwitchAccount.Initial(user));
-    }
-
     [Fact]
     public async Task Expired_replaces_the_chip_with_a_reconnect_link_and_keeps_admin_controls_inert()
     {

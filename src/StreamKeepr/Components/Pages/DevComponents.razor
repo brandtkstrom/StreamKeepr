@@ -53,15 +53,6 @@ else
         </div>
     </section>
 
-    <section class="sk-dev-section" aria-labelledby="dev-chips">
-        <h2 id="dev-chips">Chips</h2>
-        <div class="sk-dev-row">
-            <Chip Selected="@(_filter == "all")" OnClick="@(() => _filter = "all")">All</Chip>
-            <Chip Selected="@(_filter == "recording")" OnClick="@(() => _filter = "recording")">Recording</Chip>
-            <Chip Selected="@(_filter == "saved")" OnClick="@(() => _filter = "saved")">Saved</Chip>
-        </div>
-    </section>
-
     <section class="sk-dev-section" aria-labelledby="dev-status">
         <h2 id="dev-status">Status chips</h2>
         <div class="sk-dev-row">
@@ -99,31 +90,6 @@ else
     <section class="sk-dev-section" aria-labelledby="dev-switch">
         <h2 id="dev-switch">Switch</h2>
         <Switch Checked="_switchChecked" Label="Stats for nerds" OnChange="@(value => _switchChecked = value)" />
-    </section>
-
-    <section class="sk-dev-section" aria-labelledby="dev-menu">
-        <h2 id="dev-menu">Menu</h2>
-        <div class="sk-dev-row">
-            <span>Sort: @_sort</span>
-            <Menu Label="Library options">
-                <MenuItem Selected="@(_sort == "Newest first")"
-                          Icon="arrow_downward"
-                          OnClick="@(() => _sort = "Newest first")">
-                    Newest first
-                </MenuItem>
-                <MenuItem Selected="@(_sort == "Oldest first")"
-                          Icon="arrow_upward"
-                          OnClick="@(() => _sort = "Oldest first")">
-                    Oldest first
-                </MenuItem>
-                <MenuItem Selected="@(_sort == "A–Z by streamer")"
-                          Icon="sort_by_alpha"
-                          OnClick="@(() => _sort = "A–Z by streamer")">
-                    A–Z by streamer
-                </MenuItem>
-                <MenuItem Icon="block" Disabled="true">Unavailable option</MenuItem>
-            </Menu>
-        </div>
     </section>
 
     <section class="sk-dev-section" aria-labelledby="dev-tooltip">
@@ -171,8 +137,6 @@ else
 }
 
 @code {
-    private string _filter = "all";
-    private string _sort = "Newest first";
     private bool _collapsibleOpen = true;
     private bool _switchChecked;
     private bool _dialogOpen;

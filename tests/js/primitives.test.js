@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as dialogModule from "../../src/StreamKeepr/Components/Primitives/Dialog.razor.js";
-import * as menuModule from "../../src/StreamKeepr/Components/Primitives/Menu.razor.js";
 
 function makeDotNetRef() {
   return { invokeMethodAsync: vi.fn().mockResolvedValue(undefined) };
@@ -60,60 +59,5 @@ describe("Dialog.razor.js", () => {
 
     expect(cancel.defaultPrevented).toBe(true);
     expect(dotNetRef.invokeMethodAsync).toHaveBeenCalledWith("OnDialogCancel");
-  });
-});
-
-describe("Menu.razor.js", () => {
-  let root;
-
-  afterEach(() => {
-    if (root) menuModule.dispose(root);
-    root = null;
-    document.body.replaceChildren();
-  });
-
-  function makeMenu() {
-    document.body.innerHTML = `
-      <div id="menu-root">
-        <button data-menu-trigger aria-expanded="false"></button>
-        <div role="menu" hidden></div>
-      </div>
-      <button id="outside"></button>`;
-    root = document.getElementById("menu-root");
-    return {
-      root,
-      trigger: root.querySelector("[data-menu-trigger]"),
-      outside: document.getElementById("outside"),
-    };
-  }
-
-  it("closes on an outside pointer press but not on a press inside", () => {
-    const { trigger, outside } = makeMenu();
-    const dotNetRef = makeDotNetRef();
-    menuModule.init(root, dotNetRef);
-
-    trigger.setAttribute("aria-expanded", "true");
-    root.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-    expect(dotNetRef.invokeMethodAsync).not.toHaveBeenCalled();
-
-    outside.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-    expect(dotNetRef.invokeMethodAsync).toHaveBeenCalledWith("CloseFromJs", false);
-  });
-
-  it("turns Esc into a close request and suppresses the default action", () => {
-    const { trigger } = makeMenu();
-    const dotNetRef = makeDotNetRef();
-    menuModule.init(root, dotNetRef);
-    trigger.setAttribute("aria-expanded", "true");
-
-    const escape = new KeyboardEvent("keydown", {
-      key: "Escape",
-      bubbles: true,
-      cancelable: true,
-    });
-    document.dispatchEvent(escape);
-
-    expect(escape.defaultPrevented).toBe(true);
-    expect(dotNetRef.invokeMethodAsync).toHaveBeenCalledWith("CloseFromJs", true);
   });
 });
