@@ -63,7 +63,7 @@ public sealed class TwitchAccountTests
         Assert.Null(chip.GetAttribute("aria-label"));
         Assert.Equal("Twitch account: Mock Admin", chip.QuerySelector("[data-account-label]")?.TextContent);
         Assert.Contains("Mock Admin", chip.TextContent);
-        Assert.NotNull(chip.QuerySelector("[title='Connected to Twitch']"));
+        Assert.NotNull(chip.QuerySelector("[data-auth-dot]"));
         Assert.Equal("mock_admin", chip.QuerySelector("[data-account-login]")!.TextContent);
 
         var items = cut.FindAll("[role='menuitem']");
