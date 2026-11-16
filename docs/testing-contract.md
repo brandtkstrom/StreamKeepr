@@ -111,9 +111,9 @@ bUnit and Playwright tests find elements in this order (ADR 0011):
 2. **A `data-*` hook** where no role fits: `[data-recording-id]`, `[data-snackbar]`, `[data-status='rec']`, `[data-shell][data-theater=true]`. State a test needs to observe is exposed as an ARIA attribute or a `data-*` attribute, never as a modifier class.
 3. **Never a styling class.** Tests do not select or assert `sk-*` or `mud-*` classes, or the unprefixed modifiers that go with them (`.rail`, `.theater`, `.idle`, `.warning`), and do not assert class lists or keyframe names. Styling changes during the MudBlazor migration; behaviour tests must pass unchanged across it.
 
-When a test needs an element that has neither a role nor a hook, add the missing role, accessible name or `data-*` attribute to the markup; do not fall back to a class. `TestSelectorGuardTests` fails the unit suite when a file in `tests/StreamKeepr.Tests` or `tests/StreamKeepr.E2E` selects or asserts an `sk-*` or `mud-*` class.
+When a test needs an element that has neither a role nor a hook, add the missing role, accessible name or `data-*` attribute to the markup; do not fall back to a class. `TestSelectorGuardTests` fails the unit suite when a file in `tests/StreamKeepr.Tests` or `tests/StreamKeepr.E2E` selects an `sk-*` or `mud-*` class, or reads a class list or the `class` attribute at all. Unprefixed class selectors such as `.dot` look like other dotted text, so review catches those.
 
-The Vitest suite under `tests/js` is outside the guard: its fixtures reproduce the markup that the production JavaScript modules query, including the classes those modules select, so the classes there are the module's input rather than the test's choice of selector. A module that moves to a `data-*` hook moves its fixture with it.
+The Vitest suite under `tests/js` is outside the guard. Its fixtures reproduce the markup the production JavaScript modules query, including the classes those modules select, and its assertions check the classes a module applies for its own stylesheet (`idle`, `at-edge`, `sk-spin`), which are that module's output. Where a module also exposes a state as a hook (`data-idle`, `data-at-edge`, `data-spinner`, `data-crosshair`), Vitest asserts the hook as well, and the .NET tests use only the hook. A module that moves to a `data-*` hook moves its fixture with it.
 
 ## 7. CI
 
