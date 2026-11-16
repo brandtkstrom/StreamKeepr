@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using static StreamKeepr.E2E.LibraryJourneyTests;
 
@@ -55,7 +56,7 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
         await Feedback.Snackbar(page, "Channel added").WaitForAsync();
 
         await wren.Locator("[data-channel-remove]").ClickAsync();
-        ILocator dialog = page.Locator("[data-channel-remove-dialog]");
+        ILocator dialog = Feedback.Dialog(page, new Regex("^Remove "));
         await dialog.WaitForAsync();
         Assert.Contains("Recordings are kept", await dialog.InnerTextAsync());
         await page.Locator("[data-channel-remove-confirm]").ClickAsync();
@@ -96,7 +97,7 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
         await row.WaitForAsync();
         await row.Locator("[data-channel-stop]").ClickAsync();
 
-        ILocator dialog = page.Locator("[data-channel-stop-dialog][open]");
+        ILocator dialog = Feedback.Dialog(page, new Regex("^(Stop recording for|Pause) "));
         await dialog.WaitForAsync();
         Assert.Contains("stays paused", await dialog.InnerTextAsync());
         await page.Locator("[data-channel-stop-confirm]").ClickAsync();

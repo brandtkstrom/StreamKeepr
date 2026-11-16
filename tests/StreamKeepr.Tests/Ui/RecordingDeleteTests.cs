@@ -15,9 +15,10 @@ public sealed class RecordingDeleteTests
     private static readonly DateTimeOffset Now = new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void Signed_out_delete_is_inert_behind_requires_twitch()
+    public async Task Signed_out_delete_is_inert_behind_requires_twitch()
     {
-        using BunitContext context = CreateContext(out _, signedIn: false);
+        await using BunitContext context = CreateContext(out _, signedIn: false);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
 
         var cut = Render(context, Recording());
 
@@ -25,9 +26,10 @@ public sealed class RecordingDeleteTests
     }
 
     [Fact]
-    public void A_live_recording_disables_delete_with_a_reason()
+    public async Task A_live_recording_disables_delete_with_a_reason()
     {
-        using BunitContext context = CreateContext(out _, signedIn: true);
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
 
         var cut = Render(context, Recording(RecordingState.Recording));
 
@@ -36,9 +38,10 @@ public sealed class RecordingDeleteTests
     }
 
     [Fact]
-    public void An_active_export_disables_delete_with_a_reason()
+    public async Task An_active_export_disables_delete_with_a_reason()
     {
-        using BunitContext context = CreateContext(out _, signedIn: true);
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var exports = (TestExportService)context.Services.GetRequiredService<IExportService>();
         exports.Set(new ExportJob("e1", "r1", ExportState.Running, 0.4, null, null));
 
@@ -49,76 +52,79 @@ public sealed class RecordingDeleteTests
     }
 
     [Fact]
-    public void Delete_opens_a_named_dialog_and_cancel_closes_it()
+    public async Task Delete_opens_a_named_dialog_and_cancel_closes_it()
     {
-        using BunitContext context = CreateContext(out TestRecordingAdmin admin, out _, signedIn: true);
+        await using BunitContext context = CreateContext(out TestRecordingAdmin admin, out _, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var cut = Render(context, Recording());
 
         cut.Find("button[data-delete]").Click();
-
-        var dialog = DeleteDialog(cut);
-        Assert.True(dialog.Instance.Open);
-        Assert.Contains("Title — ann", cut.Find("[data-delete-banner]").TextContent);
-        Assert.Contains("permanently", cut.Find("[data-delete-banner]").TextContent);
+        Assert.True(dialogs.HasOpenDialog(DeleteName));
+        Assert.Contains("Title — ann", dialogs.Find("[data-delete-banner]").TextContent);
+        Assert.Contains("permanently", dialogs.Find("[data-delete-banner]").TextContent);
         Assert.Empty(admin.Deletes);
 
-        cut.Find("[data-delete-cancel]").Click();
-        Assert.False(DeleteDialog(cut).Instance.Open);
+        dialogs.Find("[data-delete-cancel]").Click();
+        Assert.False(dialogs.HasOpenDialog(DeleteName));
     }
 
     [Fact]
-    public void Confirm_calls_the_admin_and_closes_the_dialog()
+    public async Task Confirm_calls_the_admin_and_closes_the_dialog()
     {
-        using BunitContext context = CreateContext(out TestRecordingAdmin admin, out _, signedIn: true);
+        await using BunitContext context = CreateContext(out TestRecordingAdmin admin, out _, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var cut = Render(context, Recording());
         cut.Find("button[data-delete]").Click();
 
-        cut.Find("[data-delete-confirm]").Click();
+        dialogs.Find("[data-delete-confirm]").Click();
 
         var deleted = Assert.Single(admin.Deletes);
         Assert.Equal("r1", deleted.RecordingId);
         Assert.True(deleted.User.Identity?.IsAuthenticated);
-        Assert.False(DeleteDialog(cut).Instance.Open);
+        Assert.False(dialogs.HasOpenDialog(DeleteName));
     }
 
     [Fact]
-    public void The_dialog_is_busy_while_delete_is_running()
+    public async Task The_dialog_is_busy_while_delete_is_running()
     {
-        using BunitContext context = CreateContext(out TestRecordingAdmin admin, out _, signedIn: true);
+        await using BunitContext context = CreateContext(out TestRecordingAdmin admin, out _, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         admin.Gate = gate;
         var cut = Render(context, Recording());
         cut.Find("button[data-delete]").Click();
 
-        cut.Find("[data-delete-confirm]").Click();
+        dialogs.Find("[data-delete-confirm]").Click();
 
-        Assert.True(cut.Find("[data-delete-confirm]").HasAttribute("disabled"));
-        Assert.True(cut.Find("[data-delete-cancel]").HasAttribute("disabled"));
-        Assert.Equal("true", cut.Find("[data-delete-dialog]").GetAttribute("aria-busy"));
+        Assert.True(dialogs.Find("[data-delete-confirm]").HasAttribute("disabled"));
+        Assert.True(dialogs.Find("[data-delete-cancel]").HasAttribute("disabled"));
+        Assert.Equal("true", dialogs.Find("[data-delete-dialog]").GetAttribute("aria-busy"));
 
         gate.SetResult();
-        cut.WaitForAssertion(() => Assert.False(DeleteDialog(cut).Instance.Open));
+        dialogs.WaitForAssertion(() => Assert.False(dialogs.HasOpenDialog(DeleteName)));
     }
 
     [Fact]
-    public void Changing_recording_closes_an_open_dialog()
+    public async Task Changing_recording_closes_an_open_dialog()
     {
-        using BunitContext context = CreateContext(out _, signedIn: true);
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var cut = Render(context, Recording());
         cut.Find("button[data-delete]").Click();
-        Assert.True(DeleteDialog(cut).Instance.Open);
+        Assert.True(dialogs.HasOpenDialog(DeleteName));
 
         cut.Render(parameters => parameters.Add(
             component => component.Recording,
             Recording(id: "r2", title: "Next")));
 
-        Assert.False(DeleteDialog(cut).Instance.Open);
+        Assert.False(dialogs.HasOpenDialog(DeleteName));
     }
 
     [Fact]
-    public void A_server_refusal_keeps_the_dialog_open_with_the_message()
+    public async Task A_server_refusal_keeps_the_dialog_open_with_the_message()
     {
-        using BunitContext context = CreateContext(out TestRecordingAdmin admin, out _, signedIn: true);
+        await using BunitContext context = CreateContext(out TestRecordingAdmin admin, out _, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var exports = (TestExportService)context.Services.GetRequiredService<IExportService>();
         admin.Failure = _ =>
         {
@@ -128,39 +134,41 @@ public sealed class RecordingDeleteTests
         var cut = Render(context, Recording());
         cut.Find("button[data-delete]").Click();
 
-        cut.Find("[data-delete-confirm]").Click();
+        dialogs.Find("[data-delete-confirm]").Click();
 
-        Assert.True(DeleteDialog(cut).Instance.Open);
-        Assert.Contains("being exported", cut.Find("[data-delete-banner]").TextContent);
+        Assert.True(dialogs.HasOpenDialog(DeleteName));
+        Assert.Contains("being exported", dialogs.Find("[data-delete-banner]").TextContent);
         cut.WaitForAssertion(() =>
-            Assert.True(cut.Find("[data-delete-confirm]").HasAttribute("disabled")));
+            Assert.True(dialogs.Find("[data-delete-confirm]").HasAttribute("disabled")));
     }
 
     [Fact]
-    public void An_already_deleted_recording_closes_with_a_notice()
+    public async Task An_already_deleted_recording_closes_with_a_notice()
     {
-        using BunitContext context = CreateContext(out TestRecordingAdmin admin, out MudBlazor.ISnackbar snackbars, signedIn: true);
+        await using BunitContext context = CreateContext(out TestRecordingAdmin admin, out MudBlazor.ISnackbar snackbars, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         admin.Failure = _ => new KeyNotFoundException("That recording was already deleted.");
         var cut = Render(context, Recording());
         cut.Find("button[data-delete]").Click();
 
-        cut.Find("[data-delete-confirm]").Click();
+        dialogs.Find("[data-delete-confirm]").Click();
 
-        Assert.False(DeleteDialog(cut).Instance.Open);
+        Assert.False(dialogs.HasOpenDialog(DeleteName));
         Assert.Contains("already deleted", snackbars.CurrentMessage());
     }
 
     [Fact]
-    public void Unauthorized_closes_with_the_reconnect_message()
+    public async Task Unauthorized_closes_with_the_reconnect_message()
     {
-        using BunitContext context = CreateContext(out TestRecordingAdmin admin, out MudBlazor.ISnackbar snackbars, signedIn: true);
+        await using BunitContext context = CreateContext(out TestRecordingAdmin admin, out MudBlazor.ISnackbar snackbars, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         admin.Failure = _ => new UnauthorizedAccessException("Connect Twitch to delete recordings.");
         var cut = Render(context, Recording());
         cut.Find("button[data-delete]").Click();
 
-        cut.Find("[data-delete-confirm]").Click();
+        dialogs.Find("[data-delete-confirm]").Click();
 
-        Assert.False(DeleteDialog(cut).Instance.Open);
+        Assert.False(dialogs.HasOpenDialog(DeleteName));
         Assert.Contains("Reconnect to delete recordings", snackbars.CurrentMessage());
     }
 
@@ -196,10 +204,7 @@ public sealed class RecordingDeleteTests
         bool signedIn) =>
         CreateContext(out admin, out _, signedIn);
 
-    private static IRenderedComponent<Dialog> DeleteDialog(
-        IRenderedComponent<RecordingDetails> cut) =>
-        cut.FindComponents<Dialog>().Single(dialog =>
-            dialog.Instance.Title == "Delete recording?");
+    private const string DeleteName = "Delete recording?";
 
     private static IRenderedComponent<RecordingDetails> Render(
         BunitContext context,

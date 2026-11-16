@@ -101,25 +101,6 @@ else
         </div>
     </section>
 
-    <section class="sk-dev-section" aria-labelledby="dev-dialog">
-        <h2 id="dev-dialog">Dialog</h2>
-        <Button Variant="ButtonVariant.Outlined" OnClick="@(() => _dialogOpen = true)">
-            Open dialog
-        </Button>
-        <Dialog Title="Delete recording?"
-                Open="_dialogOpen"
-                OpenChanged="@(open => _dialogOpen = open)"
-                OnClose="@(() => _dialogOpen = false)">
-            <ChildContent>
-                <p>This is the dialog body. Focus stays inside the modal until it closes.</p>
-            </ChildContent>
-            <Actions>
-                <Button Variant="ButtonVariant.Text" autofocus OnClick="@(() => _dialogOpen = false)">Cancel</Button>
-                <Button Variant="ButtonVariant.Filled" OnClick="@(() => _dialogOpen = false)">Close</Button>
-            </Actions>
-        </Dialog>
-    </section>
-
     <section class="sk-dev-section" aria-labelledby="dev-snackbar">
         <h2 id="dev-snackbar">Snackbar</h2>
         <div class="sk-dev-row">
@@ -139,7 +120,6 @@ else
 @code {
     private bool _collapsibleOpen = true;
     private bool _switchChecked;
-    private bool _dialogOpen;
 
     private void ShowSnackbar() =>
         Snackbars.Show("Capture schedule is not available yet");

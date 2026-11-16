@@ -187,10 +187,10 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         // The delete dialog traps focus while open and gives it back on Escape. Nothing is deleted.
         await TabToAsync(page, "e => e.hasAttribute('data-delete')", "the delete button");
         await page.Keyboard.PressAsync("Enter");
-        await page.Locator("[data-delete-dialog][open]").WaitForAsync();
-        await AssertFocusStaysInsideAsync(page, "[data-delete-dialog]", nativeModal: true);
+        await Feedback.Dialog(page, "Delete recording?").WaitForAsync();
+        await AssertFocusStaysInsideAsync(page, "[role=dialog]", nativeModal: false);
         await page.Keyboard.PressAsync("Escape");
-        await page.Locator("[data-delete-dialog][open]").WaitForAsync(new() { State = WaitForSelectorState.Detached });
+        await Feedback.Dialog(page, "Delete recording?").WaitForAsync(new() { State = WaitForSelectorState.Detached });
         Assert.True(await FocusedMatchesAsync(page, "e => e.hasAttribute('data-delete')"), "Escape returns focus to Delete");
 
         // Settings by keyboard from the top bar.

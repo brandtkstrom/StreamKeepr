@@ -781,22 +781,24 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 /* ---------- requires Twitch ---------- */
 .sk-requires-twitch { display: contents; }
 
-/* ---------- dialog ---------- */
-.sk-dialog {
-  width: min(440px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); padding: 0;
-  border: 0; border-radius: var(--sk-radius-xl); background: var(--sk-surface-container); color: var(--sk-on-surface);
-  box-shadow: var(--sk-elevation-3);
+/* ---------- alerts (MudAlert Variant.Text; design system Feedback card) ----------
+   A 14% tint of the severity colour and the icon in that colour; the text never takes it. */
+.mud-alert[class*="mud-alert-text-"] { color: var(--text-primary); }
+.mud-alert-text-info { background-color: color-mix(in srgb, var(--info) 14%, transparent); }
+.mud-alert-text-success { background-color: color-mix(in srgb, var(--success) 14%, transparent); }
+.mud-alert-text-warning { background-color: color-mix(in srgb, var(--warning) 14%, transparent); }
+.mud-alert-text-error { background-color: color-mix(in srgb, var(--error) 14%, transparent); }
+.mud-alert-text-info .mud-alert-icon { color: var(--info); }
+.mud-alert-text-success .mud-alert-icon { color: var(--success); }
+.mud-alert-text-warning .mud-alert-icon { color: var(--warning); }
+.mud-alert-text-error .mud-alert-icon { color: var(--error); }
+
+/* ---------- dialog (MudDialog; design system Dialog card) ---------- */
+.mud-dialog {
+  background: var(--surface); color: var(--text-primary);
+  border-radius: var(--radius-lg); box-shadow: var(--elevation-24);
 }
-.sk-dialog::backdrop { background: var(--sk-scrim); }
-.sk-dialog-inner { display: flex; flex-direction: column; gap: var(--sk-space-4); padding: var(--sk-space-6); }
-.sk-dialog h2 { margin: 0; font: var(--sk-text-headline-small); }
-.sk-dialog-content { font: var(--sk-text-body-medium); }
-.sk-dialog-content p { margin: 0; }
-.sk-dialog-actions { display: flex; justify-content: flex-end; gap: var(--sk-space-2); flex-wrap: wrap; }
-.sk-error-banner {
-  margin: 0; padding: var(--sk-space-3) var(--sk-space-4); border-radius: var(--sk-radius-sm);
-  background: var(--sk-error-container); color: var(--sk-on-error-container); font: var(--sk-text-body-medium);
-}
+.mud-overlay-dialog .mud-overlay-scrim { background-color: var(--overlay-dark); }
 
 /* ---------- snackbar (MudSnackbarProvider; design system Feedback card) ---------- */
 .mud-snackbar.mud-snackbar-surface {

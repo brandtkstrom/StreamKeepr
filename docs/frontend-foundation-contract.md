@@ -128,7 +128,7 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 | `Collapsible` | `Open`, `Header`, `ChildContent`, `OnToggle`; `aria-expanded`; 300ms; reduced motion |
 | `Switch` | `Checked`, `Label`, `OnChange`; `role="switch"` |
 | `Tooltip` | Hover/focus text; `aria-describedby`; no interactive content |
-| `Dialog` | `<dialog>` + `showModal()` via JS; focus trap/Esc; return focus; title, content, actions |
+| Confirmations | Inline `MudDialog`s rendered by the `MudDialogProvider` (#177): the owning component keeps their state, `ConfirmDialogs.Options(busy)` sets the Dialog card's options (extra small, full width, Esc and backdrop close only while idle). Title `h6` names the `dialog`; Cancel (text) before the filled Error confirm; MudBlazor traps focus and returns it on close. `data-*` hooks go on a wrapper inside `DialogContent`. Restyled to `surface`, `radius-lg`, `elevation-24` over `overlay-dark` |
 | Snackbars | MudBlazor `ISnackbar` and the `MudSnackbarProvider` in `Routes.razor` (#177). `StreamKeeprSnackbars.Configure` sets the Feedback card's defaults for `Program.cs` and the tests: bottom left (above the phone's bottom navigation), one visible at a time with the rest queued, 4s, duplicates allowed, no close icon. `ISnackbar.Show(text, actionLabel, action)` adds at most one action; a blank text or half an action throws. A snackbar is a polite `alert` |
 
 - `RequiresTwitch`: renders `AuthorizeView`; when signed out, the child stays visible but is wrapped with `inert` and a tooltip “Connect Twitch to use this”; never hidden. The service/UI layer also enforces authorization.
