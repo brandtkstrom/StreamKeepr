@@ -63,6 +63,11 @@ public sealed partial class TestSelectorGuardTests
     [InlineData("Assert.True(drawer.ClassList.Contains(\"rail\"));", "ClassList")]
     [InlineData("await drawer.GetAttributeAsync(\"class\") is { } c && c.Contains(\"rail\")", "GetAttributeAsync(\"class\")")]
     [InlineData("player.EvaluateAsync<bool>(\"p => p.classList.contains('idle')\")", "classList")]
+    [InlineData("Assert.False(cut.Find(\"nav\").HasAttribute(\"class\"));", "HasAttribute(\"class\")")]
+    [InlineData("Assert.Contains(\"rail\", drawer.GetAttribute('class'));", "GetAttribute('class')")]
+    [InlineData("page.EvaluateAsync<string>(\"() => document.body.getAttribute('class')\")", "getAttribute('class')")]
+    [InlineData("page.EvaluateAsync<string>(\"() => main.getAttribute(\\\"class\\\")\")", "getAttribute(\\\"class\\\")")]
+    [InlineData("await row.GetAttributeAsync( \"class\" )", "GetAttributeAsync( \"class\" )")]
     public void Detects_styling_class_references(string line, string expected) =>
         Assert.Contains(expected, StylingClassReferences(line));
 
@@ -75,6 +80,8 @@ public sealed partial class TestSelectorGuardTests
     [InlineData("page.GetByRole(AriaRole.Navigation, new() { Name = \"Library\" })")]
     [InlineData("cut.Find(\"#sk-group-alpha\")")]
     [InlineData("Assert.True(button.HasAttribute(\"data-active\"));")]
+    [InlineData("await row.GetAttributeAsync(\"data-state\")")]
+    [InlineData("Assert.Equal(\"sk-auth\", options.Cookie.Name);")]
     public void Ignores_hooks_ids_and_cookie_names(string line) =>
         Assert.Empty(StylingClassReferences(line));
 
@@ -108,8 +115,9 @@ public sealed partial class TestSelectorGuardTests
 
     /// <summary>
     /// A class-list API (AngleSharp ClassList/ClassName, DOM classList/className, Playwright
-    /// ToHaveClass) or a read of the <c>class</c> attribute.
+    /// ToHaveClass) or a read of the <c>class</c> attribute (HasAttribute/GetAttribute in .NET,
+    /// hasAttribute/getAttribute in page scripts, either quote style).
     /// </summary>
-    [GeneratedRegex(@"\b(?:ClassList|ClassName|classList|className|HasClass|ToHaveClass\w*)\b|\bGetAttribute(?:Async)?\(""class""\)")]
+    [GeneratedRegex(@"\b(?:ClassList|ClassName|classList|className|HasClass|ToHaveClass\w*)\b|\b(?:[Hh]as|[Gg]et)Attribute(?:Async)?\(\s*\\?[""']class\\?[""']\s*\)")]
     private static partial Regex ClassApi();
 }
