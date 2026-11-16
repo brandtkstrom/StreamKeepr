@@ -1,92 +1,127 @@
-StreamKeepr is a personal DVR for Twitch: it captures streams to disk as HLS playlists and plays them back in the browser. The interface uses Material 3 structure in the Dracula PRO palette, built around one idea — **the video is the product**. Everything else (library, stats, details) sits beside or under the player and collapses out of its way.
+StreamKeepr is a personal DVR for Twitch. It captures streams to disk as HLS playlists and plays them back in the browser. This system is its interface built from **MudBlazor** components, themed as one colourful dark theme built entirely from MudBlazor's own colours: its default dark grounds, and vivid accents from the Material palette in `MudBlazor.Colors`. One idea governs every screen: **the video is the product.** The library, details, stats and chat sit beside or under the player and collapse out of its way.
+
+Read **MudBlazor theme** for the `MudTheme` that carries these tokens into the app, and **Component map** for which MudBlazor component replaces each of StreamKeepr's own primitives.
 
 ## Layout
 
-- Three regions, always in this arrangement: the **top app bar** (64px, `app-bar-height`), the **library drawer** on the left (`drawer-width`, 320px) and the **player column** on the right. See the `AppShell` component for the full screen.
-- The player column stacks, top to bottom: `VideoPlayer` → `RecordingDetails` → `StatsPanel`. The player always comes first and takes the full column width at 16:9; never place anything above it.
-- Maximise viewing area with collapse, not with scrolling: the drawer collapses to a 72px rail (`rail-width`) of streamer avatars and hides entirely in theater mode; Stats for nerds and Recording details each collapse to a 48px header. Remember those choices per viewer.
-- The player column's content is capped at 1100px and centred; gutters are `space-6` on the outside, `space-3` between stacked panels.
-- Below 960px wide the drawer becomes a modal drawer over `scrim` with `elevation-3`; below 600px stats tiles stack in one column.
+**StreamKeepr is video first.** The player is the largest thing on every watch screen and fills the space it is given. Everything else is beside it, under it, or behind a tap.
+
+### The template
+
+The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes: app bar plus a drawer clipped under it), made responsive with `MudBreakpointProvider` and `MudHidden`. See `AppShell`.
+
+| Width (MudBlazor breakpoint) | Top bar | Navigation | Watching a recording |
+|---|---|---|---|
+| **Md and up** (≥ 960px): laptop, desktop | `MudAppBar`, 64px: menu, wordmark, search field, GitHub and Twitch links, settings, account avatar | `MudDrawer Variant="Mini" ClipMode="Always"`: the 72px rail, or the 320px library when opened | Player fills the column. Chat is a sidecar to its right, filling the remaining width (320–400px). Details and stats sit below. |
+| **Sm** (600–959px): tablet, small window | `MudAppBar Dense`, 48px | Bottom app bar (`BottomNav`); the library is a temporary drawer | Player edge to edge, then the title, then `MudTabs`: Chat · Details · Stats |
+| **Xs** (< 600px): phone portrait | Dense, 48px; a back arrow on the watch page | Bottom app bar; temporary drawer | As Sm, with the player sticky under the top bar while the tabs scroll |
+| Phone landscape (height < 500px) | Hidden | Hidden | The player fills the screen, with controls overlaid |
+
+### The player
+
+- On watch pages the player is **as wide as its column** (no max-width, and only the `space-4` gutter on desktop) and keeps 16:9. Its height is capped at the viewport height minus the app bar, the gutter and `player-peek` (88px), so the recording's title always shows below it without scrolling. When the cap applies, the video letterboxes inside the black frame, and the chat sidecar widens to use the space.
+- Opening a recording on desktop collapses the drawer to the rail. Home opens it fully again. Both choices are remembered per viewer.
+- **Theater mode** (desktop only) makes the player span the full width of the view: no drawer, no gutters, no sidecar. Its height is capped at the viewport minus the app bar. Chat and details move below it. Fullscreen takes over theater mode's job on phones.
+- Nothing ever sits above the player.
+
+### The rest
+
+- **Playback is never interrupted by navigation.** Secondary things open over the page instead of replacing it: Settings is a right side sheet on desktop and a full-screen dialog on phones (`SettingsSheet`), and dialogs and menus float. The `/settings` route remains only for bookmarks.
+- **The default view** at `/`, before a recording is open, is `Home`: every active recording (`Recording` or `Reconnecting`) in one row, and the 20 most recent complete recordings (`Saved` or `Partial`) in a second row below, both newest first by start time. The rows fill the window's width, showing as many cards as fit.
+- Watch and Home pages have no width cap. Forms (Settings) cap at `form-max-width` (760px) for readable line lengths.
+- The library drawer's footer shows disk usage. The desktop app bar carries search, the GitHub and Twitch links, settings and the account avatar; on phones, search is an icon and settings moves to the bottom bar.
+- Maximise viewing area by collapsing things, not by scrolling. Remember each collapse per viewer.
+- Touch targets are at least 40px, 48px in the bottom bar and tabs. Nothing scrolls sideways except the Home rows and the chapter strip, which scroll inside themselves.
+- Empty, no-match and not-found states get an icon, one headline, one sentence and at most one action. See `EmptyStates`.
 
 ## Library ordering
 
-- Recordings are organised **by streamer**, and **newest first at every level**: streamer groups by their latest recording (a streamer being captured right now is always on top), recordings inside a group by start time, descending, under day headers — `Today`, `Yesterday`, then `Wed, Nov 4`.
-- The drawer header always states the order ("↓ Newest first").
-- Filter chips (All · Recording · Saved) sit under the header; search in the app bar filters the same list.
+- Group recordings **by streamer**, and sort **newest first at every level**. Streamer groups sort by their latest recording, and a streamer being captured right now is always on top. Inside a group, recordings sort by start time, descending, under day headers: `Today`, `Yesterday`, then `Wed, Nov 4`.
+- The drawer header always states the order ("Newest first"), with the sort menu beside it.
+- Filter chips (All · Recording · Saved) sit under the header as a single-select `MudChipSet`. Search in the app bar filters the same list and marks matches with `highlight`.
 
 ## Color
 
-- One theme, **Dracula PRO**, laid onto Material 3 colour roles. The eleven Dracula PRO colours are tokens of their own (`dracula-background` … `dracula-yellow`, exact hex); the role tokens alias them. Use the role tokens in components, never the `dracula-*` tokens or raw hex.
-- Role map: `primary` = Purple · `tertiary` = Cyan · `success` = Green · `warning` = Orange · `error` and `rec` = Red · `highlight` = Yellow · `surface` = Background · `secondary-container` and `surface-container-highest` = Selection · `outline` and `secondary` = Comment · `on-surface` = Foreground. Pink is held in reserve as the next categorical hue.
-- Surfaces climb in Background's own hue (250°, 15% saturation): `surface-container-lowest` 10% → `surface` (Background, 15%) → `surface-container-low` 17% (drawer) → `surface-container` 19.5% (panels) → `surface-container-high` 23% (tiles, search, hovered rows) → `surface-container-highest` (Selection, 30%). Elevate with a higher step, not with shadows.
-- Text: `on-surface` (Foreground) for primary text; `on-surface-variant` for dates, durations and stat labels. Comment itself is too dark for small text (3.6:1 on Background), so `on-surface-variant` is Comment's hue lightened to 75% — ≥4.6:1 on every surface step and on Selection. Keep Comment for borders and marks.
-- Bright Dracula fills always take Background-coloured text: `on-primary`, `on-tertiary`, `on-rec`, `on-warning`, `on-highlight` are all `dracula-background`.
-- `primary` (Purple) is for the main action, the playhead/progress, the active control and the focus ring. As text it is used only on `surface` through `surface-container`. Selected library rows use Selection with Foreground text.
-- The player is always `player-bg` (pure black); overlays on it use `player-scrim` with `on-player` (Foreground). No gradients.
-- **Reserved colours.** `rec` means "a capture is being written right now" — the REC dot, the live-edge tick, the REC chip. It shares Red with `error`, so errors always carry ⚠ or a word, and REC is always the pulsing dot or the REC label. `warning` (Orange) marks partial captures and low disk. `success` (Green) marks a connected Twitch account. `twitch` is Twitch's own purple, kept exact, and appears only on the Connect with Twitch button — it sits close to Dracula Purple, so the two are told apart by label colour (white on Twitch, Background on `primary`) and wording.
-- Stats charts: video series in `primary` (Purple), network series in `tertiary` (Cyan); one series per sparkline, labels in text tokens, never in the series colour.
+- There is one theme, **MudBlazor Dark**, and the app is dark only. Every colour comes from MudBlazor 9.12.0: the grounds are `PaletteDark`'s defaults, and the accents and greys are `MudBlazor.Colors` constants. Each constant is a source token named after it (`purple-accent-1` = `Colors.Purple.Accent1`, `gray-darken-4` = `Colors.Gray.Darken4`). Components use the role tokens, never the source tokens or raw hex.
+- The role tokens are named after MudBlazor's `Palette` properties (`primary` = `Palette.Primary`, `drawer-background` = `Palette.DrawerBackground`, and so on), so the theme is a straight transcription.
+- **The colour is in the accents, on neutral grounds.** The roles are: `primary` = Purple A1 (magenta) · `secondary` = Cyan A3 · `tertiary` = Indigo A1 · `info` = Light Blue A2 · `success` = Green A3 · `warning` = Amber A3 · `error` = Red A1 · `rec` = Red A2 · `highlight` = Yellow A2. Each one has a job, so several can share a screen and still read: playback is magenta, network is cyan, the stream itself (chapters and viewer count) is indigo, and states are green, amber and red.
+- **Each channel has a channel colour.** `channel-1` … `channel-8` (Deep Purple, Cyan, Pink, Amber, Light Green, Orange, Indigo, Teal accents) are assigned by a stable hash of the Twitch login. They fill the channel's avatar, with the initial in `channel-contrast-text`, and colour their name in chat, so a channel looks the same everywhere. They never mean a state.
+- Grounds are MudBlazor's neutral dark greys: `appbar-background` and `drawer-background` #27272f → `background` #32333d → `surface` #373740 (panels, menus, dialogs) → `surface-raised` Gray Darken 3 (tiles). Theater mode drops to `background-gray`, Gray Darken 4. `selection` is Purple Darken 4, a deep tint of `primary`, for the selected row and the current chapter. Elevate with a higher step, not with a shadow.
+- Text is `text-primary` (Gray Lighten 4) and `text-secondary` (Gray Lighten 1). Both reach at least 5.3:1 on every ground, `surface-raised` and `selection` included.
+- Every bright fill takes `gray-darken-4` text through its `*-contrast-text` token (at least 5:1). Never put white on a Material accent. `twitch` is the one exception, with a white label.
+- `primary` marks the one main action per region, the selected filter chip, active toggles, the focus ring and progress. It is text-safe on every ground except `surface-raised`, where it is icon-only.
+- **Reserved colours.** `rec` means "a capture is being written right now": the pulsing REC dot, the REC chip, the live-edge tick and the live ring on an avatar. It is the brighter Red A2 and only ever a fill or a dot. `error` is the lighter Red A1, so error text stays legible, and an error always carries the warning icon or a word. `warning` marks partial captures, reconnecting, low disk and the polling fallback. `success` marks a connected Twitch account and healthy service. `twitch` is Twitch's own purple, kept exact, and appears only on the Connect with Twitch button.
+- The player keeps its own fixed colours: `player-background` (black), `player-scrim` behind its strips, `player-text` over them, and `player-accent` (= `primary`) for the played range. No gradients.
+- In stats charts, video series are `primary`, network series `secondary`, and the viewer-count chart `tertiary`. Chapter ticks and offsets are `tertiary` too: indigo always means the stream itself. Draw one series per sparkline, and set labels in text tokens, never in the series colour.
 
 ## Typography
 
-- No text webfont is bundled. Both family tokens, `sans` and `mono`, resolve to the system monospace stack (`ui-monospace`, SF Mono, Menlo, Consolas); keep using `sans` for UI text and `mono` for data so the roles survive a future face change.
-- Material Symbols Rounded is the only bundled font, declared from `components/bundle.css` for icons.
-- Monospace runs wide (0.64em per character), so the scale sits a step below Material's: default text is `body-medium` 13px, recording titles in the library `title-small` 13px (two lines, then ellipsis), streamer names and panel headers `title-medium` 15px, the title under the player `headline-small` 22px, the wordmark `title-large` 20px.
-- No letter-spacing, except uppercase status chips (`label-small`, 0.6px) and stats overlines. Weight carries hierarchy: 400 body, 500 data, 600 titles and labels, 700 the wordmark and chips.
-- Data styles: `timecode` in the player and on thumbnails, `stat-hero` for the headline number on a stat tile, `stat-value` for key/value rows. Monospace figures are fixed-width, so numbers never jitter as they update.
-- Components take their type from the style tokens (`font: var(--text-body-medium)` and so on), never from hard-coded sizes.
-- Search matches are marked with `highlight` (Yellow) behind the matched characters. Sentence case everywhere except status chips (uppercase: REC, PROCESSING, PARTIAL).
+- Type is **MudBlazor's own typography**: its default `Typography` from 9.12.0, unchanged, in **Roboto** (falling back to Helvetica, then Arial). Sizes, weights, line heights and letter-spacing are MudBlazor's for every slot. The single override is `Button.TextTransform = "none"`, so buttons keep sentence case.
+- Roboto is self-hosted as one variable font, subset to Latin (see **MudBlazor theme**). The app makes no font requests to a CDN.
+- MudBlazor's H1–H3 are display sizes (96, 60 and 48px), too large for a dense tool, so the app starts at H4. Use the slots this way:
+  - `h4` (34px) for empty and not-found headlines;
+  - `h5` (24px) for page titles and the recording title under the player;
+  - `h6` (20px, Medium) for panel headers and dialog titles;
+  - `subtitle1` (16px) for streamer names, display names, the player-strip title and stats section heads;
+  - `subtitle2` (14px, Medium) for library row titles (two lines, then ellipsis) and chapter titles;
+  - `body2` (14px) as the default UI text, `body1` (16px) for dialog copy, and `caption` (12px) for dates, durations and logins;
+  - `overline` (12px, uppercase, wide tracking) for status chips and stat labels only.
+- There is no monospace face. Numbers that update or line up (`timecode`, `stat-value`, `stat-hero`) are Roboto with `font-variant-numeric: tabular-nums`, so the digits keep a fixed width and never jitter.
+- Two additions sit outside MudBlazor's `Typo` enum, built from its metrics: `label` (caption size at Medium, for day headers and filter chips) and `wordmark` (h6 size at Bold).
+- Weight carries hierarchy the MudBlazor way: Light 300 only in the unused display sizes, Regular 400 for text and most headings, Medium 500 for h6, subtitle2, buttons and labels, and Bold 700 only in the wordmark.
+- Use **sentence case everywhere** except `overline` (REC, PROCESSING, PARTIAL).
+- Mark search matches with `MudHighlighter` (`Class="sk-mark"`), styled `highlight` behind `highlight-contrast-text`.
 
 ## Shape, spacing, elevation
 
-- Spacing steps: `space-1` 4 · `space-2` 8 · `space-3` 12 · `space-4` 16 · `space-6` 24 · `space-8` 32.
-- Corners: buttons, icon buttons, avatars and the seek knob are `radius-full`; thumbnails and chips `radius-sm`; the player frame, panels and cards `radius-md`; the drawer's trailing edge `radius-lg`; the search field and dialogs `radius-xl`.
-- Shadows only where something floats: `elevation-1` on the scrolled app bar and hovered filled buttons, `elevation-2` on menus and tooltips, `elevation-3` on the modal drawer and dialogs.
+- Spacing uses MudBlazor's 4px unit: `space-1` 4 (`pa-1`) · `space-2` 8 · `space-3` 12 · `space-4` 16 · `space-6` 24 · `space-8` 32. Use Mud's spacing classes (`pa-4`, `gap-3`, `mb-3`), not inline pixels.
+- Corners: `radius-md` (8px) is `DefaultBorderRadius` and covers buttons, fields, menus, thumbnails and tiles. `radius-lg` (12px) is for the player frame, every panel and dialogs. `radius-full` is for chips, avatars, icon buttons and the seek knob. `radius-sm` (4px) is for duration badges and progress bars.
+- Panels are flat: `MudPaper Elevation="0" Outlined="true"` on `surface`, with a `lines-default` hairline. The app bar is `Elevation="0"` with a `divider` rule under it. Shadows appear only where something floats: `elevation-8` on menus, popovers and snackbars, `elevation-24` on dialogs, and `elevation-4` on the temporary drawer.
 
 ## States and motion
 
-- State layers: overlay the content colour at `state-hover` (8%) or `state-pressed` (10%); disabled content at `state-disabled` (38%).
-- Focus ring: a solid 2px `primary` outline with a 2px offset on every interactive element (≥3:1 on all surfaces; on the Twitch button it lands on the app bar ground, not the purple).
-- Collapse and expand over 300ms with Material's emphasized easing `cubic-bezier(0.2, 0, 0, 1)`; player overlays fade in 200ms and hide after 3s idle while playing. Honour `prefers-reduced-motion`: the REC pulse and spinners stop.
+- State layers: the content colour at `hover-opacity` (8%) on hover and `ripple-opacity` (10%) when pressed. Disabled content is at `disabled-opacity` (38%) through `text-disabled` and `action-disabled`.
+- Tinted status chips and alerts fill with the status colour at `tint-opacity` (14%). Their label stays `text-primary`, and only the icon or dot takes the status colour, so every chip reads the same way.
+- The focus ring is a solid 2px `primary` outline with a 2px offset on every interactive element (≥ 4:1 on every ground). On the Twitch button it lands on the app bar, not on the purple. Inside the player it is `player-accent`.
+- Collapse and expand take 300ms with `cubic-bezier(0.2, 0, 0, 1)`. Player overlays fade in over 200ms and hide after 3s idle while playing. Under `prefers-reduced-motion`, the REC pulse and spinners stop, and ripples turn off (`Ripple="false"`).
 
 ## Content and voice
 
-- Short, plain and specific. Say what the machine is doing: "Recording now", "Processing", "Partial — gaps in capture", "1.2 TB free".
-- Dates are relative for the last two days ("Today", "Yesterday"), then "Wed, Nov 4"; durations as "2h 14m" in meta lines and "2:14:07" in timecodes.
-- Buttons are verbs: "Connect with Twitch", "Export MP4", "Copy playlist URL". No exclamation marks, no emoji.
-- Features that need a Twitch login stay visible but disabled with "Connect Twitch to use this".
+- Keep it short, plain and specific. Say what the machine is doing: "Recording now", "Processing", "Partial: gaps in capture", "1.2 TB free", "Live updates paused".
+- Dates are relative for the last two days ("Today", "Yesterday"), then "Wed, Nov 4". Durations are "2h 14m" in meta lines and "2:14:07" in timecodes.
+- Buttons are verbs: "Connect with Twitch", "Export MP4", "Copy playlist URL", "Stop recording". No exclamation marks, no emoji.
+- Destructive dialogs name the thing and the consequence: "Delete recording?" followed by "The files and watch progress are removed permanently." Their confirm button repeats the verb ("Delete"), not "OK".
+- Features that need a Twitch login stay visible but disabled, with a tooltip: "Connect Twitch to use this".
+- Name a control's keyboard shortcut in its tooltip: "Theater mode (T)". See `Keyboard`.
 
 ## Iconography
 
-- Material Symbols Rounded (Google Fonts), weight 400, unfilled by default at 24px (20px in chips and menus, 18px inside buttons). Fill only to show an "on" state (play, REC).
-- Core set: `menu`, `search`, `play_arrow` / `pause`, `replay_10` / `forward_10`, `volume_up`, `query_stats` (stats toggle), `picture_in_picture_alt`, `width_wide` (theater), `fullscreen`, `download`, `content_copy`, `delete`, `sensors` (live capture), `movie` (saved recording), `hard_drive`, `schedule`, `settings`, `link`.
-- No Twitch logo is included. The Twitch button uses `link`; when shipping, use the official Glitch mark from Twitch's brand assets — never redraw it.
-- No app logo yet: the wordmark is set in type ("Stream" in `on-surface`, "Keepr" in `primary`) after a `rec`-coloured REC dot.
+- In the app, use MudBlazor's built-in **Material Rounded** SVG set (`Icons.Material.Rounded.*`). It adds no font file and no network request, and the icons inherit `currentColor`. This replaces the Material Symbols webfont.
+- Sizes: `Size.Medium` (24px) in the app bar, drawer and player; `Size.Small` (20px) in chips, menus and inside buttons (`StartIcon`). Fill shows an "on" state only (play, REC).
+- **Use icons to carry meaning, not decoration.** Every navigation destination, section header, toggle and meta field gets one, always beside its text label or with an `aria-label`. Use the same icon for the same idea everywhere:
 
+| Meaning | Icon (`Icons.Material.Rounded.*`) |
+|---|---|
+| Home · Library · Settings | `Home` · `VideoLibrary` · `Settings` |
+| Recording now (live capture) · recent | `Sensors` · `History` |
+| Filter: all · recording · saved | `ViewList` · `FiberManualRecord` (in `rec`) · `Inventory2` |
+| Recording details · stats · chat | `Info` · `QueryStats` · `Chat` |
+| Video · network · viewers (stream) | `Videocam` · `NetworkCheck` · `Groups`, in their series colours |
+| Category · started · duration · parts · size | `SportsEsports` · `Event` · `Timer` · `FolderOpen` · `Storage` |
+| Twitch account · channels · connection | `ManageAccounts` · `LiveTv` · `Wifi` |
+| Player | `PlayArrow` / `Pause`, `Replay10` / `Forward10`, `VolumeUp` / `VolumeOff`, `QueryStats`, `Chat`, `PictureInPictureAlt`, `WidthWide` (theater), `Fullscreen` |
+| Actions | `PlaylistPlay` (copy playlist URL) · `Output` (export MP4) · `Download` (download an export) · `ContentCopy` (copy stats) · `Delete` · `Stop` · `Refresh` · `Add` |
+| Recording without a thumbnail | `Movie` |
+| Back · menu · search · more | `ArrowBack` · `Menu` · `Search` · `MoreVert` |
+| GitHub link · Twitch link | `Icons.Custom.Brands.GitHub` · Twitch's official Glitch mark (never redrawn; `LiveTv` stands in until the asset is added) |
+| States | `CheckCircle`, `Warning`, `Error`, `Sync`, `CloudOff`, `WifiOff`, `Schedule` (polling) |
 
----
+- The previews draw their icons from `components/icons.js`, which holds the exact SVG of the `Icons.Material.Rounded` constants from MudBlazor 9.12.0. In the app, use the constants. Inside JS-owned islands and the reconnect dialog, paste the same SVG.
+- No Twitch logo is included yet. The Connect with Twitch button uses `Link`, and the app bar's Twitch link shows `LiveTv` as a stand-in. When shipping, use Twitch's official Glitch mark from its brand assets in both places, unmodified. Never redraw it. The GitHub link uses MudBlazor's own `Icons.Custom.Brands.GitHub`.
 
-## Consuming this system (generated — do not edit)
+## Logo
 
-Every path named below is under `project/` in this design system: read `project/api/tokens.md`, not `api/tokens.md`.
-
-9 components are documented without a runnable `components/bundle.js`: read each component’s card, and its README where it has one (`components/<Comp>/README.md`), and build to those guidelines. Tokens: the values are on `api/tokens.md`; a Slides deck or Design canvas also takes `tokens.json` by file path. On a Design canvas, also copy `tokens.css` to `project/ds/<folder>/tokens.css` in the call that installs this system, and link it in each artboard that uses this system, right after the `support.js` line and before the system’s other stylesheets: `<link rel="stylesheet" href="ds/<folder>/tokens.css">` (with one `../` in front for each folder the artboard is in).
-
-No text font is bundled: `--font-sans` and `--font-mono` resolve to the system monospace stack. Material Symbols Rounded is bundled for icons in `components/bundle.css`.
-
-**Read, per thing:** a component’s props, parts and examples: `api/components/<Comp>.md`; token values: `api/tokens.md`. After this README, fetch the cards you need in ONE message as parallel calls — none depends on another.
-
-**Two rules.** Before you use a thing — a component, a token group, an icon, an asset — read its card from the index below; a value you did not read from a card is a guess. `tokens.json`, `manifest.json` and `design-system.json` are sources for tools: hand them over. `components/<Comp>/README.md` is the long-form second read a card links to; `SKILL.md` and `artifact-type/` beside them are authoring guidance, not needed to consume the system.
-
-## Index (generated — do not edit)
-
-**Tokens**
-
-- `api/tokens.md` — Every token: surface, fill, border, palette, type, spacing, radius, shadow, size, opacity. (21.3k)
-
-**Components** (`api/components/<Comp>.md`, 9)
-
-- **Layout**: `AppShell` — The full StreamKeepr screen: top app bar, library drawer on the left, and the player column with the recording details and stats panel stacked beneath the play… · `TopAppBar` — The 64px bar across the top: menu (drawer) toggle, the StreamKeepr wordmark, recording search, disk space, schedule, settings and the Twitch auth control
-- **Actions**: `Buttons` — Material 3 buttons, icon buttons and filter chips used across StreamKeepr · `TwitchAuthButton` — The control that connects a Twitch account, enabling features that need it (following list, live notifications, auto-record of followed channels, subscriber-on…
-- **Navigation**: `LibraryDrawer` — The left pane listing recordings grouped by streamer, newest first at every level
-- **Playback**: `RecordingDetails` — A collapsible card above the stats panel with the recording's title, streamer, category, size and the actions for it · `StatsPanel` — A collapsible "Stats for nerds" panel below the recording details, showing playback (video) and network statistics side by side · `VideoPlayer` — The primary component: a 16:9 HLS player with an overlay title strip and a control bar
-- **Status**: `StatusChip` — Small uppercase chips that state a recording's condition in words, with colour as a second cue
+- **The mark:** three stream segments (cyan, `secondary`) flowing into a rounded keep that holds a play symbol (magenta, `primary`). It means a video stream, saved. Files and rules are in the **Logos** and **Favicon** asset groups.
+- **In the app bar**, the mark (28px; 24px in the dense bar) sits before the typed wordmark: "Stream" in `text-primary`, "Keepr" in `primary`, in `wordmark` type. While anything records, a pulsing `rec` badge sits on the mark's top-right corner. The logo itself never carries red.
+- **Elsewhere** (README, social cards, docs), use the outlined lockup `streamkeepr-logo.svg` on dark grounds and `streamkeepr-logo-on-light.svg` on light ones. Keep clear space of at least half the mark's height. The minimum size is 16px for the mark and 96px wide for the lockup.
+- **The favicon** is the mark on the dark app tile. Link `favicon.svg`, `favicon.ico`, `apple-touch-icon.png` and the manifest icons as the Favicon group's README shows.

@@ -1,0 +1,39 @@
+<!-- @dsCard group="Navigation" height=720 width=1000 subtitle="Card states: recording, reconnecting, resumed, partial, no thumbnail, hover, and the empty active row" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; }
+  .wrap { padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-6); }
+  .row { display: flex; gap: var(--space-6); align-items: flex-start; flex-wrap: wrap; }
+  .k { font: var(--text-caption); color: var(--text-secondary); margin: 0 0 var(--space-2); letter-spacing: 0.03333em; }
+  .shot { background: color-mix(in srgb, var(--k2) 34%, #000); }
+  .s1 { --k2: var(--channel-1); } .s2 { --k2: var(--channel-2); } .s3 { --k2: var(--channel-3); } .s4 { --k2: var(--channel-4); }
+  .hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
+</style>
+</head>
+<body class="ds">
+<div class="wrap">
+  <div class="row">
+    <div><p class="k">Active · Recording (360px)</p>
+      <a class="ds-card lg" href="#"><span class="ds-thumb live"><span class="shot s1"></span><span class="tl ds-status rec">Rec</span><span class="dur">1:02:13</span><span class="prog"><i style="width:100%"></i></span></span><span class="body"><span class="ds-avatar a1">N</span><span class="txt"><span class="title">Late-night speedrun practice: any% resets</span><span class="meta">nightjar_tv · Speedrunning · Started 21:04</span></span></span></a></div>
+    <div><p class="k">Active · Reconnecting</p>
+      <a class="ds-card lg" href="#"><span class="ds-thumb live"><span class="shot s4"></span><span class="tl ds-status partial"><i data-i="sync"></i>Reconnecting</span><span class="dur">3:18:40</span><span class="prog"><i style="width:100%"></i></span></span><span class="body"><span class="ds-avatar a4">S</span><span class="txt"><span class="title">Pixel art commissions and chill</span><span class="meta">sablefinch · Art · Started 18:52</span></span></span></a></div>
+  </div>
+  <div class="row">
+    <div><p class="k">Complete · resume position</p>
+      <a class="ds-card" href="#"><span class="ds-thumb"><span class="shot s2"></span><span class="dur">2:14:07</span><span class="prog"><i style="width:38%"></i></span></span><span class="body"><span class="ds-avatar a2">P</span><span class="txt"><span class="title">Route planning with chat</span><span class="meta">pixelwren · Yesterday, 20:30</span></span></span></a></div>
+    <div><p class="k">Complete · Partial</p>
+      <a class="ds-card" href="#"><span class="ds-thumb"><span class="shot s3"></span><span class="dur">3:40:52</span></span><span class="body"><span class="ds-avatar a3">C</span><span class="txt"><span class="title">Cozy farm sim, year two</span><span class="meta">coppermoth · Today, 14:00</span><span class="chips"><span class="ds-status partial"><i data-i="warning"></i>Partial</span></span></span></span></a></div>
+    <div><p class="k">No thumbnail · hover</p>
+      <a class="ds-card hover" href="#"><span class="ds-thumb"><i data-i="movie"></i><span class="dur">0:48:20</span></span><span class="body"><span class="ds-avatar a1">N</span><span class="txt"><span class="title">Morning warmup</span><span class="meta">nightjar_tv · Wed, Nov 11</span></span></span></a></div>
+  </div>
+  <div>
+    <p class="k">Active row with nothing recording</p>
+    <div class="ds-nothing" role="status"><i data-i="sensors"></i><span><b>Nothing is recording right now.</b> A watched channel starts recording when it goes live.</span></div>
+  </div>
+</div>
+<script src="../icons.js"></script>
+</body>
+</html>

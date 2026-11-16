@@ -27,6 +27,52 @@ public sealed class AppShellDocumentTests
         Assert.DoesNotContain("https://", html, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task MudBlazor_css_loads_before_the_app_css_and_its_script_after_blazor()
+    {
+        using var factory = new StreamKeeprAppFactory();
+        using var client = factory.CreateClient();
+
+        var html = await client.GetStringAsync("/");
+        var mudCss = Regex.Match(html, @"href=""(?<href>_content/MudBlazor/MudBlazor\.min(?:\.[a-z0-9]+)?\.css)""");
+        var mudJs = Regex.Match(html, @"src=""(?<src>_content/MudBlazor/MudBlazor\.min(?:\.[a-z0-9]+)?\.js)""");
+
+        Assert.True(mudCss.Success, "MudBlazor.min.css link is missing.");
+        Assert.True(mudJs.Success, "MudBlazor.min.js script is missing.");
+        Assert.True(mudCss.Index < html.IndexOf("css/tokens.", StringComparison.Ordinal), "MudBlazor.min.css must precede tokens.css.");
+        var blazor = html.IndexOf("_framework/blazor.web", StringComparison.Ordinal);
+        Assert.True(blazor >= 0, "blazor.web.js script is missing.");
+        Assert.True(mudJs.Index > blazor, "MudBlazor.min.js must follow blazor.web.js.");
+
+        foreach (var href in new[] { mudCss.Groups["href"].Value, mudJs.Groups["src"].Value })
+        {
+            using var response = await client.GetAsync(href);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task Fonts_css_declares_self_hosted_Roboto_with_swap()
+    {
+        using var factory = new StreamKeeprAppFactory();
+        using var client = factory.CreateClient();
+
+        var html = await client.GetStringAsync("/");
+        var fontsHref = Regex.Match(html, @"href=""(?<href>css/fonts(?:\.[a-z0-9]+)?\.css)""").Groups["href"].Value;
+        var css = await client.GetStringAsync(fontsHref);
+
+        var face = Regex.Match(css, @"@font-face\s*\{[^}]*font-family:\s*""Roboto""[^}]*\}");
+        Assert.True(face.Success, "fonts.css has no Roboto @font-face.");
+        Assert.Contains("font-display: swap", face.Value);
+        Assert.Contains("font-weight: 100 900", face.Value);
+        var url = Regex.Match(face.Value, @"url\(""(?<url>/fonts/[^""]+\.woff2)""\)").Groups["url"].Value;
+        Assert.NotEmpty(url);
+
+        using var font = await client.GetAsync(url);
+        Assert.Equal(HttpStatusCode.OK, font.StatusCode);
+        Assert.Equal("font/woff2", font.Content.Headers.ContentType?.MediaType);
+    }
+
     [Theory]
     [InlineData(@"<link rel=""icon"" href=""(?<href>favicon(?:\.[a-z0-9]+)?\.ico)"" sizes=""48x48""", "image/x-icon")]
     [InlineData(@"<link rel=""icon"" href=""(?<href>favicon(?:\.[a-z0-9]+)?\.svg)"" type=""image/svg\+xml""", "image/svg+xml")]

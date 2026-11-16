@@ -1,3 +1,4 @@
+using MudBlazor.Services;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting.StaticWebAssets;
@@ -254,6 +255,7 @@ builder.Services.AddScoped<IConnectionStatusView, ConnectionStatusView>();
 
 builder.Services.AddRazorComponents()
        .AddInteractiveServerComponents();
+builder.Services.AddMudServices();
 
 var app = builder.Build();
 

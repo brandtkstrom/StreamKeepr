@@ -1,0 +1,29 @@
+<!-- @dsCard group="Feedback" height=370 width=760 subtitle="MudAlert, MudSnackbar, MudProgressLinear, MudTooltip" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; }
+  .wrap { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+  .k { font: var(--text-caption); color: var(--text-secondary); margin-top: var(--space-2); }
+  .prog { display: flex; gap: var(--space-6); align-items: center; }
+  .prog .ds-progress { width: 180px; }
+</style>
+</head>
+<body class="ds">
+<div class="wrap">
+  <span class="k">Alerts (Variant.Text, Dense)</span>
+  <div class="ds-alert warning" role="status"><i data-i="cloudoff" class="sm"></i>Live updates paused. Reconnecting to the server.<button class="ds-btn text sm">Retry</button></div>
+  <div class="ds-alert"><i data-i="info" class="sm"></i>Twitch sign-in needs HTTPS through the reverse proxy. This page is plain HTTP.</div>
+  <div class="ds-alert error" role="alert"><i data-i="error" class="sm"></i>Could not add “nightjr_tv”: no Twitch channel by that login.</div>
+  <span class="k">Snackbar · progress · tooltip</span>
+  <div class="ds-row-flex" style="gap:var(--space-6)">
+    <div class="ds-snack" role="status">Recording deleted<button class="ds-btn text sm">Undo</button></div>
+    <div class="ds-snack" role="status"><i data-i="checkcircle" class="sm" style="color:var(--success)"></i>Playlist URL copied</div>
+  </div>
+  <div class="prog"><div class="ds-progress" role="progressbar" aria-valuenow="42"><i style="width:42%"></i></div><div class="ds-progress" style="--c:var(--secondary)" role="progressbar" aria-valuenow="70"><i style="width:70%"></i></div><div class="ds-progress" style="--c:var(--warning)" role="progressbar" aria-valuenow="92"><i style="width:92%"></i></div><span class="ds-tip">Recording disk: 1.2 TB free of 4 TB</span></div>
+</div>
+<script src="../icons.js"></script>
+</body>
+</html>

@@ -1,12 +1,21 @@
-# VideoPlayer
+The primary component: a 16:9 HLS player with a title strip and a control bar. It is a JS-owned island.
 
-The primary component: a 16:9 HLS player with an overlay title strip and a control bar.
+## Build it from
 
-- Frame: `player-bg` (pure black), `radius-md`, full width of the player column. Never put UI chrome outside the frame that would shrink it.
-- Overlays sit on `player-scrim` and fade after 3s idle (`.idle`); keyboard focus or pointer movement brings them back.
-- Seek bar: track at 24% white, buffered range `secondary`, played `primary`, knob appears on hover/drag, hover timecode tooltip on `surface-bright`. For captures still being written, the live edge is a `rec` tick and the **Live edge** button jumps to it.
-- Control order, left → right: play/pause, back 10, forward 10, volume (slider reveals on hover), timecode (`timecode` style, current / total), Live edge (only while recording) · spacer · speed, quality (HLS variants with bitrates), stats toggle, picture-in-picture, theater, fullscreen.
-- The stats toggle (`query_stats`) and the panel's switch are the same state — keep them in sync.
-- Keyboard: Space/K play-pause, J/L ±10s, ←/→ ±5s on the seek bar, F fullscreen, T theater, I stats.
+Keep `VideoPlayer.razor` rendering once, and keep `VideoPlayer.razor.js` owning hls.js and every control. **Do not use MudBlazor components inside it.** Restyle the existing markup:
 
-**Consumer provides:** the HLS master playlist URL served by the backend, `durationSec`, `isRecording`, saved resume position.
+- Frame: `player-background`, `radius-lg`, 16:9, **as wide as its column**, with its height capped at the viewport minus the app bar, the gutter and `player-peek` (desktop). In theater mode it spans the full width of the view with square corners; below `Breakpoint.Md` it is edge to edge, square, and sticky on phones. When the height cap applies, the `<video>` letterboxes (`object-fit: contain`) inside the frame.
+- Title strip (top) and control bar (bottom, `control-bar-height` 48px) on a flat `player-scrim`. The title is `subtitle1` in `player-text` with the streamer below in `caption`. A REC `StatusChip` sits on the right while live.
+- Seek: a 4px track at 24% `player-text`, buffered range `player-buffered`, played range and 14px knob `player-accent`, chapter ticks in `player-text`, and the live-edge tick in `rec`. The hover time is in `timecode`.
+- Controls: 40px round buttons (`player-button`) with inline SVG from `Icons.Material.Rounded.*`: Play/Pause, Replay10, Forward10, volume with a 64px bar, `timecode` "54:40 / 1:02:13", "Live edge" with a `rec` dot (only while behind a live capture), then speed and quality pills, stats (pressed = `player-accent`), PiP, theater and fullscreen. A `Chat` toggle sits beside the stats toggle when the recording has chat, mirroring the `C` shortcut.
+- Menus (speed) take the `MudMenu` shape (`radius-md`, `elevation-8`) on `player-surface` with `player-text`. The checked item is marked with `Check` in `player-accent`.
+
+## States
+
+Loading is a spinner in `player-accent`. A live capture without segments shows "Waiting for the first segment…". An error shows the error icon in `error`, the message, a filled Retry and a text "Back to library". The centre play button appears only before the first play.
+
+## Rules
+
+- Overlays fade in over 200ms and hide after 3s idle while playing. Keyboard focus shows them.
+- The focus ring inside the player is `player-accent` (today the same magenta as `primary`). Keep the player on its own tokens, so the island never depends on the page theme.
+- Never put a gradient behind the controls.

@@ -1,0 +1,40 @@
+<!-- @dsCard group="Navigation" height=230 width=760 subtitle="MudAppBar Bottom below Breakpoint.Md: Home, Library, Settings" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; }
+  .wrap { padding: var(--space-4); display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+  .k { font: var(--text-caption); color: var(--text-secondary); margin: 0 0 var(--space-2); letter-spacing: 0.03333em; }
+  .ds-bottombar { border: 1px solid var(--divider); border-radius: var(--radius-md); }
+  .badge { position: relative; }
+  .badge::after { content: ""; position: absolute; top: 2px; right: 14px; width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--rec); box-shadow: 0 0 0 2px var(--appbar-background); }
+</style>
+</head>
+<body class="ds">
+<div class="wrap">
+  <div><p class="k">On Home</p>
+    <nav class="ds-bottombar" aria-label="Main">
+      <a href="#" aria-current="page"><span class="pill"><i data-i="home"></i></span>Home</a>
+      <a href="#"><span class="pill badge"><i data-i="videolibrary"></i></span>Library</a>
+      <a href="#"><span class="pill"><i data-i="settings"></i></span>Settings</a>
+    </nav></div>
+  <div><p class="k">Library drawer open</p>
+    <nav class="ds-bottombar" aria-label="Main">
+      <a href="#"><span class="pill"><i data-i="home"></i></span>Home</a>
+      <a href="#" aria-current="page"><span class="pill badge"><i data-i="videolibrary"></i></span>Library</a>
+      <a href="#"><span class="pill"><i data-i="settings"></i></span>Settings</a>
+    </nav></div>
+  <div><p class="k">On Settings</p>
+    <nav class="ds-bottombar" aria-label="Main">
+      <a href="#"><span class="pill"><i data-i="home"></i></span>Home</a>
+      <a href="#"><span class="pill"><i data-i="videolibrary"></i></span>Library</a>
+      <a href="#" aria-current="page"><span class="pill"><i data-i="settings"></i></span>Settings</a>
+    </nav></div>
+  <div><p class="k">Watching: hidden, the player gets the room</p>
+    <div class="ds-nothing" style="height:56px;padding:0 var(--space-4)"><i data-i="arrowback"></i><span>Back arrow in the top bar returns Home</span></div></div>
+</div>
+<script src="../icons.js"></script>
+</body>
+</html>

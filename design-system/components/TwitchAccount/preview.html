@@ -1,0 +1,32 @@
+<!-- @dsCard group="Actions" height=500 width=760 subtitle="Disconnected, connecting, connected with its menu, and expired" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; }
+  .wrap { padding: var(--space-4); display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+  .cell { background: var(--appbar-background); border: 1px solid var(--divider); border-radius: var(--radius-md); padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+  .k { font: var(--text-caption); color: var(--text-secondary); }
+  .acct { border-radius: var(--radius-full); padding-left: 6px; }
+  .acct .login { font: var(--text-caption); color: var(--text-secondary); }
+  .spin { width: 18px; height: 18px; border-width: 2px; border-color: rgba(255,255,255,0.35); border-top-color: var(--twitch-contrast-text); }
+</style>
+</head>
+<body class="ds">
+<div class="wrap">
+  <div class="cell"><span class="k">Disconnected (a real link: works without the circuit)</span><a class="ds-btn twitch" href="#"><i data-i="link"></i>Connect with Twitch</a></div>
+  <div class="cell"><span class="k">Connecting</span><span class="ds-btn twitch" aria-busy="true"><span class="ds-spin spin" aria-hidden="true"></span>Connecting…</span></div>
+  <div class="cell"><span class="k">Connected: the avatar alone; the menu names the account</span><button class="ds-acct" aria-label="Twitch account: Pixel Wren" aria-haspopup="menu" aria-expanded="true"><span class="ds-avatar a2">P</span></button>
+    <div class="ds-menu" role="menu" aria-label="Twitch account" style="min-width:260px">
+      <div class="ds-acct-head"><span class="ds-avatar lg a2">P</span><span><b>Pixel Wren</b><span class="login">pixelwren</span><span class="st"><span class="ds-dot" aria-hidden="true"></span>Connected to Twitch</span></span></div>
+      <hr>
+      <div class="ds-menu-item" role="menuitem"><i data-i="person"></i>Manage Twitch connection</div>
+      <div class="ds-menu-item" role="menuitem"><i data-i="settings"></i>Settings</div>
+      <div class="ds-menu-item" role="menuitem"><i data-i="logout"></i>Disconnect</div>
+    </div></div>
+  <div class="cell"><span class="k">Session expired</span><div class="ds-row-flex"><span class="ds-status error" role="status"><i data-i="warning"></i>Twitch session expired</span><a class="ds-btn text" href="#"><i data-i="refresh"></i>Reconnect</a></div></div>
+</div>
+<script src="../icons.js"></script>
+</body>
+</html>

@@ -1,3 +1,9 @@
+@* MudBlazor providers, rendered once inside the one interactive boundary. The app is dark only. *@
+<MudBlazor.MudThemeProvider Theme="StreamKeeprTheme.Theme" IsDarkMode="true" />
+<MudBlazor.MudPopoverProvider />
+<MudBlazor.MudDialogProvider />
+<MudBlazor.MudSnackbarProvider />
+
 <Router AppAssembly="typeof(Program).Assembly">
     <Found Context="routeData">
         <RouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)" />

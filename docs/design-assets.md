@@ -1,67 +1,74 @@
 # Design and Planning Assets
 
-Status: complete (2026-11-10). The Claude design-system export is installed; Material Symbols Rounded is the only bundled webfont.
+Status: complete (2026-11-10); updated 2026-11-15 for the MudBlazor design system (ADR 0012, #173). Roboto is the text face; Material Symbols Rounded stays for today's icons.
 
 ## Asset inventory
 
 | Asset | Status | Source | Repo destination | License / notes |
 |---|---|---|---|---|
 | Implementation plan | Present | `/Users/brandt/Downloads/TEMP/StreamKeepr_Implementation_Plan_Final.md` | `docs/plans/streamkeepr-implementation-plan.md` | SHA-256 `5323c9e4…74056b5` |
-| Design-system source | Present | Claude artifact export, 2026-11-10 | `design-system/` | Manifest v3; 9 components; tokens and previews |
-| Built CSS | Present | Generated from `design-system/` | `src/StreamKeepr/wwwroot/css/` | `tokens.css`, `components.css`, `fonts.css` |
+| Design-system source | Present | claude.ai StreamKeepr design-system artifact (MudBlazor 9.12.0), export of 2026-11-15; replaces the 2026-11-10 Dracula PRO export | `design-system/` | Authoritative from here (ADR 0012); the artifact is re-synced from the repo. See `design-system/REPO-NOTES.md` for changes made on import |
+| Built CSS | Present | `tokens.css` generated from `design-system/tokens.json` by `scripts/build-tokens.mjs`; `components.css` and `fonts.css` hand-written | `src/StreamKeepr/wwwroot/css/` | Drift checked by `tests/js/tokens.test.js` |
+| Roboto (variable) | Present | `google/fonts` `ofl/roboto/Roboto[wdth,wght].ttf` at commit `6183fc0d26361f6ddfd6f6b7a736e1467c6d8a43`, SHA-256 `d7598e12c5dbef095ff8272cfc55da0250bd07fbdecbac8a530b9b277872a134` (488,584 bytes); licence `OFL.txt` from the same commit, SHA-256 `061402327a96aadb0bfb694a960ed289ecd38d383e396243831ab81feb109c41` | `src/StreamKeepr/wwwroot/fonts/roboto-latin.woff2` (36,564 bytes), `src/StreamKeepr/wwwroot/fonts/ROBOTO-LICENSE` | OFL-1.1; licence copied. Built by `scripts/build-roboto.sh`: `wght` 100–900 kept, `wdth` pinned at 100, Google Fonts' Latin range, default features plus `tnum`, reproducible (`SOURCE_DATE_EPOCH`) |
 | Material Symbols Rounded | Present | `material-symbols@0.48.3` | `src/StreamKeepr/wwwroot/fonts/material-symbols-rounded.woff2`; `design-system/fonts/` | Apache-2.0; license copied |
 | Logo and favicon set | Present | Original artwork, 2026-11-15 (MudBlazor design system, Logos and Favicon groups) | `branding/` (all files and usage READMEs); `src/StreamKeepr/wwwroot/` (`favicon.svg`, `favicon.ico`, `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, `manifest.webmanifest`) | Project-owned; the wordmark is outlined from Roboto Flex Bold (OFL), so no font is embedded |
 | hls.js ESM 1.7.4 | Present | `https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.mjs` | `src/StreamKeepr/wwwroot/lib/hls.js/hls.mjs` | Apache-2.0; license copied |
 | hls.js 1.6.15 (local cache) | Not used | `/Users/brandt/repos/go-ffmpeg/frontend/node_modules/hls.js` | — | Superseded by 1.7.4 |
-| Dracula PRO palette | Reference | `/Users/brandt/Downloads/dracula-pro-v2.2.4/design/` | — | Design input; not vendored |
+| Dracula PRO palette | Retired | `/Users/brandt/Downloads/dracula-pro-v2.2.4/design/` | — | Input to the 2026-11-10 design system; replaced by MudBlazor's palette on 2026-11-15 |
 | Fake Streamlink/media fixtures | Deferred to testing | Testing contract | `tests/fixtures/` | Generated at test time |
 
 ## Design-system export
 
 The export is at `design-system/` with:
 
-- `tokens.json`, `tokens.css`, `design-system.json`, `manifest.json`, `README.md`
-- `components/bundle.css`, nine component `README.md`/`preview.html` pairs
-- `api/tokens.md` and `api/components/*.md`
+- `tokens.json`: every design value (colour, type, spacing, radius, shadow, size, opacity), the single source;
+- `README.md`, `mudblazor-theme.md` (the `MudTheme` and its wiring), `component-map.md` (which MudBlazor component replaces each primitive);
+- `components/bundle.css`, `components/icons.js` and one `README.md`/`preview.html` pair per component;
+- `design-system.json` (the artifact manifest) and `REPO-NOTES.md`;
+- `fonts/`: Material Symbols Rounded, kept until the last surface that uses it is migrated.
 
-The built CSS in `src/StreamKeepr/wwwroot/css/` is generated from the source:
+The app's CSS in `src/StreamKeepr/wwwroot/css/`:
 
-- `tokens.css` — tokens only; no `@font-face` rules.
-- `components.css` — components only; the Google Fonts import and all `@font-face` rules are removed.
-- `fonts.css` — the local Material Symbols Rounded face, with the path under `/fonts/`.
+- `tokens.css`: generated from `tokens.json`; never edited by hand.
+- `components.css`: today's hand-built components, reading `--sk-*` aliases re-pointed at `tokens.css`.
+- `fonts.css`: the local Roboto and Material Symbols Rounded faces, with paths under `/fonts/`.
 
-The source `components/bundle.css` has the Google Fonts import replaced by a local Material Symbols `@font-face` pointing at `../fonts/material-symbols-rounded.woff2`, so previews make no Google Fonts requests.
-
-`components/bundle.js` is intentionally absent: the export documents the components without a runnable bundle.
+The previews make no font requests: their Google Fonts links were removed on import. In the repo they are markup references; the claude.ai artifact renders them with the tokens, `bundle.css` and Roboto.
 
 ## Typography
 
-- UI text uses the system monospace stack (`ui-monospace`, SF Mono, Menlo, Consolas); no text webfont is bundled.
-- Material Symbols Rounded is vendored under Apache-2.0 for icons.
+- UI text is Roboto, MudBlazor's default typography (falling back to Helvetica, then Arial). It is self-hosted as one variable `woff2` with `font-display: swap`; no monospace face is used. Numeric styles use `font-variant-numeric: tabular-nums`, which is why the subset keeps `tnum`.
+- Material Symbols Rounded is vendored under Apache-2.0 for today's icons; MudBlazor's SVG icons replace it surface by surface.
 - No Google Fonts or other CDN request is made for application assets at runtime. Chat emote images are message content and may load from the Twitch and third-party emote CDNs; they are not design-system assets.
-- A future text face must be licensed for web self-hosting, added under `design-system/fonts/`, declared in the design-system source, and regenerated into `wwwroot/css/`.
+- To rebuild Roboto (for example after a google/fonts update), change the pinned commit and SHA-256 in `scripts/build-roboto.sh`, run it, and update the table above. It needs `fonttools` and `brotli` (`pip install fonttools brotli`); it is dev-only.
+- A further face must be licensed for web self-hosting, declared in `tokens.json`, and added to `fonts.css` with its licence under `wwwroot/fonts/`.
 
 ## Local setup for a fresh clone
 
-No font setup is required: Material Symbols Rounded is committed. Build normally.
+No font setup is required: Roboto and Material Symbols Rounded are committed. Build normally. Node (for `tests/js`) and fontTools (for `scripts/build-roboto.sh`) are only needed to regenerate assets.
 
 ## Destinations
 
 ```text
-design-system/                              # exported source of truth
-  tokens.json, tokens.css
-  design-system.json, manifest.json, README.md
-  components/bundle.css
+design-system/                              # exported source of truth (ADR 0012)
+  tokens.json                               # every design value
+  README.md, mudblazor-theme.md, component-map.md, REPO-NOTES.md
+  design-system.json                        # artifact manifest
+  components/bundle.css, icons.js
   components/<Comp>/README.md, preview.html
-  api/tokens.md, api/components/*.md
   fonts/                                    # Material Symbols Rounded, committed
+scripts/
+  build-tokens.mjs                          # dev-only: tokens.json -> wwwroot/css/tokens.css
+  build-roboto.sh                           # dev-only: Roboto[wdth,wght].ttf -> roboto-latin.woff2
 branding/
   logo/                                     # mark and lockups, SVG + PNG, usage README
   favicon/                                  # favicon.svg/.ico, app icons, sources, README
 src/StreamKeepr/wwwroot/
   favicon.svg, favicon.ico, apple-touch-icon.png, icon-192.png, icon-512.png
   manifest.webmanifest                      # linked from App.razor <head>
-  css/tokens.css, components.css, fonts.css # generated/committed
+  css/tokens.css                            # generated, committed
+  css/components.css, fonts.css             # hand-written, committed
+  fonts/roboto-latin.woff2, ROBOTO-LICENSE  # committed, OFL-1.1
   fonts/material-symbols-rounded.woff2      # committed, Apache-2.0
   lib/hls.js/hls.mjs                        # committed, Apache-2.0
 ```

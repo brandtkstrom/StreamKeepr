@@ -11,6 +11,8 @@
     <link rel="icon" href="@Assets["favicon.svg"]" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="@Assets["apple-touch-icon.png"]" />
     <link rel="manifest" href="@Assets["manifest.webmanifest"]" />
+    @* MudBlazor first, so the app's own CSS wins on equal specificity. *@
+    <link rel="stylesheet" href="@Assets["_content/MudBlazor/MudBlazor.min.css"]" />
     <link rel="stylesheet" href="@Assets["css/tokens.css"]" />
     <link rel="stylesheet" href="@Assets["css/fonts.css"]" />
     <link rel="stylesheet" href="@Assets["css/components.css"]" />
@@ -22,6 +24,7 @@
     <Routes @rendermode="InteractiveServer" />
     <ReconnectModal />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script src="@Assets["_content/MudBlazor/MudBlazor.min.js"]"></script>
     <script type="module" src="@Assets["js/prefs.js"]"></script>
     <script type="module" src="@Assets["js/shortcuts.js"]"></script>
 </body>

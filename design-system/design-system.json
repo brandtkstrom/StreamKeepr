@@ -1,25 +1,129 @@
 {
   "v": 3,
-  "assetGroups": {},
+  "assetGroups": {
+    "Logos": {
+      "name": "Logos",
+      "tile": "l",
+      "order": [
+        "streamkeepr-logo.svg",
+        "streamkeepr-logo-on-light.svg",
+        "streamkeepr-mark.svg",
+        "streamkeepr-mark-on-light.svg",
+        "streamkeepr-logo@2x.png",
+        "streamkeepr-logo-on-light@2x.png"
+      ],
+      "files": {
+        "streamkeepr-logo.svg": {
+          "name": "streamkeepr-logo.svg",
+          "blob": "fc9ea3165cc63d3be34d68ee738e252a",
+          "size": 9829,
+          "type": "image/svg+xml"
+        },
+        "streamkeepr-logo-on-light.svg": {
+          "name": "streamkeepr-logo-on-light.svg",
+          "blob": "043c443dfc087ac8b2b786036b6e8feb",
+          "size": 9829,
+          "type": "image/svg+xml"
+        },
+        "streamkeepr-mark.svg": {
+          "name": "streamkeepr-mark.svg",
+          "blob": "0565fa20d471f235b8fa1c9611c985da",
+          "size": 612,
+          "type": "image/svg+xml"
+        },
+        "streamkeepr-mark-on-light.svg": {
+          "name": "streamkeepr-mark-on-light.svg",
+          "blob": "f113c7e9cfa30f6c07eaab647793a4b4",
+          "size": 612,
+          "type": "image/svg+xml"
+        },
+        "streamkeepr-logo~402x.png": {
+          "name": "streamkeepr-logo@2x.png",
+          "blob": "6f0689a49485fe00bb9cc619febdbbfb",
+          "size": 13540,
+          "type": "image/png"
+        },
+        "streamkeepr-logo-on-light~402x.png": {
+          "name": "streamkeepr-logo-on-light@2x.png",
+          "blob": "2b828090af3542d231a2b00b70ba8ec6",
+          "size": 14286,
+          "type": "image/png"
+        }
+      }
+    },
+    "Favicon": {
+      "name": "Favicon",
+      "tile": "m",
+      "order": [
+        "favicon.svg",
+        "app-icon.svg",
+        "app-icon-square.svg",
+        "apple-touch-icon.png",
+        "icon-192.png",
+        "icon-512.png"
+      ],
+      "files": {
+        "favicon.svg": {
+          "name": "favicon.svg",
+          "blob": "ca81386d228c73da39e6c59107097017",
+          "size": 721,
+          "type": "image/svg+xml"
+        },
+        "app-icon.svg": {
+          "name": "app-icon.svg",
+          "blob": "ce9e2743a18bfffc48e815eac4e36c20",
+          "size": 717,
+          "type": "image/svg+xml"
+        },
+        "app-icon-square.svg": {
+          "name": "app-icon-square.svg",
+          "blob": "6dea67c94ddd747ae03f6d97b471f8e0",
+          "size": 709,
+          "type": "image/svg+xml"
+        },
+        "apple-touch-icon.png": {
+          "name": "apple-touch-icon.png",
+          "blob": "0858218b9b565a24b46786ffaf9fcd1c",
+          "size": 3306,
+          "type": "image/png"
+        },
+        "icon-192.png": {
+          "name": "icon-192.png",
+          "blob": "d1bfb422976303c32b31592c5487abcd",
+          "size": 5197,
+          "type": "image/png"
+        },
+        "icon-512.png": {
+          "name": "icon-512.png",
+          "blob": "3bed78c53f3399cc9b233b7fe0bc3fe4",
+          "size": 14861,
+          "type": "image/png"
+        }
+      }
+    }
+  },
   "blobs": {},
   "createdOnFiles": {
-    "at": "2026-11-06T20:47:23Z",
+    "at": "2026-11-14T22:30:00Z",
     "v": 1
   },
   "docs": {
     "readme": "project/README.md",
     "sections": []
   },
-  "groups": [],
+  "groups": [
+    "Logos",
+    "Favicon"
+  ],
   "lastChange": {
-    "at": "2026-11-06T22:45:15Z",
     "by": "Brandt",
-    "via": "Cowork",
-    "note": "System monospace stack; type scale stepped down for monospace"
+    "at": "2026-11-15T22:01:56Z",
+    "via": "Claude Code",
+    "note": "Logo and favicon: stream segments flowing into a keep with a play symbol; logo leads the app bar wordmark"
   },
   "layout": "files",
   "libraries": [],
   "namespace": "StreamKeepr",
   "sections": {},
-  "title": "StreamKeepr"
+  "title": "StreamKeepr Design System"
 }

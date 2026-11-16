@@ -1,6 +1,6 @@
 # Stream Keepr Frontend Foundation Contract
 
-Status: accepted (2026-11-10)
+Status: accepted (2026-11-10); amended 2026-11-15 for the MudBlazor foundation (ADR 0012, #173)
 Source: Implementation plan Part 2, F0/F1; `docs/backend-ui-contract.md`; `docs/hosting-contract.md`; `docs/twitch-auth-contract.md`; `design-system/`; `docs/design-assets.md`.
 Binding: yes. Where this contract differs from the plan, this contract wins.
 
@@ -15,8 +15,17 @@ The frontend foundation is the Blazor Web App host, routes, app shell, design-sy
 - `App.razor` is the static document shell: `HeadOutlet`, `<ImportMap />`, the template reconnect UI, and the CSS links.
 - `Routes.razor` is rendered with `@rendermode="InteractiveServer"`; one interactive boundary for the shell and page. `Home.razor` handles both routes.
 - `MapStaticAssets()` serves CSS/JS/fonts; `MapRazorComponents<App>().AddInteractiveServerRenderMode()` maps the UI. No `UseHttpsRedirection`; the proxy terminates TLS.
-- CSS order in `App.razor`: `tokens.css`, `fonts.css`, `components.css`, using `@Assets[...]` fingerprinted URLs. No Google Fonts, no CSS isolation for shared styles, no CSS-in-JS.
+- CSS order in `App.razor`: `_content/MudBlazor/MudBlazor.min.css`, `tokens.css`, `fonts.css`, `components.css`, using `@Assets[...]` fingerprinted URLs, so the app's CSS wins over MudBlazor's on equal specificity. No Google Fonts, no CSS isolation for shared styles, no CSS-in-JS.
+- Script order: `blazor.web.js`, then `_content/MudBlazor/MudBlazor.min.js`, then the app modules.
+- MudBlazor is pinned to exactly `9.12.0` (ADR 0012); each upgrade is its own PR.
 - Node is dev-only. The runtime image has no Node; JS is plain ES modules.
+
+## 2a. MudBlazor theme and providers
+
+- `Program.cs` calls `AddMudServices()`.
+- `Routes.razor`, the one interactive boundary, renders `MudThemeProvider` (`Theme="StreamKeeprTheme.Theme"`, `IsDarkMode="true"`), `MudPopoverProvider`, `MudDialogProvider` and `MudSnackbarProvider` once, before the `Router`. The app is dark only: there is no theme preference, and `PaletteLight` keeps MudBlazor's defaults, unused.
+- `Ui/StreamKeeprTheme.cs` is hand-written from `design-system/tokens.json`: the `PaletteDark` values, MudBlazor's default `Typography` with the one override `Button.TextTransform = "none"`, and `LayoutProperties` (8px radius, 64px app bar, 320px drawer, 72px rail). `StreamKeeprThemeTests` compares every Palette value, the layout sizes and every MudBlazor type style with `tokens.json`, and fails when the theme sets a palette value other than MudBlazor's default that no token describes.
+- Components name MudBlazor types fully qualified (`MudBlazor.MudThemeProvider`) until `@using MudBlazor` can go into `_Imports.razor`: today it makes `SnackbarService` ambiguous with the app's own service, which the snackbar migration removes.
 
 ## 3. Routing and query state
 
@@ -147,10 +156,13 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 
 ## 12. CSS and design-system source
 
-- Built `tokens.css`, `components.css`, and `fonts.css` are committed under `src/StreamKeepr/wwwroot/css/`; the source is `design-system/`.
-- No Google Fonts request; `fonts.css` declares Material Symbols Rounded for icons, and UI text uses the system monospace stack.
-- Generated CSS is used as-is; `npm run sync:ds` is deferred until the design system actually changes. When added, it is dev-only; Node never enters the image.
-- New shared styles go into `components.css` using tokens; no raw hex, px colours, or hard-coded font sizes. Text uses `var(--text-<style>)`.
+- `design-system/tokens.json` is the single source of design values. `tokens.css`, `components.css` and `fonts.css` are committed under `src/StreamKeepr/wwwroot/css/`.
+- `tokens.css` is generated: `npm run build:tokens` in `tests/js` (or `node scripts/build-tokens.mjs`) writes one `:root` block of the colour, spacing, radius, shadow, size and opacity tokens, `--font-sans`, and a `font` shorthand `--text-<style>` plus `--text-<style>-letter-spacing` per type style. A `{name}` reference becomes `var(--name)`. `tests/js/tokens.test.js` fails when the committed file differs from the generator's output. Never edit `tokens.css` by hand. Node is dev-only and never enters the image.
+- Changing a design value means editing `tokens.json`, regenerating `tokens.css` and updating `StreamKeeprTheme.cs`; CI fails if any of the three disagree.
+- `components.css` is hand-written and holds today's components. It reads only `--sk-*` aliases, declared in one `:root` block at its top, which point at the `tokens.css` variables: today's surfaces take the MudBlazor palette and Roboto type without markup changes, while radii keep their old values until each surface migrates. Each surface migration stops using its aliases; the block is deleted with `components.css`. Exception: `StatsPanel.razor` and the sparkline modules (`StatsPanel.razor.js`, `sparkline.js`) pass `var(--primary)` and `var(--tertiary)` as series colours, which now resolve straight to the new tokens; network series read indigo until the stats migration moves them to `secondary`.
+- MudBlazor's base stylesheet applies app-wide, ahead of `components.css`: a reset on every element (`*{margin:0;padding:0;border-width:0;border-style:solid}`) and bare `body`, `a`, `label` and `button` rules (Roboto `body2` type on `body`, 14px/20.02px; no underline on links). `components.css` restores `letter-spacing: normal` on `body`; everything else it does not style shows the reset. For example, the not-found page's bare `<h1>` and `<p>` (`Routes.razor`) lose their UA margins, and the `<h1>` sizes from the 14px body (28px). `QualityGateJourneyTests` pins the body type, its tracking and link decoration, so a surface PR that changes them updates that test and this list.
+- No Google Fonts or other CDN request. `fonts.css` declares Roboto (one variable `woff2`, weights 100–900, Latin subset with `tnum`, `font-display: swap`) for text and Material Symbols Rounded for today's icons. Numeric styles (`timecode`, `stat-value`, `stat-hero`) add `font-variant-numeric: tabular-nums`.
+- New shared styles use tokens; no raw hex, px colours, or hard-coded font sizes. Text uses `var(--text-<style>)`.
 - The design-system previews in `design-system/components/` are the visual reference; `/dev/components` mirrors them for primitives.
 
 ## 13. Test matrix
@@ -163,15 +175,18 @@ bUnit:
 - `LibraryView` state/sort/search/query/throttle/dispose; unknown id.
 - Primitive markup/ARIA/keyboard; `RequiresTwitch` visible-but-inert; dialog/snackbar.
 - Loading/empty/unknown/reconnect notice; Development-only dev page.
+- `StreamKeeprTheme` against `design-system/tokens.json` (unit test, no rendering).
 
 Vitest:
 
 - `prefs.js` cookie read/write, `sk-tz` first-load, malformed values, time zone helper.
+- `tokens.css` drift against `scripts/build-tokens.mjs` and the generator's output format.
 
 Playwright:
 
 - Drawer expanded → rail → theater; reload preserves `sk-ui`; responsive 960/600; `.scrolled` class.
 - Reconnect notice/retry; auth disabled controls; unknown route; `/dev/components`.
+- The home page loads self-hosted Roboto and requests nothing off-origin; first-paint JS stays within the 200 KB gzipped budget with MudBlazor's script.
 - axe clean and keyboard-only use on the shell. Visual regression is dropped for now (#106).
 
 No automatic retries; flaky tests are fixed or quarantined per the testing contract.
@@ -188,4 +203,5 @@ Freedom: component internals, exact markup beyond the design-system classes, JS 
 - `docs/hosting-contract.md` for host/middleware/CSS assets.
 - `docs/twitch-auth-contract.md` for sign-in and auth states.
 - `docs/testing-contract.md` for test layers and CI.
-- `docs/design-assets.md` and `design-system/` for tokens, components, previews, and fonts.
+- `docs/design-assets.md` and `design-system/` (`README.md`, `mudblazor-theme.md`, `component-map.md`) for tokens, components, previews, and fonts.
+- `docs/adr/0012-mudblazor-incremental-migration.md` for the migration plan.

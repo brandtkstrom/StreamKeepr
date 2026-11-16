@@ -1,16 +1,20 @@
-# LibraryDrawer
+The library in a `MudDrawer`: recordings grouped by streamer, newest first at every level, filtered by chips and by the app-bar search.
 
-The left pane listing recordings grouped by streamer, newest first at every level.
+## Build it from
 
-**Ordering rules (from the brief):**
-1. Streamer groups are ordered by their most recent recording, descending — a streamer that is recording right now is always first.
-2. Inside a group, recordings are grouped under day headers (`Today`, `Yesterday`, then `Wed, Nov 4`) and ordered by start time, descending.
-3. The header shows the sort as "Newest first"; the options menu may offer "Oldest first" and "A–Z by streamer", but newest-first is the default and is restored on reload.
+- **Header:** `MudText Typo.h6` "Library", the order in `caption` ("Newest first"), and a `MudMenu` (`Icons.Material.Rounded.MoreVert`, `Size.Small`) with Newest first, Oldest first and A–Z by streamer as checkable items.
+- **Filters:** `<MudChipSet T="string" SelectionMode="SelectionMode.SingleSelection" SelectedColor="Color.Primary" Variant="Variant.Outlined" CheckMark>` with All (`ViewList`), Recording (`FiberManualRecord` in `rec`) and Saved (`Inventory2`). The icon gives way to the check mark when a chip is selected.
+- **Paused note:** `MudAlert Severity.Warning Dense` "Live updates paused". app CSS shows it while the circuit reconnects (`body[data-sk-reconnect]`).
+- **Tree:** keep the existing `role="tree"` markup and `tree-nav.js` (roving tab stop, arrow keys). Each group head is a `treeitem` with a `MudAvatar` (`Size.Large`, the streamer's image, or their initial on their channel colour (`channel-*`); a `MudBadge Dot BadgeClass="sk-live"` filled `rec` while capturing), the name in `subtitle1`, the meta line in `caption`, and an `ExpandMore` chevron. Day headers are `label` type. Rows are `RecordingRow`.
+- **Disk usage footer** (`StorageMeter`), pinned to the bottom of the drawer below the scrolling tree, above a `divider` rule: the `Storage` icon, "1.2 TB free" in `caption` at Medium with "of 4 TB" right-aligned, and a full-width `MudProgressLinear Size.Small` of the space used, in `primary`. Under 10% free, the icon becomes `Warning`, and the icon, the free figure and the bar turn `warning`. The tooltip gives "Recording disk: 1.2 TB free of 4 TB". It renders nothing when the size is unknown.
+- **Mini rail** (`DrawerVariant.Mini`, 72px; the default while watching on desktop): a `Home` icon button, a short divider, then streamer avatars, the current streamer ringed in `primary`, the name in a `MudTooltip`. At the bottom, the footer shrinks to a `Storage` icon button (`Warning` in `warning` under 10% free) with the same tooltip.
 
-**Parts.** `.sk-group` (collapsible, `aria-expanded`) → `.sk-group-head` (avatar, name, count · last capture, chevron) → `.sk-day` + `.sk-row`s. A row is thumbnail (`thumb-width`, 16:9, duration badge in `timecode`, resume-progress bar in `primary`), title (`title-small`, two lines max), meta (`body-small`) and a status chip only when the state is not plain "saved".
+## The consumer provides
 
-**States.** Selected row: `aria-current="true"` → `secondary-container` ground with a 2px `primary` ring on the thumbnail. Recording in progress: red ring on the avatar, REC chip, `rec` progress bar.
+`ILibraryView` (streamers, recordings, `IsLoaded`), the current query (sort, state, search), the selected recording id, collapsed groups from `UiPreferences`, and the viewer's time zone for day headers.
 
-**Collapse.** Each streamer group collapses independently; the whole drawer collapses to a 72px rail of avatars (`.rail`) and hides fully in theater mode (`.hidden`).
+## Rules
 
-**Consumer provides:** `[{streamer, avatarUrl?, isRecording, recordings:[{id, title, startedAt, durationSec, state: "rec"|"processing"|"partial"|"saved", resumeSec?, thumbnailUrl?}]}]`, already sorted.
+- A streamer who is recording sorts to the top. Groups are divided by a `divider` hairline.
+- While loading, show six skeleton rows (`MudSkeleton`), not a spinner. With no results: "No recordings match" when filtered, otherwise "No recordings yet".
+- Selecting a row in the temporary drawer closes the drawer.

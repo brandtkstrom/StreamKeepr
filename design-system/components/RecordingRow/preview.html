@@ -1,0 +1,24 @@
+<!-- @dsCard group="Navigation" height=440 width=360 subtitle="Every row state: selected, live, resumed, processing, partial, no thumbnail, loading" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; }
+  .list { width: var(--drawer-width); background: var(--drawer-background); padding: var(--space-2) 0; }
+  .shot { background: color-mix(in srgb, var(--k) 34%, #000); }
+  .s1 { --k: var(--channel-1); } .s2 { --k: var(--channel-2); } .s3 { --k: var(--channel-6); }
+  .skel { display: block; height: 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
+</style>
+</head>
+<body class="ds">
+<div class="list" role="tree" aria-label="Recordings">
+  <a class="ds-rec-row" href="#" aria-current="true"><span class="ds-thumb live"><span class="shot s1"></span><span class="dur">1:02:13</span><span class="prog"><i style="width:100%"></i></span></span><span class="text"><span class="title">Late-night speedrun practice: any% resets</span><span class="meta">Started 21:04 · 1h 02m</span><span class="ds-status rec">Rec</span></span></a>
+  <a class="ds-rec-row" href="#"><span class="ds-thumb"><span class="shot s2"></span><span class="dur">2:14:07</span><span class="prog"><i style="width:38%"></i></span></span><span class="text"><span class="title">Route planning with chat</span><span class="meta">20:30 · 2h 14m · 38% watched</span></span></a>
+  <a class="ds-rec-row" href="#"><span class="ds-thumb"><span class="shot s3"></span><span class="dur">0:48:20</span></span><span class="text"><span class="title">Morning warmup</span><span class="meta">09:12 · 48m</span><span class="ds-status processing"><i data-i="hourglass"></i>Processing</span></span></a>
+  <a class="ds-rec-row" href="#"><span class="ds-thumb"><i data-i="movie"></i><span class="dur">3:40:52</span></span><span class="text"><span class="title">Cozy farm sim, year two</span><span class="meta">18:00 · 3h 40m</span><span class="ds-status partial"><i data-i="warning"></i>Partial</span></span></a>
+  <div class="ds-rec-row" aria-hidden="true"><span class="ds-thumb"><span class="dur">--:--</span></span><span class="text" style="flex:1;gap:8px;padding-top:4px"><span class="skel" style="width:80%"></span><span class="skel" style="width:45%"></span></span></div>
+</div>
+<script src="../icons.js"></script>
+</body>
+</html>
