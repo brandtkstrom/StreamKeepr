@@ -13,10 +13,10 @@ public sealed class LibrarySearchTests
     private static readonly DateTimeOffset Now = new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void The_url_drives_the_query_chips_and_sort_label()
+    public async Task The_url_drives_the_query_chips_and_sort_label()
     {
         TestLibraryView view = OneStreamer();
-        using BunitContext context = CreateContext(view);
+        await using BunitContext context = CreateContext(view);
         context.Services.GetRequiredService<NavigationManager>()
             .NavigateTo("/r/r1?state=saved&sort=oldest&q=%20Chef%20");
 
@@ -33,9 +33,9 @@ public sealed class LibrarySearchTests
     [InlineData("newest", "Newest first")]
     [InlineData("az", "A–Z by streamer")]
     [InlineData("bogus", "Newest first")]
-    public void The_header_label_follows_the_sort(string sort, string label)
+    public async Task The_header_label_follows_the_sort(string sort, string label)
     {
-        using BunitContext context = CreateContext(OneStreamer());
+        await using BunitContext context = CreateContext(OneStreamer());
         context.Services.GetRequiredService<NavigationManager>().NavigateTo($"/?sort={sort}");
 
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
@@ -44,9 +44,9 @@ public sealed class LibrarySearchTests
     }
 
     [Fact]
-    public void Chips_replace_the_history_entry_and_keep_other_keys()
+    public async Task Chips_replace_the_history_entry_and_keep_other_keys()
     {
-        using BunitContext context = CreateContext(OneStreamer());
+        await using BunitContext context = CreateContext(OneStreamer());
         var navigation = (BunitNavigationManager)context.Services
             .GetRequiredService<NavigationManager>();
         navigation.NavigateTo("/r/r1?q=chef");
@@ -64,9 +64,9 @@ public sealed class LibrarySearchTests
     }
 
     [Fact]
-    public void Sort_menu_sets_the_sort_key()
+    public async Task Sort_menu_sets_the_sort_key()
     {
-        using BunitContext context = CreateContext(OneStreamer());
+        await using BunitContext context = CreateContext(OneStreamer());
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
 
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
@@ -77,9 +77,9 @@ public sealed class LibrarySearchTests
     }
 
     [Fact]
-    public void Matches_are_highlighted_case_insensitively_in_titles_and_names()
+    public async Task Matches_are_highlighted_case_insensitively_in_titles_and_names()
     {
-        using BunitContext context = CreateContext(OneStreamer());
+        await using BunitContext context = CreateContext(OneStreamer());
         context.Services.GetRequiredService<NavigationManager>().NavigateTo("/?q=CHEF");
 
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
@@ -90,9 +90,9 @@ public sealed class LibrarySearchTests
     }
 
     [Fact]
-    public void Row_links_keep_the_library_view_so_selection_does_not_reset_it()
+    public async Task Row_links_keep_the_library_view_so_selection_does_not_reset_it()
     {
-        using BunitContext context = CreateContext(OneStreamer());
+        await using BunitContext context = CreateContext(OneStreamer());
         context.Services.GetRequiredService<NavigationManager>().NavigateTo("/?q=chef&sort=oldest");
 
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
@@ -101,10 +101,10 @@ public sealed class LibrarySearchTests
     }
 
     [Fact]
-    public void No_matches_shows_a_distinct_message_from_an_empty_library()
+    public async Task No_matches_shows_a_distinct_message_from_an_empty_library()
     {
         var view = new TestLibraryView();
-        using BunitContext context = CreateContext(view);
+        await using BunitContext context = CreateContext(view);
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
 
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();

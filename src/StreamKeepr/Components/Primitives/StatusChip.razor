@@ -1,37 +1,47 @@
-@* Small uppercase state chip; text carries the meaning and colour is the second cue. *@
-<span class="sk-status @CssClass" data-status="@Status.ToString().ToLowerInvariant()" @attributes="AdditionalAttributes">
+@* Small uppercase state chip (design system: StatusChip): the word first, colour second. Built on
+   MudChip with no click handler, so it is never a control. The label stays text-primary and only
+   the icon takes the kind's colour; REC is the one filled chip. *@
+<MudBlazor.MudChip T="string"
+                   Size="MudBlazor.Size.Small"
+                   Ripple="false"
+                   Icon="@IconSvg"
+                   Class="@($"sk-status sk-status-{StatusName}")"
+                   data-status="@StatusName"
+                   data-status-icon="@IconName"
+                   @attributes="AdditionalAttributes">
     @if (Status == StatusChipKind.Rec)
     {
         <span class="dot" data-status-dot aria-hidden="true"></span>
     }
-    else if (IconName is not null)
-    {
-        <Icon Name="@IconName" />
-    }
     @Text
-</span>
+</MudBlazor.MudChip>
 
 @code {
+    // The icon names callers may pass, as Material Symbols names, and their MudBlazor glyphs.
+    private static readonly IReadOnlyDictionary<string, string> Icons = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["check"] = MudBlazor.Icons.Material.Rounded.Check,
+        ["hourglass_top"] = MudBlazor.Icons.Material.Rounded.HourglassTop,
+        ["pause"] = MudBlazor.Icons.Material.Rounded.Pause,
+        ["remove"] = MudBlazor.Icons.Material.Rounded.Remove,
+        ["schedule"] = MudBlazor.Icons.Material.Rounded.Schedule,
+        ["sync"] = MudBlazor.Icons.Material.Rounded.Sync,
+        ["visibility"] = MudBlazor.Icons.Material.Rounded.Visibility,
+        ["warning"] = MudBlazor.Icons.Material.Rounded.Warning,
+    };
+
     [Parameter] public StatusChipKind Status { get; set; } = StatusChipKind.Saved;
 
     /// <summary>Overrides the default state text, e.g. “Twitch session expired”.</summary>
     [Parameter] public string? Label { get; set; }
 
+    /// <summary>Replaces the kind's default icon by name, e.g. <c>pause</c> on a neutral chip.</summary>
+    [Parameter] public string? Icon { get; set; }
+
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
-    private string CssClass => Status switch
-    {
-        StatusChipKind.Rec => "rec",
-        StatusChipKind.Processing => "processing",
-        StatusChipKind.Partial => "partial",
-        StatusChipKind.Reconnecting => "partial",
-        StatusChipKind.Error => "failed",
-        _ => "saved",
-    };
-
-    /// <summary>Replaces the kind's default icon, e.g. a pause glyph on a neutral chip.</summary>
-    [Parameter] public string? Icon { get; set; }
+    private string StatusName => Status.ToString().ToLowerInvariant();
 
     private string? IconName => Icon ?? Status switch
     {
@@ -43,6 +53,8 @@
         _ => null,
     };
 
+    private string? IconSvg => IconName is null ? null : Icons[IconName];
+
     private string Text => Label ?? Status switch
     {
         StatusChipKind.Rec => "Rec",
@@ -52,4 +64,10 @@
         StatusChipKind.Error => "Error",
         _ => "Saved",
     };
+
+    protected override void OnParametersSet()
+    {
+        if (Icon is not null && !Icons.ContainsKey(Icon))
+            throw new ArgumentException($"StatusChip has no icon named '{Icon}'.", nameof(Icon));
+    }
 }

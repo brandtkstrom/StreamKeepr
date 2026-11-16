@@ -13,9 +13,9 @@ public sealed class LibraryTreeTests
     private static readonly DateTimeOffset Now = new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void Renders_one_tree_with_levels_expansion_and_keys()
+    public async Task Renders_one_tree_with_levels_expansion_and_keys()
     {
-        using BunitContext context = CreateContext(out _);
+        await using BunitContext context = CreateContext(out _);
         context.Services.GetRequiredService<UiPreferences>().SetCollapsed("beta", true);
 
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
@@ -38,9 +38,9 @@ public sealed class LibraryTreeTests
     }
 
     [Fact]
-    public void Initializes_tree_navigation_on_the_list()
+    public async Task Initializes_tree_navigation_on_the_list()
     {
-        using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+        await using BunitContext context = CreateContext(out BunitJSModuleInterop module);
 
         context.Render<LibraryDrawer>();
 
@@ -49,9 +49,9 @@ public sealed class LibraryTreeTests
     }
 
     [Fact]
-    public void Activating_an_avatar_in_the_rail_expands_the_drawer_and_scrolls_to_the_group()
+    public async Task Activating_an_avatar_in_the_rail_expands_the_drawer_and_scrolls_to_the_group()
     {
-        using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+        await using BunitContext context = CreateContext(out BunitJSModuleInterop module);
         module.Setup<bool>("isRail", _ => true).SetResult(true);
         UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
         preferences.SetDrawer(DrawerMode.Rail);
@@ -71,9 +71,9 @@ public sealed class LibraryTreeTests
     }
 
     [Fact]
-    public void Outside_the_rail_activating_a_head_toggles_its_group()
+    public async Task Outside_the_rail_activating_a_head_toggles_its_group()
     {
-        using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+        await using BunitContext context = CreateContext(out BunitJSModuleInterop module);
         module.Setup<bool>("isRail", _ => true).SetResult(false);
         UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
 
@@ -88,9 +88,9 @@ public sealed class LibraryTreeTests
     }
 
     [Fact]
-    public void Query_changes_reset_the_scroll_but_selection_changes_do_not()
+    public async Task Query_changes_reset_the_scroll_but_selection_changes_do_not()
     {
-        using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+        await using BunitContext context = CreateContext(out BunitJSModuleInterop module);
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
@@ -105,9 +105,9 @@ public sealed class LibraryTreeTests
     }
 
     [Fact]
-    public void The_drawer_header_carries_the_quiet_paused_note()
+    public async Task The_drawer_header_carries_the_quiet_paused_note()
     {
-        using BunitContext context = CreateContext(out _);
+        await using BunitContext context = CreateContext(out _);
 
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 

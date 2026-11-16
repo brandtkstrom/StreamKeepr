@@ -1,3 +1,4 @@
+using MudBlazor.Services;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -7,7 +8,7 @@ using StreamKeepr.Ui;
 
 namespace StreamKeepr.Tests.Ui;
 
-public sealed class ConnectionStatusPanelTests : IDisposable
+public sealed class ConnectionStatusPanelTests : IAsyncLifetime
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 13, 12, 0, 0, TimeSpan.Zero);
 
@@ -17,12 +18,15 @@ public sealed class ConnectionStatusPanelTests : IDisposable
 
     public ConnectionStatusPanelTests()
     {
+        _context.Services.AddMudServices();
         _context.Services.AddLogging();
         _context.Services.AddSingleton<TimeProvider>(_clock);
         _context.Services.AddSingleton<IConnectionStatusView>(_view);
     }
 
-    public void Dispose() => _context.Dispose();
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    public async Task DisposeAsync() => await _context.DisposeAsync();
 
     [Fact]
     public void Full_coverage_shows_health_transport_connection_coverage_and_liveness()

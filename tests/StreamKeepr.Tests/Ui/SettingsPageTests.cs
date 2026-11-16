@@ -1,3 +1,4 @@
+using MudBlazor.Services;
 using System.Security.Claims;
 using Bunit;
 using Bunit.TestDoubles;
@@ -16,9 +17,9 @@ namespace StreamKeepr.Tests.Ui;
 public sealed class SettingsPageTests
 {
     [Fact]
-    public void Signed_out_shows_the_connect_prompt_and_never_creates_the_channels_view()
+    public async Task Signed_out_shows_the_connect_prompt_and_never_creates_the_channels_view()
     {
-        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: false);
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: false);
 
         IRenderedComponent<Settings> cut = context.Render<Settings>();
 
@@ -31,9 +32,9 @@ public sealed class SettingsPageTests
     }
 
     [Fact]
-    public void Signed_in_shows_the_account_and_channels_with_their_states()
+    public async Task Signed_in_shows_the_account_and_channels_with_their_states()
     {
-        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
         channels.Items =
         [
             new("ann", "Ann", null, true, false, ChannelRuntimeState.Recording, true, "EventSub connected"),
@@ -51,14 +52,15 @@ public sealed class SettingsPageTests
             ["Rec", "Paused", "Cooling down"],
             cut.FindAll("[data-channel-state]").Select(chip =>
                 chip.TextContent.Replace(chip.QuerySelector("[data-icon]")?.TextContent ?? "\u0000", "").Trim()));
-        Assert.Equal("pause", cut.Find("[data-channel='bob'] [data-icon]").TextContent);
+        // StatusChip's icon is MudChip SVG now, named by a hook (#176).
+        Assert.Equal("pause", cut.Find("[data-channel='bob'] [data-channel-state]").GetAttribute("data-status-icon"));
     }
 
 
     [Fact]
-    public void Connection_status_replaces_push_status_and_each_badge_is_per_channel()
+    public async Task Connection_status_replaces_push_status_and_each_badge_is_per_channel()
     {
-        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
         channels.Items =
         [
             new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected"),
@@ -75,9 +77,9 @@ public sealed class SettingsPageTests
     }
 
     [Fact]
-    public void Stop_confirms_finalization_then_offers_resume()
+    public async Task Stop_confirms_finalization_then_offers_resume()
     {
-        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
         channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Recording, true, "EventSub connected")];
         var pending = new TaskCompletionSource();
         channels.OnStop = _ => pending.Task;
@@ -103,9 +105,9 @@ public sealed class SettingsPageTests
     }
 
     [Fact]
-    public void Resume_is_immediate_and_restores_the_stop_action()
+    public async Task Resume_is_immediate_and_restores_the_stop_action()
     {
-        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
         channels.Items = [new("ann", "Ann", null, true, true, ChannelRuntimeState.Paused, true, "EventSub connected")];
         var pending = new TaskCompletionSource();
         channels.OnResume = _ => pending.Task;
@@ -128,9 +130,9 @@ public sealed class SettingsPageTests
     [InlineData("http://localhost:8080/settings", false)]
     [InlineData("http://127.0.0.1/settings", false)]
     [InlineData("https://media.example/settings", false)]
-    public void The_https_note_shows_only_on_plain_http_outside_localhost(string uri, bool shown)
+    public async Task The_https_note_shows_only_on_plain_http_outside_localhost(string uri, bool shown)
     {
-        using BunitContext context = CreateContext(out _, signedIn: false, baseUri: uri);
+        await using BunitContext context = CreateContext(out _, signedIn: false, baseUri: uri);
 
         IRenderedComponent<Settings> cut = context.Render<Settings>();
 
@@ -138,9 +140,9 @@ public sealed class SettingsPageTests
     }
 
     [Fact]
-    public void Add_trims_and_lowercases_shows_busy_then_clears_and_announces()
+    public async Task Add_trims_and_lowercases_shows_busy_then_clears_and_announces()
     {
-        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
         var pending = new TaskCompletionSource();
         channels.OnAdd = _ => pending.Task;
         IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
@@ -167,9 +169,9 @@ public sealed class SettingsPageTests
     [InlineData("unexpected", "Could not reach Twitch. Try again.")]
     [InlineData("network", "Could not reach Twitch. Try again.")]
     [InlineData("session", "Your Twitch session ended. Reconnect to manage channels.")]
-    public void Add_failures_show_an_inline_error_and_keep_the_input(string failure, string message)
+    public async Task Add_failures_show_an_inline_error_and_keep_the_input(string failure, string message)
     {
-        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
         channels.OnAdd = login => Task.FromException(failure switch
         {
             "unknown" => new UnknownChannelException(login),
@@ -191,9 +193,9 @@ public sealed class SettingsPageTests
     }
 
     [Fact]
-    public void Remove_confirms_that_recordings_are_kept_then_shows_removing_until_done()
+    public async Task Remove_confirms_that_recordings_are_kept_then_shows_removing_until_done()
     {
-        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
         channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Recording, true, "EventSub connected")];
         var pending = new TaskCompletionSource();
         channels.OnRemove = _ => pending.Task;
@@ -218,9 +220,9 @@ public sealed class SettingsPageTests
     }
 
     [Fact]
-    public void A_failed_remove_restores_the_row_with_an_error()
+    public async Task A_failed_remove_restores_the_row_with_an_error()
     {
-        using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
         channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected")];
         channels.OnRemove = _ => Task.FromException(new IOException("disk"));
         IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
@@ -238,6 +240,7 @@ public sealed class SettingsPageTests
     {
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.Services.AddMudServices();
         context.Services.AddLogging();
         context.Services.AddSingleton(new AdminSessionState());
         context.Services.AddSingleton(new SnackbarService(new FakeTimeProvider()));
