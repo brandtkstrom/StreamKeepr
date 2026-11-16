@@ -1,0 +1,24 @@
+@inject NavigationManager Navigation
+
+@* Design system: EmptyStates, library empty. Home shows it in the main column on first run.
+   Adding a channel needs Twitch, so signed out the one action is the Twitch button instead. *@
+<section class="sk-empty-state sk-empty-state-page" data-library-empty-home data-empty-icon="video_library" aria-labelledby="sk-library-empty">
+    <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.VideoLibrary" Class="sk-empty-icon" aria-hidden="true" />
+    <MudBlazor.MudText Typo="MudBlazor.Typo.h4" HtmlTag="h2" id="sk-library-empty">No recordings yet</MudBlazor.MudText>
+    <MudBlazor.MudText Typo="MudBlazor.Typo.body1">Stream Keepr records a channel each time it goes live.</MudBlazor.MudText>
+    <AuthorizeView>
+        <Authorized>
+            <MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
+                                 Color="MudBlazor.Color.Primary"
+                                 Href="/settings#channels"
+                                 StartIcon="@MudBlazor.Icons.Material.Rounded.Add">Add a channel</MudBlazor.MudButton>
+        </Authorized>
+        <NotAuthorized>
+            @* The same full-page Twitch link as the top bar (details/auth/settings contract §7). *@
+            <a class="sk-twitch" href="@AuthLinks.LoginHref(Navigation.Uri)" data-enhance-nav="false">
+                <span class="sk-icon" aria-hidden="true">link</span>
+                <span class="lbl">Connect with Twitch</span>
+            </a>
+        </NotAuthorized>
+    </AuthorizeView>
+</section>

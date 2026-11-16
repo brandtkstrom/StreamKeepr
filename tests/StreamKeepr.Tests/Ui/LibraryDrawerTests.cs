@@ -479,9 +479,59 @@ public sealed class LibraryDrawerTests
         IRenderedComponent<Home> cut = context.Render<Home>(parameters =>
             parameters.Add(component => component.RecordingId, "missing"));
 
-        Assert.NotNull(cut.Find("[data-unknown-recording]"));
-        Assert.Contains("Recording not found", cut.Find("[data-unknown-recording]").TextContent);
-        Assert.Equal("/", cut.Find("[data-unknown-recording] a").GetAttribute("href"));
+        AngleSharp.Dom.IElement state = cut.Find("[data-unknown-recording]");
+        Assert.Equal("Recording not found", state.QuerySelector("h1")!.TextContent);
+        Assert.Equal("search", state.GetAttribute("data-empty-icon"));
+        Assert.Equal("/", state.Named("a", "Back to library").GetAttribute("href"));
+    }
+
+    [Fact]
+    public async Task An_empty_library_offers_to_add_a_channel_when_signed_in()
+    {
+        var view = new TestLibraryView { IsLoaded = true };
+
+        await using BunitContext context = CreateContext(view, signedIn: true);
+        IRenderedComponent<Home> cut = context.Render<Home>();
+
+        AngleSharp.Dom.IElement state = cut.Find("[data-library-empty-home]");
+        Assert.Equal("No recordings yet", state.QuerySelector("h2")!.TextContent);
+        Assert.Equal("video_library", state.GetAttribute("data-empty-icon"));
+        AngleSharp.Dom.IElement action = state.Named("a", "Add a channel");
+        Assert.Equal("/settings#channels", action.GetAttribute("href"));
+        Assert.False(state.HasNamed("a", "Connect with Twitch"));
+    }
+
+    [Fact]
+    public async Task An_empty_library_offers_Twitch_when_signed_out()
+    {
+        var view = new TestLibraryView { IsLoaded = true };
+
+        await using BunitContext context = CreateContext(view);
+        IRenderedComponent<Home> cut = context.Render<Home>();
+
+        AngleSharp.Dom.IElement state = cut.Find("[data-library-empty-home]");
+        AngleSharp.Dom.IElement action = state.Named("a", "Connect with Twitch");
+        Assert.Equal("/api/auth/twitch/login?returnUrl=%2F", action.GetAttribute("href"));
+        Assert.False(state.HasNamed("a", "Add a channel"));
+    }
+
+    [Fact]
+    public async Task The_home_shows_no_empty_state_while_loading_or_with_recordings()
+    {
+        var view = new TestLibraryView { IsLoaded = false };
+
+        await using BunitContext context = CreateContext(view);
+        IRenderedComponent<Home> cut = context.Render<Home>();
+        Assert.Empty(cut.FindAll("[data-library-empty-home]"));
+
+        view.StreamerItems = [Streamer("live", "Live Star", recording: true, count: 1, last: Now)];
+        view.IsLoaded = true;
+        view.RaiseChanged();
+        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll("[data-library-empty-home]")));
+
+        view.StreamerItems = [];
+        view.RaiseChanged();
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("[data-library-empty-home]")));
     }
 
     [Fact]
@@ -505,7 +555,8 @@ public sealed class LibraryDrawerTests
 
     private static BunitContext CreateContext(
         TestLibraryView view,
-        string? timeZoneId = null)
+        string? timeZoneId = null,
+        bool signedIn = false)
     {
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
@@ -535,7 +586,11 @@ public sealed class LibraryDrawerTests
         }));
         // MainLayout hosts the top-bar Twitch control.
         context.Services.AddScoped<AdminSessionState>();
-        context.AddAuthorization().SetNotAuthorized();
+        BunitAuthorizationContext authorization = context.AddAuthorization();
+        if (signedIn)
+            authorization.SetAuthorized("mock_admin");
+        else
+            authorization.SetNotAuthorized();
 
         return context;
     }

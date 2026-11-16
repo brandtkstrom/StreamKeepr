@@ -61,7 +61,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
 
         await page.Locator(Search).FillAsync("zzzz-no-match");
         await page.Locator("[data-library-empty]").WaitForAsync();
-        Assert.Equal("No recordings match", await page.Locator("[data-library-empty]").InnerTextAsync());
+        Assert.Equal("No recordings match “zzzz-no-match”", await page.Locator("[data-library-empty]").InnerTextAsync());
         Assert.Equal(0, await page.Locator("[data-streamer-group]").CountAsync());
     }
 
@@ -321,6 +321,27 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
 
         await page.Locator("[data-drawer-toggle]").ClickAsync();
         await Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "expanded" ? 1 : 0, 1);
+    }
+
+    [Fact]
+    public async Task A_search_with_no_match_offers_to_clear_it()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+
+        await page.Locator(Search).FillAsync("zzzz-no-such-stream");
+        ILocator noMatch = page.Locator("[data-library-no-match]");
+        await noMatch.WaitForAsync();
+        Assert.Contains("No recordings match “zzzz-no-such-stream”", await noMatch.InnerTextAsync());
+        await AssertAxeCleanAsync(page, "library-no-match");
+
+        await noMatch.GetByRole(AriaRole.Button, new() { Name = "Clear search" }).ClickAsync();
+        await page.WaitForURLAsync(url => !url.Contains("q=", StringComparison.Ordinal));
+        await Rows(page).Nth(6).WaitForAsync();
+        Assert.Equal("", await page.Locator(Search).InputValueAsync());
+        await Expect(
+            async () => await page.Locator(Search).EvaluateAsync<bool>("el => el === document.activeElement") ? 1 : 0,
+            1);
     }
 
     internal static async Task<Session> OpenAsync(
