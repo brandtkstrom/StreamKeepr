@@ -87,10 +87,20 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
             .Where(url => url.StartsWith("http", StringComparison.Ordinal) && !url.StartsWith(origin, StringComparison.Ordinal))
             .ToArray();
         Assert.Empty(offOrigin);
-        Assert.Contains(requests, url => url.Contains("/fonts/roboto", StringComparison.Ordinal));
+        Assert.Contains(requests, url => url.Contains("/fonts/roboto-latin", StringComparison.Ordinal));
+
+        // A Roboto face loaded, and every Roboto @font-face the page declares is the app's own file,
+        // so the face that loaded is the one requested above, not a system Roboto.
         Assert.True(
-            await page.EvaluateAsync<bool>("() => document.fonts.check('400 16px Roboto') && [...document.fonts].some(f => f.family.replaceAll('\"', '') === 'Roboto' && f.status === 'loaded')"),
-            "Roboto did not load from the app");
+            await page.EvaluateAsync<bool>(
+                "() => [...document.fonts].some(f => f.family.replaceAll('\"', '') === 'Roboto' && f.status === 'loaded')"),
+            "no Roboto face loaded");
+        string[] robotoSources = await page.EvaluateAsync<string[]>(
+            "() => [...document.styleSheets].flatMap(s => [...s.cssRules])"
+            + ".filter(r => r instanceof CSSFontFaceRule && r.style.getPropertyValue('font-family').replaceAll('\"', '') === 'Roboto')"
+            + ".map(r => r.style.getPropertyValue('src'))");
+        Assert.NotEmpty(robotoSources);
+        Assert.All(robotoSources, src => Assert.Contains("/fonts/roboto-latin.woff2", src, StringComparison.Ordinal));
     }
 
     [Fact]
