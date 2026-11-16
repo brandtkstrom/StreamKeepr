@@ -684,11 +684,11 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 
 /* ---------- reconnect dialog (plain <dialog>; design system Reconnect card) ----------
    Styled like a MudDialog without MudBlazor, because it must work while the circuit is down.
-   The framework puts one state class on it; only the hard losses have a section. */
+   Only the hard losses have a section; reconnect.js names the one to show. */
 .sk-reconnect-state { display: none; }
-#components-reconnect-modal.components-reconnect-failed [data-reconnect-state="failed"],
-#components-reconnect-modal.components-reconnect-paused [data-reconnect-state="paused"],
-#components-reconnect-modal.components-reconnect-resume-failed [data-reconnect-state="resume-failed"] { display: flex; }
+#components-reconnect-modal[data-reconnect-shown="failed"] [data-reconnect-state="failed"],
+#components-reconnect-modal[data-reconnect-shown="paused"] [data-reconnect-state="paused"],
+#components-reconnect-modal[data-reconnect-shown="resume-failed"] [data-reconnect-state="resume-failed"] { display: flex; }
 
 #components-reconnect-modal {
   width: min(360px, calc(100vw - 32px)); padding: var(--space-6); border: 0;

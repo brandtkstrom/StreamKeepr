@@ -13,6 +13,7 @@ internal static class DialogQueries
             dialog.GetAttribute("aria-labelledby") is { } titleId
             && dialogs.Find($"[id='{titleId}']").TextContent.Trim() == name);
 
+    /// <summary>Whether a dialog named <paramref name="name"/> is open.</summary>
     public static bool HasOpenDialog(this IRenderedComponent<MudDialogProvider> dialogs, string name) =>
         dialogs.OpenDialog(name) is not null;
 }

@@ -83,6 +83,7 @@ describe("reconnect.js", () => {
       emit(modal, state);
 
       expect(modal.getAttribute("aria-labelledby")).toBe(`sk-reconnect-title-${state}`);
+      expect(modal.dataset.reconnectShown).toBe(state);
     },
   );
 
@@ -151,6 +152,7 @@ describe("reconnect.js", () => {
         expect(modal.classList.contains("components-reconnect-resume-failed")).toBe(true),
       );
       expect(modal.getAttribute("aria-labelledby")).toBe("sk-reconnect-title-resume-failed");
+      expect(modal.dataset.reconnectShown).toBe("resume-failed");
       expect(document.body.dataset.skReconnect).toBe("resume-failed");
     });
 

@@ -188,6 +188,8 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         await TabToAsync(page, "e => e.hasAttribute('data-delete')", "the delete button");
         await page.Keyboard.PressAsync("Enter");
         await Feedback.Dialog(page, "Delete recording?").WaitForAsync();
+        // MudDialog moves focus in after it opens; tabbing earlier would start outside it.
+        await page.WaitForFunctionAsync("() => document.activeElement?.closest('[role=dialog]') !== null");
         await AssertFocusStaysInsideAsync(page, "[role=dialog]", nativeModal: false);
         await page.Keyboard.PressAsync("Escape");
         await Feedback.Dialog(page, "Delete recording?").WaitForAsync(new() { State = WaitForSelectorState.Detached });
@@ -307,6 +309,10 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         foreach (string key in new[] { "Tab", "Tab", "Tab", "Tab", "Tab", "Shift+Tab", "Shift+Tab", "Shift+Tab" })
         {
             await page.Keyboard.PressAsync(key);
+            // MudDialog's trap is a pair of empty focusable sentinels whose focus handler runs
+            // in .NET and sends focus back to the other end; wait for that hand-off.
+            await page.WaitForFunctionAsync(
+                "() => { const e = document.activeElement; return !(e?.tagName === 'DIV' && e.childElementCount === 0 && !e.hasAttribute('role') && e.closest('[role=dialog]')); }");
             string? escaped = await page.EvaluateAsync<string?>(
                 "([c, native]) => { const e = document.activeElement; if (!e || e === document.body) return native ? null : 'the page body'; return e.closest(c) ? null : e.outerHTML.slice(0, 160); }",
                 new object[] { container, nativeModal });

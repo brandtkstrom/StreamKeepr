@@ -198,63 +198,36 @@
     </ChildContent>
 </Collapsible>
 
-@* Confirmations are inline MudDialogs (design system Dialog card): MudDialogProvider renders
-   them through IDialogService while this component keeps their state. *@
-<MudBlazor.MudDialog Visible="@_stopOpen"
-                     VisibleChanged="OnStopOpenChanged"
-                     Options="@ConfirmDialogs.Options(_stopping)"
->
-    <TitleContent>
-        <MudBlazor.MudText Typo="MudBlazor.Typo.h6">@($"Stop recording for {Recording.StreamerLogin}?")</MudBlazor.MudText>
-    </TitleContent>
-    <DialogContent>
-        <div aria-busy="@(_stopping ? "true" : null)" data-stop-dialog>
-            <MudBlazor.MudText Typo="MudBlazor.Typo.body1">The current capture is finalized, and the channel stays paused until you resume.</MudBlazor.MudText>
-        </div>
-    </DialogContent>
-    <DialogActions>
-        <MudBlazor.MudButton Disabled="@_stopping"
-                             OnClick="CancelStop"
-                             data-stop-cancel>Cancel</MudBlazor.MudButton>
-        <MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
-                             Color="MudBlazor.Color.Error"
-                             Disabled="@_stopping"
-                             OnClick="ConfirmStopAsync"
-                             data-stop-confirm>Stop recording</MudBlazor.MudButton>
-    </DialogActions>
-</MudBlazor.MudDialog>
-<MudBlazor.MudDialog Visible="@_deleteOpen"
-                     VisibleChanged="OnDeleteOpenChanged"
-                     Options="@ConfirmDialogs.Options(_deleting)"
->
-    <TitleContent>
-        <MudBlazor.MudText Typo="MudBlazor.Typo.h6">Delete recording?</MudBlazor.MudText>
-    </TitleContent>
-    <DialogContent>
-        @* MudDialog applies its own attributes only when it opens, so the busy state and the
-           hook sit on the content. The banner is an alert only once it carries an error. *@
-        <div aria-busy="@(_deleting ? "true" : null)" data-delete-dialog>
-            <MudBlazor.MudAlert Severity="MudBlazor.Severity.Error"
-                                Variant="MudBlazor.Variant.Text"
-                                Dense="true"
-                                role="@(_deleteError is null ? "note" : "alert")"
-                                data-delete-banner>
-                <b>@Recording.Title — @Recording.StreamerLogin</b><br />
-                @(_deleteError ?? "The files and watch progress are removed permanently.")
-            </MudBlazor.MudAlert>
-        </div>
-    </DialogContent>
-    <DialogActions>
-        <MudBlazor.MudButton Disabled="@_deleting"
-                             OnClick="CancelDelete"
-                             data-delete-cancel>Cancel</MudBlazor.MudButton>
-        <MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
-                             Color="MudBlazor.Color.Error"
-                             Disabled="@(_deleting || DeleteBlockedReason is not null)"
-                             OnClick="ConfirmDeleteAsync"
-                             data-delete-confirm>Delete</MudBlazor.MudButton>
-    </DialogActions>
-</MudBlazor.MudDialog>
+<ConfirmDialog Visible="@_stopOpen"
+               VisibleChanged="OnStopOpenChanged"
+               Title="@($"Stop recording for {Recording.StreamerLogin}?")"
+               ConfirmLabel="Stop recording"
+               HookPrefix="stop"
+               Busy="@_stopping"
+               OnCancel="CancelStop"
+               OnConfirm="ConfirmStopAsync">
+    <MudBlazor.MudText Typo="MudBlazor.Typo.body1">The current capture is finalized, and the channel stays paused until you resume.</MudBlazor.MudText>
+</ConfirmDialog>
+<ConfirmDialog Visible="@_deleteOpen"
+               VisibleChanged="OnDeleteOpenChanged"
+               Title="Delete recording?"
+               ConfirmLabel="Delete"
+               HookPrefix="delete"
+               Busy="@_deleting"
+               ConfirmDisabled="@(DeleteBlockedReason is not null)"
+               OnCancel="CancelDelete"
+               OnConfirm="ConfirmDeleteAsync">
+    @* The banner is an alert only once it carries an error; before that it states the
+       consequence, which the dialog's name already introduces. *@
+    <MudBlazor.MudAlert Severity="MudBlazor.Severity.Error"
+                        Variant="MudBlazor.Variant.Text"
+                        Dense="true"
+                        role="@(_deleteError is null ? "note" : "alert")"
+                        data-delete-banner>
+        <b>@Recording.Title — @Recording.StreamerLogin</b><br />
+        @(_deleteError ?? "The files and watch progress are removed permanently.")
+    </MudBlazor.MudAlert>
+</ConfirmDialog>
 
 @code {
     private const string ModulePath = "./Components/Features/Details/RecordingDetails.razor.js";

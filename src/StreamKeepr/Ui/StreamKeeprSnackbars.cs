@@ -28,6 +28,8 @@ public static class StreamKeeprSnackbars
         configuration.HideIcon = true;
         configuration.SnackbarVariant = Variant.Outlined;
         configuration.VisibleStateDuration = (int)Duration.TotalMilliseconds;
+        // MudBlazor's default 95% lets the page show through and lowers the text's contrast.
+        configuration.MaximumOpacity = 100;
     }
 
     /// <summary>Shows <paramref name="text"/>, with at most one action.</summary>

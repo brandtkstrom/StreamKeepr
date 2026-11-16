@@ -245,9 +245,11 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
 
         // Retry works while the circuit is down: reconnect.js serves it, not a Blazor handler.
         await page.EvaluateAsync("""
-            window.__skRetries = 0;
-            const reconnect = window.Blazor.reconnect.bind(window.Blazor);
-            window.Blazor.reconnect = (...args) => { window.__skRetries++; return reconnect(...args); };
+            () => {
+              window.__skRetries = 0;
+              const reconnect = window.Blazor.reconnect.bind(window.Blazor);
+              window.Blazor.reconnect = (...args) => { window.__skRetries++; return reconnect(...args); };
+            }
             """);
         await session.Context.SetOfflineAsync(false);
         await note.GetByRole(AriaRole.Button, new() { Name = "Retry" }).ClickAsync();
@@ -271,15 +273,12 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         IPage page = session.Page;
         await page.Locator(LibraryHooks.Group).First.WaitForAsync();
 
-        // The framework sets the state class and raises the event; do the same, so the
-        // static dialog's copy, styling and accessibility are checked without losing the server.
+        // Raise the framework's event, so the static dialog's copy, styling and accessibility
+        // are checked without losing the server.
         await page.EvaluateAsync(
             """
-            state => {
-              const modal = document.getElementById('components-reconnect-modal');
-              modal.classList.add(`components-reconnect-${state}`);
-              modal.dispatchEvent(new CustomEvent('components-reconnect-state-changed', { detail: { state } }));
-            }
+            state => document.getElementById('components-reconnect-modal')
+              .dispatchEvent(new CustomEvent('components-reconnect-state-changed', { detail: { state } }))
             """,
             state);
 
@@ -347,6 +346,14 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
 
     internal async Task AssertAxeCleanAsync(IPage page, string name, AxeRunOptions? options = null)
     {
+        // Let finite entrance animations (a snackbar fading in) finish, so contrast is measured
+        // on the settled page. Endless ones (spinners, the REC pulse) are left running.
+        await page.EvaluateAsync(
+            """
+            () => Promise.all(document.getAnimations()
+              .filter(a => a.effect?.getComputedTiming().endTime !== Infinity)
+              .map(a => a.finished.catch(() => {})))
+            """);
         AxeResult results = options is null ? await page.RunAxe() : await page.RunAxe(options);
         await File.WriteAllTextAsync(
             Path.Combine(app.ArtifactsDirectory, $"{name}.axe.json"), results.ToString());

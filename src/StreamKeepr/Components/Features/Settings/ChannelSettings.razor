@@ -113,48 +113,28 @@
     </div>
 </section>
 
-@* Inline MudDialogs (design system Dialog card). Both close as soon as they are confirmed:
-   the row shows the work in progress, and a failure is reported on the row. *@
-<MudBlazor.MudDialog Visible="@(_confirm is not null)"
-                     VisibleChanged="OnConfirmOpenChanged"
-                     Options="@ConfirmDialogs.Options(busy: false)">
-    <TitleContent>
-        <MudBlazor.MudText Typo="MudBlazor.Typo.h6">@($"Remove {_confirm?.DisplayName}?")</MudBlazor.MudText>
-    </TitleContent>
-    <DialogContent>
-        <div data-channel-remove-dialog>
-            <MudBlazor.MudText Typo="MudBlazor.Typo.body1">Recordings are kept. An open capture is finalized first.</MudBlazor.MudText>
-        </div>
-    </DialogContent>
-    <DialogActions>
-        <MudBlazor.MudButton OnClick="CancelRemove">Cancel</MudBlazor.MudButton>
-        <MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
-                             Color="MudBlazor.Color.Error"
-                             OnClick="ConfirmRemoveAsync"
-                             data-channel-remove-confirm>Remove</MudBlazor.MudButton>
-    </DialogActions>
-</MudBlazor.MudDialog>
+@* Both confirmations close as soon as they are confirmed: the row shows the work in
+   progress, and a failure is reported on the row. *@
+<ConfirmDialog Visible="@(_confirm is not null)"
+               VisibleChanged="OnConfirmOpenChanged"
+               Title="@($"Remove {_confirm?.DisplayName}?")"
+               ConfirmLabel="Remove"
+               HookPrefix="channel-remove"
+               OnCancel="CancelRemove"
+               OnConfirm="ConfirmRemoveAsync">
+    <MudBlazor.MudText Typo="MudBlazor.Typo.body1">Recordings are kept. An open capture is finalized first.</MudBlazor.MudText>
+</ConfirmDialog>
 
-<MudBlazor.MudDialog Visible="@(_stop is not null)"
-                     VisibleChanged="OnStopOpenChanged"
-                     Options="@ConfirmDialogs.Options(busy: false)">
-    <TitleContent>
-        <MudBlazor.MudText Typo="MudBlazor.Typo.h6">@StopTitle</MudBlazor.MudText>
-    </TitleContent>
-    <DialogContent>
-        <div data-channel-stop-dialog>
-            <MudBlazor.MudText Typo="MudBlazor.Typo.body1">@StopBody</MudBlazor.MudText>
-        </div>
-    </DialogContent>
-    <DialogActions>
-        <MudBlazor.MudButton OnClick="CancelStop" data-channel-stop-cancel>Cancel</MudBlazor.MudButton>
-        <MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
-                             Color="MudBlazor.Color.Error"
-                             Disabled="@(_stop is not null && IsBusy(_stop.Login))"
-                             OnClick="ConfirmStopAsync"
-                             data-channel-stop-confirm>@StopActionLabel</MudBlazor.MudButton>
-    </DialogActions>
-</MudBlazor.MudDialog>
+<ConfirmDialog Visible="@(_stop is not null)"
+               VisibleChanged="OnStopOpenChanged"
+               Title="@StopTitle"
+               ConfirmLabel="@StopActionLabel"
+               HookPrefix="channel-stop"
+               ConfirmDisabled="@(_stop is not null && IsBusy(_stop.Login))"
+               OnCancel="CancelStop"
+               OnConfirm="ConfirmStopAsync">
+    <MudBlazor.MudText Typo="MudBlazor.Typo.body1">@StopBody</MudBlazor.MudText>
+</ConfirmDialog>
 
 @code {
     private const string SessionEnded = "Your Twitch session ended. Reconnect to manage channels.";

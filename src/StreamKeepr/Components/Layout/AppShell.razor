@@ -362,7 +362,6 @@
         return InvokeAsync(StateHasChanged);
     }
 
-    [JSInvokable]
     private async Task InvokeModuleAsync(string identifier, params object[] args)
     {
         if (_module is null)

@@ -29,9 +29,12 @@ function setState(state) {
   if (document.body) document.body.dataset.skReconnect = state;
 }
 
-// The dialog is named by the title of the state it shows (ReconnectModal.razor TitleId).
-function labelModal(state) {
-  reconnectModal?.setAttribute("aria-labelledby", `sk-reconnect-title-${state}`);
+// Shows the hard loss's section (components.css keys on data-reconnect-shown) and names the
+// dialog by that section's title (ReconnectModal.razor TitleId).
+function showLoss(state) {
+  if (!reconnectModal) return;
+  reconnectModal.dataset.reconnectShown = state;
+  reconnectModal.setAttribute("aria-labelledby", `sk-reconnect-title-${state}`);
 }
 
 function handleReconnectStateChanged(event) {
@@ -42,7 +45,7 @@ function handleReconnectStateChanged(event) {
   // paused" from body[data-sk-reconnect] and playback keeps going. Only a hard circuit loss
   // raises the modal, so the alert and the modal are never both prominent.
   if (HARD_LOSS.has(state)) {
-    labelModal(state);
+    showLoss(state);
     if (!reconnectModal.open) reconnectModal.showModal();
   } else if (state === "hide") {
     reconnectModal.close();
@@ -95,7 +98,7 @@ async function resume() {
       "components-reconnect-resume-failed",
     );
     setState("resume-failed");
-    labelModal("resume-failed");
+    showLoss("resume-failed");
   }
 }
 

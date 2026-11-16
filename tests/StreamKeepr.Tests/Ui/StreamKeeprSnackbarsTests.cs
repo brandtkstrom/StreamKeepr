@@ -112,6 +112,7 @@ public sealed class StreamKeeprSnackbarsTests
         Assert.Equal(1, configuration.MaxDisplayedSnackbars);
         Assert.False(configuration.ShowCloseIcon);
         Assert.Equal(4000, configuration.VisibleStateDuration);
+        Assert.Equal(100, configuration.MaximumOpacity);
     }
 
     private static string[] Messages(IRenderedComponent<MudSnackbarProvider> provider) =>

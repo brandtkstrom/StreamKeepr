@@ -27,12 +27,16 @@
     /// <summary>The id of a state's title, which <c>reconnect.js</c> names as the dialog's label.</summary>
     public static string TitleId(string state) => $"sk-reconnect-title-{state}";
 
-    // The hook reconnect.js serves: data-reconnect-retry or data-reconnect-resume.
+    // The hook reconnect.js serves for the main action, kept apart from its label.
     private static Dictionary<string, object> ActionHook(HardLoss state) =>
-        new() { [$"data-reconnect-{state.Action.ToLowerInvariant()}"] = true };
+        new() { [state.ActionHook] = true };
+
+    private const string RetryHook = "data-reconnect-retry";
+    private const string ResumeHook = "data-reconnect-resume";
 
     private sealed record HardLoss(
-        string Key, string IconName, string Icon, string Title, string Body, bool Reload, string Action);
+        string Key, string IconName, string Icon, string Title, string Body, bool Reload,
+        string Action, string ActionHook);
 
     // The Reconnect card's copy, one entry per hard loss (reconnect.js HARD_LOSS).
     private static readonly HardLoss[] States =
@@ -40,14 +44,14 @@
         new("failed", "wifi-off", MudBlazor.Icons.Material.Rounded.WifiOff,
             "Couldn’t rejoin the server",
             "Retry now, or reload the page. StreamKeepr also retries when you come back to this tab.",
-            Reload: true, Action: "Retry"),
+            Reload: true, Action: "Retry", ActionHook: RetryHook),
         new("paused", "pause", MudBlazor.Icons.Material.Rounded.Pause,
             "Session paused",
             "The server paused this session. Resume to pick up where you left off.",
-            Reload: false, Action: "Resume"),
+            Reload: false, Action: "Resume", ActionHook: ResumeHook),
         new("resume-failed", "error", MudBlazor.Icons.Material.Rounded.Error,
             "Couldn’t resume the session",
             "Try again, or reload the page to start a new session.",
-            Reload: true, Action: "Resume"),
+            Reload: true, Action: "Resume", ActionHook: ResumeHook),
     ];
 }
