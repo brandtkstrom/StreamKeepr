@@ -1,6 +1,7 @@
 // Collocated shell module: app-bar scroll state, focus handling for the temporary library
 // drawer below 960px, and the non-modal paused-updates/retry bridge. AppShell.razor owns the
-// drawer's open state; this module only moves focus and reports Escape.
+// drawer's open state; this module only moves focus and reports Escape. The selectors below
+// mirror AppShell.razor: [data-shell], its <main> and <header>, and AppShell.DrawerId.
 let dotNetRef = null;
 let shell = null;
 let main = null;
@@ -48,7 +49,9 @@ function onKeyDown(event) {
 
   if (event.key === "Escape") {
     event.preventDefault();
-    void dotNetRef?.invokeMethodAsync("CloseModalDrawer").catch(() => {});
+    void dotNetRef
+      ?.invokeMethodAsync("CloseModalDrawer")
+      .catch((error) => console.warn("StreamKeepr: could not close the library drawer.", error));
     return;
   }
 

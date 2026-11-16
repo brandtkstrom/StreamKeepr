@@ -48,13 +48,16 @@
             .Any(streamer => streamer.IsRecording);
     }
 
-    private void OnLibraryChanged() => _ = InvokeAsync(() =>
+    private void OnLibraryChanged() => RefreshAndRender();
+
+    private void RefreshAndRender() => _ = InvokeAsync(() =>
     {
         Refresh();
         StateHasChanged();
     });
 
-    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => OnLibraryChanged();
+    // The watch title follows the route as well as the library.
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => RefreshAndRender();
 
     public void Dispose()
     {

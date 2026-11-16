@@ -78,7 +78,7 @@
 
                     <StorageMeter FreeBytes="@FreeBytes" TotalBytes="@TotalBytes" />
 
-                    <MudBlazor.MudTooltip Text="StreamKeepr on GitHub">
+                    <MudBlazor.MudTooltip Text="StreamKeepr on GitHub" RootClass="sk-appbar-link">
                         <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Custom.Brands.GitHub"
                                                  Href="@Links.Value.GitHub"
                                                  Target="_blank"
@@ -88,7 +88,7 @@
 
                     @* MudBlazor has no Twitch icon. LiveTv stands in until Twitch's official Glitch
                        mark is added from its brand assets; the mark is never redrawn. *@
-                    <MudBlazor.MudTooltip Text="Open Twitch">
+                    <MudBlazor.MudTooltip Text="Open Twitch" RootClass="sk-appbar-link">
                         <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.LiveTv"
                                                  Href="@Links.Value.Twitch"
                                                  Target="_blank"
