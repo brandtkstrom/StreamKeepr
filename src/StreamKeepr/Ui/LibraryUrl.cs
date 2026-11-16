@@ -51,6 +51,25 @@ public static class LibraryUrl
     }
 
     /// <summary>
+    /// The recording id when <paramref name="uri"/> is a watch page (<c>/r/{id}</c>), else
+    /// <c>null</c>. The shell uses it to pick the watch-page drawer and top bar.
+    /// </summary>
+    public static string? RecordingId(string uri)
+    {
+        ArgumentNullException.ThrowIfNull(uri);
+
+        string path = Uri.TryCreate(uri, UriKind.Absolute, out Uri? absolute)
+            ? absolute.AbsolutePath
+            : uri.Split('?', '#')[0];
+        const string prefix = "/r/";
+        if (!path.StartsWith(prefix, StringComparison.Ordinal))
+            return null;
+
+        string id = path[prefix.Length..];
+        return id.Length == 0 || id.Contains('/') ? null : Uri.UnescapeDataString(id);
+    }
+
+    /// <summary>
     /// Returns the path and query of <paramref name="uri"/> with the library keys replaced by
     /// <paramref name="query"/>. Other query keys are kept in their original order.
     /// </summary>

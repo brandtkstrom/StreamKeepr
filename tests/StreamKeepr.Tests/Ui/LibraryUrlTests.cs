@@ -53,4 +53,18 @@ public sealed class LibraryUrlTests
 
         Assert.Equal(query, LibraryUrl.Parse("http://host" + LibraryUrl.With("http://host/", query)));
     }
+
+    [Theory]
+    [InlineData("http://localhost/r/abc", "abc")]
+    [InlineData("http://localhost/r/abc?q=chef#t", "abc")]
+    [InlineData("http://localhost/r/a%20b", "a b")]
+    [InlineData("http://localhost/", null)]
+    [InlineData("http://localhost/r/", null)]
+    [InlineData("http://localhost/r/abc/extra", null)]
+    [InlineData("http://localhost/settings", null)]
+    [InlineData("http://localhost/rr/abc", null)]
+    public void RecordingId_reads_the_watch_page_route(string uri, string? expected)
+    {
+        Assert.Equal(expected, LibraryUrl.RecordingId(uri));
+    }
 }
