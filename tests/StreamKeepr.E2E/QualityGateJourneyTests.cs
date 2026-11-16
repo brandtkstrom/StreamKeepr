@@ -94,6 +94,23 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
     }
 
     [Fact]
+    public async Task MudBlazor_base_styles_that_unmigrated_surfaces_inherit_stay_as_measured()
+    {
+        // MudBlazor.min.css resets every element and styles bare body and a. Unmigrated markup
+        // inherits that; pin what it gets so a later surface PR notices when it changes.
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        await page.Locator(LibraryHooks.Row).First.WaitForAsync();
+
+        string[] body = await page.EvaluateAsync<string[]>(
+            "() => { const s = getComputedStyle(document.body); return [s.fontSize, s.lineHeight, s.letterSpacing]; }");
+        Assert.Equal(["14px", "20.02px", "normal"], body);
+        Assert.Equal(
+            "none",
+            await page.Locator(LibraryHooks.Row).First.EvaluateAsync<string>("e => getComputedStyle(e).textDecorationLine"));
+    }
+
+    [Fact]
     public async Task Reduced_motion_stops_the_rec_pulse_fades_and_collapse_animations()
     {
         await using Session session = await OpenAsync(app.BaseUrl);

@@ -94,7 +94,9 @@
 .body-medium { font: var(--sk-text-body-medium); }
 
 html { color-scheme: dark; }
-body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); font-family: var(--sk-font-sans); -webkit-font-smoothing: antialiased; }
+/* MudBlazor.min.css sets body letter-spacing (its body2 tracking), which every legacy element would
+   inherit; legacy text keeps normal tracking until its surface migrates. */
+body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); font-family: var(--sk-font-sans); letter-spacing: normal; -webkit-font-smoothing: antialiased; }
 *, *::before, *::after { box-sizing: border-box; }
 
 /* ---------- icons ---------- */
