@@ -1,3 +1,4 @@
+using MudBlazor.Services;
 using Bunit;
 using Bunit.TestDoubles;
 using Microsoft.AspNetCore.Components;
@@ -26,7 +27,8 @@ public sealed class LibrarySearchTests
         Assert.Equal("true", Chip(cut, "saved").GetAttribute("aria-pressed"));
         Assert.Equal("false", Chip(cut, "all").GetAttribute("aria-pressed"));
         Assert.Contains("Oldest first", cut.Find("[data-sort]").TextContent);
-        Assert.Contains("arrow_upward", cut.Find("[data-sort]").TextContent);
+        // The arrow is a MudIcon SVG now, named by a hook (#176).
+        Assert.Equal("arrow_upward", cut.Find("[data-sort]").GetAttribute("data-sort-icon"));
     }
 
     [Theory]
@@ -69,8 +71,20 @@ public sealed class LibrarySearchTests
         await using BunitContext context = CreateContext(OneStreamer());
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
 
+        // MudMenu renders its items in the popover provider, and only while it is open (#176).
+        BunitJSModuleInterop focus = context.JSInterop.SetupModule(
+            "./Components/Features/Library/LibraryDrawer.razor.js");
+        IRenderedComponent<MudBlazor.MudPopoverProvider> popovers = context.Render<MudBlazor.MudPopoverProvider>();
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
-        cut.FindAll("[role='menuitem']").Single(item => item.TextContent.Contains("A–Z")).Click();
+        cut.Find("button[aria-label='Library options']").Click();
+        popovers.WaitForAssertion(() => Assert.NotEmpty(popovers.FindAll("[role='menuitem']")));
+
+        // Opening puts focus on the current choice, so one Escape closes the menu.
+        cut.WaitForAssertion(() => Assert.Contains(
+            focus.Invocations,
+            call => call.Identifier == "focusWhenPresent" && Equals(call.Arguments[0], "[data-sort-option='newest']")));
+        Assert.Equal("true", popovers.Find("[data-sort-option='newest']").GetAttribute("data-selected"));
+        popovers.FindAll("[role='menuitem']").Single(item => item.TextContent.Contains("A–Z")).Click();
 
         Assert.EndsWith("/?sort=az", navigation.Uri);
         cut.WaitForAssertion(() => Assert.Contains("A–Z by streamer", cut.Find("[data-sort]").TextContent));
@@ -142,6 +156,7 @@ public sealed class LibrarySearchTests
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddLogging();
+        context.Services.AddMudServices();
         context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
         context.Services.AddScoped<ViewerClock>();
         context.Services.AddScoped<SnackbarService>();

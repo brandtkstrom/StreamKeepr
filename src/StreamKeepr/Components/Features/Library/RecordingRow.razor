@@ -32,7 +32,7 @@
         }
     </span>
     <span class="sk-row-text">
-        <span class="sk-row-title" data-row-title><Highlight Text="@Recording.Title" Search="@Search" /></span>
+        <span class="sk-row-title" data-row-title><MudBlazor.MudHighlighter Text="@Recording.Title" HighlightedText="@Search" Class="sk-mark" /></span>
         <span class="sk-row-meta">@Meta</span>
         @if (Status is StatusChipKind status)
         {

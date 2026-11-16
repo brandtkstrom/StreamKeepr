@@ -8,34 +8,76 @@
 @inject NavigationManager Navigation
 
 @* The layout owns the drawer, so it survives navigation and keeps its scroll position. *@
+@if (Rail)
+{
+    @* The rail opens with Home, then the streamers (design system: LibraryDrawer, mini rail). *@
+    <div class="sk-rail-home">
+        <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Home" Href="/" aria-label="Home" />
+        <MudBlazor.MudDivider />
+    </div>
+}
+
 <div class="sk-drawer-head">
-    <h2>Library</h2>
-    <span class="sk-sort" data-sort="@_query.Sort">
+    <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2">Library</MudBlazor.MudText>
+    <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="sk-sort"
+                       data-sort="@_query.Sort" data-sort-icon="@SortIconName">
         @if (SortIcon is { } icon)
         {
-            <Icon Name="@icon" Size="IconSize.Small" />
+            <MudBlazor.MudIcon Icon="@icon" Size="MudBlazor.Size.Small" aria-hidden="true" />
         }
         @SortLabel
-    </span>
-    <Menu Label="Library options" TriggerClass="sk-icon-btn sm">
-        <MenuItem Selected="@(_query.Sort == "newest")" OnClick="@(() => SetSort("newest"))">Newest first</MenuItem>
-        <MenuItem Selected="@(_query.Sort == "oldest")" OnClick="@(() => SetSort("oldest"))">Oldest first</MenuItem>
-        <MenuItem Selected="@(_query.Sort == "az")" OnClick="@(() => SetSort("az"))">A–Z by streamer</MenuItem>
-    </Menu>
+    </MudBlazor.MudText>
+    @* In the rail the menu opens rightward, over the main column; expanded, it opens leftward. *@
+    <MudBlazor.MudMenu OpenChanged="OnSortMenuOpenChanged"
+                       Icon="@MudBlazor.Icons.Material.Rounded.MoreVert"
+                       Size="MudBlazor.Size.Small"
+                       AriaLabel="Library options"
+                       AnchorOrigin="@(Rail ? MudBlazor.Origin.BottomLeft : MudBlazor.Origin.BottomRight)"
+                       TransformOrigin="@(Rail ? MudBlazor.Origin.TopLeft : MudBlazor.Origin.TopRight)"
+                       Class="sk-sort-menu">
+        @foreach ((string key, string label) in SortOptions)
+        {
+            <MudBlazor.MudMenuItem Icon="@(_query.Sort == key ? MudBlazor.Icons.Material.Rounded.Check : null)"
+                                   OnClick="@(() => SetSort(key))"
+                                   data-sort-option="@key"
+                                   data-selected="@(_query.Sort == key ? "true" : null)">@label</MudBlazor.MudMenuItem>
+        }
+    </MudBlazor.MudMenu>
 </div>
 
 @* Shown by CSS from body[data-sk-reconnect] while the circuit reconnects, because the
-   circuit cannot render anything while it is down. *@
-<p class="sk-drawer-note" role="status" data-updates-paused>
-    <Icon Name="cloud_off" Size="IconSize.Small" />
+   circuit cannot render anything while it is down. A polite status, not an alert. *@
+<MudBlazor.MudAlert Severity="MudBlazor.Severity.Warning"
+                    Dense="true"
+                    Icon="@MudBlazor.Icons.Material.Rounded.CloudOff"
+                    Class="sk-drawer-note"
+                    role="status"
+                    data-updates-paused>
     <span class="msg" data-updates-paused-msg>Live updates paused</span>
-</p>
+</MudBlazor.MudAlert>
 
-<div class="sk-filters" role="group" aria-label="Filter recordings">
-    <Chip data-filter="all" Selected="@(_query.State is null)" OnClick="@(() => SetState(null))">All</Chip>
-    <Chip data-filter="recording" Selected="@(_query.State == "recording")" OnClick="@(() => SetState("recording"))">Recording</Chip>
-    <Chip data-filter="saved" Selected="@(_query.State == "saved")" OnClick="@(() => SetState("saved"))">Saved</Chip>
-</div>
+<MudBlazor.MudChipSet T="string"
+                      SelectionMode="MudBlazor.SelectionMode.SingleSelection"
+                      SelectedValue="@(_query.State ?? "all")"
+                      SelectedValueChanged="OnFilterChanged"
+                      SelectedColor="MudBlazor.Color.Primary"
+                      Variant="MudBlazor.Variant.Outlined"
+                      Size="MudBlazor.Size.Small"
+                      CheckMark="true"
+                      Class="sk-filters"
+                      role="group"
+                      aria-label="Filter recordings">
+    @foreach ((string key, string label, string icon) in Filters)
+    {
+        bool pressed = (_query.State ?? "all") == key;
+        <MudBlazor.MudChip T="string"
+                           Value="@key"
+                           Icon="@icon"
+                           role="button"
+                           aria-pressed="@(pressed ? "true" : "false")"
+                           data-filter="@key">@label</MudBlazor.MudChip>
+    }
+</MudBlazor.MudChipSet>
 
 <div class="sk-drawer-list"
      data-drawer-list
@@ -46,13 +88,10 @@
         @for (int index = 0; index < 6; index++)
         {
             <div class="sk-row" data-library-skeleton aria-hidden="true">
-                <span class="sk-thumb">
-                    <Icon Name="movie" />
-                    <span class="dur">--:--</span>
-                </span>
+                <MudBlazor.MudSkeleton SkeletonType="MudBlazor.SkeletonType.Rectangle" Class="sk-thumb" />
                 <span class="sk-row-text">
-                    <span class="sk-row-title">Loading recording</span>
-                    <span class="sk-row-meta">Loading library</span>
+                    <MudBlazor.MudSkeleton Width="80%" />
+                    <MudBlazor.MudSkeleton Width="50%" />
                 </span>
             </div>
         }
@@ -85,10 +124,37 @@
     }
 </div>
 
+<div class="sk-drawer-foot">
+    <StorageMeter FreeBytes="@Library.Storage.FreeBytes"
+                  TotalBytes="@Library.Storage.TotalBytes"
+                  Rail="@Rail"
+                  OnOpen="ExpandFromRailAsync" />
+</div>
+
 @code {
     private const string TreeModule = "./js/tree-nav.js";
+    private const string DrawerModule = "./Components/Features/Library/LibraryDrawer.razor.js";
+
+    private static readonly (string Key, string Label)[] SortOptions =
+    [
+        ("newest", "Newest first"),
+        ("oldest", "Oldest first"),
+        ("az", "A–Z by streamer"),
+    ];
+
+    private static readonly (string Key, string Label, string Icon)[] Filters =
+    [
+        ("all", "All", MudBlazor.Icons.Material.Rounded.ViewList),
+        ("recording", "Recording", MudBlazor.Icons.Material.Rounded.FiberManualRecord),
+        ("saved", "Saved", MudBlazor.Icons.Material.Rounded.Inventory2),
+    ];
+
+    /// <summary>True while the shell shows the desktop rail (set by <c>AppShell</c>).</summary>
+    [CascadingParameter(Name = "LibraryRail")] public bool Rail { get; set; }
 
     private ElementReference _list;
+    private bool _focusSortMenu;
+    private IJSObjectReference? _drawerModule;
     private IJSObjectReference? _tree;
     private bool _resetScroll;
     private string? _scrollToKey;
@@ -133,6 +199,15 @@
             }
 
             return;
+        }
+
+        if (_focusSortMenu)
+        {
+            // MudMenu leaves focus on its trigger after a pointer open, and then spends the first
+            // Escape moving focus into the list. The menu-button pattern puts focus on the current
+            // choice when the menu opens, so one Escape closes it, as it always has here.
+            _focusSortMenu = false;
+            await FocusSortChoiceAsync();
         }
 
         if (_resetScroll)
@@ -222,11 +297,18 @@
 
     private bool Filtered => _query.Search is not null || _query.State is not null;
 
-    private string? SortIcon => _query.Sort switch
+    private string? SortIconName => _query.Sort switch
     {
         "oldest" => "arrow_upward",
         "az" => null,
         _ => "arrow_downward",
+    };
+
+    private string? SortIcon => SortIconName switch
+    {
+        "arrow_upward" => MudBlazor.Icons.Material.Rounded.ArrowUpward,
+        "arrow_downward" => MudBlazor.Icons.Material.Rounded.ArrowDownward,
+        _ => null,
     };
 
     private string SortLabel => _query.Sort switch
@@ -237,6 +319,33 @@
     };
 
     private void SetState(string? state) => Navigate(_query with { State = state });
+
+    private void OnSortMenuOpenChanged(bool open) => _focusSortMenu = open;
+
+    private async Task FocusSortChoiceAsync()
+    {
+        try
+        {
+            _drawerModule ??= await JS.InvokeAsync<IJSObjectReference>("import", DrawerModule);
+            await _drawerModule.InvokeAsync<bool>("focusWhenPresent", $"[data-sort-option='{_query.Sort}']");
+        }
+        catch (JSException ex)
+        {
+            // Without the module the menu still works; only the first Escape moves focus instead.
+            Logger.LogDebug(ex, "Could not focus the sort menu's current choice.");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private void OnFilterChanged(string? key) => SetState(key is null or "all" ? null : key);
+
+    private async Task ExpandFromRailAsync()
+    {
+        Preferences.SetDrawer(DrawerMode.Expanded, LibraryUrl.RecordingId(Navigation.Uri) is not null);
+        await Preferences.PersistAsync();
+    }
 
     private void SetSort(string sort) => Navigate(_query with { Sort = sort });
 
@@ -267,6 +376,17 @@
         Library.Changed -= OnLibraryChanged;
         Clock.Changed -= OnClockChanged;
         Navigation.LocationChanged -= OnLocationChanged;
+
+        if (_drawerModule is not null)
+        {
+            try
+            {
+                await _drawerModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
 
         if (_tree is not null)
         {

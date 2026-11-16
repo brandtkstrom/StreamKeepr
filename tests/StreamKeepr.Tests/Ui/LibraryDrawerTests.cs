@@ -85,6 +85,65 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
+    public async Task The_footer_shows_disk_usage_and_warns_below_ten_percent()
+    {
+        const long GiB = 1024L * 1024 * 1024;
+        var view = new TestLibraryView { Storage = new StorageView(20 * GiB, 100 * GiB) };
+        await using BunitContext context = CreateContext(view);
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        var meter = cut.Find("[data-storage]");
+        Assert.Equal("ok", meter.GetAttribute("data-storage"));
+        Assert.Contains("20.0 GB free", meter.TextContent);
+        Assert.Contains("of 100.0 GB", meter.TextContent);
+        Assert.Equal("80", meter.QuerySelector("[data-storage-used]")!.GetAttribute("data-storage-used"));
+
+        view.Storage = new StorageView(5 * GiB, 100 * GiB);
+        view.RaiseChanged();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("low", cut.Find("[data-storage]").GetAttribute("data-storage"));
+            Assert.Equal("Recording disk: 5.0 GB free of 100.0 GB", cut.Find("[data-storage]").GetAttribute("title"));
+        });
+    }
+
+    [Fact]
+    public async Task An_unknown_disk_size_shows_no_meter()
+    {
+        await using BunitContext context = CreateContext(new TestLibraryView { Storage = new StorageView(0, 0) });
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        Assert.Empty(cut.FindAll("[data-storage]"));
+        Assert.Empty(cut.FindAll("[data-storage-rail]"));
+    }
+
+    [Fact]
+    public async Task In_the_rail_the_footer_is_a_storage_button_that_opens_the_drawer()
+    {
+        const long GiB = 1024L * 1024 * 1024;
+        var view = new TestLibraryView { Storage = new StorageView(5 * GiB, 100 * GiB) };
+        await using BunitContext context = CreateContext(view);
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
+        preferences.SetDrawer(DrawerMode.Rail);
+
+        var cut = context.Render<CascadingValue<bool>>(parameters => parameters
+            .Add(component => component.Name, "LibraryRail")
+            .Add(component => component.Value, true)
+            .AddChildContent<LibraryDrawer>());
+
+        Assert.Empty(cut.FindAll("[data-storage]"));
+        var button = cut.Find("button[data-storage-rail]");
+        Assert.Equal("low", button.GetAttribute("data-storage-rail"));
+        Assert.Equal("Recording disk: 5.0 GB free of 100.0 GB", button.GetAttribute("aria-label"));
+        Assert.Equal("/", cut.Find("a[aria-label='Home']").GetAttribute("href"));
+
+        await button.ClickAsync(new());
+
+        Assert.Equal(DrawerMode.Expanded, preferences.Drawer);
+    }
+
+    [Fact]
     public async Task Rows_show_the_thumbnail_image_when_one_exists_and_the_placeholder_icon_otherwise()
     {
         var view = new TestLibraryView

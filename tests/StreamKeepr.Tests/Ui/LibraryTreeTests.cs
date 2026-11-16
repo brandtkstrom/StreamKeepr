@@ -1,3 +1,4 @@
+using MudBlazor.Services;
 using Bunit;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
@@ -137,6 +138,7 @@ public sealed class LibraryTreeTests
         module = context.JSInterop.SetupModule(TreeModule);
         module.Mode = JSRuntimeMode.Loose;
         context.Services.AddLogging();
+        context.Services.AddMudServices();
         context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
         context.Services.AddScoped<ViewerClock>();
         context.Services.AddScoped<SnackbarService>();

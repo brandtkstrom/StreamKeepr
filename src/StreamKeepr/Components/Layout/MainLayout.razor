@@ -4,9 +4,7 @@
 @inject NavigationManager Navigation
 
 <AppShell RecordingActive="@_recordingActive"
-          WatchTitle="@_watchTitle"
-          FreeBytes="@_storage.FreeBytes"
-          TotalBytes="@_storage.TotalBytes">
+          WatchTitle="@_watchTitle">
     <Drawer>
         <LibraryDrawer />
     </Drawer>
@@ -30,7 +28,6 @@
 
 @code {
     private bool _recordingActive;
-    private StorageView _storage = new(0, 0);
     private string? _watchTitle;
 
     protected override void OnInitialized()
@@ -42,7 +39,6 @@
 
     private void Refresh()
     {
-        _storage = Library.Storage;
         _watchTitle = LibraryUrl.RecordingId(Navigation.Uri) is { } id ? Library.Find(id)?.Title : null;
         _recordingActive = Library.Streamers(new LibraryQuery())
             .Any(streamer => streamer.IsRecording);

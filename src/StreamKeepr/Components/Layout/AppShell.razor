@@ -77,8 +77,6 @@
                                              aria-expanded="@(_searchOpen ? "true" : "false")"
                                              OnClick="ToggleSearch" />
 
-                    <StorageMeter FreeBytes="@FreeBytes" TotalBytes="@TotalBytes" />
-
                     <MudBlazor.MudTooltip Text="StreamKeepr on GitHub" RootClass="sk-appbar-link">
                         <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Custom.Brands.GitHub"
                                                  Href="@Links.Value.GitHub"
@@ -138,7 +136,11 @@
                     }
                     else
                     {
-                        @Drawer
+                        @* The drawer's contents differ in the rail (avatars, the storage icon, a
+                           rightward sort menu), so they learn the mode from the shell. *@
+                        <CascadingValue Name="LibraryRail" Value="@(DrawerClass == "rail")">
+                            @Drawer
+                        </CascadingValue>
                     }
                 </nav>
             </MudBlazor.MudDrawer>
@@ -197,10 +199,6 @@
     [Parameter] public RenderFragment? AuthSlot { get; set; }
 
     [Parameter] public bool RecordingActive { get; set; }
-
-    [Parameter] public long? FreeBytes { get; set; }
-
-    [Parameter] public long? TotalBytes { get; set; }
 
     /// <summary>The open recording's title, shown in the dense top bar of a phone's watch page.</summary>
     [Parameter] public string? WatchTitle { get; set; }
