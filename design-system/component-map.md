@@ -24,7 +24,7 @@ StreamKeepr's hand-built primitives (`Components/Primitives/`) give way to MudBl
 | StreamKeepr component | Built from |
 |---|---|
 | `AppShell` | MudBlazor's Layout 2 wireframe: `MudLayout`, `MudAppBar` (`Dense` below Md), `MudDrawer` (`ClipMode.Always`; `Mini` on Md and up, `Temporary` below), `MudMainContent`, all inside `MudBreakpointProvider` |
-| `BottomNav` (new) | `MudAppBar Bottom` inside `MudHidden Breakpoint="Breakpoint.MdAndUp"`: Home, Library, Settings |
+| `BottomNav` (new) | `MudAppBar Bottom`, rendered until the breakpoint is known to be Md or wider and hidden by CSS at 960px and up (not `MudHidden`, which drops it from the prerender): Home, Library, Settings |
 | Watch tabs (new, below Md) | `MudTabs` + `MudTabPanel` with icons: Chat, Details, Stats |
 | `StorageMeter` | The library drawer's footer: `MudTooltip` + caption + full-width `MudProgressLinear` (`Size.Small`, `Color.Warning` under 10% free). It moves out of the app bar. |
 | `SearchField` | `MudTextField` `Variant.Outlined`, `Margin.Dense`, `Adornment.Start`, `Immediate`, `DebounceInterval="150"`; 360px max, 480px while focused |

@@ -8,7 +8,7 @@ Read **MudBlazor theme** for the `MudTheme` that carries these tokens into the a
 
 ### The template
 
-The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes: app bar plus a drawer clipped under it), made responsive with `MudBreakpointProvider` and `MudHidden`. See `AppShell`.
+The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes: app bar plus a drawer clipped under it), made responsive with `MudBreakpointProvider` and CSS media queries. `MudHidden` is not used: it renders nothing until the circuit knows the breakpoint, so a phone's prerendered page would have no bottom-bar links. See `AppShell`.
 
 | Width (MudBlazor breakpoint) | Top bar | Navigation | Watching a recording |
 |---|---|---|---|

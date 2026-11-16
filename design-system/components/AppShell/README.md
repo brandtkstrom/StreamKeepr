@@ -22,9 +22,9 @@ The whole StreamKeepr screen, built on MudBlazor's Layout 2 wireframe (an app ba
         <SettingsSheet />   @* desktop; phones use a full-screen MudDialog *@
     </MudDrawer>
 
-    <MudHidden Breakpoint="Breakpoint.MdAndUp">
-        @if (!Watching) { <BottomNav /> }   @* MudAppBar Bottom *@
-    </MudHidden>
+    @* Not MudHidden: it renders nothing until the circuit knows the breakpoint, so a phone's
+       prerender would lose the bar's links. CSS hides the bar at 960px and up. *@
+    @if (!Watching && !_wideKnown) { <BottomNav /> }   @* MudAppBar Bottom *@
 </MudLayout>
 </MudBreakpointProvider>
 ```

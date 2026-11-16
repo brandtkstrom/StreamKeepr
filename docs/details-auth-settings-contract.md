@@ -199,7 +199,7 @@ bUnit:
 - Delete dialog, banner, busy, success/snackbar/navigation, lease/live/unknown/unauthorized refusals, focus return.
 - `TwitchAuthButton` disconnected/connecting/connected/expired, menu focus, logout form/token, return URL.
 - Settings signed-out prompt; account; push summary/reasons; channel rows/state labels; add success/errors; remove busy/kept-recordings; stop/resume confirms; empty state; `ChannelsView.Changed`.
-- Schedule snackbar; copy playlist absolute URL/clipboard failure.
+- Copy playlist absolute URL/clipboard failure.
 
 Integration:
 
@@ -213,7 +213,7 @@ Playwright (Chrome channel, Mock profile):
 - Sign in and out with the fake admin; expired/not-allowed are fake-state tests.
 - Details: chapters seek, copy playlist, export start/progress/download, incompatible failure (fixture), cancel/retry, delete and next-item navigation, lease refusal.
 - Settings: add known/unknown, remove with finalize, stop/resume, push summary, empty state, signed-out prompt.
-- Auth error snackbar/query removal; HTTPS caveat where testable; schedule snackbar; axe and keyboard-only.
+- Auth error snackbar/query removal; HTTPS caveat where testable; axe and keyboard-only.
 - No automatic retries; flaky tests are fixed or quarantined per the testing contract.
 
 ## 13. Binding versus implementation freedom
@@ -227,7 +227,6 @@ Freedom: exact panel markup beyond the `sk-` classes, wording of non-binding mes
 - Stop/resume surfaces are Settings plus the details card; the plan's streamer group menu and player title-strip control are absent (E-23).
 - An already-produced export file survives recording deletion until the 24 h sweep; deleting the recording does not revoke a downloaded copy.
 - Export jobs are in-memory: a host restart loses queued/running jobs (a completed file may remain until cleanup). One process-wide export runs at a time.
-- The schedule button is a stub.
 - Admin sign-in requires HTTPS except on localhost; plain LAN HTTP can view and record but cannot administer.
 - Empty `AllowedTwitchLogins` means open administration (E-13); set the allowlist on shared networks.
 - No per-user progress or preferences.
