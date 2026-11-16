@@ -8,7 +8,7 @@
     <span class="sk-snackbar-text" data-snackbar-text>@Text</span>
     @if (ActionLabel is not null)
     {
-        <button type="button" class="sk-btn text sk-snackbar-action" @onclick="OnAction">@ActionLabel</button>
+        <button type="button" class="sk-btn text sk-snackbar-action" data-snackbar-action @onclick="OnAction">@ActionLabel</button>
     }
     <button type="button"
             class="sk-icon-btn sm sk-snackbar-dismiss"

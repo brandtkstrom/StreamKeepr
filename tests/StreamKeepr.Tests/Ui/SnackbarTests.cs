@@ -128,13 +128,12 @@ public sealed class SnackbarTests
             .Add(component => component.OnDismiss,
                 EventCallback.Factory.Create(this, () => dismissed = true)));
 
-        IReadOnlyList<AngleSharp.Dom.IElement> buttons = cut.FindAll("button");
-        Assert.Equal(2, buttons.Count);
-        Assert.Equal("Undo", buttons[0].TextContent);
-        Assert.Equal("Dismiss notification", buttons[1].GetAttribute("aria-label"));
+        var actionButton = Assert.Single(cut.FindAll("[data-snackbar-action]"));
+        Assert.Equal("Undo", actionButton.TextContent);
+        Assert.Single(cut.FindAll("button[aria-label='Dismiss notification']"));
 
-        buttons[0].Click();
-        buttons[1].Click();
+        actionButton.Click();
+        cut.Find("button[aria-label='Dismiss notification']").Click();
 
         Assert.True(action);
         Assert.True(dismissed);
