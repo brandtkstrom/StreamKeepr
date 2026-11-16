@@ -129,6 +129,18 @@ public sealed class LibraryDrawerTests
         Assert.Null(cut.Find("[data-tree-key='g:live']").GetAttribute("title"));
     }
 
+    [Theory]
+    [InlineData(10L * 1024 * 1024 * 1024, "ok")]
+    [InlineData(10L * 1024 * 1024 * 1024 - 1, "low")]
+    public async Task The_warning_starts_just_below_ten_percent_free(long free, string expected)
+    {
+        var view = new TestLibraryView { Storage = new StorageView(free, 100L * 1024 * 1024 * 1024) };
+        await using BunitContext context = CreateContext(view);
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        Assert.Equal(expected, cut.Find("[data-storage]").GetAttribute("data-storage"));
+    }
+
     [Fact]
     public async Task An_unknown_disk_size_shows_no_meter()
     {

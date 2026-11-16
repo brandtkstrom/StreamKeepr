@@ -84,6 +84,9 @@ public sealed class LibrarySearchTests
             focus.Invocations,
             call => call.Identifier == "focusWhenPresent" && Equals(call.Arguments[0], "[data-sort-option='newest']")));
         Assert.Equal("true", popovers.Find("[data-sort-option='newest']").GetAttribute("data-selected"));
+        // Assistive tech hears which order is current, not only sees the check.
+        Assert.Equal("true", popovers.Find("[data-sort-option='newest']").GetAttribute("aria-current"));
+        Assert.Null(popovers.Find("[data-sort-option='az']").GetAttribute("aria-current"));
         popovers.FindAll("[role='menuitem']").Single(item => item.TextContent.Contains("A–Z")).Click();
 
         Assert.EndsWith("/?sort=az", navigation.Uri);

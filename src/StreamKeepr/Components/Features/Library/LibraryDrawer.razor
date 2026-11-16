@@ -41,6 +41,7 @@
             <MudBlazor.MudMenuItem Icon="@(current ? MudBlazor.Icons.Material.Rounded.Check : null)"
                                    OnClick="@(() => SetSort(choice.Key))"
                                    data-sort-option="@choice.Key"
+                                   aria-current="@(current ? "true" : null)"
                                    data-selected="@(current ? "true" : null)">@choice.Label</MudBlazor.MudMenuItem>
         }
     </MudBlazor.MudMenu>
