@@ -1,0 +1,38 @@
+<!-- @dsCard group="Playback" height=520 width=480 subtitle="Chat island: open with the sync-offset slider, and collapsed" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; }
+  .wrap { padding: var(--space-4); display: flex; gap: var(--space-4); align-items: stretch; height: 480px; }
+  .collapsed { width: 44px; background: var(--surface); border: 1px solid var(--lines-default); border-radius: var(--radius-lg); display: flex; justify-content: center; padding-top: var(--space-1); }
+  .c1 { color: var(--channel-4); } .c2 { color: var(--channel-2); } .c3 { color: var(--channel-1); } .c4 { color: var(--channel-3); }
+  .live { font: var(--text-caption); color: var(--text-secondary); margin-left: auto; }
+  .jump { align-self: center; margin-bottom: var(--space-2); border-radius: var(--radius-full); }
+</style>
+</head>
+<body class="ds">
+<div class="wrap">
+  <aside class="ds-chat" aria-label="Chat replay">
+    <header class="ds-chat-head"><button class="ds-ibtn sm" aria-label="Collapse chat" aria-expanded="true"><i data-i="chat"></i></button><span class="t">Chat</span><span class="live" role="status">Replay · synced to 54:40</span></header>
+    <div class="ds-chat-log" role="log" aria-label="Chat replay">
+      <div><span class="ts">54:31</span><span class="n c1">sablefinch</span><span class="ds-muted">:</span> that reset was clean</div>
+      <div><span class="ts">54:33</span><span class="n c2">mothlight</span><span class="ds-muted">:</span> any% or glitchless tonight?</div>
+      <div><span class="reply">Replying to mothlight: any% or glitchless tonight?</span><span class="ts">54:36</span><span class="n c3">nightjar_tv</span><span class="ds-muted">:</span> any% until the 9pm block</div>
+      <div><span class="ts">54:38</span><span class="n c4">quietkoi</span><span class="ds-muted">:</span> <i>waves from the back row</i></div>
+      <div><span class="ts">54:40</span><span class="n c1">sablefinch</span><span class="ds-muted">:</span> PB pace on chapter 3</div>
+    </div>
+    <button class="ds-btn outlined sm jump">Jump to current time</button>
+    <div class="ds-chat-foot">
+      <div class="ds-sync" role="group" aria-labelledby="sync-lbl">
+        <div class="top"><i data-i="tune"></i><span class="lbl" id="sync-lbl">Chat sync</span><span class="val" aria-hidden="true">−4.0 s</span><button class="ds-ibtn sm" aria-label="Reset chat sync to 0" title="Reset to 0"><i data-i="restart"></i></button></div>
+        <div class="rail"><span class="end">Earlier</span><span class="ds-range-wrap"><input class="ds-range" type="range" min="-30" max="30" step="0.5" value="-4" style="--lo:43.33%;--hi:50%" aria-label="Chat sync offset" aria-valuetext="4 seconds earlier" aria-keyshortcuts="ArrowLeft ArrowRight PageUp PageDown Home End"></span><span class="end">Later</span></div>
+      </div>
+    </div>
+  </aside>
+  <aside class="collapsed" aria-label="Chat replay (collapsed)"><button class="ds-ibtn sm" aria-label="Open chat" aria-expanded="false"><i data-i="chat"></i></button></aside>
+</div>
+<script src="../icons.js"></script>
+</body>
+</html>

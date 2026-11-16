@@ -1,0 +1,139 @@
+<!-- @dsCard group="Layout" height=780 width=1220 subtitle="Below Breakpoint.Md: Home with the bottom app bar, watching with a sticky player and tabs, and the library drawer" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; }
+  .wrap { display: flex; gap: 24px; padding: 16px; align-items: flex-start; }
+  .phone { position: relative; width: 375px; height: 740px; overflow: hidden; border: 1px solid var(--lines-default); border-radius: 24px; background: var(--background); display: flex; flex-direction: column; }
+  .scroll { flex: 1; min-height: 0; overflow: hidden; }
+  .k { position: absolute; top: -1px; }
+  .pad { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-6); }
+  .shot { background: color-mix(in srgb, var(--kk) 34%, #000); }
+  .s1 { --kk: var(--channel-1); } .s2 { --kk: var(--channel-2); } .s3 { --kk: var(--channel-3); } .s4 { --kk: var(--channel-4); }
+  .phone .ds-card.lg { width: 300px; } .phone .ds-card { width: 210px; }
+  .phone .ds-player { border-radius: 0; }
+  .phone .ds-controls { gap: 0; }
+  .ptitle2 { padding: var(--space-3) var(--space-4) var(--space-2); }
+  .ptitle2 h3 { margin: 0 0 var(--space-1); font: var(--text-h6); letter-spacing: 0.0075em; }
+  .acts { display: flex; gap: var(--space-2); padding: 0 var(--space-4) var(--space-3); overflow: hidden; }
+  .tabbody { padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+  .chap { display: flex; gap: var(--space-2); overflow: hidden; }
+  .chap .ds-chapter { min-width: 132px; }
+  .scrim { position: absolute; inset: 0; background: var(--overlay-dark); }
+  .phone .ds-drawer { position: absolute; left: 0; top: 0; bottom: 0; width: 300px; box-shadow: var(--elevation-4); border-right: 0; }
+  .phone .ds-drawer .ds-thumb { width: 96px; }
+  .dot { width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--rec); }
+</style>
+</head>
+<body class="ds">
+<div class="wrap">
+
+  <!-- 1. Home -->
+  <div class="phone">
+    <header class="ds-appbar dense">
+      <a class="ds-wordmark" href="#" style="margin-left:8px" aria-label="StreamKeepr home"><span class="ds-logo rec" aria-hidden="true"><i data-i="logo"></i></span><span>Stream<b>Keepr</b></span></a>
+      <span class="ds-grow"></span>
+      <button class="ds-ibtn" aria-label="Search recordings"><i data-i="search"></i></button>
+      <a class="ds-ibtn" href="#" aria-label="StreamKeepr on GitHub (opens in a new tab)" title="StreamKeepr on GitHub"><i data-i="github"></i></a><a class="ds-ibtn" href="#" aria-label="Twitch (opens in a new tab)" title="Open Twitch"><i data-i="livetv"></i></a>
+      <button class="ds-acct" aria-label="Twitch account: Pixel Wren" aria-haspopup="menu"><span class="ds-avatar a2">P</span></button>
+    </header>
+    <div class="scroll"><div class="pad">
+      <section aria-labelledby="pn">
+        <div class="ds-shelf-head ds-ihead"><i data-i="sensors" class="c-rec"></i><h2 id="pn">Recording now</h2><span class="count">2</span></div>
+        <ul class="ds-shelf">
+          <li><a class="ds-card lg" href="#"><span class="ds-thumb live"><span class="shot s1"></span><span class="tl ds-status rec">Rec</span><span class="dur">1:02:13</span><span class="prog"><i style="width:100%"></i></span></span><span class="body"><span class="ds-avatar a1">N</span><span class="txt"><span class="title">Late-night speedrun practice: any% resets</span><span class="meta">nightjar_tv · Started 21:04</span></span></span></a></li>
+          <li><a class="ds-card lg" href="#"><span class="ds-thumb live"><span class="shot s4"></span><span class="dur">3:18:40</span></span><span class="body"><span class="txt"><span class="title">Pixel art</span></span></span></a></li>
+        </ul>
+      </section>
+      <section aria-labelledby="pr">
+        <div class="ds-shelf-head ds-ihead"><i data-i="history"></i><h2 id="pr">Recent recordings</h2><span class="ds-grow"></span><button class="ds-btn text sm">Show all</button></div>
+        <ul class="ds-shelf">
+          <li><a class="ds-card" href="#"><span class="ds-thumb"><span class="shot s3"></span><span class="dur">3:40:52</span></span><span class="body"><span class="txt"><span class="title">Cozy farm sim, year two</span><span class="meta">coppermoth · Today</span></span></span></a></li>
+          <li><a class="ds-card" href="#"><span class="ds-thumb"><span class="shot s2"></span><span class="dur">2:14:07</span><span class="prog"><i style="width:38%"></i></span></span><span class="body"><span class="txt"><span class="title">Route planning</span></span></span></a></li>
+        </ul>
+      </section>
+    </div></div>
+    <nav class="ds-bottombar" aria-label="Main">
+      <a href="#" aria-current="page"><span class="pill"><i data-i="home"></i></span>Home</a>
+      <a href="#"><span class="pill"><i data-i="videolibrary"></i></span>Library</a>
+      <a href="#"><span class="pill"><i data-i="settings"></i></span>Settings</a>
+    </nav>
+  </div>
+
+  <!-- 2. Watching: sticky player + tabs; the bottom bar steps aside -->
+  <div class="phone">
+    <header class="ds-appbar dense">
+      <button class="ds-ibtn" aria-label="Back to Home"><i data-i="arrowback"></i></button>
+      <span class="ptitle ds-grow">Late-night speedrun practice</span>
+      <button class="ds-ibtn" aria-label="Search recordings"><i data-i="search"></i></button>
+    </header>
+    <div class="ds-player edge" role="region" aria-label="Video player">
+      <svg class="frame" viewBox="0 0 160 90" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="160" height="90" fill="#16161b"/><circle cx="122" cy="22" r="9" fill="#34343e"/><path d="M0 66 L28 48 L52 60 L84 38 L118 58 L160 44 L160 90 L0 90 Z" fill="#1f1f26"/><path d="M0 76 L40 64 L76 72 L112 62 L160 70 L160 90 L0 90 Z" fill="#292931"/></svg>
+      <div class="ds-player-bottom">
+        <div class="ds-seek"><div class="track"><div class="buf" style="width:96%"></div><div class="played" style="width:88%"></div></div><span class="knob" style="left:88%"></span><span class="edge" style="left:96%"></span></div>
+        <div class="ds-controls">
+          <button class="ds-pbtn" aria-label="Pause"><i data-i="pause"></i></button>
+          <button class="ds-pbtn" aria-label="Back 10 seconds"><i data-i="replay"></i></button>
+          <span class="ds-ptime">54:40 <span class="dim">/ 1:02:13</span></span>
+          <span class="ds-grow"></span>
+          <button class="ds-pbtn" aria-label="More player options"><i data-i="more"></i></button>
+          <button class="ds-pbtn" aria-label="Full screen"><i data-i="fullscreen"></i></button>
+        </div>
+      </div>
+    </div>
+    <div class="ptitle2"><h3>Late-night speedrun practice: any% resets</h3><div class="ds-meta"><span class="who"><span class="ds-avatar a1" style="width:20px;height:20px;font-size:10px">N</span>nightjar_tv</span><span><i data-i="event"></i>21:04</span><span><i data-i="timer"></i>1h 02m</span></div></div>
+    <div class="acts"><span class="ds-status rec">Rec</span><button class="ds-btn outlined sm"><i data-i="playlist"></i>Copy URL</button><button class="ds-btn filled sm"><i data-i="output"></i>Export</button><button class="ds-ibtn sm" aria-label="More actions"><i data-i="more"></i></button></div>
+    <div class="ds-tabs" role="tablist">
+      <button role="tab" aria-selected="true"><i data-i="chat"></i>Chat</button>
+      <button role="tab" aria-selected="false"><i data-i="info"></i>Details</button>
+      <button role="tab" aria-selected="false"><i data-i="stats"></i>Stats</button>
+    </div>
+    <div class="ds-chat-log" role="tabpanel" style="background:var(--surface);flex:1">
+      <div><span class="ts">54:31</span><span class="n" style="color:var(--channel-4)">sablefinch</span><span class="ds-muted">:</span> that reset was clean</div>
+      <div><span class="ts">54:33</span><span class="n" style="color:var(--channel-2)">mothlight</span><span class="ds-muted">:</span> any% or glitchless tonight?</div>
+      <div><span class="ts">54:36</span><span class="n" style="color:var(--channel-1)">nightjar_tv</span><span class="ds-muted">:</span> any% until the 9pm block</div>
+      <div><span class="ts">54:40</span><span class="n" style="color:var(--channel-4)">sablefinch</span><span class="ds-muted">:</span> PB pace on chapter 3</div>
+    </div>
+  </div>
+
+  <!-- 3. Library: temporary drawer over Home -->
+  <div class="phone">
+    <header class="ds-appbar dense">
+      <a class="ds-wordmark" href="#" style="margin-left:8px" aria-label="StreamKeepr home"><span class="ds-logo rec" aria-hidden="true"><i data-i="logo"></i></span><span>Stream<b>Keepr</b></span></a>
+      <span class="ds-grow"></span>
+      <button class="ds-ibtn" aria-label="Search recordings"><i data-i="search"></i></button>
+      <a class="ds-ibtn" href="#" aria-label="StreamKeepr on GitHub (opens in a new tab)" title="StreamKeepr on GitHub"><i data-i="github"></i></a><a class="ds-ibtn" href="#" aria-label="Twitch (opens in a new tab)" title="Open Twitch"><i data-i="livetv"></i></a>
+      <button class="ds-acct" aria-label="Twitch account: Pixel Wren" aria-haspopup="menu"><span class="ds-avatar a2">P</span></button>
+    </header>
+    <div class="scroll" style="position:relative">
+      <div class="pad"><div class="ds-shelf-head ds-ihead"><i data-i="sensors" class="c-rec"></i><h2>Recording now</h2></div></div>
+      <div class="scrim"></div>
+      <nav class="ds-drawer" aria-label="Library">
+        <div class="ds-drawer-head"><h2>Library</h2><span class="ds-sort"><i data-i="down" class="xs"></i>Newest first</span><button class="ds-ibtn sm" aria-label="Close library"><i data-i="close"></i></button></div>
+        <div class="ds-chips"><button class="ds-chip sel"><i data-i="check"></i>All</button><button class="ds-chip"><i data-i="dot" style="color:var(--rec)"></i>Recording</button><button class="ds-chip"><i data-i="inventory"></i>Saved</button></div>
+        <hr class="ds-divider">
+        <div role="tree">
+          <div class="ds-group-head" aria-expanded="true"><span class="ds-avatar lg a1 live">N</span><span><span class="name">nightjar_tv</span><span class="meta">Recording now · 3</span></span><i data-i="expand" class="ds-chev"></i></div>
+          <div class="ds-day">Today</div>
+          <a class="ds-rec-row" href="#" aria-current="true"><span class="ds-thumb live"><span class="shot s1"></span><span class="dur">1:02:13</span><span class="prog"><i style="width:100%"></i></span></span><span class="text"><span class="title">Late-night speedrun practice</span><span class="meta">21:04 · 1h 02m</span></span></a>
+          <hr class="ds-divider">
+          <div class="ds-group-head" aria-expanded="false"><span class="ds-avatar lg a3">C</span><span><span class="name">coppermoth</span><span class="meta">Today · 5</span></span><i data-i="expand" class="ds-chev"></i></div>
+          <hr class="ds-divider">
+          <div class="ds-group-head" aria-expanded="false"><span class="ds-avatar lg a2">P</span><span><span class="name">pixelwren</span><span class="meta">Yesterday · 12</span></span><i data-i="expand" class="ds-chev"></i></div>
+        </div>
+        <div class="ds-drawer-foot" title="Recording disk: 1.2 TB free of 4 TB"><div class="row"><i data-i="storage" class="sm"></i><span class="t">1.2 TB free</span><span class="of">of 4 TB</span></div><div class="ds-progress" role="progressbar" aria-label="Recording disk used" aria-valuenow="70"><i style="width:70%"></i></div></div>
+      </nav>
+    </div>
+    <nav class="ds-bottombar" aria-label="Main" style="position:relative;z-index:1">
+      <a href="#"><span class="pill"><i data-i="home"></i></span>Home</a>
+      <a href="#" aria-current="page"><span class="pill"><i data-i="videolibrary"></i></span>Library</a>
+      <a href="#"><span class="pill"><i data-i="settings"></i></span>Settings</a>
+    </nav>
+  </div>
+
+</div>
+<script src="../icons.js"></script>
+</body>
+</html>

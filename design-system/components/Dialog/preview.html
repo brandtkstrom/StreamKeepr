@@ -1,0 +1,28 @@
+<!-- @dsCard group="Feedback" height=340 width=1000 subtitle="MudDialog: destructive confirmations" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; }
+  .ds-scrim { grid-template-columns: 1fr 1fr; gap: var(--space-6); height: 340px; align-items: center; }
+  .banner { margin: 0; padding: var(--space-3); border-radius: var(--radius-md); background: color-mix(in srgb, var(--error) 14%, transparent); color: var(--text-primary); display: flex; gap: var(--space-3); }
+  .banner .ds-i { color: var(--error); }
+</style>
+</head>
+<body class="ds">
+<div class="ds-scrim">
+  <div class="ds-dialog" role="dialog" aria-labelledby="d1">
+    <h2 id="d1">Delete recording?</h2>
+    <div class="content"><p class="banner"><i data-i="warning" class="sm"></i><span><b>Route planning with chat · nightjar_tv</b><br>The files and watch progress are removed permanently.</span></p></div>
+    <div class="actions"><button class="ds-btn text default">Cancel</button><button class="ds-btn filled error">Delete</button></div>
+  </div>
+  <div class="ds-dialog" role="dialog" aria-labelledby="d2">
+    <h2 id="d2">Stop recording for nightjar_tv?</h2>
+    <div class="content"><p style="margin:0">The current capture is finalized, and the channel stays paused until you resume.</p></div>
+    <div class="actions"><button class="ds-btn text default">Cancel</button><button class="ds-btn filled error">Stop recording</button></div>
+  </div>
+</div>
+<script src="../icons.js"></script>
+</body>
+</html>

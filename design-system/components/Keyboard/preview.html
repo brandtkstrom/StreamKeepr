@@ -1,0 +1,71 @@
+<!-- @dsCard group="Actions" height=600 width=1000 subtitle="Focus rings on every ground, and the shortcuts the app defines" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; }
+  .wrap { padding: var(--space-4); display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+  h2 { margin: 0 0 var(--space-3); font: var(--text-h6); }
+  .grounds { display: flex; flex-direction: column; gap: var(--space-3); }
+  .g { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4); border-radius: var(--radius-md); border: 1px solid var(--divider); flex-wrap: wrap; }
+  .g .k { font: var(--text-caption); color: var(--text-secondary); width: 100%; margin-bottom: -4px; }
+  .g1 { background: var(--appbar-background); } .g2 { background: var(--drawer-background); } .g3 { background: var(--surface); }
+  .g4 { background: var(--player-background); border-color: transparent; } .g4 .k { color: var(--player-text); opacity: 0.8; }
+  .ring { outline: 2px solid var(--primary); outline-offset: 2px; }
+  .ring-p { outline: 2px solid var(--player-accent); outline-offset: 2px; }
+  .ring-in { outline: 2px solid var(--primary); outline-offset: -2px; }
+  .sc { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+  .sc h3 { margin: 0 0 var(--space-2); font: var(--text-subtitle1); }
+  .sc dl { display: grid; grid-template-columns: auto 1fr; gap: 6px var(--space-3); margin: 0; align-items: center; }
+  .sc dd { margin: 0; font: var(--text-body2); }
+  kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 6px; border-radius: var(--radius-sm); border: 1px solid var(--lines-inputs); border-bottom-width: 2px; background: var(--surface-raised); font: var(--text-timecode); color: var(--text-primary); }
+  dt { display: flex; gap: 4px; }
+  .note { font: var(--text-caption); color: var(--text-secondary); margin: var(--space-3) 0 0; }
+</style>
+</head>
+<body class="ds">
+<div class="wrap">
+  <section>
+    <h2>Focus</h2>
+    <div class="grounds">
+      <div class="g g1"><span class="k">App bar · primary ring, 2px offset</span><button class="ds-ibtn ring" aria-label="Settings"><i data-i="settings"></i></button><label class="ds-field ds-grow focus" style="max-width:220px"><i data-i="search" class="sm"></i><input value="speed" aria-label="Search recordings"></label><a class="ds-btn twitch ring" href="#"><i data-i="link"></i>Connect with Twitch</a></div>
+      <div class="g g2"><span class="k">Drawer · chip and an inset ring on a tree row</span><button class="ds-chip ring">Recording</button><span class="ds-rec-row ring-in" style="padding:6px 12px;border-radius:var(--radius-md)"><span class="text"><span class="title">Route planning with chat</span><span class="meta">20:30 · 2h 14m</span></span></span></div>
+      <div class="g g3"><span class="k">Panel · buttons</span><button class="ds-btn filled ring"><i data-i="output"></i>Export MP4</button><button class="ds-btn outlined ring">Copy playlist URL</button></div>
+      <div class="g g4"><span class="k">Player · player-accent ring on black</span><button class="ds-pbtn ring-p" aria-label="Pause"><i data-i="pause"></i></button><button class="ds-pill ring-p">1×</button><div class="ds-seek ring-p" style="flex:1;min-width:120px;border-radius:var(--radius-sm)"><div class="track"><div class="played" style="width:40%"></div></div><span class="knob" style="left:40%"></span></div></div>
+    </div>
+  </section>
+  <section>
+    <h2>Shortcuts</h2>
+    <div class="sc">
+      <div>
+        <h3>Player</h3>
+        <dl>
+          <dt><kbd>Space</kbd><kbd>K</kbd></dt><dd>Play or pause</dd>
+          <dt><kbd>J</kbd><kbd>L</kbd></dt><dd>Back or forward 10 s</dd>
+          <dt><kbd>←</kbd><kbd>→</kbd></dt><dd>Back or forward 5 s</dd>
+          <dt><kbd>M</kbd></dt><dd>Mute</dd>
+          <dt><kbd>F</kbd></dt><dd>Full screen</dd>
+          <dt><kbd>T</kbd></dt><dd>Theater mode</dd>
+          <dt><kbd>I</kbd></dt><dd>Stats for nerds</dd>
+          <dt><kbd>C</kbd></dt><dd>Open or close chat</dd>
+        </dl>
+      </div>
+      <div>
+        <h3>Library</h3>
+        <dl>
+          <dt><kbd>/</kbd></dt><dd>Search recordings</dd>
+          <dt><kbd>Esc</kbd></dt><dd>Clear the search</dd>
+          <dt><kbd>↑</kbd><kbd>↓</kbd></dt><dd>Move through the list</dd>
+          <dt><kbd>←</kbd><kbd>→</kbd></dt><dd>Collapse or expand a streamer</dd>
+          <dt><kbd>Home</kbd><kbd>End</kbd></dt><dd>First or last item</dd>
+          <dt><kbd>Enter</kbd></dt><dd>Open the recording</dd>
+        </dl>
+      </div>
+    </div>
+    <p class="note">Single-letter keys never fire while typing in a field, while a menu or dialog is open, or with a modifier held.</p>
+  </section>
+</div>
+<script src="../icons.js"></script>
+</body>
+</html>

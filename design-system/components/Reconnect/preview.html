@@ -1,0 +1,40 @@
+<!-- @dsCard group="Feedback" height=330 width=1100 subtitle="Hard circuit loss: rejoin failed, session paused, resume failed" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; }
+  .ds-scrim { grid-template-columns: repeat(3, 1fr); gap: var(--space-4); height: 330px; align-items: center; }
+  .ds-dialog { max-width: none; text-align: center; padding: var(--space-6) var(--space-6) var(--space-4); }
+  .ds-dialog .ico { display: grid; place-items: center; height: 48px; }
+  .ds-dialog .ico .ds-i { width: 32px; height: 32px; }
+  .ds-dialog h2 { padding: var(--space-3) 0 var(--space-2); }
+  .ds-dialog p { margin: 0; font: var(--text-body1); color: var(--text-secondary); }
+  .ds-dialog .actions { justify-content: center; padding: var(--space-4) 0 0; }
+</style>
+</head>
+<body class="ds">
+<div class="ds-scrim">
+  <div class="ds-dialog" role="dialog" aria-labelledby="r1">
+    <div class="ico"><i data-i="wifioff" style="color:var(--warning)"></i></div>
+    <h2 id="r1">Couldn’t rejoin the server</h2>
+    <p>Retry now, or reload the page. StreamKeepr also retries when you come back to this tab.</p>
+    <div class="actions"><button class="ds-btn text default">Reload</button><button class="ds-btn filled">Retry</button></div>
+  </div>
+  <div class="ds-dialog" role="dialog" aria-labelledby="r2">
+    <div class="ico"><i data-i="pause" style="color:var(--text-secondary)"></i></div>
+    <h2 id="r2">Session paused</h2>
+    <p>The server paused this session. Resume to pick up where you left off.</p>
+    <div class="actions"><button class="ds-btn filled">Resume</button></div>
+  </div>
+  <div class="ds-dialog" role="dialog" aria-labelledby="r3">
+    <div class="ico"><i data-i="error" style="color:var(--error)"></i></div>
+    <h2 id="r3">Couldn’t resume the session</h2>
+    <p>Try again, or reload the page to start a new session.</p>
+    <div class="actions"><button class="ds-btn text default">Reload</button><button class="ds-btn filled">Resume</button></div>
+  </div>
+</div>
+<script src="../icons.js"></script>
+</body>
+</html>

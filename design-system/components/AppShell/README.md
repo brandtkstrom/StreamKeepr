@@ -1,17 +1,50 @@
-# AppShell
+The whole StreamKeepr screen, built on MudBlazor's Layout 2 wireframe (an app bar with a drawer clipped beneath it), responsive from phone to desktop. The card shows the desktop watch view.
 
-The full StreamKeepr screen: top app bar, library drawer on the left, and the player column with the recording details and stats panel stacked beneath the player.
+## Build it from
 
-**Structure.** `.sk-shell` (column) → `.sk-appbar` → `.sk-shell-body` (row) → `.sk-drawer#sk-drawer` + `main.sk-main` → `.sk-main-inner` (max 1100px, centred) → `.sk-player`, recording details, `#sk-stats`.
+```razor
+<MudBreakpointProvider OnBreakpointChanged="bp => _compact = bp is Breakpoint.Xs or Breakpoint.Sm">
+<MudLayout Class="sk-app">
+    <MudAppBar Elevation="0" Fixed="true" Dense="_compact" Class="sk-appbar"> … TopAppBar … </MudAppBar>
 
-**Order in the player column is fixed:** player first, then Recording details, then Stats for nerds at the bottom.
+    <MudDrawer @bind-Open="_drawerOpen"
+               Variant="@(_compact ? DrawerVariant.Temporary : DrawerVariant.Mini)"
+               ClipMode="DrawerClipMode.Always" Elevation="0" Class="sk-drawer" aria-label="Library">
+        <LibraryDrawer Mini="!_compact && !_drawerOpen" />
+    </MudDrawer>
 
-**Maximise the video.** Every surface around the player collapses:
-- Menu button in the app bar → drawer collapses to the 72px rail (`.sk-drawer.rail`).
-- Theater button in the player → drawer hidden (`.hidden`) and the main column goes to `surface-container-lowest`.
-- Stats panel and details card collapse to a single 48px header.
-Remember each of these per viewer (local storage) so the layout comes back the way it was left.
+    <MudMainContent Class="@($"sk-main {(Theater ? "theater" : null)}")">
+        @Body   @* Home rows at /, the watch view at /r/{id}, Settings at /settings *@
+    </MudMainContent>
 
-**Responsive.** Below 960px the drawer becomes a modal drawer over `scrim` with `elevation-3`, opened from the menu button; below 600px the stats tiles stack to one column.
+    <MudDrawer @bind-Open="_settingsOpen" Anchor="Anchor.End" Variant="DrawerVariant.Temporary"
+               ClipMode="DrawerClipMode.Always" Overlay="false" Width="440px" Elevation="24">
+        <SettingsSheet />   @* desktop; phones use a full-screen MudDialog *@
+    </MudDrawer>
 
-**Consumer provides:** the library list (streamers sorted by their newest recording, recordings newest first), the selected recording, the HLS URL for the player and the Twitch session state.
+    <MudHidden Breakpoint="Breakpoint.MdAndUp">
+        @if (!Watching) { <BottomNav /> }   @* MudAppBar Bottom *@
+    </MudHidden>
+</MudLayout>
+</MudBreakpointProvider>
+```
+
+## The watch view on desktop (Md and up)
+
+- `MudMainContent` has `pa-4` and no max-width.
+- The first row is the player plus, when the recording has chat and it is open, the chat sidecar. The player takes the remaining width (`flex: 1`) at 16:9. The sidecar is `flex: 0 1 400px` with a 320px minimum, so on wide screens it widens instead of leaving empty space.
+- The player's height is capped at `100dvh − appbar-height − 2 × space-4 − player-peek`. The recording title, its actions and its meta line (`RecordingDetails`, expanded by default) sit directly below, always visible without scrolling. Stats for nerds follows.
+- The drawer is the 72px rail while watching: Home, then streamer avatars (the open one ringed in `primary`), then the disk icon at the foot. The menu button opens the full 320px library over the same clipped area.
+
+## The consumer provides
+
+- `Body` from the routed page.
+- The drawer state, theater mode and the chat open state, persisted through `UiPreferences`.
+- `RecordingActive`, which shows the `rec` dot before the wordmark.
+
+## Rules
+
+- Settings opens over the page (`SettingsSheet`), never by navigating, so the player is never unmounted while it plays.
+- Nothing sits above the player. In theater mode the player spans the full width of the view, and chat moves below it (see `TheaterMode`).
+- Below `Breakpoint.Md` the layout is `PhoneLayout`: dense top bar, bottom bar, edge-to-edge player and tabs.
+- Keep `MudThemeProvider`, `MudPopoverProvider`, `MudDialogProvider` and `MudSnackbarProvider` above the layout, rendered once.
