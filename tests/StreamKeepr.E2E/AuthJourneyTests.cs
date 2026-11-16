@@ -13,7 +13,7 @@ public sealed class AuthJourneyTests(MockAppFixture app)
         await using Session session = await OpenAsync($"{app.BaseUrl}?sort=az");
         IPage page = session.Page;
 
-        ILocator chip = page.Locator("button.sk-auth-chip");
+        ILocator chip = page.Locator("[data-auth-state=connected] button[data-menu-trigger]");
         await chip.WaitForAsync();
         await page.GetByRole(AriaRole.Button, new() { Name = "Twitch account: Mock Admin" }).WaitForAsync();
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "auth-connected");
@@ -24,7 +24,7 @@ public sealed class AuthJourneyTests(MockAppFixture app)
         await disconnect.ClickAsync();
 
         // The antiforgery form post signs out and returns to the same page and query.
-        ILocator connect = page.Locator("a.sk-twitch[data-auth-state='disconnected']");
+        ILocator connect = page.Locator("a[data-auth-state='disconnected']");
         await connect.WaitForAsync(new() { Timeout = 15_000 });
         Assert.EndsWith("/?sort=az", page.Url, StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -50,7 +50,7 @@ public sealed class AuthJourneyTests(MockAppFixture app)
         await using Session session = await OpenAsync($"{app.BaseUrl}?sort=az&authError=notAllowed");
         IPage page = session.Page;
 
-        ILocator snackbar = page.Locator(".sk-snackbar");
+        ILocator snackbar = page.Locator("[data-snackbar]");
         await snackbar.WaitForAsync(new() { Timeout = 15_000 });
         Assert.Contains("This Twitch account is not allowed to manage Stream Keepr.", await snackbar.InnerTextAsync());
         await page.WaitForURLAsync(url => url.EndsWith("/?sort=az", StringComparison.Ordinal));

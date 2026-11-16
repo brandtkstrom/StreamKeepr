@@ -24,7 +24,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         };
         Assert.Empty(hlsRequests); // nothing on the library page
 
-        ILocator saved = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']");
+        ILocator saved = page.Locator("nav[aria-label=Library] a[data-recording-id][data-state='saved']");
         string first = (await saved.Nth(0).GetAttributeAsync("data-recording-id"))!;
         await saved.Nth(0).ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{first}", StringComparison.Ordinal));
@@ -66,7 +66,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         // Another recording swaps the source in the same player element.
         await page.Locator("[data-sk='video']").EvaluateAsync("v => { v.__skMarker = true; }");
         string second = (await saved.Nth(1).GetAttributeAsync("data-recording-id"))!;
-        string secondTitle = (await saved.Nth(1).Locator(".sk-row-title").InnerTextAsync()).Trim();
+        string secondTitle = (await saved.Nth(1).Locator("[data-row-title]").InnerTextAsync()).Trim();
         await saved.Nth(1).ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{second}", StringComparison.Ordinal));
         await page.WaitForFunctionAsync(
@@ -82,7 +82,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator saved = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").First;
+        ILocator saved = page.Locator("nav[aria-label=Library] a[data-recording-id][data-state='saved']").First;
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -108,7 +108,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl, hasTouch: true);
         IPage page = session.Page;
-        ILocator saved = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").First;
+        ILocator saved = page.Locator("nav[aria-label=Library] a[data-recording-id][data-state='saved']").First;
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -129,7 +129,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator saved = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']");
+        ILocator saved = page.Locator("nav[aria-label=Library] a[data-recording-id][data-state='saved']");
         string id = (await saved.First.GetAttributeAsync("data-recording-id"))!;
 
         int failures = 0;
@@ -163,7 +163,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await session.Context.GrantPermissionsAsync(["clipboard-read", "clipboard-write"]);
 
         ILocator growing = page.Locator(
-            "nav#sk-drawer a.sk-row",
+            "nav[aria-label=Library] a[data-recording-id]",
             new() { HasTextString = "Community day" });
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
         await growing.ClickAsync();
@@ -220,12 +220,12 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.Equal("None", (await page.Locator("[data-sk='kv-errors']").InnerTextAsync()).Trim());
 
         ILocator bufferSpark = page.Locator("[data-sk='spark-buffer']");
-        ILocator line = bufferSpark.Locator("polyline.line");
+        ILocator line = bufferSpark.Locator("polyline");
         await line.WaitForAsync();
         Assert.Equal("2px", await line.EvaluateAsync<string>("el => getComputedStyle(el).strokeWidth"));
         Assert.Equal(
             "var(--primary)",
-            await page.Locator("[data-sk='spark-bitrate'] polyline.line").GetAttributeAsync("stroke"));
+            await page.Locator("[data-sk='spark-bitrate'] polyline").GetAttributeAsync("stroke"));
         Assert.Equal("var(--tertiary)", await line.GetAttributeAsync("stroke"));
 
         // The stats panel sits below the details card; hover scrolls it into view first.
@@ -233,7 +233,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.Contains("s ago ·", await page.Locator("[data-sk='tip-buffer']").InnerTextAsync());
         Assert.Equal(
             "visible",
-            await bufferSpark.Locator("line.xh").GetAttributeAsync("visibility"));
+            await bufferSpark.Locator("[data-crosshair]").GetAttributeAsync("visibility"));
 
         // The active tooltip survives the next 2 s sparkline redraw.
         int samplesBeforeHover = await page.Locator("[data-sk='rows-buffer'] tr").CountAsync();
@@ -244,13 +244,13 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.Contains("s ago ·", await page.Locator("[data-sk='tip-buffer']").InnerTextAsync());
         Assert.Equal(
             "visible",
-            await bufferSpark.Locator("line.xh").GetAttributeAsync("visibility"));
+            await bufferSpark.Locator("[data-crosshair]").GetAttributeAsync("visibility"));
 
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-stats");
 
         await page.Locator("[data-sk='copy-stats']").ClickAsync();
-        await page.Locator(".sk-snackbar").WaitForAsync();
-        Assert.Contains("Stats copied", await page.Locator(".sk-snackbar").InnerTextAsync());
+        await page.Locator("[data-snackbar]").WaitForAsync();
+        Assert.Contains("Stats copied", await page.Locator("[data-snackbar]").InnerTextAsync());
 
         await page.WaitForFunctionAsync(
             "async () => (await navigator.clipboard.readText()).length > 0",
@@ -307,7 +307,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator row = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").First;
+        ILocator row = page.Locator("nav[aria-label=Library] a[data-recording-id][data-state='saved']").First;
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
 
         await row.ClickAsync();
@@ -325,7 +325,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await page.Locator("[data-sk='play']").ClickAsync();
         double paused = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
 
-        ILocator bar = page.Locator($"nav#sk-drawer a.sk-row[data-recording-id='{id}'] .prog i");
+        ILocator bar = page.Locator($"nav[aria-label=Library] a[data-recording-id='{id}'] [data-progress] i");
         await bar.WaitForAsync(new() { Timeout = 10_000 });
 
         await page.ReloadAsync();
@@ -341,7 +341,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator growing = page.Locator("nav#sk-drawer a.sk-row", new() { HasTextString = "Community day" });
+        ILocator growing = page.Locator("nav[aria-label=Library] a[data-recording-id]", new() { HasTextString = "Community day" });
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
 
         await growing.ClickAsync();
@@ -363,7 +363,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
 
         // The row swaps the full live bar for a partial resume bar.
         await page.WaitForFunctionAsync(
-            "id => { const i = document.querySelector(`nav#sk-drawer a.sk-row[data-recording-id='${id}'] .prog i`); return i && i.style.width !== '100%'; }",
+            "id => { const i = document.querySelector(`nav[aria-label=Library] a[data-recording-id='${id}'] [data-progress] i`); return i && i.style.width !== '100%'; }",
             id,
             new() { Timeout = 10_000 });
 
@@ -372,21 +372,21 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await live.WaitForAsync(new() { State = WaitForSelectorState.Visible });
         await WaitForTimeAsync(page, paused, tolerance: 1);
         Assert.True(await Video(page, "v => v.paused"), "resume never autoplays");
-        Assert.DoesNotContain("at-edge", await live.GetAttributeAsync("class") ?? "");
+        Assert.Null(await live.GetAttributeAsync("data-at-edge"));
 
         // Live edge forgets the position: the row returns to the full live bar and the next
         // open starts at the live edge again.
         await live.ClickAsync();
-        Assert.Contains("at-edge", await live.GetAttributeAsync("class") ?? "");
+        Assert.NotNull(await live.GetAttributeAsync("data-at-edge"));
         await page.WaitForFunctionAsync(
-            "id => document.querySelector(`nav#sk-drawer a.sk-row[data-recording-id='${id}'] .prog i`)?.style.width === '100%'",
+            "id => document.querySelector(`nav[aria-label=Library] a[data-recording-id='${id}'] [data-progress] i`)?.style.width === '100%'",
             id,
             new() { Timeout = 10_000 });
 
         await page.ReloadAsync();
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
         await live.WaitForAsync(new() { State = WaitForSelectorState.Visible });
-        Assert.Contains("at-edge", await live.GetAttributeAsync("class") ?? "");
+        Assert.NotNull(await live.GetAttributeAsync("data-at-edge"));
     }
 
     [Fact]
@@ -394,7 +394,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator growing = page.Locator("nav#sk-drawer a.sk-row", new() { HasTextString = "Community day" });
+        ILocator growing = page.Locator("nav[aria-label=Library] a[data-recording-id]", new() { HasTextString = "Community day" });
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
 
         await growing.ClickAsync();
@@ -422,7 +422,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await seek.FocusAsync();
         await page.Keyboard.PressAsync("Home");
         await WaitForTimeAsync(page, 0);
-        Assert.DoesNotContain("at-edge", await live.GetAttributeAsync("class") ?? "");
+        Assert.Null(await live.GetAttributeAsync("data-at-edge"));
 
         await live.ClickAsync();
         await page.WaitForFunctionAsync("""
@@ -431,7 +431,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
               return v.seekable.length > 0 && v.seekable.end(v.seekable.length - 1) - v.currentTime < 15;
             }
             """);
-        Assert.Contains("at-edge", await live.GetAttributeAsync("class") ?? "");
+        Assert.NotNull(await live.GetAttributeAsync("data-at-edge"));
 
         // ENDLIST arrives on the next playlist refresh: live becomes finished in place.
         double position = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
@@ -457,7 +457,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator row = page.Locator("nav#sk-drawer a.sk-row[data-state='saved']").First;
+        ILocator row = page.Locator("nav[aria-label=Library] a[data-recording-id][data-state='saved']").First;
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
         await row.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -467,17 +467,17 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         // K plays from anywhere outside a field; overlays fade after 3 s without input.
         await page.Keyboard.PressAsync("k");
         await page.WaitForFunctionAsync("!document.querySelector('[data-sk=video]').paused");
-        ILocator player = page.Locator(".sk-player");
+        ILocator player = page.Locator("[data-sk-player]");
         await page.Mouse.MoveAsync(5, 5);
-        await page.Locator(".sk-player.idle").WaitForAsync(new() { Timeout = 6_000 });
+        await page.Locator("[data-sk-player][data-idle]").WaitForAsync(new() { Timeout = 6_000 });
         LocatorBoundingBoxResult box = (await player.BoundingBoxAsync())!;
         await page.Mouse.MoveAsync(box.X + box.Width / 2, box.Y + box.Height / 3);
-        await page.Locator(".sk-player:not(.idle)").WaitForAsync();
+        await page.Locator("[data-sk-player]:not([data-idle])").WaitForAsync();
 
         await page.Keyboard.PressAsync("k");
         Assert.True(await Video(page, "v => v.paused"));
         await page.WaitForTimeoutAsync(3_500);
-        Assert.False(await player.EvaluateAsync<bool>("p => p.classList.contains('idle')"), "never idle while paused");
+        Assert.False(await player.EvaluateAsync<bool>("p => p.hasAttribute('data-idle')"), "never idle while paused");
 
         // Typing in search is never a shortcut.
         await page.Locator("[data-search-input]").FillAsync("m");
@@ -492,17 +492,17 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await page.EvaluateAsync("() => document.activeElement?.blur()");
 
         await page.Keyboard.PressAsync("t");
-        await page.Locator(".sk-shell.theater").WaitForAsync();
-        Assert.False(await page.Locator("nav#sk-drawer").IsVisibleAsync());
+        await page.Locator("[data-shell][data-theater=true]").WaitForAsync();
+        Assert.False(await page.Locator("nav[aria-label=Library]").IsVisibleAsync());
         Assert.Equal("true", await page.Locator("[data-sk='theater']").GetAttributeAsync("aria-pressed"));
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-theater");
         await page.Locator("[data-sk='theater']").ClickAsync();
-        await page.Locator(".sk-shell:not(.theater)").WaitForAsync();
+        await page.Locator("[data-shell][data-theater=false]").WaitForAsync();
 
         Assert.True(await page.Locator("[data-sk='fullscreen']").IsVisibleAsync());
         bool pipEnabled = await page.EvaluateAsync<bool>("() => document.pictureInPictureEnabled === true");
         Assert.Equal(pipEnabled, await page.Locator("[data-sk='pip']").IsVisibleAsync());
-        Assert.Equal("Source", (await page.Locator(".sk-quality").InnerTextAsync()).Trim());
+        Assert.Equal("Source", (await page.Locator("[data-quality]").InnerTextAsync()).Trim());
 
         await page.ReloadAsync();
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
@@ -511,7 +511,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.Equal("1.5×", await page.Locator("[data-sk='speed']").InnerTextAsync());
 
         await page.EmulateMediaAsync(new() { ReducedMotion = ReducedMotion.Reduce });
-        Assert.Equal("0s", await page.Locator(".sk-player-bottom").EvaluateAsync<string>(
+        Assert.Equal("0s", await page.Locator("[data-sk=bottom-bar]").EvaluateAsync<string>(
             "e => getComputedStyle(e).transitionDuration"));
     }
 
