@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   init,
   resetConnecting,
+  submitForm,
 } from "../../src/StreamKeepr/Components/Features/Auth/TwitchAccount.razor.js";
 
 const LINK = `
@@ -53,5 +54,17 @@ describe("TwitchAccount.razor.js", () => {
     expect(link.hasAttribute("aria-busy")).toBe(false);
     expect(link.querySelector(".sk-icon").textContent).toBe("link");
     expect(link.querySelector(".lbl").textContent).toBe("Connect with Twitch");
+  });
+
+  it("submits the named antiforgery form for Disconnect, as its submit button would", () => {
+    document.body.innerHTML = `<form id="sk-logout" method="post" action="/api/auth/logout" hidden></form>`;
+    const form = document.getElementById("sk-logout");
+    let submitted = 0;
+    form.addEventListener("submit", (event) => { submitted++; event.preventDefault(); });
+
+    submitForm("sk-logout");
+    submitForm("missing");
+
+    expect(submitted).toBe(1);
   });
 });

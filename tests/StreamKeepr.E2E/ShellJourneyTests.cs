@@ -198,6 +198,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
         string id = await row.GetAttributeAsync("data-recording-id") ?? "";
         await row.ClickAsync();
         await page.WaitForURLAsync($"**/r/{id}", new PageWaitForURLOptions { Timeout = 30_000 });
+        await ExpandLibraryOnWatchPageAsync(page);
 
         await Assertions.Expect(row).ToHaveAttributeAsync(
             "aria-current",
@@ -341,6 +342,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             await page.WaitForURLAsync(
                 url => url.EndsWith($"/r/{firstId}", StringComparison.Ordinal),
                 new PageWaitForURLOptions { Timeout = 30_000 });
+            await ExpandLibraryOnWatchPageAsync(page);
 
             ILocator details = page.Locator("[data-slot='details'] [data-recording-details]");
             await details.WaitForAsync(new LocatorWaitForOptions

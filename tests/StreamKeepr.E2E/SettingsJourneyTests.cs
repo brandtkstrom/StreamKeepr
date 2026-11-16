@@ -71,7 +71,7 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
         IPage page = session.Page;
 
         // Sign out through the top bar, then open Settings.
-        await page.Locator("[data-auth-state=connected] button[data-menu-trigger]").ClickAsync();
+        await page.GetByRole(AriaRole.Button, new() { Name = "Twitch account: Mock Admin" }).ClickAsync();
         await page.GetByRole(AriaRole.Menuitem, new() { Name = "Disconnect" }).ClickAsync();
         await page.Locator("a[data-auth-state='disconnected']").WaitForAsync(new() { Timeout = 15_000 });
         await page.GotoAsync($"{app.BaseUrl}/settings");

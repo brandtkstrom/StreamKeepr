@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Options;
+using MudBlazor.Services;
+using StreamKeepr.Configuration;
 using Bunit.TestDoubles;
 using Bunit;
 using Microsoft.AspNetCore.Components;
@@ -279,7 +282,7 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
-    public void Main_layout_lights_the_recording_dot_and_warns_below_ten_percent()
+    public async Task Main_layout_lights_the_recording_dot_and_warns_below_ten_percent()
     {
         var view = new TestLibraryView
         {
@@ -291,7 +294,7 @@ public sealed class LibraryDrawerTests
             Recording("r1", "alpha", RecordingState.Recording, Now.AddMinutes(-1)),
         ];
 
-        using BunitContext context = CreateContext(view);
+        await using BunitContext context = CreateContext(view);
         IRenderedComponent<MainLayout> cut = context.Render<MainLayout>(parameters =>
             parameters.Add(component => component.Body, fragment =>
                 fragment.AddMarkupContent(0, "<div data-test='body'>Body</div>")));
@@ -388,6 +391,14 @@ public sealed class LibraryDrawerTests
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddSingleton<ILibraryView>(view);
         context.Services.AddScoped<UiPreferences>();
+        // MainLayout hosts the MudBlazor shell, whose links come from configuration.
+        context.Services.AddMudServices();
+        context.Services.AddSingleton<MudBlazor.IBrowserViewportService>(new TestBrowserViewport());
+        context.Services.AddSingleton(Options.Create(new LinksOptions
+        {
+            GitHub = "https://github.com/example/streamkeepr",
+            Twitch = "https://twitch.example/",
+        }));
         // MainLayout hosts the top-bar Twitch control.
         context.Services.AddScoped<AdminSessionState>();
         context.AddAuthorization().SetNotAuthorized();

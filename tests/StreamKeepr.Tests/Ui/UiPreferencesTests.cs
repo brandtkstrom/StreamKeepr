@@ -174,6 +174,83 @@ public sealed class UiPreferencesTests
         Assert.True(preferences.IsCollapsed("mossbyte"));
     }
 
+    [Fact]
+    public void Watch_pages_default_to_the_rail_and_home_to_the_full_library()
+    {
+        var preferences = Create();
+
+        Assert.Equal(DrawerMode.Rail, preferences.WatchDrawer);
+        Assert.Equal(DrawerMode.Rail, preferences.DrawerFor(watching: true));
+        Assert.Equal(DrawerMode.Expanded, preferences.DrawerFor(watching: false));
+    }
+
+    [Theory]
+    [InlineData("expanded", DrawerMode.Expanded)]
+    [InlineData("rail", DrawerMode.Rail)]
+    [InlineData("hidden", DrawerMode.Hidden)]
+    [InlineData("sideways", DrawerMode.Rail)]
+    public void Parses_the_watch_page_drawer_choice(string value, DrawerMode expected)
+    {
+        var preferences = Create(
+            $$"""{"v":1,"drawer":"expanded","watch":"{{value}}","theater":false,"stats":false,"details":true,"collapsed":[]}""");
+
+        Assert.Equal(expected, preferences.WatchDrawer);
+        Assert.Equal(DrawerMode.Expanded, preferences.Drawer);
+    }
+
+    [Fact]
+    public void Each_page_kind_remembers_its_own_drawer_choice()
+    {
+        var preferences = Create();
+        var changes = 0;
+        preferences.Changed += () => changes++;
+
+        preferences.ToggleDrawer(watching: true);
+        Assert.Equal(DrawerMode.Expanded, preferences.WatchDrawer);
+        Assert.Equal(DrawerMode.Expanded, preferences.Drawer);
+
+        preferences.ToggleDrawer(watching: false);
+        Assert.Equal(DrawerMode.Rail, preferences.Drawer);
+        Assert.Equal(DrawerMode.Expanded, preferences.WatchDrawer);
+
+        preferences.SetDrawer(DrawerMode.Rail, watching: true);
+        preferences.SetDrawer(DrawerMode.Rail, watching: true);
+        Assert.Equal(DrawerMode.Rail, preferences.DrawerFor(watching: true));
+        Assert.Equal(3, changes);
+    }
+
+    [Fact]
+    public async Task Persist_writes_the_watch_page_choice()
+    {
+        var js = new RecordingJSRuntime();
+        var preferences = Create(js: js);
+        preferences.SetDrawer(DrawerMode.Expanded, watching: true);
+
+        await preferences.PersistAsync();
+
+        var state = Assert.IsType<UiPreferencesState>(Assert.Single(Assert.Single(js.Invocations).Arguments));
+        Assert.Equal("expanded", state.Watch);
+        Assert.Equal("expanded", state.Drawer);
+    }
+
+    [Fact]
+    public void Prerender_state_restores_the_watch_page_choice()
+    {
+        var prerenderStore = new TestClientStateStore();
+        prerenderStore.Cookies[UiPreferences.CookieName] =
+            """{"v":1,"drawer":"rail","watch":"expanded","theater":false,"stats":false,"details":true,"collapsed":[]}""";
+
+        _ = Create(store: prerenderStore);
+        var circuitStore = new TestClientStateStore();
+        circuitStore.Persist(
+            UiPreferences.CookieName,
+            Assert.IsType<string>(prerenderStore.Persisted[UiPreferences.CookieName]));
+        var preferences = Create(store: circuitStore);
+
+        Assert.Equal(DrawerMode.Rail, preferences.Drawer);
+        Assert.Equal(DrawerMode.Expanded, preferences.WatchDrawer);
+    }
+
     private static UiPreferences Create(
         string? cookie = null,
         TestClientStateStore? store = null,

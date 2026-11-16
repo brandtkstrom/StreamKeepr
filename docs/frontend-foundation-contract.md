@@ -1,6 +1,6 @@
 # Stream Keepr Frontend Foundation Contract
 
-Status: accepted (2026-11-10); amended 2026-11-15 for the MudBlazor foundation (ADR 0012, #173)
+Status: accepted (2026-11-10); amended 2026-11-15 for the MudBlazor foundation (ADR 0012, #173) and the MudBlazor shell (#174)
 Source: Implementation plan Part 2, F0/F1; `docs/backend-ui-contract.md`; `docs/hosting-contract.md`; `docs/twitch-auth-contract.md`; `design-system/`; `docs/design-assets.md`.
 Binding: yes. Where this contract differs from the plan, this contract wins.
 
@@ -36,29 +36,38 @@ The frontend foundation is the Blazor Web App host, routes, app shell, design-sy
 
 ## 4. App shell
 
-Use the design system's `.sk-shell` structure:
+MudBlazor's Layout 2 wireframe (design system: **AppShell**, **TopAppBar**, **BottomNav**, **TwitchAccount**, **PhoneLayout**), in `Components/Layout/AppShell.razor`:
 
 ```text
-.sk-shell (column)
-  .sk-appbar
-  .sk-shell-body (row)
-    .sk-drawer#sk-drawer
-    main.sk-main
-      .sk-main-inner (max 1100px, centred)
-        player slot
-        details slot
-        stats slot
+MudBreakpointProvider
+  [data-shell] (data-layout, data-breakpoint-known, data-watching, data-theater-mode, data-drawer-frame, data-drawer-modal-open)
+    MudLayout
+      MudAppBar (header; Dense below Md)
+      MudDrawer (ClipMode.Always; Mini on Md and up, Temporary below)
+        nav#sk-drawer[aria-label=Library][data-drawer]
+      MudMainContent
+        ReconnectNotice
+        main
+          .sk-main-inner: player slot, details slot, stats slot
+      BottomNav (compact or breakpoint not yet known; not on watch pages)
 ```
 
-- Top app bar: menu toggle, type-only wordmark linking to `/` with REC dot, search slot, storage meter, schedule stub, settings, auth slot last.
+- **Breakpoints.** Compact is MudBlazor's `Xs` and `Sm` (below 960px); wide is `Md` and up. `MudBreakpointProvider` reports the breakpoint after the circuit starts and the shell mirrors it as `data-layout="compact|wide"`, adding `data-breakpoint-known` once it has reported. The server renders the wide layout; `components.css` hides the wide-only controls and the mini drawer below 960px, so a phone's first paint already fits.
+- **Watch pages** are `/r/{id}` (`LibraryUrl.RecordingId`); the shell marks them `data-watching`.
+- **Top app bar**, in order: the menu toggle (wide only; disabled in theater), the wordmark linking to `/` (the logo mark `img/streamkeepr-mark.svg`, then "Stream**Keepr**"; a pulsing `rec` badge `[data-rec-dot]` on the mark while any streamer is recording), the compact search field (360px, 480px while focused), then the actions: a Search icon (compact only), the storage meter (wide only, until the library drawer slice moves it to the drawer footer), the GitHub and Twitch links, Settings (wide only), and the auth slot last. Compact watch pages replace the wordmark with an `ArrowBack` link to `/` named "Back to Home" and the recording title (`[data-watch-title]`), and hide the GitHub and Twitch links to give the title room (PhoneLayout). There is no capture schedule control.
+- **Links.** GitHub (`Icons.Custom.Brands.GitHub`) and Twitch open in a new tab (`target="_blank"`, `rel="noopener"`) with tooltips, named "StreamKeepr on GitHub (opens in a new tab)" and "Twitch (opens in a new tab)". Their URLs come from configuration (`Links:GitHub`, `Links:Twitch`, `LinksOptions`), validated at startup as absolute http(s) URLs. The Twitch icon is `LiveTv` until Twitch's official Glitch mark is added from its brand assets; the mark is never redrawn.
+- **Settings** is a real link to `/settings` (the settings sheet is feature F2). Every link in the bars, the wordmark, the back arrow, and Connect with Twitch are real `<a>` elements that work before the circuit connects. The logout `<form>` is a real antiforgery POST in the page, but its trigger, Disconnect in the account menu, needs the circuit.
+- **Compact search.** The field is hidden until the Search icon (`aria-expanded`, `aria-controls="sk-search"`) opens it as a full-width row under the bar (`[data-search-open]`). It starts open when the URL has `q`.
 - The wordmark returns to the default library home: it clears `q`/`state`/`sort`, closes the selected recording, preserves the drawer mode, and exits theater on the empty home because theater hides the drawer.
-- REC dot is lit while any streamer is recording; storage meter turns `warning` below 10% free.
-- The main column has 24px (`--space-6`) top padding below the app bar on every route, breakpoint, and theater mode; it scrolls with the content.
-- Drawer: expanded 320px, rail 72px, hidden. The menu toggles expanded ↔ rail. Theater hides the drawer and sets the main column to `surface-container-lowest`.
-- Below 960px the drawer is modal over `scrim` with `elevation-3`, opened from the menu; below 600px stats tiles stack (stats implementation later).
-- The player column order is fixed: player → details → stats. The player slot is wrapped in `.sk-player-row`; an optional chat pane is its second child. The row is two columns at ≥960 px and stacks below 960 px. In two columns the open pane takes the player's height (at least 240 px) and its log scrolls; messages never grow the row, so the sync footer stays put. Stacked, the pane sizes to its content up to 50vh. Short chat is anchored to the bottom of the log and grows upward. The recording main column may grow to 1280 px while chat is open; the library stays at 1100 px.
-- Collapse/expand is 300ms with the design-system easing; honor `prefers-reduced-motion`.
-- Every interactive element has the 2px `primary` focus ring; use `sk-` classes and role tokens only.
+- REC badge is lit while any streamer is recording; storage meter turns `warning` below 10% free.
+- The main column (`main`) is the scroll container, with 24px (`--space-6`) top padding below the app bar on every route, breakpoint, and theater mode.
+- **Drawer, wide.** A `Mini` drawer: the 320px library when open, the 72px rail when closed, with the saved `hidden` mode taking it out of the layout. `nav#sk-drawer` carries `data-drawer` (`expanded`, `rail`, `hidden`) and the `rail` class for the library's CSS. The menu toggles expanded ↔ rail. The choice is remembered per kind of page (§5): Home and other pages open the full library by default, and watch pages show the rail by default. Theater hides the drawer (`data-drawer-frame="hidden"`) and sets the main column to `background-gray`.
+- **Drawer, compact.** A `Temporary` drawer over `overlay-dark` at `elevation-4`, always the full library, opened from the bottom bar's Library button; `[data-shell][data-drawer-modal-open]` marks it open. `AppShell.razor.js` moves focus into it, traps Tab, and closes it on Escape, returning focus to the opener; the overlay closes it too; navigating (picking a recording) closes it.
+- **Bottom bar (compact, not on watch pages).** A fixed `MudAppBar Bottom` (`bottom-bar-height`, with the safe-area inset) holding `nav[aria-label=Main]`: Home (link to `/`), Library (a button with `aria-controls="sk-drawer"` and `aria-expanded`, and a `rec` dot while anything records) and Settings (link to `/settings`). The current destination has `aria-current="page"`; Library is current while the drawer is open. The main column is padded so nothing hides under it.
+- **Phone landscape** (PhoneLayout: below 500px height the top bar hides and the player fills the screen) is part of the watch layout, #175; this shell does not implement it yet.
+- The player column order is fixed: player → details → stats. The player slot is wrapped in `.sk-player-row`; an optional chat pane is its second child. The row is two columns at ≥960 px and stacks below 960 px. In two columns the open pane takes the player's height (at least 240 px) and its log scrolls; messages never grow the row, so the sync footer stays put. Stacked, the pane sizes to its content up to 50vh. Short chat is anchored to the bottom of the log and grows upward. The recording main column may grow to 1280 px while chat is open; the library stays at 1100 px. (The watch layout slice, #175, replaces this column.)
+- Collapse/expand follows MudBlazor's drawer transition; `prefers-reduced-motion` turns the shell's transitions and the REC pulse off.
+- Every interactive element has the 2px `primary` focus ring. New shell styles read `tokens.css` variables, not the legacy `--sk-*` aliases.
 
 ## 5. `UiPreferences`
 
@@ -67,7 +76,9 @@ public enum DrawerMode { Expanded, Rail, Hidden }
 
 public sealed class UiPreferences
 {
-    public DrawerMode Drawer { get; }
+    public DrawerMode Drawer { get; }        // Home and other pages
+    public DrawerMode WatchDrawer { get; }   // watch pages (/r/{id})
+    public DrawerMode DrawerFor(bool watching);
     public bool Theater { get; }
     public bool StatsOpen { get; }
     public bool DetailsOpen { get; }
@@ -78,8 +89,8 @@ public sealed class UiPreferences
 ```
 
 - Scoped per circuit; reads the `sk-ui` cookie at prerender through `IHttpContextAccessor`; missing/malformed values fall back to defaults.
-- Cookie JSON is versioned: `{"v":1,"drawer":"expanded","theater":false,"stats":false,"details":true,"chat":false,"collapsed":["login"]}`.
-- Defaults: drawer expanded, theater off, stats closed, details open, chat collapsed, no collapsed streamers.
+- Cookie JSON is versioned: `{"v":1,"drawer":"expanded","watch":"rail","theater":false,"stats":false,"details":true,"chat":false,"collapsed":["login"]}`. `watch` is the watch-page drawer; a cookie without it (or with an unknown value) gets the rail.
+- Defaults: drawer expanded on Home, rail on watch pages, theater off, stats closed, details open, chat collapsed, no collapsed streamers. `SetDrawer`/`ToggleDrawer` take the page kind; without it they change the Home choice.
 - Cookie attributes: `Path=/; SameSite=Lax; Max-Age=31536000`; `Secure` when HTTPS. It is not `HttpOnly` because `prefs.js` writes it. No secrets.
 - Cap: 4 KB and at most 50 collapsed streamers; drop extras/oldest so the cookie is never rejected. Unknown fields are ignored.
 - Writes go through `prefs.js`; `UiPreferences` updates in memory and raises `Changed`. A reload reads the cookie at prerender, so the first paint matches.
@@ -139,13 +150,13 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 - `App.razor` keeps the Blazor template reconnect modal for a hard circuit loss.
 - `ReconnectNotice` is a non-modal banner for “live updates paused” or an SSR/backend error, with Retry. It is not shown while the reconnect modal is visible; never both.
 - `LibraryView`/`RecordingLibrary.IsLoaded` gates skeleton rows. Empty library shows “No recordings yet”. Unknown `/r/{id}` shows a message and a link back.
-- The top bar auth slot uses `TwitchAuthButton`/`AuthorizeView`: signed out shows Connect with Twitch (link to `/api/auth/twitch/login?returnUrl=<current>`); signed in shows the account chip. Settings and admin actions stay visible but disabled with the `RequiresTwitch` tooltip. Viewing, playback, media, health, and progress remain public.
+- The top bar auth slot uses `TwitchAccount`/`AuthorizeView`: signed out shows Connect with Twitch (link to `/api/auth/twitch/login?returnUrl=<current>`); signed in shows the account avatar, a `MudMenu` activator (see `docs/details-auth-settings-contract.md` §7). Settings and admin actions stay visible but disabled with the `RequiresTwitch` tooltip. Viewing, playback, media, health, and progress remain public.
 - The actual OAuth/token flow belongs to the auth ticket; the foundation renders the shell states and the Mock fake.
 
 ## 11. JavaScript
 
 - `wwwroot/js/prefs.js` is a plain ES module loaded from `App.razor`; it exposes `window.skPrefs` with cookie read/write and the browser time zone, and sets `sk-tz` on first load.
-- `AppShell.razor.js` is a collocated module for the `.scrolled` observer; it disposes on component dispose.
+- `AppShell.razor.js` is a collocated module for the `.scrolled` observer, the compact drawer's focus handling (`setModalDrawer`, Tab trap, Escape → `CloseModalDrawer`), the paused-updates bridge and Retry; it disposes on component dispose. The drawer's open state lives in `AppShell.razor`.
 - `UiPreferences`/`ViewerClock` call `prefs.js` through `IJSRuntime`; no JS reads or writes layout state directly.
 - `Editor`/player modules load later; hls.js is imported only by the player module, never by the shell.
 - `ChatPane.razor.js` owns the chat log, polling, auto-scroll, and sync controls; it listens to `sk:playhead` and never crosses the circuit for time updates.
@@ -169,7 +180,7 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 
 bUnit:
 
-- Shell layout, drawer modes, theater, responsive classes, top bar slots, REC dot, storage warning.
+- Shell layout, drawer modes per page kind, theater, compact layout (through a test `IBrowserViewportService`), bottom bar, top bar slots and links, REC dot, storage warning.
 - `UiPreferences` parse/defaults/cap/write/Changed/dispose; malformed cookie.
 - `ViewerClock` cookie/invalid zone/UTC fallback/DST; `Format` values.
 - `LibraryView` state/sort/search/query/throttle/dispose; unknown id.
@@ -184,7 +195,8 @@ Vitest:
 
 Playwright:
 
-- Drawer expanded → rail → theater; reload preserves `sk-ui`; responsive 960/600; `.scrolled` class.
+- Drawer expanded → rail → theater; reload preserves `sk-ui`; responsive 960/600.
+- At 375×812 with touch: the bottom bar navigates; Library opens the temporary drawer and picking a recording closes it. Axe and no horizontal scroll at 1280 and 375 for Home, a recording and Settings; the bar links work before the circuit connects. At 1280 and 375 the first paint already has the settled bar height and main-column padding.
 - Reconnect notice/retry; auth disabled controls; unknown route; `/dev/components`.
 - The home page loads self-hosted Roboto and requests nothing off-origin; first-paint JS stays within the 200 KB gzipped budget with MudBlazor's script.
 - axe clean and keyboard-only use on the shell. Visual regression is dropped for now (#106).
@@ -193,7 +205,7 @@ No automatic retries; flaky tests are fixed or quarantined per the testing contr
 
 ## 14. Binding versus implementation freedom
 
-Binding: project/render model, routes and query keys, shell structure/breakpoints, cookie names/schema/defaults/caps, clock behavior, `LibraryView` interface/throttle/state rules, primitive APIs/ARIA, Mock profile behavior, reconnect/auth states, JS module loading, and CSS order.
+Binding: project/render model, routes and query keys, shell structure/breakpoints, the `data-*` shell hooks and accessible names in §4, cookie names/schema/defaults/caps, clock behavior, `LibraryView` interface/throttle/state rules, primitive APIs/ARIA, Mock profile behavior, reconnect/auth states, JS module loading, and CSS order.
 
 Freedom: component internals, exact markup beyond the design-system classes, JS helper style, error wording, and test implementation.
 

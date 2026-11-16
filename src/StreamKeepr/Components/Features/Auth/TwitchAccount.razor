@@ -6,6 +6,7 @@
 @inject AdminSessionState Session
 @inject IJSRuntime JS
 @inject ILogger<TwitchAccount> Logger
+@inject SnackbarService Snackbars
 
 @* Top-bar Twitch control (details/auth/settings contract §7). Every state is plain markup that
    works without the circuit: the login link is a full-page navigation and Disconnect posts a
@@ -25,25 +26,46 @@ else
 {
     <AuthorizeView>
         <Authorized>
-            <Menu Label="@($"Twitch account: {DisplayName(context.User)}")"
-                  TriggerClass="sk-auth-chip"
-                  NameTriggerFromContent="true"
-                  data-auth-state="connected">
-                <TriggerContent>
-                    <Avatar Name="@DisplayName(context.User)" Tone="AvatarTone.Tertiary" aria-hidden="true" />
-                    <span class="lbl" data-account-label><span class="sk-visually-hidden">Twitch account: </span>@DisplayName(context.User)</span>
-                    @if (DistinctLogin(context.User) is { } login)
-                    {
-                        <span class="login" data-account-login>@login</span>
-                    }
-                    <span class="sk-auth-dot" data-auth-dot aria-hidden="true" title="Connected to Twitch"></span>
-                    <span class="sk-icon sm" aria-hidden="true">expand_more</span>
-                </TriggerContent>
+            @* Avatar only (design system: TwitchAccount): the name is in the menu, and in the
+               activator's accessible name. Opening the menu needs the circuit; the logout form is a
+               real form either way. *@
+            <MudBlazor.MudMenu AnchorOrigin="MudBlazor.Origin.BottomRight"
+                               TransformOrigin="MudBlazor.Origin.TopRight"
+                               Class="sk-account"
+                               data-auth-state="connected">
+                <ActivatorContent Context="menu">
+                    <span class="sk-account-trigger" data-account-trigger @onclick="menu.ToggleAsync">
+                        <span class="sk-visually-hidden" data-account-label>Twitch account: @DisplayName(context.User)</span>
+                        <MudBlazor.MudBadge Dot="true" Overlap="true" Bordered="true"
+                                            Color="MudBlazor.Color.Success"
+                                            Origin="MudBlazor.Origin.BottomRight"
+                                            BadgeClass="sk-account-badge"
+                                            aria-hidden="true"
+                                            data-auth-dot>
+                            <MudBlazor.MudAvatar Color="MudBlazor.Color.Tertiary" Class="sk-account-avatar" data-account-avatar>
+                                @Initial(context.User)
+                            </MudBlazor.MudAvatar>
+                        </MudBlazor.MudBadge>
+                    </span>
+                </ActivatorContent>
                 <ChildContent>
-                    <MenuItem Icon="manage_accounts" OnClick="ManageAsync">Manage Twitch connection</MenuItem>
-                    <MenuItem Icon="logout" Form="@LogoutFormId">Disconnect</MenuItem>
+                    <div class="sk-account-header" role="presentation" data-account-header>
+                        <MudBlazor.MudAvatar Color="MudBlazor.Color.Tertiary" aria-hidden="true">@Initial(context.User)</MudBlazor.MudAvatar>
+                        <div class="who">
+                            <div class="name">@DisplayName(context.User)</div>
+                            @if (DistinctLogin(context.User) is { } login)
+                            {
+                                <div class="login" data-account-login>@login</div>
+                            }
+                            <div class="status"><span class="sk-auth-dot" data-auth-dot aria-hidden="true"></span>Connected to Twitch</div>
+                        </div>
+                    </div>
+                    <MudBlazor.MudDivider />
+                    <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.ManageAccounts" Href="/settings#twitch">Manage Twitch connection</MudBlazor.MudMenuItem>
+                    <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Settings" Href="/settings">Settings</MudBlazor.MudMenuItem>
+                    <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Logout" OnClick="DisconnectAsync">Disconnect</MudBlazor.MudMenuItem>
                 </ChildContent>
-            </Menu>
+            </MudBlazor.MudMenu>
             <form id="@LogoutFormId" method="post" action="@AdminAuth.LogoutPath" hidden>
                 <AntiforgeryToken />
                 <input type="hidden" name="returnUrl" value="@ReturnUrl" />
@@ -115,10 +137,27 @@ else
             ? null
             : Login(user);
 
-    private Task ManageAsync()
+    // The menu shows the account's first letter until account images arrive.
+    internal static string Initial(ClaimsPrincipal user) =>
+        DisplayName(user) is { Length: > 0 } name
+            ? System.Text.Rune.ToUpperInvariant(System.Text.Rune.GetRuneAt(name, 0)).ToString()
+            : "?";
+
+    // MudMenuItem renders a div, not a submit button, so the module submits the real form.
+    private async Task DisconnectAsync()
     {
-        Navigation.NavigateTo("/settings#twitch");
-        return Task.CompletedTask;
+        try
+        {
+            if (_module is null)
+                throw new InvalidOperationException("The Twitch account module is not loaded.");
+
+            await _module.InvokeVoidAsync("submitForm", LogoutFormId);
+        }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException)
+        {
+            Logger.LogWarning(ex, "Could not submit the Twitch logout form.");
+            Snackbars.Show("Could not disconnect. Reload the page and try again.");
+        }
     }
 
     // The return URLs follow the current page and query.

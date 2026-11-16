@@ -38,6 +38,13 @@ function onClick(event) {
   if (link) showConnecting(link);
 }
 
+// Disconnect is a MudMenuItem, which cannot be a submit button; submit the antiforgery form
+// it names instead, exactly as the button would.
+export function submitForm(id, doc = document) {
+  const form = doc.getElementById(id);
+  if (form instanceof HTMLFormElement) form.requestSubmit();
+}
+
 export function init(doc = document) {
   if (installed) return;
   installed = true;

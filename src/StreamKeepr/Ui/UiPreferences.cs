@@ -30,6 +30,7 @@ public sealed class UiPreferences
     private readonly List<string> _collapsed = [];
 
     private DrawerMode _drawer = DrawerMode.Expanded;
+    private DrawerMode _watchDrawer = DrawerMode.Rail;
     private bool _theater;
     private bool _statsOpen;
     private bool _detailsOpen = true;
@@ -57,7 +58,14 @@ public sealed class UiPreferences
         store.Persist(PersistenceKey, ToJson());
     }
 
+    /// <summary>The drawer on Home and other non-watch pages; the full library by default.</summary>
     public DrawerMode Drawer => _drawer;
+
+    /// <summary>The drawer on a watch page (<c>/r/{id}</c>); the rail by default, so the player gets the room.</summary>
+    public DrawerMode WatchDrawer => _watchDrawer;
+
+    /// <summary>The remembered drawer choice for the kind of page being shown.</summary>
+    public DrawerMode DrawerFor(bool watching) => watching ? _watchDrawer : _drawer;
 
     public bool Theater => _theater;
 
@@ -75,18 +83,29 @@ public sealed class UiPreferences
         !string.IsNullOrWhiteSpace(streamerLogin) &&
         _collapsed.Contains(streamerLogin.Trim(), StringComparer.OrdinalIgnoreCase);
 
-    public void SetDrawer(DrawerMode mode)
+    public void SetDrawer(DrawerMode mode) => SetDrawer(mode, watching: false);
+
+    /// <summary>Sets the drawer choice for one kind of page; the other kind keeps its own.</summary>
+    public void SetDrawer(DrawerMode mode, bool watching)
     {
-        if (mode == _drawer)
+        if (mode == DrawerFor(watching))
             return;
 
-        _drawer = mode;
+        if (watching)
+            _watchDrawer = mode;
+        else
+            _drawer = mode;
         OnChanged();
     }
 
     /// <summary>The app-bar menu toggles the expanded and rail modes.</summary>
-    public void ToggleDrawer() =>
-        SetDrawer(_drawer == DrawerMode.Expanded ? DrawerMode.Rail : DrawerMode.Expanded);
+    public void ToggleDrawer() => ToggleDrawer(watching: false);
+
+    /// <summary>Toggles the expanded and rail modes for one kind of page.</summary>
+    public void ToggleDrawer(bool watching) =>
+        SetDrawer(
+            DrawerFor(watching) == DrawerMode.Expanded ? DrawerMode.Rail : DrawerMode.Expanded,
+            watching);
 
     public void SetTheater(bool theater)
     {
@@ -187,13 +206,8 @@ public sealed class UiPreferences
         if (state is null || state.Version != CurrentVersion)
             return;
 
-        _drawer = state.Drawer switch
-        {
-            "expanded" => DrawerMode.Expanded,
-            "rail" => DrawerMode.Rail,
-            "hidden" => DrawerMode.Hidden,
-            _ => DrawerMode.Expanded,
-        };
+        _drawer = ParseDrawer(state.Drawer, DrawerMode.Expanded);
+        _watchDrawer = ParseDrawer(state.Watch, DrawerMode.Rail);
         _theater = state.Theater ?? false;
         _statsOpen = state.Stats ?? false;
         _detailsOpen = state.Details ?? true;
@@ -211,6 +225,21 @@ public sealed class UiPreferences
             }
         }
     }
+
+    private static DrawerMode ParseDrawer(string? value, DrawerMode fallback) => value switch
+    {
+        "expanded" => DrawerMode.Expanded,
+        "rail" => DrawerMode.Rail,
+        "hidden" => DrawerMode.Hidden,
+        _ => fallback,
+    };
+
+    private static string FormatDrawer(DrawerMode mode) => mode switch
+    {
+        DrawerMode.Rail => "rail",
+        DrawerMode.Hidden => "hidden",
+        _ => "expanded",
+    };
 
     private static string Decode(string value)
     {
@@ -239,12 +268,8 @@ public sealed class UiPreferences
 
     private UiPreferencesState CreateState() => new(
         CurrentVersion,
-        _drawer switch
-        {
-            DrawerMode.Rail => "rail",
-            DrawerMode.Hidden => "hidden",
-            _ => "expanded",
-        },
+        FormatDrawer(_drawer),
+        FormatDrawer(_watchDrawer),
         _theater,
         _statsOpen,
         _detailsOpen,
@@ -262,6 +287,8 @@ public sealed class UiPreferences
 
         [JsonPropertyName("drawer")] public string? Drawer { get; set; }
 
+        [JsonPropertyName("watch")] public string? Watch { get; set; }
+
         [JsonPropertyName("theater")] public bool? Theater { get; set; }
 
         [JsonPropertyName("stats")] public bool? Stats { get; set; }
@@ -278,6 +305,7 @@ public sealed class UiPreferences
 public sealed record UiPreferencesState(
     [property: JsonPropertyName("v")] int Version,
     [property: JsonPropertyName("drawer")] string Drawer,
+    [property: JsonPropertyName("watch")] string Watch,
     [property: JsonPropertyName("theater")] bool Theater,
     [property: JsonPropertyName("stats")] bool Stats,
     [property: JsonPropertyName("details")] bool Details,

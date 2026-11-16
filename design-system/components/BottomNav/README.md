@@ -2,7 +2,7 @@ The bottom app bar below `Breakpoint.Md`: three destinations, Home, Library and 
 
 ## Build it from
 
-`<MudAppBar Bottom="true" Fixed="true" Elevation="0" Class="sk-bottombar">` (56px, `bottom-bar-height`) inside `<MudHidden Breakpoint="Breakpoint.MdAndUp">`, holding three equal links. Each link is an icon in a 56×28 pill above a `caption` label at Medium:
+`<MudAppBar Bottom="true" Fixed="true" Elevation="0" Class="sk-bottombar">` (56px, `bottom-bar-height`), rendered until the breakpoint is known to be Md or wider and hidden by CSS at 960px and up (`MudHidden` is not used: it renders nothing until the circuit knows the breakpoint, so a phone's prerendered page would have no bottom-bar links), holding three equal links. Each link is an icon in a 56×28 pill above a `caption` label at Medium:
 
 | Destination | Icon | Action |
 |---|---|---|

@@ -206,11 +206,13 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         await using Session session = await OpenAsync(
             app.BaseUrl, viewport: new ViewportSize { Width = 375, Height = 812 });
         IPage page = session.Page;
-        await page.Locator("[data-drawer-toggle]").WaitForAsync();
+        // Below Md the library opens from the bottom bar, not the app bar's menu (#174).
+        const string libraryButton = "e => e.closest('nav[aria-label=Main]') !== null && e.getAttribute('aria-controls') === 'sk-drawer'";
+        await page.Locator("[data-shell][data-layout='compact'] nav[aria-label=Main] button[aria-controls='sk-drawer']").WaitForAsync();
         await AssertTabReachesEveryControlAsync(page, "phone home");
 
         await page.EmulateMediaAsync(new PageEmulateMediaOptions { ReducedMotion = ReducedMotion.Reduce });
-        await TabToAsync(page, "e => e.hasAttribute('data-drawer-toggle')", "the drawer button");
+        await TabToAsync(page, libraryButton, "the Library button");
         await page.Keyboard.PressAsync("Enter");
         await page.Locator("[data-shell][data-drawer-modal-open]").WaitForAsync();
         Assert.True(await FocusedMatchesAsync(page, "e => e.closest('nav[aria-label=Library]') !== null"), "focus moves into the drawer");
@@ -220,7 +222,7 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
 
         await page.Keyboard.PressAsync("Escape");
         await page.Locator("[data-shell]:not([data-drawer-modal-open])").WaitForAsync();
-        Assert.True(await FocusedMatchesAsync(page, "e => e.hasAttribute('data-drawer-toggle')"), "Escape returns focus to the drawer button");
+        Assert.True(await FocusedMatchesAsync(page, libraryButton), "Escape returns focus to the Library button");
     }
 
     /// <summary>

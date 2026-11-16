@@ -28,6 +28,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         string first = (await saved.Nth(0).GetAttributeAsync("data-recording-id"))!;
         await saved.Nth(0).ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{first}", StringComparison.Ordinal));
+        await ExpandLibraryOnWatchPageAsync(page);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
 
         Assert.Single(hlsRequests);
@@ -337,6 +338,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
 
         await row.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await ExpandLibraryOnWatchPageAsync(page);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
 
         ILocator seek = page.Locator("[data-sk='seek']");

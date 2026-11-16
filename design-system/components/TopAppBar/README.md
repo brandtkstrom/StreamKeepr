@@ -11,7 +11,7 @@ The `MudAppBar` across the top: 64px on desktop with the drawer toggle, wordmark
     <MudTooltip Text="StreamKeepr on GitHub">
         <MudIconButton Icon="@Icons.Custom.Brands.GitHub" Href="@Links.GitHub" Target="_blank" Rel="noopener" aria-label="StreamKeepr on GitHub (opens in a new tab)" />
     </MudTooltip>
-    <MudTooltip Text="Open Twitch">
+    <MudTooltip Text="Twitch">
         <MudIconButton Icon="@TwitchGlitch" Href="@Links.Twitch" Target="_blank" Rel="noopener" aria-label="Twitch (opens in a new tab)" />
     </MudTooltip>
     <MudToggleIconButton Icon="@Icons.Material.Rounded.Settings" @bind-Toggled="_settingsOpen" ToggledColor="Color.Primary" aria-label="Settings" aria-controls="sk-settings" />   @* opens the sheet; never navigates *@
@@ -30,4 +30,4 @@ The `MudAppBar` across the top: 64px on desktop with the drawer toggle, wordmark
 - **Settings opens the side sheet** (`SettingsSheet`) over the current page. It is a toggle, not a link, so a playing recording keeps playing.
 - **The account is an avatar only** (see `TwitchAccount`). The name appears in its menu and on the Settings page, never in the bar.
 - Disk usage lives at the bottom of the library drawer, not here (see `LibraryDrawer`). There is no capture schedule control.
-- **Below `Breakpoint.Md`** it is `Dense` (48px): the wordmark, a `Search` icon button that expands into a full-width search row, the GitHub and Twitch links, and the account avatar. Settings moves to the bottom bar (`BottomNav`). On a watch page, an `ArrowBack` button to Home and the recording title (`subtitle1` at Medium, ellipsised) replace the wordmark.
+- **Below `Breakpoint.Md`** it is `Dense` (48px): the wordmark, a `Search` icon button that expands into a full-width search row, the GitHub and Twitch links (except on a watch page, where the title needs the room; see `PhoneLayout`), and the account avatar. Settings moves to the bottom bar (`BottomNav`). On a watch page, an `ArrowBack` button to Home and the recording title (`subtitle1` at Medium, ellipsised) replace the wordmark.
