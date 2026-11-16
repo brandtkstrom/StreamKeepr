@@ -13,7 +13,6 @@ public sealed class ChannelColorTests
     public void A_login_always_maps_to_the_same_colour(string login, int expected)
     {
         Assert.Equal(expected, ChannelColor.For(login));
-        Assert.Equal($"channel-{expected}", ChannelColor.Token(login));
     }
 
     [Fact]

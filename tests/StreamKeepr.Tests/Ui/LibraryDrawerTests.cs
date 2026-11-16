@@ -108,6 +108,27 @@ public sealed class LibraryDrawerTests
         });
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Only_the_rail_names_each_avatar_in_a_tooltip(bool rail)
+    {
+        var view = new TestLibraryView
+        {
+            StreamerItems = [Streamer("live", "Live Star", recording: true, count: 1, last: Now)],
+        };
+        view.RecordingsByLogin["live"] = [Recording("r1", "live", RecordingState.Recording, Now)];
+        await using BunitContext context = CreateContext(view);
+
+        var cut = context.Render<CascadingValue<bool>>(parameters => parameters
+            .Add(component => component.Name, "LibraryRail")
+            .Add(component => component.Value, rail)
+            .AddChildContent<LibraryDrawer>());
+
+        Assert.Equal(rail ? 1 : 0, cut.FindAll("[data-tree-key='g:live'] [data-rail-name]").Count);
+        Assert.Null(cut.Find("[data-tree-key='g:live']").GetAttribute("title"));
+    }
+
     [Fact]
     public async Task An_unknown_disk_size_shows_no_meter()
     {

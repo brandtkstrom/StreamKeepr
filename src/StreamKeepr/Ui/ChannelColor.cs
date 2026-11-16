@@ -34,7 +34,4 @@ public static class ChannelColor
 
         return (int)(hash % Count) + 1;
     }
-
-    /// <summary>The design token name, e.g. <c>channel-3</c>.</summary>
-    public static string Token(string login) => $"channel-{For(login)}";
 }

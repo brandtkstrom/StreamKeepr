@@ -138,7 +138,7 @@
                     {
                         @* The drawer's contents differ in the rail (avatars, the storage icon, a
                            rightward sort menu), so they learn the mode from the shell. *@
-                        <CascadingValue Name="LibraryRail" Value="@(DrawerClass == "rail")">
+                        <CascadingValue Name="LibraryRail" Value="@(!_compact && DrawerMode == DrawerMode.Rail)">
                             @Drawer
                         </CascadingValue>
                     }

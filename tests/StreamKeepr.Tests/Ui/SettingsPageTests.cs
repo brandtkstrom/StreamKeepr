@@ -50,8 +50,7 @@ public sealed class SettingsPageTests
         Assert.Equal(["ann", "bob", "cat"], cut.FindAll("[data-channel]").Select(r => r.GetAttribute("data-channel")));
         Assert.Equal(
             ["Rec", "Paused", "Cooling down"],
-            cut.FindAll("[data-channel-state]").Select(chip =>
-                chip.TextContent.Replace(chip.QuerySelector("[data-icon]")?.TextContent ?? "\u0000", "").Trim()));
+            cut.FindAll("[data-channel-state]").Select(chip => chip.TextContent.Trim()));
         // StatusChip's icon is MudChip SVG now, named by a hook (#176).
         Assert.Equal("pause", cut.Find("[data-channel='bob'] [data-channel-state]").GetAttribute("data-status-icon"));
     }

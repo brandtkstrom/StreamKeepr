@@ -168,7 +168,7 @@ public sealed class ConnectionStatusPanelTests : IAsyncLifetime
     private static string Chip(IRenderedComponent<ConnectionStatusPanel> cut, string selector)
     {
         var chip = cut.Find(selector);
-        return chip.TextContent.Replace(chip.QuerySelector("[data-icon]")?.TextContent ?? "\u0000", "").Trim();
+        return chip.TextContent.Trim();
     }
 
     private static ConnectionStatus Status() => new(

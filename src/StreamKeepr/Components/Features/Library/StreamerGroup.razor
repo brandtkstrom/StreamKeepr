@@ -9,12 +9,24 @@
          aria-expanded="@(Expanded ? "true" : "false")"
          aria-controls="@BodyId"
          data-tree-key="@($"g:{Streamer.Login}")"
-         title="@Streamer.Login"
          @onclick="OnToggle">
-        <ChannelAvatar Login="@Streamer.Login"
-                       Name="@Streamer.DisplayName"
-                       ImageUrl="@Streamer.AvatarUrl"
-                       Live="@Streamer.IsRecording" />
+        @if (Rail)
+        {
+            @* The rail shows avatars alone, so the name is in a tooltip (LibraryDrawer card). *@
+            <MudBlazor.MudTooltip Text="@Streamer.DisplayName" Placement="MudBlazor.Placement.Right" data-rail-name>
+                <ChannelAvatar Login="@Streamer.Login"
+                               Name="@Streamer.DisplayName"
+                               ImageUrl="@Streamer.AvatarUrl"
+                               Live="@Streamer.IsRecording" />
+            </MudBlazor.MudTooltip>
+        }
+        else
+        {
+            <ChannelAvatar Login="@Streamer.Login"
+                           Name="@Streamer.DisplayName"
+                           ImageUrl="@Streamer.AvatarUrl"
+                           Live="@Streamer.IsRecording" />
+        }
         <span class="who">
             <span class="name"><MudBlazor.MudHighlighter Text="@Streamer.DisplayName" HighlightedText="@Search" Class="sk-mark" /></span>
             <span class="meta" data-group-meta>@Meta</span>
@@ -66,6 +78,9 @@
 
     [Parameter] public string ViewQuery { get; set; } = "";
 
+    /// <summary>True in the desktop rail (cascaded by <c>AppShell</c>).</summary>
+    [CascadingParameter(Name = "LibraryRail")] public bool Rail { get; set; }
+
     private StreamerView? _lastStreamer;
     private IReadOnlyList<RecordingView> _lastRecordings = [];
     private bool _lastExpanded;
@@ -74,6 +89,7 @@
     private DateTime _lastDay;
     private string? _lastSearch;
     private string _lastViewQuery = "";
+    private bool _lastRail;
 
     private string BodyId => $"sk-group-{Streamer.Login}";
 
@@ -122,7 +138,8 @@
             _lastTimeZoneId != TimeZone.Id ||
             _lastDay != Now.Date ||
             _lastSearch != Search ||
-            _lastViewQuery != ViewQuery;
+            _lastViewQuery != ViewQuery ||
+            _lastRail != Rail;
 
         _lastStreamer = Streamer;
         _lastRecordings = Recordings;
@@ -132,6 +149,7 @@
         _lastDay = Now.Date;
         _lastSearch = Search;
         _lastViewQuery = ViewQuery;
+        _lastRail = Rail;
         return changed;
     }
 }

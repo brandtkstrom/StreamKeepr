@@ -140,8 +140,6 @@ else
             ? null
             : Login(user);
 
-    // The avatar shows the account's first letter on its channel colour until account images arrive.
-    internal static string Initial(ClaimsPrincipal user) => Format.Initial(DisplayName(user));
 
     // MudMenuItem renders a div, not a submit button, so the module submits the real form.
     private async Task DisconnectAsync()

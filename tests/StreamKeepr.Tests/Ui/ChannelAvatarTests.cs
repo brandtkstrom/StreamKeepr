@@ -49,7 +49,7 @@ public sealed class ChannelAvatarTests
         var image = avatar.QuerySelector("img")!;
         Assert.Equal("/img/pixelwren.png", image.GetAttribute("src"));
         Assert.Equal("", image.GetAttribute("alt"));
-        Assert.DoesNotContain("P", avatar.TextContent.Trim());
+        Assert.Equal("", avatar.TextContent.Trim());
         Assert.NotNull(cut.Find("[data-live-ring]"));
     }
 

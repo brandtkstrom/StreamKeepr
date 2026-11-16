@@ -20,12 +20,12 @@
 <div class="sk-drawer-head">
     <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2">Library</MudBlazor.MudText>
     <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="sk-sort"
-                       data-sort="@_query.Sort" data-sort-icon="@SortIconName">
-        @if (SortIcon is { } icon)
+                       data-sort="@_query.Sort" data-sort-icon="@CurrentSort.IconName">
+        @if (CurrentSort.Glyph is { } icon)
         {
             <MudBlazor.MudIcon Icon="@icon" Size="MudBlazor.Size.Small" aria-hidden="true" />
         }
-        @SortLabel
+        @CurrentSort.Label
     </MudBlazor.MudText>
     @* In the rail the menu opens rightward, over the main column; expanded, it opens leftward. *@
     <MudBlazor.MudMenu OpenChanged="OnSortMenuOpenChanged"
@@ -35,12 +35,13 @@
                        AnchorOrigin="@(Rail ? MudBlazor.Origin.BottomLeft : MudBlazor.Origin.BottomRight)"
                        TransformOrigin="@(Rail ? MudBlazor.Origin.TopLeft : MudBlazor.Origin.TopRight)"
                        Class="sk-sort-menu">
-        @foreach ((string key, string label) in SortOptions)
+        @foreach (SortChoice choice in SortChoices)
         {
-            <MudBlazor.MudMenuItem Icon="@(_query.Sort == key ? MudBlazor.Icons.Material.Rounded.Check : null)"
-                                   OnClick="@(() => SetSort(key))"
-                                   data-sort-option="@key"
-                                   data-selected="@(_query.Sort == key ? "true" : null)">@label</MudBlazor.MudMenuItem>
+            bool current = choice == CurrentSort;
+            <MudBlazor.MudMenuItem Icon="@(current ? MudBlazor.Icons.Material.Rounded.Check : null)"
+                                   OnClick="@(() => SetSort(choice.Key))"
+                                   data-sort-option="@choice.Key"
+                                   data-selected="@(current ? "true" : null)">@choice.Label</MudBlazor.MudMenuItem>
         }
     </MudBlazor.MudMenu>
 </div>
@@ -135,11 +136,15 @@
     private const string TreeModule = "./js/tree-nav.js";
     private const string DrawerModule = "./Components/Features/Library/LibraryDrawer.razor.js";
 
-    private static readonly (string Key, string Label)[] SortOptions =
+    // One row per sort: its URL key, the header and menu label, and the header arrow (named for
+    // the data-sort-icon hook, drawn as a MudBlazor glyph). The first is the default.
+    private sealed record SortChoice(string Key, string Label, string? IconName, string? Glyph);
+
+    private static readonly SortChoice[] SortChoices =
     [
-        ("newest", "Newest first"),
-        ("oldest", "Oldest first"),
-        ("az", "A–Z by streamer"),
+        new("newest", "Newest first", "arrow_downward", MudBlazor.Icons.Material.Rounded.ArrowDownward),
+        new("oldest", "Oldest first", "arrow_upward", MudBlazor.Icons.Material.Rounded.ArrowUpward),
+        new("az", "A–Z by streamer", null, null),
     ];
 
     private static readonly (string Key, string Label, string Icon)[] Filters =
@@ -297,26 +302,8 @@
 
     private bool Filtered => _query.Search is not null || _query.State is not null;
 
-    private string? SortIconName => _query.Sort switch
-    {
-        "oldest" => "arrow_upward",
-        "az" => null,
-        _ => "arrow_downward",
-    };
-
-    private string? SortIcon => SortIconName switch
-    {
-        "arrow_upward" => MudBlazor.Icons.Material.Rounded.ArrowUpward,
-        "arrow_downward" => MudBlazor.Icons.Material.Rounded.ArrowDownward,
-        _ => null,
-    };
-
-    private string SortLabel => _query.Sort switch
-    {
-        "oldest" => "Oldest first",
-        "az" => "A–Z by streamer",
-        _ => "Newest first",
-    };
+    private SortChoice CurrentSort =>
+        Array.Find(SortChoices, choice => choice.Key == _query.Sort) ?? SortChoices[0];
 
     private void SetState(string? state) => Navigate(_query with { State = state });
 
@@ -327,7 +314,7 @@
         try
         {
             _drawerModule ??= await JS.InvokeAsync<IJSObjectReference>("import", DrawerModule);
-            await _drawerModule.InvokeAsync<bool>("focusWhenPresent", $"[data-sort-option='{_query.Sort}']");
+            await _drawerModule.InvokeAsync<bool>("focusWhenPresent", $"[data-sort-option='{CurrentSort.Key}']");
         }
         catch (JSException ex)
         {
