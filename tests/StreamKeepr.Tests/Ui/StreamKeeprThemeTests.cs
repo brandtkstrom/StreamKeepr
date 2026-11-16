@@ -9,7 +9,7 @@ namespace StreamKeepr.Tests.Ui;
 /// <c>StreamKeeprTheme</c> is hand-written from <c>design-system/tokens.json</c> (ADR 0012).
 /// These tests fail when either side changes without the other.
 /// </summary>
-public sealed class StreamKeeprThemeTests
+public sealed partial class StreamKeeprThemeTests
 {
     private static readonly DesignTokens Tokens = DesignTokens.Load();
     private static readonly Palette Palette = StreamKeeprTheme.Theme.PaletteDark;
@@ -82,7 +82,10 @@ public sealed class StreamKeeprThemeTests
     {
         Typography typography = StreamKeeprTheme.Theme.Typography;
         var mismatches = new List<string>();
-        foreach ((string name, System.Text.Json.JsonElement style) in Tokens.TypeStyles("MudBlazor headings", "MudBlazor text"))
+        IReadOnlyDictionary<string, System.Text.Json.JsonElement> styles = Tokens.TypeStyles("MudBlazor headings", "MudBlazor text");
+        // H1-H6 and the seven text slots; guards the group names so the loop cannot run empty.
+        Assert.Equal(13, styles.Count);
+        foreach ((string name, System.Text.Json.JsonElement style) in styles)
         {
             var slot = (BaseTypography)typeof(Typography).GetProperty(DesignTokens.PascalCase(name))!.GetValue(typography)!;
             Compare(name, "fontSize", style.GetProperty("fontSize").GetString(), slot.FontSize);
@@ -113,12 +116,17 @@ public sealed class StreamKeeprThemeTests
         var other => other,
     };
 
+    [System.Text.RegularExpressions.GeneratedRegex(@"-(accent|darken|lighten)-\d$|-default$")]
+    private static partial System.Text.RegularExpressions.Regex SourceToken();
+
     private static IEnumerable<(string Name, string Value)> PaletteTokens()
     {
         HashSet<string> names = PaletteProperties.Select(p => p.Name).ToHashSet();
         foreach ((string name, string value) in Tokens.Colors)
         {
-            if (names.Contains(DesignTokens.PascalCase(name)))
+            // Source tokens are named after MudBlazor.Colors constants (gray-default = Colors.Gray.Default);
+            // only role tokens name a Palette slot, even where a source name happens to match one.
+            if (!SourceToken().IsMatch(name) && names.Contains(DesignTokens.PascalCase(name)))
                 yield return (name, value);
         }
 

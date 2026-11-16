@@ -55,7 +55,8 @@
   --action-disabled-background: rgba(255,255,255,0.12); /* Palette.ActionDisabledBackground, MudBlazor's dark default. Fill of a disabled filled button. */
   --lines-default: rgba(255,255,255,0.12); /* Palette.LinesDefault, MudBlazor's dark default. Card and panel outlines. Decorative only. */
   --lines-inputs: var(--gray-default); /* Palette.LinesInputs. Text-field, outlined-button and outlined-chip borders: ≥ 3.7:1 on every ground. */
-  --divider: rgba(255,255,255,0.12); /* Palette.Divider and Palette.TableLines, MudBlazor's dark default. Hairlines under the app bar, between drawer groups and settings rows. */
+  --divider: rgba(255,255,255,0.12); /* Palette.Divider, MudBlazor's dark default. Hairlines under the app bar, between drawer groups and settings rows. */
+  --table-lines: rgba(255,255,255,0.12); /* Palette.TableLines: row rules in MudTable and MudSimpleTable (the stats key-value tables). MudBlazor 9.12.0 PaletteDark default. */
   --overlay-dark: rgba(33,33,33,0.5); /* Palette.OverlayDark, MudBlazor's default. The scrim behind dialogs and the temporary drawer. */
   --tooltip-background: var(--gray-darken-2); /* StreamKeepr addition, applied to `.mud-tooltip-default` in app CSS. */
   --tooltip-text: #ffffff; /* Tooltip label (6.2:1 on `tooltip-background`). */

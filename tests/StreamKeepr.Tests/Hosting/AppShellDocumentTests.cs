@@ -40,7 +40,9 @@ public sealed class AppShellDocumentTests
         Assert.True(mudCss.Success, "MudBlazor.min.css link is missing.");
         Assert.True(mudJs.Success, "MudBlazor.min.js script is missing.");
         Assert.True(mudCss.Index < html.IndexOf("css/tokens.", StringComparison.Ordinal), "MudBlazor.min.css must precede tokens.css.");
-        Assert.True(mudJs.Index > html.IndexOf("_framework/blazor.web", StringComparison.Ordinal), "MudBlazor.min.js must follow blazor.web.js.");
+        var blazor = html.IndexOf("_framework/blazor.web", StringComparison.Ordinal);
+        Assert.True(blazor >= 0, "blazor.web.js script is missing.");
+        Assert.True(mudJs.Index > blazor, "MudBlazor.min.js must follow blazor.web.js.");
 
         foreach (var href in new[] { mudCss.Groups["href"].Value, mudJs.Groups["src"].Value })
         {

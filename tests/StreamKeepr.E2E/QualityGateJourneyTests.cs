@@ -82,7 +82,7 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         await page.Locator(LibraryHooks.Row).First.WaitForAsync();
         await page.EvaluateAsync("() => document.fonts.ready");
 
-        var origin = new Uri(app.BaseUrl).GetLeftPart(UriPartial.Authority);
+        var origin = new Uri(app.BaseUrl).GetLeftPart(UriPartial.Authority) + "/";
         string[] offOrigin = requests
             .Where(url => url.StartsWith("http", StringComparison.Ordinal) && !url.StartsWith(origin, StringComparison.Ordinal))
             .ToArray();
