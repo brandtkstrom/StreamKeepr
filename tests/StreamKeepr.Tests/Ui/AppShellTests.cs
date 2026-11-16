@@ -36,7 +36,7 @@ public sealed class AppShellTests
         Assert.Equal("ok", cut.Find("[data-storage]").GetAttribute("data-storage"));
 
         var placeholder = cut.Find("header [data-auth-placeholder]");
-        Assert.True(placeholder.ParentElement!.LastElementChild!.HasAttribute("data-auth-placeholder"));
+        Assert.True(placeholder.NextElementSibling is null, "the auth control is the last app bar action");
     }
 
     [Theory]
