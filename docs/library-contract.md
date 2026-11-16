@@ -51,7 +51,7 @@ This contract covers the library drawer, grouping and day headers, search/filter
 nav.sk-drawer#sk-drawer
   rail only: Home icon button, divider
   .sk-drawer-head: h2 "Library" (MudText h6), [data-sort] order caption, sort MudMenu ("Library options")
-  MudAlert [data-updates-paused] (polite status; shown while reconnecting)
+  MudAlert Warning Dense [data-updates-paused] (polite status; shown while reconnecting) with a Retry [data-reconnect-retry]
   MudChipSet .sk-filters ([data-filter] chips)
   [data-drawer-list] [role=tree]
     .sk-group (streamer)
@@ -113,7 +113,7 @@ Timings include Playwright round trips, so they err slow. Budgets are several ti
 - `LibraryView` reuses view-model instances when the underlying values are equal.
 - The Mock profile produces started/updated/ended/deleted/storage changes on a timer for bUnit/E2E.
 - F8-T3 (open capture live→VOD, deleted recording opens next) is owned by the player ticket; the library raises `Changed` and exposes the updated list.
-- F8-T4: while the circuit is reconnecting, a quiet “Live updates paused” note appears in the drawer header; playback continues; after reconnect the drawer renders current state, or the page reloads if the server restarted and the circuit is gone. The template reconnect modal and `ReconnectNotice` follow the foundation rule; the note and modal are never both prominent.
+- F8-T4: while the circuit is reconnecting, a quiet “Live updates paused” note appears in the drawer header, with a Retry that `reconnect.js` serves through its `data-reconnect-retry` hook (no Blazor event fires while the circuit is down; #177); playback continues; after reconnect the drawer renders current state, or the page reloads if the server restarted and the circuit is gone. The template reconnect modal and `ReconnectNotice` follow the foundation rule; the note and modal are never both prominent.
 - Components subscribe in `OnInitialized`, dispose subscriptions in `Dispose`, and marshals through `InvokeAsync`.
 
 ## 9. Search and keyboard JS

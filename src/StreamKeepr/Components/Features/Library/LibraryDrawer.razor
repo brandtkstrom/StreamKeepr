@@ -48,14 +48,21 @@
 </div>
 
 @* Shown by CSS from body[data-sk-reconnect] while the circuit reconnects, because the
-   circuit cannot render anything while it is down. A polite status, not an alert. *@
+   circuit cannot render anything while it is down. A polite status, not an alert. Retry is
+   served by reconnect.js through its data hook for the same reason: no Blazor event fires
+   while the circuit is down. *@
 <MudBlazor.MudAlert Severity="MudBlazor.Severity.Warning"
+                    Variant="MudBlazor.Variant.Text"
                     Dense="true"
                     Icon="@MudBlazor.Icons.Material.Rounded.CloudOff"
-                    Class="sk-drawer-note"
+                    Class="sk-drawer-note sk-alert-action"
                     role="status"
                     data-updates-paused>
     <span class="msg" data-updates-paused-msg>Live updates paused</span>
+    <MudBlazor.MudButton Variant="MudBlazor.Variant.Text"
+                         Size="MudBlazor.Size.Small"
+                         Color="MudBlazor.Color.Inherit"
+                         data-reconnect-retry>Retry</MudBlazor.MudButton>
 </MudBlazor.MudAlert>
 
 <MudBlazor.MudChipSet T="string"

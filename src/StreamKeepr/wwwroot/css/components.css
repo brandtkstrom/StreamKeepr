@@ -615,12 +615,10 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-shell[data-drawer-frame="hidden"] .sk-main-frame { margin-left: 0; }
 .sk-auth-placeholder { opacity: var(--sk-state-disabled); pointer-events: none; cursor: default; }
 
-.sk-reconnect-notice {
-  display: flex; align-items: center; gap: var(--sk-space-2); padding: var(--sk-space-2) var(--sk-space-4);
-  background: var(--sk-warning-container); color: var(--sk-on-warning-container); font: var(--sk-text-body-medium);
-}
-.sk-reconnect-notice .msg { flex: 1; }
-.sk-reconnect-notice .sk-btn.text { color: var(--sk-on-warning-container); }
+/* A "Live updates paused" alert's message takes the room; Retry sits at its end. */
+.sk-alert-action .mud-alert-message { display: flex; flex: 1; align-items: center; gap: var(--space-2); }
+.sk-alert-action .msg { flex: 1; }
+.sk-reconnect-notice.mud-alert { margin: 0 var(--space-4) var(--space-2); }
 body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none; }
 
 /* ---------- bottom app bar (below Md; design system: BottomNav) ---------- */
@@ -684,80 +682,42 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
   [class*="mud-"], [class*="mud-"]::before, [class*="mud-"]::after { transition: none !important; animation: none !important; }
 }
 
-/* ---------- template reconnect dialog ---------- */
-.components-reconnect-first-attempt-visible,
-.components-reconnect-repeated-attempt-visible,
-.components-reconnect-failed-visible,
-.components-pause-visible,
-.components-resume-failed-visible,
-.components-rejoining-animation { display: none; }
-
-#components-reconnect-modal.components-reconnect-show .components-reconnect-first-attempt-visible,
-#components-reconnect-modal.components-reconnect-show .components-rejoining-animation,
-#components-reconnect-modal.components-reconnect-paused .components-pause-visible,
-#components-reconnect-modal.components-reconnect-paused .components-rejoining-animation,
-#components-reconnect-modal.components-reconnect-resume-failed .components-resume-failed-visible,
-#components-reconnect-modal.components-reconnect-retrying .components-reconnect-repeated-attempt-visible,
-#components-reconnect-modal.components-reconnect-retrying .components-rejoining-animation,
-#components-reconnect-modal.components-reconnect-failed .components-reconnect-failed-visible { display: block; }
+/* ---------- reconnect dialog (plain <dialog>; design system Reconnect card) ----------
+   Styled like a MudDialog without MudBlazor, because it must work while the circuit is down.
+   The framework puts one state class on it; only the hard losses have a section. */
+.sk-reconnect-state { display: none; }
+#components-reconnect-modal.components-reconnect-failed [data-reconnect-state="failed"],
+#components-reconnect-modal.components-reconnect-paused [data-reconnect-state="paused"],
+#components-reconnect-modal.components-reconnect-resume-failed [data-reconnect-state="resume-failed"] { display: flex; }
 
 #components-reconnect-modal {
-  width: 20rem; margin: 20vh auto; padding: var(--sk-space-6); border: 0; border-radius: var(--sk-radius-lg);
-  background-color: var(--sk-surface-container); color: var(--sk-on-surface); box-shadow: var(--sk-elevation-3);
-  opacity: 0; transition: display 0.5s allow-discrete, overlay 0.5s allow-discrete;
-  animation: components-reconnect-modal-fadeOutOpacity 0.5s both;
+  width: min(360px, calc(100vw - 32px)); padding: var(--space-6); border: 0;
+  border-radius: var(--radius-lg); background: var(--surface); color: var(--text-primary);
+  box-shadow: var(--elevation-24);
 }
-#components-reconnect-modal[open] {
-  animation: components-reconnect-modal-slideUp 1.5s cubic-bezier(0.05, 0.89, 0.25, 1.02) 0.3s, components-reconnect-modal-fadeInOpacity 0.5s ease-in-out 0.3s;
-  animation-fill-mode: both;
+#components-reconnect-modal::backdrop { background-color: var(--overlay-dark); }
+.sk-reconnect-state { flex-direction: column; gap: var(--space-2); }
+.sk-reconnect-icon { width: 32px; height: 32px; fill: currentColor; margin-bottom: var(--space-2); }
+[data-reconnect-state="failed"] .sk-reconnect-icon { color: var(--warning); }
+[data-reconnect-state="paused"] .sk-reconnect-icon { color: var(--text-secondary); }
+[data-reconnect-state="resume-failed"] .sk-reconnect-icon { color: var(--error); }
+.sk-reconnect-title { margin: 0; font: var(--text-h6); letter-spacing: var(--text-h6-letter-spacing); }
+.sk-reconnect-body {
+  margin: 0; color: var(--text-secondary);
+  font: var(--text-body1); letter-spacing: var(--text-body1-letter-spacing);
 }
-#components-reconnect-modal::backdrop { background-color: var(--sk-scrim); }
-#components-reconnect-modal p { margin: 0; text-align: center; font: var(--sk-text-body-medium); }
+.sk-reconnect-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }
 #components-reconnect-modal button {
-  border: 0; border-radius: var(--sk-radius-full); padding: var(--sk-space-1) var(--sk-space-6);
-  background: var(--sk-primary); color: var(--sk-on-primary); font: var(--sk-text-label-large); cursor: pointer;
+  min-width: 64px; padding: 6px var(--space-4); border: 0; border-radius: var(--radius-sm);
+  font: var(--text-button); letter-spacing: var(--text-button-letter-spacing); cursor: pointer;
   /* MudBlazor.min.css styles this template dialog too (transition, uppercase, tracking, and
-     `margin: 40px auto !important`). Undo that until the reconnect surface moves to MudBlazor;
-     the !important only answers MudBlazor's own on this element. */
-  transition: none; text-transform: none; letter-spacing: normal; min-width: 0; margin: 0 !important;
+     `margin: 40px auto !important`); the !important only answers MudBlazor's own. */
+  transition: none; text-transform: none; margin: 0 !important;
 }
-#components-reconnect-modal button:hover { box-shadow: var(--sk-elevation-1); }
-#components-reconnect-modal button:focus-visible { outline: 2px solid var(--sk-primary); outline-offset: 2px; }
-.components-reconnect-container { display: flex; flex-direction: column; align-items: center; gap: var(--sk-space-4); }
-.components-rejoining-animation { position: relative; width: 80px; height: 80px; }
-.components-rejoining-animation div {
-  position: absolute; border: 3px solid var(--sk-primary); opacity: 1; border-radius: 50%;
-  animation: components-rejoining-animation 1.5s cubic-bezier(0, 0.2, 0.8, 1) infinite;
-}
-.components-rejoining-animation div:nth-child(2) { animation-delay: -0.5s; }
-
-/* After the dialog rules so it wins on source order: the dialog appears at once and the
-   rejoin rings hold still as one static ring. */
-@media (prefers-reduced-motion: reduce) {
-  #components-reconnect-modal, #components-reconnect-modal[open] { animation: none; transition: none; }
-  #components-reconnect-modal[open] { opacity: 1; }
-  .components-rejoining-animation div { animation: none; top: 0; left: 0; width: 80px; height: 80px; }
-  .components-rejoining-animation div:nth-child(2) { display: none; }
-}
-
-@keyframes components-reconnect-modal-slideUp {
-  0% { transform: translateY(30px) scale(0.95); }
-  100% { transform: translateY(0); }
-}
-@keyframes components-reconnect-modal-fadeInOpacity {
-  0% { opacity: 0; }
-  100% { opacity: 1; }
-}
-@keyframes components-reconnect-modal-fadeOutOpacity {
-  0% { opacity: 1; }
-  100% { opacity: 0; }
-}
-@keyframes components-rejoining-animation {
-  0% { top: 40px; left: 40px; width: 0; height: 0; opacity: 0; }
-  4.9% { top: 40px; left: 40px; width: 0; height: 0; opacity: 0; }
-  5% { top: 40px; left: 40px; width: 0; height: 0; opacity: 1; }
-  100% { top: 0; left: 0; width: 80px; height: 80px; opacity: 0; }
-}
+#components-reconnect-modal .sk-reconnect-text { background: transparent; color: var(--primary); }
+#components-reconnect-modal .sk-reconnect-text:hover { background: color-mix(in srgb, var(--primary) calc(var(--hover-opacity) * 100%), transparent); }
+#components-reconnect-modal .sk-reconnect-filled { background: var(--primary); color: var(--primary-contrast-text); }
+#components-reconnect-modal button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 #blazor-error-ui {
   display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000;

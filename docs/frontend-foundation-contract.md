@@ -145,8 +145,12 @@ All primitives use the design-system `sk-` classes and role tokens; no inline co
 
 ## 10. Reconnect, loading, empty, and auth states
 
-- `App.razor` keeps the Blazor template reconnect modal for a hard circuit loss.
-- `ReconnectNotice` is a non-modal banner for “live updates paused” or an SSR/backend error, with Retry. It is not shown while the reconnect modal is visible; never both.
+- `App.razor` keeps the framework-owned reconnect `<dialog id="components-reconnect-modal">` (`ReconnectModal.razor`) for a hard circuit loss. It must work while the circuit is down, so it stays a plain `<dialog>` with no MudBlazor components or Blazor events, styled like a MudDialog (design system Reconnect card; #177): `surface`, `radius-lg`, `elevation-24` over `overlay-dark`, about 360px wide. It has one section per hard loss (`[data-reconnect-state]`), shown by the framework's state class: a 32px icon (MudBlazor's `WifiOff`/`Pause`/`Error` SVG, written into the static document), an `h2` title in `h6` type, one `body1` sentence in `text-secondary`, then the actions:
+  - `failed`: “Couldn’t rejoin the server” — Reload · Retry;
+  - `paused`: “Session paused” — Resume;
+  - `resume-failed`: “Couldn’t resume the session” — Reload · Resume.
+- `reconnect.js` mirrors the state onto `body[data-sk-reconnect]`, opens the dialog only for those three states (a brief `show`/`retrying` never does), names it by the shown state's title (`aria-labelledby`), reloads on `rejected`, and serves every reconnect button through one capturing document click listener: `[data-reconnect-retry]` (`Blazor.reconnect()`, then `resumeCircuit()`, else reload), `[data-reconnect-resume]` and `[data-reconnect-reload]`.
+- `ReconnectNotice` is a `MudAlert` Warning Dense (`role="status"`) for “live updates paused” or an SSR/backend error, with a Retry served by `reconnect.js` (`data-reconnect-retry`), like the drawer’s note. It is not shown while the reconnect modal is visible; never both.
 - `LibraryView`/`RecordingLibrary.IsLoaded` gates skeleton rows. Empty library shows “No recordings yet”. Unknown `/r/{id}` shows a message and a link back.
 - The top bar auth slot uses `TwitchAccount`/`AuthorizeView`: signed out shows Connect with Twitch (link to `/api/auth/twitch/login?returnUrl=<current>`); signed in shows the account avatar, a `MudMenu` activator (see `docs/details-auth-settings-contract.md` §7). Settings and admin actions stay visible but disabled with the `RequiresTwitch` tooltip. Viewing, playback, media, health, and progress remain public.
 - The actual OAuth/token flow belongs to the auth ticket; the foundation renders the shell states and the Mock fake.

@@ -1,26 +1,37 @@
-// Reconnect dialog behaviour from the Blazor Web App template, adapted to the
-// StreamKeepr shell. The framework owns the modal; this module only mirrors
-// its state and retries/resumes the circuit.
+// Reconnect behaviour from the Blazor Web App template, adapted to the StreamKeepr shell
+// (design system Reconnect card). The framework owns the modal and its state classes; this
+// module mirrors the state onto <body>, opens the modal only for a hard loss, and retries,
+// resumes or reloads. Every button it serves works while the circuit is down, so they are
+// found by data hook through one document-level listener rather than Blazor events:
+//   [data-reconnect-retry]   the modal's Retry and the "Live updates paused" alerts' Retry
+//   [data-reconnect-resume]  the modal's Resume
+//   [data-reconnect-reload]  the modal's Reload
 const reconnectModal = document.getElementById("components-reconnect-modal");
 
-if (reconnectModal) {
-  reconnectModal.addEventListener(
-    "components-reconnect-state-changed",
-    handleReconnectStateChanged,
-  );
-
-  document
-    .getElementById("components-reconnect-button")
-    ?.addEventListener("click", retry);
-  document
-    .getElementById("components-resume-button")
-    ?.addEventListener("click", resume);
-}
-
+// Mirrored in AppShell.razor.js (onReconnectState) and ReconnectModal.razor (one section each).
 const HARD_LOSS = new Set(["failed", "paused", "resume-failed"]);
+
+reconnectModal?.addEventListener(
+  "components-reconnect-state-changed",
+  handleReconnectStateChanged,
+);
+// Capture, so a component that stops propagation (MudButton does) cannot hide the click.
+document.addEventListener("click", onClick, true);
+
+function onClick(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest("[data-reconnect-retry]")) void retry();
+  else if (target?.closest("[data-reconnect-resume]")) void resume();
+  else if (target?.closest("[data-reconnect-reload]")) location.reload();
+}
 
 function setState(state) {
   if (document.body) document.body.dataset.skReconnect = state;
+}
+
+// The dialog is named by the title of the state it shows (ReconnectModal.razor TitleId).
+function labelModal(state) {
+  reconnectModal?.setAttribute("aria-labelledby", `sk-reconnect-title-${state}`);
 }
 
 function handleReconnectStateChanged(event) {
@@ -29,8 +40,9 @@ function handleReconnectStateChanged(event) {
 
   // A transient reconnect ("show", "retrying") stays quiet: the drawer shows "Live updates
   // paused" from body[data-sk-reconnect] and playback keeps going. Only a hard circuit loss
-  // raises the template modal, so the note and the modal are never both prominent.
+  // raises the modal, so the alert and the modal are never both prominent.
   if (HARD_LOSS.has(state)) {
+    labelModal(state);
     if (!reconnectModal.open) reconnectModal.showModal();
   } else if (state === "hide") {
     reconnectModal.close();
@@ -60,7 +72,7 @@ async function retry() {
       // The server is reachable but the circuit is gone.
       const resumed = await window.Blazor.resumeCircuit();
       if (!resumed) location.reload();
-      else reconnectModal.close();
+      else reconnectModal?.close();
     }
   } catch {
     document.addEventListener("visibilitychange", retryWhenDocumentBecomesVisible);
@@ -76,12 +88,14 @@ async function resume() {
   try {
     const successful = await window.Blazor.resumeCircuit();
     if (!successful) location.reload();
-    else reconnectModal.close();
+    else reconnectModal?.close();
   } catch {
-    reconnectModal.classList.replace(
+    reconnectModal?.classList.replace(
       "components-reconnect-paused",
       "components-reconnect-resume-failed",
     );
+    setState("resume-failed");
+    labelModal("resume-failed");
   }
 }
 

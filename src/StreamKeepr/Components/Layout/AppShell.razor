@@ -147,8 +147,7 @@
 
             <MudBlazor.MudMainContent Class="sk-main-frame">
                 <ReconnectNotice Visible="@_updatesPaused"
-                                 ModalVisible="@_reconnectModalVisible"
-                                 OnRetry="RetryAsync" />
+                                 ModalVisible="@_reconnectModalVisible" />
                 <main class="sk-main">
                     <div class="sk-main-inner">
                         @ChildContent
@@ -364,8 +363,6 @@
     }
 
     [JSInvokable]
-    public Task RetryAsync() => InvokeModuleAsync("retryConnection");
-
     private async Task InvokeModuleAsync(string identifier, params object[] args)
     {
         if (_module is null)

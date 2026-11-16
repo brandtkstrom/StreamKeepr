@@ -1,10 +1,22 @@
+@* "Live updates paused" outside the drawer, for a paused library feed while the circuit is up
+   (sk:updates-paused). The same MudAlert as the drawer's note (design system Feedback card);
+   its Retry is served by reconnect.js like every reconnect action. Never shown together with
+   the reconnect modal. *@
 @if (Visible && !ModalVisible)
 {
-    <div class="sk-reconnect-notice" role="status" data-reconnect-notice>
-        <span class="sk-icon sm" aria-hidden="true">cloud_off</span>
+    <MudBlazor.MudAlert Severity="MudBlazor.Severity.Warning"
+                        Variant="MudBlazor.Variant.Text"
+                        Dense="true"
+                        Icon="@MudBlazor.Icons.Material.Rounded.CloudOff"
+                        Class="sk-reconnect-notice sk-alert-action"
+                        role="status"
+                        data-reconnect-notice>
         <span class="msg">@Message</span>
-        <button type="button" class="sk-btn text" @onclick="OnRetry">Retry</button>
-    </div>
+        <MudBlazor.MudButton Variant="MudBlazor.Variant.Text"
+                             Size="MudBlazor.Size.Small"
+                             Color="MudBlazor.Color.Inherit"
+                             data-reconnect-retry>Retry</MudBlazor.MudButton>
+    </MudBlazor.MudAlert>
 }
 
 @code {
@@ -14,6 +26,4 @@
     [Parameter] public bool ModalVisible { get; set; }
 
     [Parameter] public string Message { get; set; } = "Live updates paused.";
-
-    [Parameter] public EventCallback OnRetry { get; set; }
 }
