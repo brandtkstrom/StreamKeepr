@@ -97,7 +97,7 @@ public sealed class SettingsPageTests
         Assert.Equal("Stopping…", cut.Find("[data-channel='ann'] [role='status']").TextContent);
 
         channels.Items = [new("ann", "Ann", null, true, true, ChannelRuntimeState.Paused, true, "EventSub connected")];
-        cut.InvokeAsync(pending.SetResult);
+        await cut.InvokeAsync(pending.SetResult);
 
         cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-channel='ann'] [data-channel-resume]")));
         Assert.Equal("Channel paused", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
@@ -118,7 +118,7 @@ public sealed class SettingsPageTests
         Assert.Equal("Resuming…", cut.Find("[data-channel='ann'] [role='status']").TextContent);
 
         channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected")];
-        cut.InvokeAsync(pending.SetResult);
+        await cut.InvokeAsync(pending.SetResult);
 
         cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-channel='ann'] [data-channel-stop]")));
         Assert.Equal("Recording resumed", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
@@ -154,7 +154,7 @@ public sealed class SettingsPageTests
         Assert.Equal("true", cut.Find("[data-channel-add]").GetAttribute("aria-busy"));
         Assert.True(cut.Find("[data-channel-add]").HasAttribute("disabled"));
 
-        cut.InvokeAsync(pending.SetResult);
+        await cut.InvokeAsync(pending.SetResult);
 
         cut.WaitForAssertion(() => Assert.Equal("", cut.Find("[data-channel-login]").GetAttribute("value")));
         Assert.Null(cut.Find("[data-channel-add]").GetAttribute("aria-busy"));
@@ -212,7 +212,7 @@ public sealed class SettingsPageTests
         Assert.Empty(cut.FindAll("[data-channel='ann'] [data-channel-remove]"));
 
         channels.Items = [];
-        cut.InvokeAsync(pending.SetResult);
+        await cut.InvokeAsync(pending.SetResult);
 
         cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-channels-empty]")));
         Assert.Equal("Channel removed", context.Services.GetRequiredService<SnackbarService>().Current?.Text);
