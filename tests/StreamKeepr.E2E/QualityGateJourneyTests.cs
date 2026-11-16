@@ -158,14 +158,14 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         await page.EmulateMediaAsync(new PageEmulateMediaOptions { ReducedMotion = ReducedMotion.Reduce });
         await TabToAsync(page, "e => e.hasAttribute('data-drawer-toggle')", "the drawer button");
         await page.Keyboard.PressAsync("Enter");
-        await page.Locator("[data-drawer-toggle][aria-expanded=true]").WaitForAsync();
+        await page.Locator("[data-shell][data-drawer-modal-open]").WaitForAsync();
         Assert.True(await FocusedMatchesAsync(page, "e => e.closest('nav[aria-label=Library]') !== null"), "focus moves into the drawer");
         await AssertFocusStaysInsideAsync(page, LibraryHooks.Drawer, nativeModal: false);
         await AssertNoMotionAsync(page, "phone drawer");
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "phone-drawer");
 
         await page.Keyboard.PressAsync("Escape");
-        await page.Locator("[data-drawer-toggle][aria-expanded=false]").WaitForAsync();
+        await page.Locator("[data-shell]:not([data-drawer-modal-open])").WaitForAsync();
         Assert.True(await FocusedMatchesAsync(page, "e => e.hasAttribute('data-drawer-toggle')"), "Escape returns focus to the drawer button");
     }
 
