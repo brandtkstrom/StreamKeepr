@@ -150,10 +150,11 @@
 
     private async Task ToggleGroupAsync(string login)
     {
-        if (Preferences.Drawer == DrawerMode.Rail && await IsRailAsync())
+        bool watching = LibraryUrl.RecordingId(Navigation.Uri) is not null;
+        if (Preferences.DrawerFor(watching) == DrawerMode.Rail && await IsRailAsync())
         {
             // In the rail an avatar is a jump: open the drawer at that streamer's recordings.
-            Preferences.SetDrawer(DrawerMode.Expanded);
+            Preferences.SetDrawer(DrawerMode.Expanded, watching);
             Preferences.SetCollapsed(login, false);
             _scrollToKey = $"g:{login}";
         }

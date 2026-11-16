@@ -1,22 +1,16 @@
-// Collocated shell module: app-bar scroll state, the modal drawer below 960px,
-// and the non-modal paused-updates/retry bridge.
+// Collocated shell module: app-bar scroll state, focus handling for the temporary library
+// drawer below 960px, and the non-modal paused-updates/retry bridge. AppShell.razor owns the
+// drawer's open state; this module only moves focus and reports Escape.
 let dotNetRef = null;
 let shell = null;
 let main = null;
 let appBar = null;
 let drawer = null;
-let scrim = null;
-let menuButton = null;
-let mobileOpen = false;
+let modalOpen = false;
 let lastFocus = null;
-let media = null;
 
 function onScroll() {
   appBar?.classList.toggle("scrolled", (main?.scrollTop ?? 0) > 0);
-}
-
-function isMobile() {
-  return window.matchMedia("(max-width: 959.98px)").matches;
 }
 
 // The drawer's tab stops: library rows are one roving stop (tabindex="-1" on the rest), and
@@ -34,18 +28,14 @@ function focusableElements() {
   );
 }
 
-function applyMobileDrawer() {
-  shell?.classList.toggle("drawer-modal-open", mobileOpen);
-  // Only this module knows the phone drawer is open (the menu button's aria-expanded is also
-  // server-rendered from the saved drawer mode), so it mirrors the state as a hook.
-  shell?.toggleAttribute("data-drawer-modal-open", mobileOpen);
-  menuButton?.setAttribute("aria-expanded", mobileOpen ? "true" : "false");
+// Called by AppShell after it renders the temporary drawer open or closed.
+function setModalDrawer(open) {
+  if (open === modalOpen) return;
+  modalOpen = open;
 
-  if (mobileOpen) {
+  if (open) {
     lastFocus =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     focusableElements()[0]?.focus();
   } else {
     if (lastFocus instanceof HTMLElement && lastFocus.isConnected) lastFocus.focus();
@@ -53,24 +43,12 @@ function applyMobileDrawer() {
   }
 }
 
-function toggleMobileDrawer() {
-  if (!isMobile() || shell?.classList.contains("theater")) return;
-  mobileOpen = !mobileOpen;
-  applyMobileDrawer();
-}
-
-function closeMobileDrawer() {
-  if (!mobileOpen) return;
-  mobileOpen = false;
-  applyMobileDrawer();
-}
-
 function onKeyDown(event) {
-  if (!mobileOpen) return;
+  if (!modalOpen) return;
 
   if (event.key === "Escape") {
     event.preventDefault();
-    closeMobileDrawer();
+    void dotNetRef?.invokeMethodAsync("CloseModalDrawer").catch(() => {});
     return;
   }
 
@@ -81,25 +59,14 @@ function onKeyDown(event) {
 
   const first = items[0];
   const last = items[items.length - 1];
-  if (event.shiftKey && document.activeElement === first) {
+  const inside = drawer?.contains(document.activeElement);
+  if (event.shiftKey && (document.activeElement === first || !inside)) {
     event.preventDefault();
     last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
+  } else if (!event.shiftKey && (document.activeElement === last || !inside)) {
     event.preventDefault();
     first.focus();
   }
-}
-
-function onMediaChange() {
-  if (isMobile()) return;
-
-  closeMobileDrawer();
-  const expanded =
-    drawer !== null &&
-    !drawer.classList.contains("rail") &&
-    !drawer.classList.contains("hidden") &&
-    !shell?.classList.contains("theater");
-  menuButton?.setAttribute("aria-expanded", expanded ? "true" : "false");
 }
 
 function onReconnectState(event) {
@@ -137,19 +104,13 @@ async function retryConnection() {
 
 export function init(reference) {
   dotNetRef = reference;
-  shell = document.querySelector(".sk-shell");
-  main = shell?.querySelector(".sk-main");
-  appBar = shell?.querySelector(".sk-appbar");
-  drawer = shell?.querySelector(".sk-drawer");
-  scrim = shell?.querySelector(".sk-scrim");
-  menuButton = shell?.querySelector("[data-drawer-toggle]");
+  shell = document.querySelector("[data-shell]");
+  main = shell?.querySelector("main");
+  appBar = shell?.querySelector("header");
+  drawer = shell?.querySelector("#sk-drawer");
 
   main?.addEventListener("scroll", onScroll, { passive: true });
   onScroll();
-
-  scrim?.addEventListener("click", closeMobileDrawer);
-  media = window.matchMedia("(max-width: 959.98px)");
-  media.addEventListener("change", onMediaChange);
   document.addEventListener("keydown", onKeyDown);
 
   document
@@ -162,23 +123,19 @@ export function init(reference) {
 
 export function dispose() {
   main?.removeEventListener("scroll", onScroll);
-  scrim?.removeEventListener("click", closeMobileDrawer);
-  media?.removeEventListener("change", onMediaChange);
   document.removeEventListener("keydown", onKeyDown);
   document
     .getElementById("components-reconnect-modal")
     ?.removeEventListener("components-reconnect-state-changed", onReconnectState);
   window.removeEventListener("sk:updates-paused", onUpdatesPaused);
 
-  closeMobileDrawer();
+  modalOpen = false;
+  lastFocus = null;
   dotNetRef = null;
   shell = null;
   main = null;
   appBar = null;
   drawer = null;
-  scrim = null;
-  menuButton = null;
-  media = null;
 }
 
-export { isMobile, toggleMobileDrawer, closeMobileDrawer, retryConnection };
+export { setModalDrawer, retryConnection };

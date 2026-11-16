@@ -1,8 +1,10 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject ILibraryView Library
+@inject NavigationManager Navigation
 
 <AppShell RecordingActive="@_recordingActive"
+          WatchTitle="@_watchTitle"
           FreeBytes="@_storage.FreeBytes"
           TotalBytes="@_storage.TotalBytes">
     <Drawer>
@@ -29,16 +31,19 @@
 @code {
     private bool _recordingActive;
     private StorageView _storage = new(0, 0);
+    private string? _watchTitle;
 
     protected override void OnInitialized()
     {
         Library.Changed += OnLibraryChanged;
+        Navigation.LocationChanged += OnLocationChanged;
         Refresh();
     }
 
     private void Refresh()
     {
         _storage = Library.Storage;
+        _watchTitle = LibraryUrl.RecordingId(Navigation.Uri) is { } id ? Library.Find(id)?.Title : null;
         _recordingActive = Library.Streamers(new LibraryQuery())
             .Any(streamer => streamer.IsRecording);
     }
@@ -49,5 +54,11 @@
         StateHasChanged();
     });
 
-    public void Dispose() => Library.Changed -= OnLibraryChanged;
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => OnLibraryChanged();
+
+    public void Dispose()
+    {
+        Library.Changed -= OnLibraryChanged;
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
 }

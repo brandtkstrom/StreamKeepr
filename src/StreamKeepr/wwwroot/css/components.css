@@ -215,34 +215,39 @@ mark.sk-hl { background: var(--sk-highlight); color: var(--sk-on-highlight); bor
 .sk-chip[aria-pressed="true"] { background: var(--sk-secondary-container); color: var(--sk-on-secondary-container); box-shadow: none; }
 .sk-chip .sk-icon { font-size: 18px; margin-left: -4px; }
 
-/* ---------- top app bar ---------- */
-.sk-appbar {
-  display: flex; align-items: center; gap: var(--sk-space-2); height: var(--sk-app-bar-height); padding: 0 var(--sk-space-4) 0 var(--sk-space-2);
-  background: var(--sk-surface); color: var(--sk-on-surface);
+/* ---------- top app bar (MudAppBar; design system: TopAppBar) ----------
+   New shell rules read tokens.css directly, not the legacy --sk-* aliases (ADR 0012). */
+.sk-appbar { border-bottom: 1px solid var(--divider); }
+.sk-appbar .mud-toolbar { gap: var(--space-2); padding: 0 var(--space-4) 0 var(--space-2); }
+.sk-appbar .mud-icon-button { color: var(--action-default); }
+.sk-appbar .mud-icon-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.sk-appbar.scrolled { box-shadow: var(--elevation-4); }
+.sk-wordmark { display: flex; align-items: center; gap: var(--space-2); margin-left: var(--space-1); border-radius: var(--radius-sm); color: var(--text-primary); font: var(--text-wordmark); letter-spacing: var(--text-wordmark-letter-spacing); text-decoration: none; white-space: nowrap; }
+.sk-wordmark:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.sk-wordmark b { color: var(--primary); font-weight: inherit; }
+.sk-logo { position: relative; display: inline-flex; flex: none; }
+.sk-logo img { display: block; width: 28px; height: 28px; }
+.sk-logo .rec-dot { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; border-radius: var(--radius-full); background: var(--rec); box-shadow: 0 0 0 2px var(--appbar-background); animation: sk-pulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .sk-logo .rec-dot { animation: none; } }
+.sk-watch-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--text-subtitle1); font-weight: 500; letter-spacing: var(--text-subtitle1-letter-spacing); }
+.sk-search { flex: 1; min-width: 0; display: flex; justify-content: center; }
+.sk-search-field {
+  display: flex; align-items: center; gap: var(--space-2); width: 100%; max-width: 360px; height: 36px; padding: 0 var(--space-3);
+  border-radius: var(--radius-md); background: var(--background); color: var(--text-secondary); box-shadow: inset 0 0 0 1px var(--lines-inputs);
+  font: var(--text-body2); letter-spacing: var(--text-body2-letter-spacing); transition: max-width 200ms cubic-bezier(0.2, 0, 0, 1);
 }
-.sk-appbar.scrolled { background: var(--sk-surface-container); box-shadow: var(--sk-elevation-1); }
-.sk-wordmark { display: flex; align-items: center; gap: 10px; margin-left: var(--sk-space-1); border-radius: var(--sk-radius-xs); color: inherit; font: var(--sk-text-title-large); text-decoration: none; white-space: nowrap; }
-.sk-wordmark:focus-visible { outline: 2px solid var(--sk-primary); outline-offset: 2px; }
-.sk-wordmark .rec-dot { width: 10px; height: 10px; border-radius: var(--sk-radius-full); background: var(--sk-rec); box-shadow: 0 0 0 3px var(--sk-surface), 0 0 0 5px var(--sk-rec); margin: 0 4px; }
-.sk-wordmark b { color: var(--sk-primary); font-weight: 700; }
-.sk-search {
-  flex: 1; max-width: 560px; margin: 0 auto; display: flex; align-items: center; gap: var(--sk-space-3); height: 48px; padding: 0 var(--sk-space-4);
-  border-radius: var(--sk-radius-xl); background: var(--sk-surface-container-high); color: var(--sk-on-surface-variant); font: var(--sk-text-body-medium);
-}
-.sk-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--sk-on-surface); font: inherit; }
-.sk-search input::placeholder { color: var(--sk-on-surface-variant); }
-.sk-search:focus-within { outline: 2px solid var(--sk-primary); }
-.sk-appbar-actions { display: flex; align-items: center; gap: var(--sk-space-1); }
+.sk-search-field:focus-within { max-width: 480px; outline: 2px solid var(--primary); outline-offset: -1px; }
+.sk-search-field input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: inherit; }
+.sk-search-field input::placeholder { color: var(--text-secondary); opacity: 1; }
+.sk-appbar-actions { display: flex; align-items: center; gap: var(--space-1); flex: none; }
+.sk-appbar-search { display: none; }
 .sk-storage { display: inline-flex; align-items: center; gap: var(--sk-space-1); margin-right: var(--sk-space-2); color: var(--sk-on-surface-variant); font: var(--sk-text-label-medium); white-space: nowrap; }
 .sk-storage .meter { width: 48px; height: 4px; border-radius: var(--sk-radius-full); background: var(--sk-surface-container-highest); overflow: hidden; }
 .sk-storage .meter i { display: block; height: 100%; background: var(--sk-primary); border-radius: var(--sk-radius-full); }
 
 /* ---------- library drawer ---------- */
-.sk-drawer {
-  width: var(--sk-drawer-width); flex: none; display: flex; flex-direction: column; min-height: 0;
-  background: var(--sk-surface-container-low); border-radius: 0 var(--sk-radius-lg) var(--sk-radius-lg) 0;
-  transition: width 300ms cubic-bezier(0.2, 0, 0, 1); overflow: hidden;
-}
+/* The MudDrawer frame sets the width (320px library, 72px rail); the library fills it. */
+.sk-drawer { width: 100%; height: 100%; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .sk-drawer-head { display: flex; align-items: center; gap: var(--sk-space-2); padding: var(--sk-space-4) var(--sk-space-2) var(--sk-space-2) var(--sk-space-4); }
 .sk-drawer-head h2 { flex: 1; margin: 0; font: var(--sk-text-title-medium); white-space: nowrap; }
 .sk-sort { display: inline-flex; align-items: center; gap: 2px; color: var(--sk-on-surface-variant); font: var(--sk-text-label-medium); white-space: nowrap; }
@@ -304,18 +309,16 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-thumb.live .prog i { background: var(--sk-rec); }
 
 /* rail (collapsed drawer) */
-.sk-drawer.rail { width: var(--sk-rail-width); }
 .sk-drawer.rail .sk-drawer-head h2, .sk-drawer.rail .sk-sort, .sk-drawer.rail .sk-filters,
 .sk-drawer.rail .sk-group-body, .sk-drawer.rail .who, .sk-drawer.rail .chev { display: none; }
 .sk-drawer.rail .sk-drawer-head { justify-content: center; padding: var(--sk-space-4) 0 var(--sk-space-2); }
 .sk-drawer.rail .sk-group-head { justify-content: center; padding: var(--sk-space-2) 0; }
 .sk-drawer.rail .sk-group + .sk-group { border-top: 0; }
-.sk-drawer.hidden { width: 0; }
 
 /* The rail is too narrow for a left-opening menu. Let the header menu escape
    the drawer and grow rightward; the mobile modal keeps the normal alignment. */
 @media (min-width: 960px) {
-  .sk-drawer.rail { overflow: visible; }
+  .sk-drawer-frame.mud-drawer--closed, .sk-drawer-frame.mud-drawer--closed > .mud-drawer-content, .sk-drawer.rail { overflow: visible; }
   .sk-drawer.rail .sk-menu.align-end { left: 0; right: auto; }
 }
 
@@ -573,14 +576,18 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-chapter .game { color: var(--sk-on-surface-variant); font: var(--sk-text-body-small); }
 .sk-actions { display: flex; gap: var(--sk-space-2); flex-wrap: wrap; }
 
-/* ---------- app shell (design-system AppShell preview) ---------- */
-.sk-shell { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; background: var(--sk-surface); }
-.sk-shell-body { flex: 1; display: flex; min-height: 0; gap: var(--sk-space-2); }
-.sk-main { flex: 1; min-width: 0; overflow-y: auto; padding: var(--sk-space-6) var(--sk-space-6) var(--sk-space-6) var(--sk-space-4); scrollbar-width: thin; scrollbar-color: var(--sk-surface-container-highest) transparent; }
-.sk-main-inner { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--sk-space-3); }
-.sk-shell.theater .sk-main { background: var(--sk-surface-container-lowest); padding-left: var(--sk-space-6); }
-.sk-shell.theater .sk-drawer { display: none; }
-.sk-scrim { display: none; }
+/* ---------- app shell (MudLayout; design system: AppShell, PhoneLayout) ---------- */
+.sk-shell { height: 100vh; height: 100dvh; overflow: hidden; background: var(--background); }
+.sk-shell .mud-layout { height: 100%; }
+.sk-drawer-frame { background: var(--drawer-background); color: var(--drawer-text); border-right: 1px solid var(--divider); }
+.sk-drawer-frame.mud-drawer-temporary { --mud-drawer-width: min(var(--drawer-width), calc(100vw - 48px)); width: var(--mud-drawer-width); border-right: 0; }
+/* The main column, not the page, scrolls: MudMainContent pads it below the fixed app bar. */
+.sk-main-frame { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.sk-main { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: var(--space-6) var(--space-6) var(--space-6) var(--space-4); scrollbar-width: thin; scrollbar-color: var(--surface-raised) transparent; }
+.sk-main-inner { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-3); }
+.sk-shell[data-theater-mode] .sk-main { background: var(--background-gray); padding-left: var(--space-6); }
+.sk-shell[data-drawer-frame="hidden"] .sk-drawer-frame { display: none; }
+.sk-shell[data-drawer-frame="hidden"] .sk-main-frame { margin-left: 0; }
 .sk-storage.warning { color: var(--sk-warning); }
 .sk-storage.warning .meter i { background: var(--sk-warning); }
 .sk-auth-placeholder { opacity: var(--sk-state-disabled); pointer-events: none; cursor: default; }
@@ -593,38 +600,44 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-reconnect-notice .sk-btn.text { color: var(--sk-on-warning-container); }
 body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none; }
 
-/* ---------- app shell responsive drawer ---------- */
+/* ---------- bottom app bar (below Md; design system: BottomNav) ---------- */
+.sk-bottombar { border-top: 1px solid var(--divider); padding-bottom: env(safe-area-inset-bottom); }
+.sk-bottombar .mud-toolbar { height: var(--bottom-bar-height); min-height: 0; padding: 0; }
+.sk-bottomnav { display: flex; width: 100%; height: 100%; }
+.sk-bottomnav-item {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-1); min-height: 48px;
+  border: 0; padding: 0; background: transparent; color: var(--text-secondary); font: var(--text-caption); font-weight: 500;
+  letter-spacing: var(--text-caption-letter-spacing); text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sk-bottomnav-item .pill { position: relative; display: grid; place-items: center; width: 56px; height: 28px; border-radius: var(--radius-full); color: var(--action-default); }
+.sk-bottomnav-item[aria-current="page"] { color: var(--text-primary); }
+.sk-bottomnav-item[aria-current="page"] .pill { background: color-mix(in srgb, var(--primary) 18%, transparent); color: var(--primary); }
+.sk-bottomnav-item:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.sk-bottomnav-item .rec-dot { position: absolute; top: 2px; right: 14px; width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--rec); box-shadow: 0 0 0 2px var(--appbar-background); }
+.sk-shell:has([data-bottom-nav]) .sk-main-frame { padding-bottom: calc(var(--bottom-bar-height) + env(safe-area-inset-bottom)); }
+
+/* ---------- compact shell (below Md, 960px) ----------
+   The server renders the wide layout because the breakpoint is only known in the browser,
+   so these rules make a phone's first paint fit before MudBreakpointProvider reports. */
+@media (min-width: 960px) {
+  .sk-bottombar { display: none; }
+}
 @media (max-width: 959.98px) {
-  .sk-shell-body { gap: 0; }
-  .sk-main { padding-right: var(--sk-space-4); }
-
-  .sk-drawer,
-  .sk-drawer.rail,
-  .sk-drawer.hidden {
-    position: fixed; top: var(--sk-app-bar-height); bottom: 0; left: 0; z-index: 30;
-    width: var(--sk-drawer-width); max-width: calc(100vw - 48px);
-    transform: translateX(-100%); transition: transform 300ms cubic-bezier(0.2, 0, 0, 1);
-    box-shadow: var(--sk-elevation-3);
+  .sk-appbar .mud-toolbar { padding: 0 var(--space-2); }
+  .sk-appbar-menu, .sk-appbar-settings, .sk-storage { display: none; }
+  .sk-appbar-search { display: inline-flex; }
+  .sk-wordmark { margin-left: var(--space-2); }
+  .sk-logo img { width: 24px; height: 24px; }
+  .sk-search { flex: 0 0 auto; }
+  .sk-search:not([data-search-open]) { display: none; }
+  .sk-search[data-search-open] {
+    position: fixed; left: 0; right: 0; top: var(--appbar-height-dense); z-index: 1; padding: var(--space-2);
+    background: var(--appbar-background); border-bottom: 1px solid var(--divider);
   }
-  .sk-shell.drawer-modal-open .sk-drawer { transform: none; }
-
-  /* A modal drawer is always the full 320px surface, even if the saved
-     desktop mode is the rail or hidden. */
-  .sk-drawer.rail .sk-drawer-head h2 { display: block; }
-  .sk-drawer.rail .sk-drawer-head { justify-content: flex-start; padding: var(--sk-space-4) var(--sk-space-2) var(--sk-space-2) var(--sk-space-4); }
-  .sk-drawer.rail .sk-sort { display: inline-flex; }
-  .sk-drawer.rail .sk-filters { display: flex; }
-  .sk-drawer.rail .sk-group-body { display: grid; }
-  .sk-drawer.rail .who { display: block; }
-  .sk-drawer.rail .chev { display: inline-block; }
-  .sk-drawer.rail .sk-group-head { justify-content: flex-start; padding: var(--sk-space-2); }
-  .sk-drawer.rail .sk-group + .sk-group { border-top: 1px solid var(--sk-outline-variant); }
-
-  .sk-scrim {
-    display: block; position: fixed; inset: var(--sk-app-bar-height) 0 0 0; z-index: 20;
-    background: var(--sk-scrim); opacity: 0; pointer-events: none; transition: opacity 300ms cubic-bezier(0.2, 0, 0, 1);
-  }
-  .sk-shell.drawer-modal-open .sk-scrim { opacity: 1; pointer-events: auto; }
+  .sk-search[data-search-open] .sk-search-field { max-width: none; }
+  .sk-shell[data-layout="wide"] .sk-drawer-frame { display: none; }
+  .sk-shell[data-layout="wide"] .sk-main-frame { margin-left: 0; }
+  .sk-main { padding-right: var(--space-4); }
 }
 
 @media (max-width: 599.98px) {
@@ -634,8 +647,11 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sk-drawer, .sk-scrim, .sk-group-body, .sk-collapse-body,
+  .sk-search-field, .sk-group-body, .sk-collapse-body,
   .sk-group-head .chev, .sk-collapse-head .chev { transition: none; }
+  /* MudBlazor's own transitions and ripples (drawer, app bar, buttons, menus, tooltips,
+     overlays) use longer selectors than ours, so reduced motion overrides them outright. */
+  [class*="mud-"], [class*="mud-"]::before, [class*="mud-"]::after { transition: none !important; animation: none !important; }
 }
 
 /* ---------- template reconnect dialog ---------- */

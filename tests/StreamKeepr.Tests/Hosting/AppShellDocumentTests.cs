@@ -24,7 +24,29 @@ public sealed class AppShellDocumentTests
         Assert.Matches(new Regex(@"css/fonts\.[a-z0-9]+\.css"), html);
         Assert.Matches(new Regex(@"css/components\.[a-z0-9]+\.css"), html);
         Assert.DoesNotContain("fonts.googleapis.com", html);
-        Assert.DoesNotContain("https://", html, StringComparison.OrdinalIgnoreCase);
+        // No asset loads from another origin. The app bar's GitHub and Twitch links are
+        // outbound anchors (#174), so the check is on what the page loads, not on every URL.
+        Assert.DoesNotMatch(new Regex(@"<link\b[^>]*\bhref=""(?:https?:)?//", RegexOptions.IgnoreCase), html);
+        Assert.DoesNotMatch(new Regex(@"\bsrc=""(?:https?:)?//", RegexOptions.IgnoreCase), html);
+        Assert.DoesNotMatch(new Regex(@"\bsrcset=""[^""]*(?:https?:)?//", RegexOptions.IgnoreCase), html);
+    }
+
+    [Fact]
+    public async Task The_prerendered_shell_already_has_its_real_links()
+    {
+        // Before the circuit connects (and before MudBlazor knows the breakpoint) the page is this
+        // HTML, so every bar destination must already be a real link (#174).
+        using var factory = new StreamKeeprAppFactory();
+        using var client = factory.CreateClient();
+
+        var html = await client.GetStringAsync("/");
+
+        var bottomNav = Regex.Match(html, @"<nav[^>]*aria-label=""Main""[^>]*>(?<body>.*?)</nav>", RegexOptions.Singleline);
+        Assert.True(bottomNav.Success, "the bottom bar is missing from the prerendered page");
+        Assert.Contains(@"href=""/""", bottomNav.Groups["body"].Value);
+        Assert.Contains(@"href=""/settings""", bottomNav.Groups["body"].Value);
+        Assert.Matches(new Regex(@"<a(?=[^>]*href=""https://github\.com/)(?=[^>]*target=""_blank"")"), html);
+        Assert.Matches(new Regex(@"<a(?=[^>]*href=""/settings"")(?=[^>]*aria-label=""Settings"")"), html);
     }
 
     [Fact]
