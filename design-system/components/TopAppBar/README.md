@@ -11,7 +11,7 @@ The `MudAppBar` across the top: 64px on desktop with the drawer toggle, wordmark
     <MudTooltip Text="StreamKeepr on GitHub">
         <MudIconButton Icon="@Icons.Custom.Brands.GitHub" Href="@Links.GitHub" Target="_blank" Rel="noopener" aria-label="StreamKeepr on GitHub (opens in a new tab)" />
     </MudTooltip>
-    <MudTooltip Text="Open Twitch">
+    <MudTooltip Text="Twitch">
         <MudIconButton Icon="@TwitchGlitch" Href="@Links.Twitch" Target="_blank" Rel="noopener" aria-label="Twitch (opens in a new tab)" />
     </MudTooltip>
     <MudToggleIconButton Icon="@Icons.Material.Rounded.Settings" @bind-Toggled="_settingsOpen" ToggledColor="Color.Primary" aria-label="Settings" aria-controls="sk-settings" />   @* opens the sheet; never navigates *@
