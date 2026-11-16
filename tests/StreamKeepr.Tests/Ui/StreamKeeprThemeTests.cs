@@ -9,7 +9,7 @@ namespace StreamKeepr.Tests.Ui;
 /// <c>StreamKeeprTheme</c> is hand-written from <c>design-system/tokens.json</c> (ADR 0012).
 /// These tests fail when either side changes without the other.
 /// </summary>
-public sealed partial class StreamKeeprThemeTests
+public sealed class StreamKeeprThemeTests
 {
     private static readonly DesignTokens Tokens = DesignTokens.Load();
     private static readonly Palette Palette = StreamKeeprTheme.Theme.PaletteDark;
@@ -17,8 +17,14 @@ public sealed partial class StreamKeeprThemeTests
     private static readonly PropertyInfo[] PaletteProperties = typeof(PaletteDark)
         .GetProperties(BindingFlags.Public | BindingFlags.Instance)
         .Where(property => property.CanRead
-            && (property.PropertyType == typeof(MudColor) || property.PropertyType == typeof(double)))
+            && (property.PropertyType == typeof(MudColor)
+                || property.PropertyType == typeof(string)
+                || property.PropertyType == typeof(double)))
         .ToArray();
+
+    // Source tokens are named after MudBlazor.Colors constants. This one also spells a Palette slot
+    // (Palette.GrayDefault, a legacy grey) but is not a role token, so the theme never sets it.
+    private static readonly HashSet<string> SourceTokensNamingAPaletteSlot = ["gray-default"];
 
     [Fact]
     public void Every_palette_token_matches_the_theme()
@@ -30,16 +36,19 @@ public sealed partial class StreamKeeprThemeTests
             PropertyInfo property = PaletteProperties.Single(p => p.Name == DesignTokens.PascalCase(name));
             compared++;
             object? actual = property.GetValue(Palette);
-            bool equal = property.PropertyType == typeof(double)
-                ? Equals(actual, double.Parse(value, System.Globalization.CultureInfo.InvariantCulture))
-                : new MudColor(value).Equals(actual);
+            bool equal = actual switch
+            {
+                double number => number == double.Parse(value, System.Globalization.CultureInfo.InvariantCulture),
+                string colour => new MudColor(value).Equals(new MudColor(colour)),
+                _ => new MudColor(value).Equals(actual),
+            };
             if (!equal)
                 mismatches.Add($"{name}: tokens.json {value}, theme {actual}");
         }
 
-        Assert.Empty(mismatches);
+        Assert.True(mismatches.Count == 0, string.Join(Environment.NewLine, mismatches));
         // Guards the name mapping: if it broke, nothing would be compared and the test would pass.
-        Assert.True(compared >= 30, $"only {compared} palette tokens were compared");
+        Assert.True(compared >= 35, $"only {compared} palette tokens were compared");
     }
 
     [Fact]
@@ -49,6 +58,7 @@ public sealed partial class StreamKeeprThemeTests
         HashSet<string> tokenised = PaletteTokens().Select(t => DesignTokens.PascalCase(t.Name)).ToHashSet();
 
         string[] untokenised = PaletteProperties
+            .Where(property => !IsDerivedShade(property.Name))
             .Where(property => !Equals(property.GetValue(Palette), property.GetValue(defaults)))
             .Select(property => property.Name)
             .Where(name => !tokenised.Contains(name))
@@ -73,7 +83,7 @@ public sealed partial class StreamKeeprThemeTests
     [Fact]
     public void Buttons_keep_sentence_case()
     {
-        Assert.Equal("none", Tokens.TypeStyles("MudBlazor text")["button"].GetProperty("textTransform").GetString());
+        Assert.Equal("none", Tokens.TypeStyles("MudBlazor text")["button"].Style.GetProperty("textTransform").GetString());
         Assert.Equal("none", StreamKeeprTheme.Theme.Typography.Button.TextTransform);
     }
 
@@ -82,12 +92,21 @@ public sealed partial class StreamKeeprThemeTests
     {
         Typography typography = StreamKeeprTheme.Theme.Typography;
         var mismatches = new List<string>();
-        IReadOnlyDictionary<string, System.Text.Json.JsonElement> styles = Tokens.TypeStyles("MudBlazor headings", "MudBlazor text");
+        IReadOnlyDictionary<string, TypeStyle> styles = Tokens.TypeStyles("MudBlazor headings", "MudBlazor text");
         // H1-H6 and the seven text slots; guards the group names so the loop cannot run empty.
         Assert.Equal(13, styles.Count);
-        foreach ((string name, System.Text.Json.JsonElement style) in styles)
+        foreach ((string name, TypeStyle style) in styles)
+            CompareSlot(name, style, (BaseTypography)typeof(Typography).GetProperty(DesignTokens.PascalCase(name))!.GetValue(typography)!);
+
+        // Typography.Default is the body text MudBlazor applies to <body>: tokens.json's body2.
+        CompareSlot("default", styles["body2"], typography.Default);
+        Assert.True(mismatches.Count == 0, string.Join(Environment.NewLine, mismatches));
+
+        void CompareSlot(string name, TypeStyle typeStyle, BaseTypography slot)
         {
-            var slot = (BaseTypography)typeof(Typography).GetProperty(DesignTokens.PascalCase(name))!.GetValue(typography)!;
+            System.Text.Json.JsonElement style = typeStyle.Style;
+            // A slot left null renders with Default's family (MudThemeProvider emits it for the slot).
+            Compare(name, "fontFamily", typeStyle.FontFamily, string.Join(", ", slot.FontFamily ?? typography.Default.FontFamily ?? []));
             Compare(name, "fontSize", style.GetProperty("fontSize").GetString(), slot.FontSize);
             Compare(name, "lineHeight", style.GetProperty("lineHeight").GetString(), slot.LineHeight);
             Compare(name, "fontWeight", style.GetProperty("fontWeight").ToString(), slot.FontWeight);
@@ -95,9 +114,6 @@ public sealed partial class StreamKeeprThemeTests
             if (style.TryGetProperty("textTransform", out System.Text.Json.JsonElement transform))
                 Compare(name, "textTransform", transform.GetString(), slot.TextTransform);
         }
-
-        Compare("default", "fontFamily", Tokens.SansFamily, string.Join(", ", typography.Default.FontFamily ?? []));
-        Assert.Empty(mismatches);
 
         void Compare(string style, string field, string? expected, string? actual)
         {
@@ -116,17 +132,17 @@ public sealed partial class StreamKeeprThemeTests
         var other => other,
     };
 
-    [System.Text.RegularExpressions.GeneratedRegex(@"-(accent|darken|lighten)-\d$|-default$")]
-    private static partial System.Text.RegularExpressions.Regex SourceToken();
+    // MudBlazor computes PrimaryDarken, PrimaryLighten and so on from the base colour; the theme never sets them.
+    private static bool IsDerivedShade(string name) =>
+        (name.EndsWith("Darken", StringComparison.Ordinal) || name.EndsWith("Lighten", StringComparison.Ordinal))
+        && PaletteProperties.Any(p => name == p.Name + "Darken" || name == p.Name + "Lighten");
 
     private static IEnumerable<(string Name, string Value)> PaletteTokens()
     {
         HashSet<string> names = PaletteProperties.Select(p => p.Name).ToHashSet();
         foreach ((string name, string value) in Tokens.Colors)
         {
-            // Source tokens are named after MudBlazor.Colors constants (gray-default = Colors.Gray.Default);
-            // only role tokens name a Palette slot, even where a source name happens to match one.
-            if (!SourceToken().IsMatch(name) && names.Contains(DesignTokens.PascalCase(name)))
+            if (!SourceTokensNamingAPaletteSlot.Contains(name) && names.Contains(DesignTokens.PascalCase(name)))
                 yield return (name, value);
         }
 

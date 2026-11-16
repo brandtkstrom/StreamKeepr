@@ -52,15 +52,17 @@ internal sealed partial class DesignTokens
                 token => token.GetProperty("name").GetString()!,
                 token => token.GetProperty("value").ToString());
 
-    public string SansFamily =>
-        root.GetProperty("type").GetProperty("families").GetProperty("sans").GetString()!;
+    /// <summary>The font stack a type group names, such as <c>sans</c>.</summary>
+    public string Family(string name) =>
+        root.GetProperty("type").GetProperty("families").GetProperty(name).GetString()!;
 
-    /// <summary>Every type style in the named groups, by style name.</summary>
-    public IReadOnlyDictionary<string, JsonElement> TypeStyles(params string[] groups) =>
+    /// <summary>Every type style in the named groups, by style name, with its group's font stack.</summary>
+    public IReadOnlyDictionary<string, TypeStyle> TypeStyles(params string[] groups) =>
         root.GetProperty("type").GetProperty("groups").EnumerateArray()
             .Where(group => groups.Contains(group.GetProperty("name").GetString()))
-            .SelectMany(group => group.GetProperty("styles").EnumerateArray())
-            .ToDictionary(style => style.GetProperty("name").GetString()!);
+            .SelectMany(group => group.GetProperty("styles").EnumerateArray()
+                .Select(style => new TypeStyle(style, Family(group.GetProperty("family").GetString()!))))
+            .ToDictionary(style => style.Style.GetProperty("name").GetString()!);
 
     /// <summary><c>drawer-background</c> → <c>DrawerBackground</c>.</summary>
     public static string PascalCase(string kebab) =>
@@ -69,3 +71,6 @@ internal sealed partial class DesignTokens
     [GeneratedRegex(@"^\{([a-z0-9-]+)\}$")]
     private static partial Regex ReferencePattern();
 }
+
+/// <summary>A type style from <c>tokens.json</c> and the font stack its group uses.</summary>
+internal sealed record TypeStyle(JsonElement Style, string FontFamily);
