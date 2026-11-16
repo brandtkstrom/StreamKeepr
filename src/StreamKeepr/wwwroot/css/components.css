@@ -76,8 +76,11 @@
   --sk-text-label-medium: var(--text-label);
   --sk-text-label-small: var(--text-label);
   --sk-text-stat-hero: var(--text-stat-hero);
+  --sk-text-stat-hero-numeric: var(--text-stat-hero-numeric);
   --sk-text-stat-value: var(--text-stat-value);
+  --sk-text-stat-value-numeric: var(--text-stat-value-numeric);
   --sk-text-timecode: var(--text-timecode);
+  --sk-text-timecode-numeric: var(--text-timecode-numeric);
   --sk-text-title-large: var(--text-wordmark);
   --sk-text-title-medium: var(--text-subtitle1);
   --sk-text-title-small: var(--text-subtitle2);
@@ -292,7 +295,7 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .sk-thumb .dur {
   position: absolute; right: 4px; bottom: 4px; padding: 1px 4px; border-radius: var(--sk-radius-xs);
-  background: var(--sk-player-scrim); color: var(--sk-on-player); font: 500 11px/14px var(--sk-font-mono); font-variant-numeric: tabular-nums;
+  background: var(--sk-player-scrim); color: var(--sk-on-player); font: 500 11px/14px var(--sk-font-mono); font-variant-numeric: var(--sk-text-timecode-numeric);
 }
 .sk-thumb .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--sk-player-scrim); }
 .sk-thumb .prog i { display: block; height: 100%; background: var(--sk-primary); }
@@ -452,7 +455,7 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-controls .sk-icon-btn { color: var(--sk-on-player); }
 .sk-controls .sk-icon-btn.on { color: var(--sk-primary); }
 .sk-controls .grow { flex: 1; }
-.sk-time { margin: 0 var(--sk-space-2); font: var(--sk-text-timecode); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sk-time { margin: 0 var(--sk-space-2); font: var(--sk-text-timecode); font-variant-numeric: var(--sk-text-timecode-numeric); white-space: nowrap; }
 .sk-time .dim { opacity: 0.75; }
 .sk-vol { display: flex; align-items: center; }
 .sk-vol .bar { width: 0; height: 4px; border-radius: var(--sk-radius-full); background: rgba(255, 255, 255, 0.24); overflow: hidden; transition: width 200ms cubic-bezier(0.2, 0, 0, 1), margin 200ms; }
@@ -525,7 +528,7 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sk-space-2); margin-bottom: var(--sk-space-2); }
 .sk-tile { position: relative; padding: var(--sk-space-3); border-radius: var(--sk-radius-sm); background: var(--sk-surface-container-high); min-width: 0; }
 .sk-tile .lbl { color: var(--sk-on-surface-variant); font: var(--sk-text-label-medium); }
-.sk-tile .val { margin-top: 2px; font: var(--sk-text-stat-hero); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sk-tile .val { margin-top: 2px; font: var(--sk-text-stat-hero); font-variant-numeric: var(--sk-text-stat-hero-numeric); white-space: nowrap; }
 .sk-tile .val small { font-size: 13px; color: var(--sk-on-surface-variant); }
 .sk-tile svg { display: block; width: 100%; height: 36px; margin-top: var(--sk-space-1); overflow: visible; }
 .sk-tile .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
@@ -543,7 +546,7 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 }
 .sk-kv { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px var(--sk-space-4); align-items: baseline; }
 .sk-kv dt { color: var(--sk-on-surface-variant); font: 400 13px/18px var(--sk-font-sans); white-space: nowrap; }
-.sk-kv dd { margin: 0; min-width: 0; font: var(--sk-text-stat-value); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-kv dd { margin: 0; min-width: 0; font: var(--sk-text-stat-value); font-variant-numeric: var(--sk-text-stat-value-numeric); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sk-kv dd.warn { color: var(--sk-error); }
 .sk-kv dd.warn::before { content: "⚠ "; }
 /* The stats panel puts the warning glyph in its text so it is not colour-only. */
@@ -564,7 +567,7 @@ body[data-sk-reconnect="show"] .sk-drawer-note, body[data-sk-reconnect="retrying
 .sk-chapter:hover { background: var(--sk-surface-container-high); }
 .sk-chapter:hover .time { color: var(--sk-on-surface); }
 .sk-chapter:focus-visible { outline: 2px solid var(--sk-primary); outline-offset: -2px; }
-.sk-chapter .time { flex: none; color: var(--sk-primary); font: var(--sk-text-label-medium); font-variant-numeric: tabular-nums; }
+.sk-chapter .time { flex: none; color: var(--sk-primary); font: var(--sk-text-label-medium); font-variant-numeric: var(--sk-text-timecode-numeric); }
 .sk-chapter .title { flex: 1; font: var(--sk-text-body-medium); }
 .sk-chapter .game { color: var(--sk-on-surface-variant); font: var(--sk-text-body-small); }
 .sk-actions { display: flex; gap: var(--sk-space-2); flex-wrap: wrap; }
@@ -819,7 +822,7 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 /* ---------- export row (details/auth/settings contract §5) ---------- */
 .sk-export-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sk-space-2) var(--sk-space-3); padding: var(--sk-space-2) var(--sk-space-3); border-radius: var(--sk-radius-sm); background: var(--sk-surface-container-high); font: var(--sk-text-body-medium); }
 .sk-export-row .text { min-width: 0; overflow-wrap: anywhere; }
-.sk-export-row .pct { font: var(--sk-text-timecode); font-variant-numeric: tabular-nums; }
+.sk-export-row .pct { font: var(--sk-text-timecode); font-variant-numeric: var(--sk-text-timecode-numeric); }
 .sk-export-progress { flex: 1 1 160px; height: 4px; border-radius: var(--sk-radius-full); background: var(--sk-surface-container-highest); overflow: hidden; }
 .sk-export-progress i { display: block; height: 100%; background: var(--sk-primary); transition: width 200ms linear; }
 .sk-export-row .sk-btn { margin-left: auto; }

@@ -44,6 +44,21 @@ describe("build-tokens.mjs", () => {
               },
             ],
           },
+          {
+            name: "Data",
+            family: "sans",
+            styles: [
+              {
+                name: "timecode",
+                fontSize: "0.875rem",
+                lineHeight: "1.43",
+                fontWeight: 400,
+                letterSpacing: "0.01071em",
+                fontStyle: "normal",
+                fontVariantNumeric: "tabular-nums",
+              },
+            ],
+          },
         ],
       },
     });
@@ -62,6 +77,9 @@ describe("build-tokens.mjs", () => {
         "  --font-sans: Roboto, Helvetica, Arial, sans-serif;",
         "  --text-button: normal 500 0.875rem/1.75 var(--font-sans);",
         "  --text-button-letter-spacing: 0.02857em;",
+        "  --text-timecode: normal 400 0.875rem/1.43 var(--font-sans);",
+        "  --text-timecode-letter-spacing: 0.01071em;",
+        "  --text-timecode-numeric: tabular-nums;",
         "}",
         "",
       ].join("\n"),

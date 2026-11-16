@@ -144,8 +144,11 @@
   --text-wordmark-letter-spacing: 0.0075em;
   --text-timecode: normal 400 0.875rem/1.43 var(--font-sans);
   --text-timecode-letter-spacing: 0.01071em;
+  --text-timecode-numeric: tabular-nums;
   --text-stat-value: normal 400 0.875rem/1.43 var(--font-sans);
   --text-stat-value-letter-spacing: 0.01071em;
+  --text-stat-value-numeric: tabular-nums;
   --text-stat-hero: normal 400 1.5rem/1.334 var(--font-sans);
   --text-stat-hero-letter-spacing: 0px;
+  --text-stat-hero-numeric: tabular-nums;
 }

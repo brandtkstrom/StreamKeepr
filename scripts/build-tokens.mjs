@@ -16,7 +16,8 @@ const REFERENCE = /^\{([a-z0-9-]+)\}$/;
  * - colour tokens use their dark value; a `{name}` reference becomes `var(--name)`;
  * - spacing, radius, shadow, size and opacity tokens are copied as they are;
  * - each type style becomes a `font` shorthand, `--text-<name>`, plus
- *   `--text-<name>-letter-spacing`, which the shorthand cannot carry.
+ *   `--text-<name>-letter-spacing`, which the shorthand cannot carry, and, for styles with a
+ *   `fontVariantNumeric` (the Data styles' tabular figures), `--text-<name>-numeric`.
  * Throws when two tokens would write the same custom property (a colour `text-primary` and a
  * type style `primary`, say), since the later one would silently win.
  * @param {object} tokens the parsed tokens.json
@@ -57,6 +58,7 @@ export function buildTokensCss(tokens) {
         ),
       );
       lines.push(declaration(`text-${style.name}-letter-spacing`, style.letterSpacing));
+      if (style.fontVariantNumeric) lines.push(declaration(`text-${style.name}-numeric`, style.fontVariantNumeric));
     }
   }
 
