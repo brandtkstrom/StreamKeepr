@@ -68,6 +68,25 @@ public sealed class RecordingDeleteTests
         Assert.False(dialogs.HasOpenDialog(DeleteName));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Escape_or_the_backdrop_closes_an_idle_dialog(bool escape)
+    {
+        await using BunitContext context = CreateContext(out TestRecordingAdmin admin, out _, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
+        var cut = Render(context, Recording());
+        cut.Find("button[data-delete]").Click();
+
+        if (escape)
+            await PressEscapeAsync(dialogs);
+        else
+            await ClickBackdropAsync(dialogs);
+
+        dialogs.WaitForAssertion(() => Assert.False(dialogs.HasOpenDialog(DeleteName)));
+        Assert.Empty(admin.Deletes);
+    }
+
     [Fact]
     public async Task Confirm_calls_the_admin_and_closes_the_dialog()
     {
@@ -99,6 +118,10 @@ public sealed class RecordingDeleteTests
         Assert.True(dialogs.Find("[data-delete-confirm]").HasAttribute("disabled"));
         Assert.True(dialogs.Find("[data-delete-cancel]").HasAttribute("disabled"));
         Assert.Equal("true", dialogs.Find("[data-delete-dialog]").GetAttribute("aria-busy"));
+        // Escape and the backdrop are ignored while the server call runs.
+        await PressEscapeAsync(dialogs);
+        await ClickBackdropAsync(dialogs);
+        Assert.True(dialogs.HasOpenDialog(DeleteName));
 
         gate.SetResult();
         dialogs.WaitForAssertion(() => Assert.False(dialogs.HasOpenDialog(DeleteName)));
@@ -205,6 +228,16 @@ public sealed class RecordingDeleteTests
         CreateContext(out admin, out _, signedIn);
 
     private const string DeleteName = "Delete recording?";
+
+    // Escape from inside the confirmation (where Cancel has focus), and a click on the
+    // backdrop beside the dialog.
+    private static Task PressEscapeAsync(IRenderedComponent<MudBlazor.MudDialogProvider> dialogs) =>
+        dialogs.Find("[data-delete-dialog]").KeyDownAsync(
+            new Microsoft.AspNetCore.Components.Web.KeyboardEventArgs { Key = "Escape" });
+
+    private static Task ClickBackdropAsync(IRenderedComponent<MudBlazor.MudDialogProvider> dialogs) =>
+        dialogs.Find("[role='dialog']").ParentElement!.QuerySelector("[aria-hidden='true']")!.ClickAsync(
+            new Microsoft.AspNetCore.Components.Web.MouseEventArgs());
 
     private static IRenderedComponent<RecordingDetails> Render(
         BunitContext context,

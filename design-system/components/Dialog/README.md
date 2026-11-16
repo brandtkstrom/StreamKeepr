@@ -19,7 +19,7 @@ Use `IDialogService.ShowMessageBoxAsync` for plain confirms, or a `MudDialog` co
 </MudDialog>
 ```
 
-`DialogOptions`: `MaxWidth = MaxWidth.ExtraSmall`, `FullWidth = true`, `CloseOnEscapeKey = true`, and `BackdropClick = false` while busy.
+`DialogOptions`: `MaxWidth = MaxWidth.ExtraSmall`, `FullWidth = true`. Escape and the backdrop close the dialog while idle and are ignored while busy. MudBlazor renders an open dialog with the options it was shown with, so the repo's `ConfirmDialog` handles both itself rather than switching `CloseOnEscapeKey`/`BackdropClick` mid-call. Focus lands on Cancel (`DefaultFocus.FirstChild` on the `MudDialog`).
 
 ## Rules
 

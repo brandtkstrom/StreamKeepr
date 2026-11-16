@@ -101,6 +101,24 @@ else
         </div>
     </section>
 
+    <section class="sk-dev-section" aria-labelledby="dev-confirm-dialog">
+        <h2 id="dev-confirm-dialog">ConfirmDialog</h2>
+        <div class="sk-dev-row">
+            <Button Variant="ButtonVariant.Outlined" OnClick="@(() => _dialogOpen = true)" data-dev-confirm-open>Open dialog</Button>
+            <Button Variant="ButtonVariant.Outlined" OnClick="@(() => { _dialogOpen = true; _dialogBusy = true; })">Open busy</Button>
+        </div>
+        <ConfirmDialog Visible="@_dialogOpen"
+                       VisibleChanged="@(open => _dialogOpen = open)"
+                       Title="Delete recording?"
+                       ConfirmLabel="Delete"
+                       HookPrefix="dev-confirm"
+                       Busy="@_dialogBusy"
+                       OnCancel="CloseDialog"
+                       OnConfirm="CloseDialog">
+            <MudBlazor.MudText Typo="MudBlazor.Typo.body1">The files and watch progress are removed permanently.</MudBlazor.MudText>
+        </ConfirmDialog>
+    </section>
+
     <section class="sk-dev-section" aria-labelledby="dev-snackbar">
         <h2 id="dev-snackbar">Snackbar</h2>
         <div class="sk-dev-row">
@@ -120,6 +138,14 @@ else
 @code {
     private bool _collapsibleOpen = true;
     private bool _switchChecked;
+    private bool _dialogOpen;
+    private bool _dialogBusy;
+
+    private void CloseDialog()
+    {
+        _dialogOpen = false;
+        _dialogBusy = false;
+    }
 
     private void ShowSnackbar() =>
         Snackbars.Show("Capture schedule is not available yet");

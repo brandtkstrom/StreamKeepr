@@ -1,35 +1,41 @@
 @* A destructive confirmation (design system Dialog card): an inline MudDialog that the
    MudDialogProvider renders while the owner keeps its state. The h6 title names the dialog;
    Cancel (text) comes first and the filled Error confirm, which repeats the verb, last.
-   MudDialog applies its own attributes only when it opens, so the data hooks and aria-busy
-   sit on a wrapper inside the content, where they follow every render. *@
+
+   MudDialog applies its own attributes only when it opens, and renders the open dialog with
+   the options it was shown with (MudBlazor 9.12), so neither can follow Busy. So the hooks
+   and aria-busy sit on a wrapper inside the content that also holds the buttons, and this
+   component closes on Escape (from that wrapper) and the backdrop itself, only while idle.
+   While busy both buttons are disabled, so focus is not in the wrapper and Escape is inert. *@
 <MudBlazor.MudDialog Visible="@Visible"
                      VisibleChanged="VisibleChanged"
-                     Options="@ConfirmDialogs.Options(Busy)">
+                     Options="@ConfirmDialogOptions.Value"
+                     DefaultFocus="MudBlazor.DefaultFocus.FirstChild"
+                     OnBackdropClick="OnBackdropClickAsync">
     <TitleContent>
         <MudBlazor.MudText Typo="MudBlazor.Typo.h6">@Title</MudBlazor.MudText>
     </TitleContent>
     <DialogContent>
-        <div aria-busy="@(Busy ? "true" : null)" @attributes="DialogHook">
+        <div class="sk-confirm" aria-busy="@(Busy ? "true" : null)" @onkeydown="OnKeyDownAsync" @attributes="DialogHook">
             @ChildContent
+            <div class="sk-confirm-actions">
+                <MudBlazor.MudButton Disabled="@Busy"
+                                     OnClick="OnCancel"
+                                     @attributes="CancelHook">Cancel</MudBlazor.MudButton>
+                <MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
+                                     Color="MudBlazor.Color.Error"
+                                     Disabled="@(Busy || ConfirmDisabled)"
+                                     OnClick="OnConfirm"
+                                     @attributes="ConfirmHook">@ConfirmLabel</MudBlazor.MudButton>
+            </div>
         </div>
     </DialogContent>
-    <DialogActions>
-        <MudBlazor.MudButton Disabled="@Busy"
-                             OnClick="OnCancel"
-                             @attributes="CancelHook">Cancel</MudBlazor.MudButton>
-        <MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
-                             Color="MudBlazor.Color.Error"
-                             Disabled="@(Busy || ConfirmDisabled)"
-                             OnClick="OnConfirm"
-                             @attributes="ConfirmHook">@ConfirmLabel</MudBlazor.MudButton>
-    </DialogActions>
 </MudBlazor.MudDialog>
 
 @code {
     [Parameter] public bool Visible { get; set; }
 
-    /// <summary>Raised when Escape or the backdrop closes the dialog (only while idle).</summary>
+    /// <summary>Raised with <c>false</c> when Escape or the backdrop closes the dialog (only while idle).</summary>
     [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
 
     /// <summary>A question naming the thing ("Delete recording?").</summary>
@@ -65,4 +71,13 @@
 
     private Dictionary<string, object> Hook(string part) =>
         new() { [$"data-{HookPrefix}-{part}"] = true };
+
+    private Task OnBackdropClickAsync(MouseEventArgs _) => CloseUnlessBusyAsync();
+
+    private Task OnKeyDownAsync(KeyboardEventArgs args) =>
+        args.Key == "Escape" ? CloseUnlessBusyAsync() : Task.CompletedTask;
+
+    // Escape or the backdrop closes an idle confirmation; during the server call both are ignored.
+    private Task CloseUnlessBusyAsync() =>
+        Busy ? Task.CompletedTask : VisibleChanged.InvokeAsync(false);
 }

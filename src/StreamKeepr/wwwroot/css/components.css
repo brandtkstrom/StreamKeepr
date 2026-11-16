@@ -756,6 +756,10 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
   border-radius: var(--radius-lg); box-shadow: var(--elevation-24);
 }
 .mud-overlay-dialog .mud-overlay-scrim { background-color: var(--overlay-dark); }
+/* ConfirmDialog keeps its buttons inside the content (so its Escape handler sees them), laid
+   out as MudBlazor's own dialog actions would be. */
+.sk-confirm { display: flex; flex-direction: column; gap: var(--space-4); }
+.sk-confirm-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
 
 /* ---------- snackbar (MudSnackbarProvider; design system Feedback card) ---------- */
 .mud-snackbar.mud-snackbar-surface {

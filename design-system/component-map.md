@@ -12,7 +12,7 @@ StreamKeepr's hand-built primitives (`Components/Primitives/`) give way to MudBl
 | `StatusChip` | `MudChip` `Size.Small`, class `sk-status` | See `StatusChip`. The label stays `text-primary`, and the icon takes the status colour. |
 | `Avatar` | `MudAvatar` + `MudBadge` | The live ring is `MudBadge Dot Overlap Origin="Origin.BottomRight" BadgeClass="sk-live"`, with `.sk-live` filled `rec` (no `Color` maps to `rec`). |
 | `Collapsible` | `MudExpansionPanel` (Blazor-rendered), `MudCollapse` | Details uses a panel. Stats keeps its own markup (see islands). |
-| `Dialog` | `MudDialog` via `IDialogService.ShowAsync`, or `ShowMessageBoxAsync` | See `Dialog`. |
+| `Dialog` | `ConfirmDialog`: an inline `MudDialog` (shown through `IDialogService` by the `MudDialogProvider`) that its owner keeps open; `ShowMessageBoxAsync` for a plain confirm | See `Dialog`. |
 | `Menu`, `MenuItem` | `MudMenu`, `MudMenuItem` | `AnchorOrigin="Origin.BottomRight"`, `TransformOrigin="Origin.TopRight"`. |
 | `Snackbar`, `SnackbarHost` | `ISnackbar` + `MudSnackbarProvider` | Bottom left; one at a time; an action, never a close icon alone. |
 | `Switch` | `MudSwitch T="bool"` | `Color.Primary`. |

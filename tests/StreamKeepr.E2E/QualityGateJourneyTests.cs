@@ -187,9 +187,10 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         // The delete dialog traps focus while open and gives it back on Escape. Nothing is deleted.
         await TabToAsync(page, "e => e.hasAttribute('data-delete')", "the delete button");
         await page.Keyboard.PressAsync("Enter");
-        await Feedback.Dialog(page, "Delete recording?").WaitForAsync();
-        // MudDialog moves focus in after it opens; tabbing earlier would start outside it.
-        await page.WaitForFunctionAsync("() => document.activeElement?.closest('[role=dialog]') !== null");
+        ILocator deleteDialog = Feedback.Dialog(page, "Delete recording?");
+        await deleteDialog.WaitForAsync();
+        // Focus lands on Cancel (details contract §6); MudDialog moves it there after opening.
+        await Assertions.Expect(deleteDialog.GetByRole(AriaRole.Button, new() { Name = "Cancel" })).ToBeFocusedAsync();
         await AssertFocusStaysInsideAsync(page, "[role=dialog]", nativeModal: false);
         await page.Keyboard.PressAsync("Escape");
         await Feedback.Dialog(page, "Delete recording?").WaitForAsync(new() { State = WaitForSelectorState.Detached });

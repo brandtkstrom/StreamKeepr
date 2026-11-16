@@ -14,6 +14,7 @@ public sealed class DevComponentsTests
     public async Task Development_renders_every_primitive()
     {
         await using var context = CreateContext("Development");
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var cut = RenderPage(context);
 
         Assert.Contains("Design-system primitives", cut.Markup);
@@ -34,6 +35,9 @@ public sealed class DevComponentsTests
         Assert.NotEmpty(cut.FindAll("[role='switch']"));
         Assert.NotEmpty(cut.FindAll("[role='tooltip']"));
         Assert.NotEmpty(cut.FindAll("[data-requires-twitch] [inert]"));
+
+        cut.Find("button[data-dev-confirm-open]").Click();
+        Assert.True(dialogs.HasOpenDialog("Delete recording?"));
     }
 
     [Fact]
