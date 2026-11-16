@@ -6,6 +6,7 @@
 @inject AdminSessionState Session
 @inject IJSRuntime JS
 @inject ILogger<TwitchAccount> Logger
+@inject SnackbarService Snackbars
 
 @* Top-bar Twitch control (details/auth/settings contract §7). Every state is plain markup that
    works without the circuit: the login link is a full-page navigation and Disconnect posts a
@@ -41,7 +42,7 @@ else
                                             BadgeClass="sk-account-badge"
                                             aria-hidden="true"
                                             data-auth-dot>
-                            <MudBlazor.MudAvatar Size="MudBlazor.Size.Small" Color="MudBlazor.Color.Tertiary" data-account-avatar>
+                            <MudBlazor.MudAvatar Color="MudBlazor.Color.Tertiary" Class="sk-account-avatar" data-account-avatar>
                                 @Initial(context.User)
                             </MudBlazor.MudAvatar>
                         </MudBlazor.MudBadge>
@@ -138,21 +139,24 @@ else
 
     // The menu shows the account's first letter until account images arrive.
     internal static string Initial(ClaimsPrincipal user) =>
-        DisplayName(user) is { Length: > 0 } name ? char.ToUpperInvariant(name[0]).ToString() : "?";
+        DisplayName(user) is { Length: > 0 } name
+            ? System.Text.Rune.ToUpperInvariant(System.Text.Rune.GetRuneAt(name, 0)).ToString()
+            : "?";
 
     // MudMenuItem renders a div, not a submit button, so the module submits the real form.
     private async Task DisconnectAsync()
     {
-        if (_module is null)
-            return;
-
         try
         {
+            if (_module is null)
+                throw new InvalidOperationException("The Twitch account module is not loaded.");
+
             await _module.InvokeVoidAsync("submitForm", LogoutFormId);
         }
-        catch (JSException ex)
+        catch (Exception ex) when (ex is JSException or InvalidOperationException)
         {
-            Logger.LogDebug(ex, "Could not submit the Twitch logout form.");
+            Logger.LogWarning(ex, "Could not submit the Twitch logout form.");
+            Snackbars.Show("Could not disconnect. Reload the page and try again.");
         }
     }
 

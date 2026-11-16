@@ -121,6 +121,38 @@ public sealed class TwitchAccountTests
     }
 
     [Fact]
+    public async Task A_disconnect_that_cannot_submit_says_so()
+    {
+        await using BunitContext context = CreateContext(out _);
+        BunitJSModuleInterop module = context.JSInterop.SetupModule("./Components/Features/Auth/TwitchAccount.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        module.SetupVoid("submitForm", _ => true).SetException(new Microsoft.JSInterop.JSException("form gone"));
+        context.AddAuthorization().SetAuthorized("mock_admin");
+        IRenderedComponent<TwitchAccount> cut = RenderAccount(context, out var popovers);
+
+        Activator(cut).QuerySelector("[data-account-trigger]")!.Click();
+        cut.WaitForAssertion(() => Assert.NotEmpty(Menu(popovers).QuerySelectorAll("[role='menuitem']")));
+        Menu(popovers).QuerySelectorAll("[role='menuitem']").Single(item => item.TextContent.Trim() == "Disconnect").Click();
+
+        cut.WaitForAssertion(() => Assert.Equal(
+            "Could not disconnect. Reload the page and try again.",
+            context.Services.GetRequiredService<StreamKeepr.Ui.SnackbarService>().Current?.Text));
+    }
+
+    [Theory]
+    [InlineData("Mock Admin", "M")]
+    [InlineData("élan", "É")]
+    [InlineData("🎮 Gamer", "🎮")]
+    public async Task The_avatar_initial_is_the_first_whole_character(string displayName, string expected)
+    {
+        await Task.CompletedTask;
+        var user = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(StreamKeepr.Infrastructure.Twitch.AdminAuth.DisplayNameClaim, displayName)]));
+
+        Assert.Equal(expected, TwitchAccount.Initial(user));
+    }
+
+    [Fact]
     public async Task Expired_replaces_the_chip_with_a_reconnect_link_and_keeps_admin_controls_inert()
     {
         await using BunitContext context = CreateContext(out AdminSessionState session);

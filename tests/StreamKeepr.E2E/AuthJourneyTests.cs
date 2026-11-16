@@ -18,9 +18,13 @@ public sealed class AuthJourneyTests(MockAppFixture app)
         await chip.WaitForAsync();
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "auth-connected");
 
-        await chip.ClickAsync();
+        // The avatar opens its menu from the keyboard too, and the open menu is axe clean.
+        await chip.FocusAsync();
+        await page.Keyboard.PressAsync("Enter");
         ILocator disconnect = page.GetByRole(AriaRole.Menuitem, new() { Name = "Disconnect" });
         await disconnect.WaitForAsync();
+        Assert.Contains("Connected to Twitch", await page.Locator("[data-account-header]").InnerTextAsync());
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "auth-account-menu");
         await disconnect.ClickAsync();
 
         // The antiforgery form post signs out and returns to the same page and query.
