@@ -91,6 +91,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         Assert.False(string.IsNullOrEmpty(id));
         await page.Keyboard.PressAsync("Enter");
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await ExpandLibraryOnWatchPageAsync(page);
         await page.Locator($"a[data-recording-id='{id}'][aria-current='true']").WaitForAsync();
 
         // The whole list is a single tab stop.
@@ -266,6 +267,22 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         Assert.Equal(expected, value);
     }
 
+    /// <summary>
+    /// Watch pages show the library as the rail by default (#174). Journeys that keep using the
+    /// library's rows there open it with the menu, as a viewer would; the choice is remembered
+    /// for later watch pages and reloads.
+    /// </summary>
+    internal static async Task ExpandLibraryOnWatchPageAsync(IPage page)
+    {
+        await page.Locator("[data-shell][data-watching]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
+        ILocator drawer = page.Locator(LibraryHooks.Drawer);
+        if (await drawer.GetAttributeAsync("data-drawer") == "expanded")
+            return;
+
+        await page.Locator("[data-drawer-toggle]").ClickAsync();
+        await Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "expanded" ? 1 : 0, 1);
+    }
+
     internal static async Task<Session> OpenAsync(
         string url, ViewportSize? viewport = null, string? initScript = null, bool hasTouch = false)
     {
@@ -281,8 +298,9 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
 
         IPage page = await context.NewPageAsync();
         await page.GotoAsync(url, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
-        await page.Locator($"{Search}[data-sk-ready]").WaitForAsync();
-        await page.Locator(LibraryHooks.Group).First.WaitForAsync();
+        // Attached, not visible: on a phone the search row and the drawer start closed (#174).
+        await page.Locator($"{Search}[data-sk-ready]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
+        await page.Locator(LibraryHooks.Group).First.WaitForAsync(new() { State = WaitForSelectorState.Attached });
         return new Session(playwright, browser, context, page);
     }
 

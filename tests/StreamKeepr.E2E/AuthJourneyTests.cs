@@ -13,9 +13,9 @@ public sealed class AuthJourneyTests(MockAppFixture app)
         await using Session session = await OpenAsync($"{app.BaseUrl}?sort=az");
         IPage page = session.Page;
 
-        ILocator chip = page.Locator("[data-auth-state=connected] button[data-menu-trigger]");
+        // The account is an avatar-only menu activator, named for the account (#174).
+        ILocator chip = page.GetByRole(AriaRole.Button, new() { Name = "Twitch account: Mock Admin" });
         await chip.WaitForAsync();
-        await page.GetByRole(AriaRole.Button, new() { Name = "Twitch account: Mock Admin" }).WaitForAsync();
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "auth-connected");
 
         await chip.ClickAsync();
