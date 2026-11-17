@@ -14,6 +14,7 @@ public sealed class ChipStatusAvatarTests
     [InlineData(StatusChipKind.Partial, "partial", "Partial")]
     [InlineData(StatusChipKind.Saved, "saved", "Saved")]
     [InlineData(StatusChipKind.Error, "error", "Error")]
+    [InlineData(StatusChipKind.Healthy, "healthy", "Healthy")]
     public async Task Status_chip_exposes_its_state_and_label(
         StatusChipKind status,
         string expectedStatus,
@@ -46,6 +47,17 @@ public sealed class ChipStatusAvatarTests
         Assert.Empty(cut.FindAll("button, a"));
         Assert.Equal("schedule", chip.GetAttribute("data-status-icon"));
         Assert.Equal("Partial", chip.TextContent.Trim());
+    }
+
+    [Fact]
+    public async Task The_settings_healthy_chip_shows_a_check_circle()
+    {
+        await using var context = new BunitContext();
+        context.Services.AddStreamKeeprMudServices();
+        var cut = context.Render<StatusChip>(parameters => parameters
+            .Add(component => component.Status, StatusChipKind.Healthy));
+
+        Assert.Equal("check_circle", cut.Find("[data-status='healthy']").GetAttribute("data-status-icon"));
     }
 
     [Fact]

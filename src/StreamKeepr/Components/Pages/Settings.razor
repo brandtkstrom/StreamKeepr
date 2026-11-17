@@ -1,78 +1,107 @@
 @page "/settings"
-@using StreamKeepr.Infrastructure.Twitch
-@using Microsoft.AspNetCore.Components.Forms
+@using StreamKeepr.Components.Features.Settings
 @inject NavigationManager Navigation
-@inject AdminSessionState Session
-@implements IDisposable
+@inject IJSRuntime JS
+@inject ILogger<Settings> Logger
+@implements IAsyncDisposable
 
 <PageTitle>Settings · Stream Keepr</PageTitle>
 
-@* Spec: docs/details-auth-settings-contract.md §8. Public route; signed out it never creates a
-   ChannelsView, which is the server-side guard for channel data and changes. *@
-<div class="sk-settings">
-    <h1>Settings</h1>
+@* Spec: docs/details-auth-settings-contract.md §8; design system: SettingsPage. A public route
+   for bookmarks and direct visits; the sections themselves are SettingsSections. *@
+<div class="sk-settings" data-settings-page data-sk-ready="@(_ready ? "" : null)">
+    <div class="sk-settings-header">
+        <MudBlazor.MudTooltip Text="Exit settings (Esc)" RootClass="sk-settings-exit">
+            <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.ArrowBack"
+                                     OnClick="ExitAsync"
+                                     aria-label="Exit settings"
+                                     aria-keyshortcuts="Escape"
+                                     data-settings-exit />
+        </MudBlazor.MudTooltip>
+        <MudBlazor.MudText Typo="MudBlazor.Typo.h5" HtmlTag="h1">Settings</MudBlazor.MudText>
+    </div>
 
-    @if (HttpsRequired)
-    {
-        <p class="sk-settings-note" data-https-note>
-            <span class="sk-icon" aria-hidden="true">info</span>
-            Twitch sign-in needs HTTPS through the reverse proxy. This page is plain HTTP.
-        </p>
-    }
-
-    <AuthorizeView>
-        <Authorized>
-            <section class="sk-panel sk-settings-section" id="twitch" aria-labelledby="sk-settings-twitch">
-                <h2 id="sk-settings-twitch">Twitch account</h2>
-                <div class="sk-settings-account">
-                    <Avatar Name="@TwitchAccount.DisplayName(context.User)" Tone="AvatarTone.Tertiary" Large="true" />
-                    <div class="who">
-                        <b data-account-name>@TwitchAccount.DisplayName(context.User)</b>
-                        <span data-account-login>@TwitchAccount.Login(context.User)</span>
-                    </div>
-                    <span class="sk-auth-dot" aria-hidden="true"></span>
-                    <span class="sk-visually-hidden">Connected to Twitch</span>
-                    <form method="post" action="@AdminAuth.LogoutPath" class="actions">
-                        <AntiforgeryToken />
-                        <input type="hidden" name="returnUrl" value="/settings" />
-                        <button type="submit" class="sk-btn outlined" data-settings-disconnect>Disconnect</button>
-                    </form>
-                </div>
-            </section>
-
-            <ChannelSettings />
-        </Authorized>
-        <NotAuthorized>
-            <section class="sk-panel sk-settings-signin" data-settings-signed-out>
-                @if (Session.Expired)
-                {
-                    <StatusChip Status="StatusChipKind.Error" Label="Twitch session expired" />
-                }
-                <h2>Connect Twitch to manage channels</h2>
-                <a class="sk-twitch" href="@AuthLinks.LoginHref(Navigation.Uri)" data-enhance-nav="false" data-twitch-connect>
-                    <span class="sk-icon" aria-hidden="true">link</span>
-                    <span class="lbl">@(Session.Expired ? "Reconnect Twitch" : "Connect with Twitch")</span>
-                </a>
-            </section>
-        </NotAuthorized>
-    </AuthorizeView>
+    <SettingsSections />
 </div>
 
 @code {
-    // Plain HTTP outside localhost cannot complete Twitch sign-in (twitch-auth contract §6).
-    private bool HttpsRequired
+    private const string Module = "./Components/Pages/Settings.razor.js";
+
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<Settings>? _self;
+    private bool _ready;
+
+    /// <summary>The shell's record of this circuit's pages; absent outside the shell.</summary>
+    [CascadingParameter] public NavigationHistory? History { get; set; }
+
+    /// <summary>
+    /// Leaves Settings: back through browser history to the StreamKeepr page the viewer came
+    /// from, or Home after a direct visit. The exit button and Esc both land here.
+    /// </summary>
+    [JSInvokable]
+    public async Task ExitAsync()
     {
-        get
+        if (History?.HasPreviousPage != true)
         {
-            var uri = new Uri(Navigation.Uri);
-            return uri.Scheme == Uri.UriSchemeHttp
-                && !AdminAuth.IsLocalHost(new HostString(uri.Authority));
+            Navigation.NavigateTo("/");
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("history.back");
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, so there is no page left to leave.
         }
     }
 
-    protected override void OnInitialized() => Session.Changed += OnSessionChanged;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
 
-    private void OnSessionChanged() => _ = InvokeAsync(StateHasChanged);
+        try
+        {
+            _self = DotNetObjectReference.Create(this);
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", Module);
+            await _module.InvokeVoidAsync("install", _self);
+            _ready = true;
+            StateHasChanged();
+        }
+        catch (JSException ex)
+        {
+            // The exit button still works; only the Esc shortcut is lost.
+            Logger.LogDebug(ex, "The Settings page module could not install its Esc shortcut.");
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit ended before the page finished its first render.
+        }
+    }
 
-    public void Dispose() => Session.Changed -= OnSessionChanged;
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_module is not null)
+            {
+                await _module.InvokeVoidAsync("uninstall");
+                await _module.DisposeAsync();
+            }
+        }
+        catch (JSException ex)
+        {
+            Logger.LogDebug(ex, "The Settings page module could not remove its Esc shortcut.");
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, and its listener with it.
+        }
+        finally
+        {
+            _self?.Dispose();
+        }
+    }
 }

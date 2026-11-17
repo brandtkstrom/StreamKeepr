@@ -20,3 +20,7 @@ Settings reuse the shape for Healthy (`success`, `CheckCircle`), Connected, Push
 - REC is the only filled chip, and it is the only place `rec` fills anything.
 - One chip per row. Never use a chip as a button.
 - Under `prefers-reduced-motion`, the REC dot stops pulsing.
+
+## As built (#179)
+
+The Settings success shape is its own kind, `Healthy` (`data-status="healthy"`, icon `check_circle`), used for Healthy, Connected, full coverage and Push. Polling is the Partial kind with the `schedule` icon. Paused and Off stay neutral (the Saved shape with `pause` / `remove`).

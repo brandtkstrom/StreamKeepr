@@ -36,6 +36,9 @@ public enum StatusChipKind
     Partial,
     Saved,
     Error,
+
+    /// <summary>Settings only: healthy service, a live push connection, full coverage.</summary>
+    Healthy,
 }
 
 /// <summary>

@@ -13,3 +13,9 @@ The `/settings` page, for bookmarks and direct visits. The app's own Settings co
 - The app bar's settings button shows as current (`aria-current="page"`, `primary` tint). Below `Breakpoint.Md`, Settings is current in the bottom bar instead, and the page pads its bottom by `bottom-bar-height`.
 
 Everything maps to today's `Settings.razor`. The app is dark only, so there is no theme setting.
+
+## As built (#179)
+
+- The exit button and Esc go back through browser history only when this tab's StreamKeepr session (the Blazor circuit) has already shown another page; any full-page load (a direct visit, a bookmark, returning from Twitch sign-in, Disconnect) counts as a direct visit and goes Home. A viewer who opens Settings directly, goes Home, then uses the browser's Back button and exits would leave the app: accepted.
+- Not built yet: pressing the app bar's Settings button again does not exit, the app bar's Settings button is not marked current (`aria-current`, `primary` tint), and below `Breakpoint.Md` there is no dense top bar with a back arrow. The bottom bar marks Settings current, as before.
+- The plain-HTTP note and the signed-out panel live in `SettingsSections` too, so the sheet shows them as well.

@@ -12,3 +12,9 @@ Settings › Channels: the watched Twitch channels with their capture state, pus
 - Remove and Stop open a `Dialog`: "Remove Copper Moth?" → "Recordings are kept. An open capture is finalized first."
 - Every row action's `aria-label` names the channel ("Remove Copper Moth").
 - Signed out, show only "Connect Twitch to manage channels" and the Twitch button.
+
+## As built (#179)
+
+- Rows are a plain `<ul role="list">`: `MudListItem` wraps its content in a `<p>`, which cannot hold the avatar or the buttons.
+- The row avatar has no `rec` badge. The REC chip already says it, and MudBadge's dot is an empty `role="status"` live region that would shadow the row's busy status.
+- The Add field's label is the `MudTextField`'s own outlined label.

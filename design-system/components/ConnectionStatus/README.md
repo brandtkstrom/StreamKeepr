@@ -12,3 +12,8 @@ When coverage is partial, a `MudAlert Severity.Info Dense` follows (with the `Sc
 
 - Times are relative ("12 s ago"). Intervals are "Every 60 s".
 - The panel renders nothing when signed out.
+
+## As built (#179)
+
+- The round-trip key reads "Twitch API", as before.
+- The partial-coverage alert has `role="note"` rather than MudAlert's default `alert`, so it is not announced on every render.
