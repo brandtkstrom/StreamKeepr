@@ -7,7 +7,7 @@ import {
 
 const LINK = `
   <a class="sk-twitch" href="#login" data-twitch-connect>
-    <span class="sk-icon" aria-hidden="true">link</span><span class="lbl">Connect with Twitch</span>
+    <svg class="mud-icon-root" aria-hidden="true" data-twitch-icon><path d=""/></svg><span class="lbl">Connect with Twitch</span>
   </a>`;
 
 describe("TwitchAccount.razor.js", () => {
@@ -29,7 +29,7 @@ describe("TwitchAccount.razor.js", () => {
     expect(link.getAttribute("aria-busy")).toBe("true");
     expect(link.querySelector(".sk-spin")).not.toBeNull();
     expect(link.querySelector("[data-spinner]")).not.toBeNull();
-    expect(link.querySelector(".sk-icon")).toBeNull();
+    expect(link.querySelector("[data-twitch-icon]")).toBeNull();
     expect(link.querySelector(".lbl").textContent).toBe("Waiting for Twitch…");
     expect(prevented).toBe(false);
   });
@@ -52,8 +52,20 @@ describe("TwitchAccount.razor.js", () => {
     resetConnecting(link);
 
     expect(link.hasAttribute("aria-busy")).toBe(false);
-    expect(link.querySelector(".sk-icon").textContent).toBe("link");
+    expect(link.querySelector("[data-spinner]")).toBeNull();
+    expect(link.querySelector("svg[data-twitch-icon]")).not.toBeNull();
     expect(link.querySelector(".lbl").textContent).toBe("Connect with Twitch");
+  });
+
+  it("restores the label each link had, such as Reconnect Twitch", () => {
+    document.body.innerHTML = LINK.replace("Connect with Twitch", "Reconnect Twitch");
+    const link = document.querySelector("a");
+    click(link);
+    expect(link.querySelector(".lbl").textContent).toBe("Waiting for Twitch…");
+
+    resetConnecting(link);
+
+    expect(link.querySelector(".lbl").textContent).toBe("Reconnect Twitch");
   });
 
   it("submits the named antiforgery form for Disconnect, as its submit button would", () => {

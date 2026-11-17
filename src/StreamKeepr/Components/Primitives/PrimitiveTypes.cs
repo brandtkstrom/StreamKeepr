@@ -1,21 +1,5 @@
 namespace StreamKeepr.Components.Primitives;
 
-public enum ButtonVariant
-{
-    Filled,
-    Tonal,
-    Outlined,
-    Text,
-    Danger,
-}
-
-public enum IconSize
-{
-    Small = 18,
-    Medium = 20,
-    Large = 24,
-}
-
 public enum AvatarTone
 {
     Default,

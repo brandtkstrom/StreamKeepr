@@ -31,7 +31,7 @@
             <span class="name"><MudBlazor.MudHighlighter Text="@Streamer.DisplayName" HighlightedText="@Search" Class="sk-mark" /></span>
             <span class="meta" data-group-meta>@Meta</span>
         </span>
-        <span class="chev" aria-hidden="true"><Icon Name="expand_more" /></span>
+        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.ExpandMore" Class="chev" />
     </div>
 
     <div id="@BodyId" class="sk-group-body" role="group" inert="@(!Expanded)">

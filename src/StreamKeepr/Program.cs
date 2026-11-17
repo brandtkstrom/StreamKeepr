@@ -305,22 +305,6 @@ try
     app.UseAuthorization();
     app.UseAntiforgery();
 
-    // The primitive gallery exists only for local design work. Block the route
-    // outside Development even though the component ships in the assembly.
-    if (!app.Environment.IsDevelopment())
-    {
-        app.Use(async (context, next) =>
-        {
-            if (context.Request.Path.StartsWithSegments("/dev"))
-            {
-                context.Response.StatusCode = StatusCodes.Status404NotFound;
-                return;
-            }
-
-            await next();
-        });
-    }
-
     app.UseRecordingsMedia();
 
     app.MapStaticAssets();

@@ -1,0 +1,9 @@
+@* The content of every "Connect with Twitch" control (design system: TwitchAccount): the link
+   icon and the label. TwitchAccount.razor.js finds the two by data-twitch-icon and .lbl to show
+   "Waiting for Twitch…", so every connect link renders them from here. *@
+<MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Link" Size="MudBlazor.Size.Small" data-twitch-icon />
+<span class="lbl">@Label</span>
+
+@code {
+    [Parameter] public string Label { get; set; } = "Connect with Twitch";
+}

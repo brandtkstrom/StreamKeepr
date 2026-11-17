@@ -167,7 +167,7 @@ This is the single handoff for the full application specification. It records th
 - `.sk-shell`: top app bar (menu, wordmark/REC dot, search, storage meter, schedule stub, settings, auth last), drawer 320/72/hidden, theater, main max 1100, player → details → stats. Breakpoints 960/600.
 - `UiPreferences` scoped from versioned `sk-ui` cookie (4 KB/50 cap; defaults expanded/theater off/stats closed/details open); `ViewerClock` from `sk-tz` IANA with UTC fallback and one post-circuit sync.
 - `LibraryView` scoped over the backend services; 500 ms `Changed`; shell uses it for REC dot/storage.
-- Primitives: Button, IconButton, Icon, Chip, StatusChip, Avatar, Collapsible, Switch, Menu, Tooltip, Dialog, Snackbar; `RequiresTwitch` visible-but-inert; `/dev/components` Development-only.
+- Primitives: Chip, StatusChip, Avatar, Menu, Tooltip, Dialog, Snackbar; generic controls are plain MudBlazor (the hand-built Button, IconButton, Icon, Collapsible, Switch and the `/dev/components` gallery were removed, #181); `RequiresTwitch` visible-but-inert.
 - Mock profile: four streamers/eight recordings, growing capture, MockPoller, fake auth, fake Streamlink; no credentials.
 - Reconnect: template modal for hard loss; `ReconnectNotice` for paused updates; never both. Skeleton/empty/unknown states.
 - JS: `prefs.js`, `AppShell.razor.js`, collocated modules; hls.js only in the player; ImportMap; no Node at runtime. CSS order tokens → fonts → components; no Google Fonts; generated CSS committed; `sync:ds` deferred (E-18).
@@ -197,7 +197,7 @@ This is the single handoff for the full application specification. It records th
 
 ### 5.4 Details, export, delete, auth, settings
 
-- Details: `Collapsible`/`DetailsOpen`; title, streamer, category, viewer-zone date, counts/size, chapters seek via `PlayerBridge`; Copy playlist absolute from `BaseUri` + `PlaylistUrl`, public, clipboard/snackbar.
+- Details: `MudCollapse`/`DetailsOpen`; title, streamer, category, viewer-zone date, counts/size, chapters seek via `PlayerBridge`; Copy playlist absolute from `BaseUri` + `PlaylistUrl`, public, clipboard/snackbar.
 - Export: `FindByRecording` rehydration; inline row Queued/Running + percent/Cancel, Succeeded + Download, Failed + Retry, Cancelled + Retry; `ExportIncompatibleParts` non-retryable; one MP4; progressbar; completion/failure snackbar; download anchor full-page, signed-in; lease blocks delete (E-22).
 - Delete: dialog names recording, `error-container`, Danger/Text, Complete-only, live/leased refusal, busy, success snackbar + next newest, unknown/unauthorized paths; exported file survives 24 h (known).
 - Auth: full-page Connect with local return URL and `data-enhance-nav=false`; connected account chip; Manage → `/settings#twitch`; Disconnect antiforgery form post; expired provider signs out, top-bar expired chip/Reconnect, playback continues; `authError` codes (`notAllowed`, `httpsRequired`, `failed`) snackbar and query strip; HTTPS caveat; empty allowlist open-admin (E-13).
@@ -285,7 +285,7 @@ The register holds the plan-line evidence and the full finding text. This table 
 | E-03 | Retention automation/defaults. | Accept (non-goal) | ADR-0004 |
 | E-04 | Allowlist logins and viewing without sign-in. | **Resolved semantics**: empty = open admin (E-13); viewing public; exact values deployment config | `twitch-auth-contract.md` §6 |
 | E-05 | HTTPS/reverse proxy for sign-in. | **Resolved**: external TLS proxy; HTTPS/localhost only (E-15) | `hosting-contract.md` §8, `twitch-auth-contract.md` §6 |
-| E-06 | Text webfont licensing. | **Resolved: no text webfont bundled**; UI uses the system monospace stack, and Material Symbols Rounded is Apache-2.0 | `design-assets.md` |
+| E-06 | Text webfont licensing. | **Resolved**: Roboto (OFL-1.1) is the one bundled font since #173; the Material Symbols Rounded icon font was removed in #181 (icons are MudBlazor SVGs) | `design-assets.md` |
 | E-07 | Subscriber-only token handling. | **Resolved mechanism**: manual `Recorder:TwitchUserOAuthToken`; Settings entry deferred | `twitch-auth-contract.md` §8 |
 | E-08 | Hover thumbnails dropped. | Accept | — |
 | E-09 | No hardware target; defaults stand. | Accept | — |
@@ -321,7 +321,7 @@ The register holds the plan-line evidence and the full finding text. This table 
 | Stop/resume surfaces reduced | Player DOM is JS-owned; settings is the management surface | Settings + details Stop; library Paused; E-23 |
 | No global recording cap | Channel list is user-controlled | Add only under disk/bandwidth pressure; E-12 |
 | Manual subscriber token | No safe automated flow yet | Secret rotation documented; Settings entry deferred; E-07/E-14 |
-| Font redistribution | Bundled font assets | Material Symbols Rounded only (Apache-2.0); UI text uses system fonts; E-06 |
+| Font redistribution | Bundled font assets | Roboto only (OFL-1.1, licence copied); no icon font (#181); E-06 |
 | No visual regression gate | Dropped by the owner for now (#106) | bUnit markup, axe, and E2E journeys cover the UI; harness kept on branch `test/106-visual-baselines` |
 | No captions | Recorder captures no subtitle track | Documented limitation; axe caption best-practice not a gate |
 | Native Safari/fullscreen/PiP not tested on a device | Not deterministic in CI, and no iOS device is available | Unit tests with stubs only; manual pass dropped on 2026-11-12 (#108); checklist kept in `docs/manual/` |
@@ -398,8 +398,8 @@ Repeat the register's method against the built app:
 
 **Licensing and docs**
 
-- No text webfont is bundled; Material Symbols Rounded is Apache-2.0 and committed.
-- Material Symbols/hls.js licenses present; no Google Fonts; no CDN at runtime.
+- Roboto (OFL-1.1) is the only bundled font; no icon font is bundled (#181).
+- Roboto/hls.js licenses present; no Google Fonts; no CDN at runtime.
 - Contracts, ADRs, digest, and code agree; deviations recorded, not silently accepted.
 
 ### 9.4 Acceptance gates
@@ -413,7 +413,7 @@ A gate is **blocking** unless the owner explicitly accepts the risk in writing i
 - **G5 Data actions:** one MP4, incompatible failure, export lease/delete, progress/resume, download auth/range pass.
 - **G6 UI conformance:** shell/library/player/details/auth/settings behaviors match contracts; axe/keyboard/reduced motion pass; performance budget passes.
 - **G7 Container/ops:** non-root, health, volume, secrets, stop grace, deep links, Data Protection restart pass.
-- **G8 Licensing:** only Apache-2.0 Material Symbols Rounded is bundled; no Google Fonts.
+- **G8 Licensing:** only OFL-1.1 Roboto is bundled, with its licence; no Google Fonts.
 - **G9 Documentation:** every binding claim is traceable; every deviation/risk has an owner and disposition.
 
 ### 9.5 Gap reporting

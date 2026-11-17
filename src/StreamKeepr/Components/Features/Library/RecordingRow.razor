@@ -19,7 +19,7 @@
         }
         else
         {
-            <Icon Name="movie" />
+            <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Movie" data-icon="movie" />
         }
         <span class="dur">@Format.Timecode(Recording.DurationSec)</span>
         @if (Recording.ResumeSec is double resume)

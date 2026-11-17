@@ -50,7 +50,7 @@ public interface ILibraryView : IDisposable
 - `RecordingView.DurationSec`: complete sessions use the manifest/index duration; recording/reconnecting sessions use elapsed time since `StartedAt` (non-negative).
 - `SizeBytes` is null while recording; otherwise media bytes.
 - `PlaylistUrl` is `/media/{channel}/{id}/index.m3u8`.
-- `ResumeSec` is the recording's resume position, or null when it has none. Recording/reconnecting sessions have one once a viewer leaves the live edge; finished sessions never hold one within 30 s of the end.
+- `ResumeSec` is the recording's resume position, or null when it has none. Recording/reconnecting sessions have one once a viewer leaves the live edge; complete sessions never hold one within 30 s of the end.
 - `HasChat` is true when the session's `chat/` folder has metadata or at least one bucket; it gates the chat pane.
 
 ### State derivation

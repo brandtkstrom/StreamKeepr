@@ -9,6 +9,7 @@ import { isEditable } from "/js/shortcuts.js";
 // Not the player module: Settings opens on every page, and the player loads only on recording
 // pages (testing contract §9).
 import { formatTimecode } from "/js/timecode.js";
+import { setIcon } from "/js/island-icons.js";
 
 // Overlays that own Escape. The phone sheet is a dialog itself, so its own container counts as
 // the sheet; anything else open (a confirmation, a menu, a popover) is someone else's. It follows
@@ -65,8 +66,7 @@ function attachStrip(strip, doc) {
     if (progress) progress.style.width = `${duration > 0 ? Math.min(100, (time / duration) * 100) : 0}%`;
     if (toggle) {
       toggle.setAttribute("aria-label", paused ? "Play" : "Pause");
-      const icon = toggle.querySelector("span") ?? toggle;
-      icon.textContent = paused ? "play_arrow" : "pause";
+      setIcon(toggle, paused ? "PlayArrow" : "Pause");
     }
   };
 

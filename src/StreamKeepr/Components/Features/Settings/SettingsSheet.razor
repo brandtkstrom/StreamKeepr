@@ -77,11 +77,9 @@ else if (Compact)
                             <span class="title">@recording.Title</span>
                             <span class="meta">@recording.StreamerLogin<span data-now-playing-status></span></span>
                         </div>
-                        @* The player's own button style and ligature icon, because the module swaps
-                           the icon text with the playing state, as the player's controls do. *@
-                        <button type="button" class="sk-icon-btn" aria-label="Play" data-now-playing-toggle>
-                            <span class="sk-icon fill" aria-hidden="true">play_arrow</span>
-                        </button>
+                        @* A plain button with an island icon, not a MudIconButton, because the module
+                           swaps the glyph with the playing state, as the player's controls do. *@
+                        <button type="button" class="sk-icon-btn" aria-label="Play" data-now-playing-toggle>@IslandIcon.Svg("PlayArrow")</button>
                         <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.ExpandLess"
                                                  OnClick="OnClose"
                                                  aria-label="Back to the video" />

@@ -1,4 +1,4 @@
-// Inline SVG glyphs the player module draws or swaps, copied from MudBlazor 9.12.0
+// Inline SVG glyphs the island modules (and the settings sheet's now-playing toggle) draw or swap, copied from MudBlazor 9.12.0
 // Icons.Material.Rounded.* so the island draws MudBlazor's icons without MudBlazor components.
 // Razor renders every island's first glyph from the MudBlazor constant (StreamKeepr.Ui.IslandIcon);
 // this copy holds only the glyphs a module sets itself, so add one here when a module needs it. IslandIconTests checks every entry against the constant of the

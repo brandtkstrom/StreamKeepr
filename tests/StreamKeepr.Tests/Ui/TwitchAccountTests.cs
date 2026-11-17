@@ -34,6 +34,21 @@ public sealed class TwitchAccountTests
     }
 
     [Fact]
+    public async Task The_connect_link_draws_an_svg_icon_and_no_ligature_text()
+    {
+        await using BunitContext context = CreateContext(out _);
+        context.AddAuthorization().SetNotAuthorized();
+
+        IRenderedComponent<TwitchAccount> cut = RenderAccount(context);
+
+        var link = cut.Find("a[data-twitch-connect]");
+        Assert.Equal("Connect with Twitch", link.TextContent.Trim());
+        var icon = link.QuerySelector("[data-twitch-icon]");
+        Assert.Equal("svg", icon?.LocalName);
+        Assert.Equal("true", icon?.GetAttribute("aria-hidden"));
+    }
+
+    [Fact]
     public async Task The_return_url_follows_navigation()
     {
         await using BunitContext context = CreateContext(out _);
@@ -158,6 +173,9 @@ public sealed class TwitchAccountTests
             var expired = cut.Find("[data-auth-state='expired']");
             Assert.Contains("Twitch session expired", expired.TextContent);
             Assert.StartsWith("/api/auth/twitch/login?returnUrl=", expired.QuerySelector("a")?.GetAttribute("href"));
+            // SVG icons, no ligature text beside the words (#181).
+            Assert.Equal("Twitch session expired", expired.QuerySelector("[role='status']")?.TextContent.Trim());
+            Assert.Equal("Reconnect", expired.QuerySelector("a")?.TextContent.Trim());
             Assert.Empty(cut.FindAll("[data-auth-state='connected'] [role='button'][aria-haspopup='menu']"));
             Assert.Empty(cut.FindAll("[data-auth-state='disconnected']"));
         });

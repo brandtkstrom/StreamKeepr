@@ -8,7 +8,7 @@ internal static class AccessibleNames
     /// <summary>
     /// The element's accessible name, in the order the accessible-name algorithm uses:
     /// <c>aria-labelledby</c>, then <c>aria-label</c>, then its text without <c>aria-hidden</c>
-    /// or <c>hidden</c> content (such as a Material Symbols ligature). bUnit has no layout, so
+    /// or <c>hidden</c> content (such as a decorative icon). bUnit has no layout, so
     /// content hidden only by CSS still counts, and <c>title</c> is not used as a fallback.
     /// </summary>
     public static string AccessibleName(this IElement element)

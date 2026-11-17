@@ -17,8 +17,7 @@
             @* The top bar's full-page Twitch link (details/auth/settings contract §7). The
                data-twitch-connect hook gives it TwitchAccount.razor.js's "Waiting for Twitch…". *@
             <a class="sk-twitch" href="@AuthLinks.LoginHref(Navigation.Uri)" data-enhance-nav="false" data-twitch-connect>
-                <span class="sk-icon" aria-hidden="true">link</span>
-                <span class="lbl">Connect with Twitch</span>
+                <TwitchConnectLabel />
             </a>
         </NotAuthorized>
     </AuthorizeView>

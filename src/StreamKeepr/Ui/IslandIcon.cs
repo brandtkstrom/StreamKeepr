@@ -6,7 +6,8 @@ namespace StreamKeepr.Ui;
 
 /// <summary>
 /// A MudBlazor Material Rounded glyph as a plain inline <c>&lt;svg&gt;</c>, for the JS-owned islands
-/// (player, stats, chat) that must not contain MudBlazor components (ADR 0012, issue #180).
+/// (player, stats, chat) that must not contain MudBlazor components (ADR 0012, issue #180), and for
+/// any other control whose module swaps its glyph (the settings sheet's now-playing toggle, #181).
 /// </summary>
 /// <remarks>
 /// The <c>data-icon</c> value is the <c>Icons.Material.Rounded</c> field name. Modules swap glyphs

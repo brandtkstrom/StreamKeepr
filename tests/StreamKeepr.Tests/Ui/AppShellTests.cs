@@ -39,6 +39,9 @@ public sealed class AppShellTests
 
         var placeholder = cut.Find("header [data-auth-placeholder]");
         Assert.True(placeholder.NextElementSibling is null, "the auth control is the last app bar action");
+        // An SVG icon, no ligature text beside the label (#181).
+        Assert.Equal("Connect with Twitch", placeholder.TextContent.Trim());
+        Assert.NotNull(placeholder.QuerySelector("svg[data-twitch-icon]"));
     }
 
     [Theory]

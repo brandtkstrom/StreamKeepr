@@ -97,6 +97,24 @@ public sealed class AppShellDocumentTests
         Assert.Equal("font/woff2", font.Content.Headers.ContentType?.MediaType);
     }
 
+    [Fact]
+    public async Task Roboto_is_the_only_webfont_and_the_icon_font_is_not_served()
+    {
+        // Icons are MudBlazor SVGs (#181): the Material Symbols webfont is gone from the image.
+        using var factory = new StreamKeeprAppFactory();
+        using var client = factory.CreateClient();
+
+        var html = await client.GetStringAsync("/");
+        var fontsHref = Regex.Match(html, @"href=""(?<href>css/fonts(?:\.[a-z0-9]+)?\.css)""").Groups["href"].Value;
+        var css = await client.GetStringAsync(fontsHref);
+
+        var families = Regex.Matches(css, @"font-family:\s*""(?<family>[^""]+)""")
+            .Select(match => match.Groups["family"].Value);
+        Assert.Equal(["Roboto"], families);
+        using var iconFont = await client.GetAsync("/fonts/material-symbols-rounded.woff2");
+        Assert.Equal(HttpStatusCode.NotFound, iconFont.StatusCode);
+    }
+
     [Theory]
     [InlineData(@"<link rel=""icon"" href=""(?<href>favicon(?:\.[a-z0-9]+)?\.ico)"" sizes=""48x48""", "image/x-icon")]
     [InlineData(@"<link rel=""icon"" href=""(?<href>favicon(?:\.[a-z0-9]+)?\.svg)"" type=""image/svg\+xml""", "image/svg+xml")]
@@ -242,17 +260,6 @@ public sealed class AppShellDocumentTests
         Assert.True(
             html.IndexOf("data-slot=\"details\"", StringComparison.Ordinal) <
             html.IndexOf("data-slot=\"stats\"", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task Dev_component_gallery_is_not_reachable_outside_development()
-    {
-        using var factory = new StreamKeeprAppFactory();
-        using var client = factory.CreateClient();
-
-        using var response = await client.GetAsync("/dev/components");
-
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]
