@@ -1,3 +1,6 @@
+using System.Collections.Concurrent;
+using System.Globalization;
+using System.Web;
 using Microsoft.Playwright;
 
 namespace StreamKeepr.E2E;
@@ -108,6 +111,97 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         Assert.Equal(await TokenColourAsync(page, "--primary"), await RingAsync(page.Locator("[data-sk='chat-log']")));
 
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-chat");
+    }
+
+    [Fact]
+    public async Task The_sync_slider_steps_by_key_persists_per_recording_and_resets()
+    {
+        await using LibraryJourneyTests.Session session =
+            await LibraryJourneyTests.OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        var offsets = new ConcurrentQueue<string>();
+        page.Request += (_, request) =>
+        {
+            if (!request.Url.Contains("/chat?", StringComparison.Ordinal))
+                return;
+            string? offset = HttpUtility.ParseQueryString(new Uri(request.Url).Query)["syncOffsetSec"];
+            if (offset is not null)
+                offsets.Enqueue(offset);
+        };
+
+        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
+        string id = (await saved.GetAttributeAsync("data-recording-id"))!;
+        await saved.ClickAsync();
+        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await page.Locator("[data-sk='seek'][aria-disabled='false']")
+            .WaitForAsync(new() { Timeout = 20_000 });
+        ILocator pane = page.Locator("[data-sk-chat]");
+        if (await pane.GetAttributeAsync("data-open") != "true")
+            await page.Locator("[data-sk='chat-toggle']").ClickAsync();
+
+        ILocator slider = pane.GetByRole(AriaRole.Slider, new() { Name = "Chat sync", Exact = true });
+        ILocator readout = pane.Locator("[data-sk='chat-sync-value']");
+        await Assertions.Expect(slider).ToBeVisibleAsync(new() { Timeout = 20_000 });
+
+        ILocator video = page.Locator("[data-sk='video']");
+        double playhead = await video.EvaluateAsync<double>("v => v.currentTime");
+        await slider.FocusAsync();
+        for (int i = 0; i < 3; i++)
+            await page.Keyboard.PressAsync("ArrowRight");
+        await Assertions.Expect(readout).ToHaveTextAsync("+1.5 s");
+        await Assertions.Expect(slider).ToHaveAttributeAsync("aria-valuetext", "1.5 seconds later");
+        await WaitForOffsetAsync(offsets, "1.500");
+
+        await page.Keyboard.PressAsync("PageDown");
+        await Assertions.Expect(readout).ToHaveTextAsync("\u22123.5 s");
+        await Assertions.Expect(slider).ToHaveAttributeAsync("aria-valuetext", "3.5 seconds earlier");
+        await WaitForOffsetAsync(offsets, "-3.500");
+        // The slider owns its arrows and Page keys: the playhead does not move with them.
+        Assert.Equal(playhead, await video.EvaluateAsync<double>("v => v.currentTime"));
+
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "chat-sync");
+
+        // The offset is saved for this recording and restored on the next visit.
+        await page.ReloadAsync();
+        await Assertions.Expect(slider).ToHaveValueAsync("-3.5", new() { Timeout = 20_000 });
+        await Assertions.Expect(readout).ToHaveTextAsync("\u22123.5 s");
+
+        await pane.GetByRole(AriaRole.Button, new() { Name = "Reset chat sync to 0", Exact = true }).ClickAsync();
+        await Assertions.Expect(slider).ToHaveValueAsync("0");
+        await Assertions.Expect(readout).ToHaveTextAsync("0.0 s");
+        await Assertions.Expect(slider).ToHaveAttributeAsync("aria-valuetext", "0 seconds");
+        await WaitForOffsetAsync(offsets, "0.000");
+
+        // A pointer drag redraws as it goes and applies once, on release.
+        while (offsets.TryDequeue(out _)) { }
+        LocatorBoundingBoxResult box = (await slider.BoundingBoxAsync())!;
+        float y = box.Y + box.Height / 2;
+        await page.Mouse.MoveAsync(box.X + box.Width / 2, y);
+        await page.Mouse.DownAsync();
+        await page.Mouse.MoveAsync(box.X + box.Width * 0.6f, y, new() { Steps = 4 });
+        await page.Mouse.MoveAsync(box.X + box.Width * 0.75f, y, new() { Steps = 4 });
+        string dragged = (await readout.TextContentAsync())!;
+        Assert.StartsWith("+", dragged, StringComparison.Ordinal);
+        // Proving that nothing is fetched mid-drag needs a quiet period; 300 ms is several
+        // times a keyed fetch's round trip against the local Mock app.
+        await page.WaitForTimeoutAsync(300);
+        Assert.Empty(offsets);
+        await page.Mouse.UpAsync();
+        string value = await slider.InputValueAsync();
+        await WaitForOffsetAsync(offsets, double.Parse(value, CultureInfo.InvariantCulture)
+            .ToString("F3", CultureInfo.InvariantCulture));
+    }
+
+    private static async Task WaitForOffsetAsync(
+        ConcurrentQueue<string> offsets, string expected)
+    {
+        DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!offsets.Contains(expected))
+        {
+            Assert.True(DateTime.UtcNow < deadline,
+                $"no chat request with syncOffsetSec={expected}; saw {string.Join(", ", offsets)}");
+            await Task.Delay(50);
+        }
     }
 
     [Fact]

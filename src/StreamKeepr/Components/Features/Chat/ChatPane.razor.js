@@ -4,8 +4,7 @@ import { shortcutBlocked } from "/js/player-keys.js";
 
 const HOOKS = [
   "chat-toggle", "chat-state", "chat-body", "chat-log", "chat-sync", "chat-sync-value",
-  "chat-sync-back2", "chat-sync-back1", "chat-sync-reset", "chat-sync-forward1",
-  "chat-sync-forward2", "chat-jump", "chat-notice",
+  "chat-sync-range", "chat-sync-reset", "chat-jump", "chat-notice",
 ];
 
 const POLL_MS = 500;
@@ -36,11 +35,36 @@ const BADGE_LABELS = {
   vip: "VIP",
 };
 
+const SYNC_PAGE_SEC = 5;
+// Keys the slider handles itself. Browsers differ on Page keys (Chrome moves a tenth of the
+// range), and each press must apply and refetch at once. "step" is the input's own step, which
+// .NET renders; the ±limit arrives in the load payload.
+const SYNC_KEY_STEPS = {
+  ArrowLeft: (step) => -step,
+  ArrowDown: (step) => -step,
+  ArrowRight: (step) => step,
+  ArrowUp: (step) => step,
+  PageDown: () => -SYNC_PAGE_SEC,
+  PageUp: () => SYNC_PAGE_SEC,
+};
+
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
+// The readout is a timecode: "+1.5 s", "\u22123.0 s" (a true minus sign) or "0.0 s".
 function formatOffset(value) {
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(1)} s`;
+  const sign = value > 0 ? "+" : value < 0 ? "\u2212" : "";
+  return `${sign}${Math.abs(value).toFixed(1)} s`;
+}
+
+/**
+ * The sync slider's aria-valuetext: "1.5 seconds later", "3 seconds earlier", "0 seconds".
+ * @param {number} value the offset in seconds; positive shows chat later
+ */
+export function syncValueText(value) {
+  const size = Math.abs(value);
+  const unit = size === 1 ? "second" : "seconds";
+  if (size === 0) return `0 ${unit}`;
+  return `${size} ${unit} ${value > 0 ? "later" : "earlier"}`;
 }
 
 function validColor(value) {
@@ -436,20 +460,42 @@ export function createChatPane(root, {
       emoteAttempted = false;
       emoteVersion++;
       syncOffset = readOffset(storage, next.recordingId, next.maxSyncOffsetSec);
-      updateSync();
+      updateSyncVisibility();
+      showSync(syncOffset);
       status(next.hasChat ? "Loading chat…" : "No chat captured", next.hasChat ? "loading" : "empty");
       notice("");
     }
     applyOpen();
     updateStatus();
-    updateSync();
+    updateSyncVisibility();
     if (view.state === "complete" || view.state === "unavailable") stopPolling();
     if (open && (changed || !loaded)) loadCurrentWindow();
   }
 
-  function updateSync() {
+  function updateSyncVisibility() {
     if (el["chat-sync"]) el["chat-sync"].hidden = !view?.hasChat;
-    if (el["chat-sync-value"]) el["chat-sync-value"].textContent = formatOffset(syncOffset);
+  }
+
+  /**
+   * Draws `value` on the readout, the slider's value text and its centre-out fill. While a
+   * drag is in progress `value` is the thumb's, not yet the applied offset.
+   */
+  function showSync(value) {
+    const readout = el["chat-sync-value"];
+    if (readout) {
+      readout.textContent = formatOffset(value);
+      readout.dataset.zero = value === 0 ? "true" : "false";
+    }
+    const range = el["chat-sync-range"];
+    if (!range) return;
+    if (Number(range.value) !== value) range.value = String(value);
+    range.setAttribute("aria-valuetext", syncValueText(value));
+    // Before the first load there is no limit yet; the CSS draws an empty, centred fill.
+    if (!view) return;
+    const max = view.maxSyncOffsetSec;
+    const at = clamp((value + max) / (2 * max), 0, 1);
+    range.style.setProperty("--sk-sync-lo", String(Math.min(at, 0.5)));
+    range.style.setProperty("--sk-sync-hi", String(Math.max(at, 0.5)));
   }
 
   function startPolling() {
@@ -519,7 +565,7 @@ export function createChatPane(root, {
         updateJump();
       }
       updateStatus();
-      updateSync();
+      updateSyncVisibility();
       render();
       if (fresh && readable && data.hasMoreBefore && from > 0) void backfillBefore(from);
     } catch (error) {
@@ -887,11 +933,35 @@ export function createChatPane(root, {
     if (!liveState() && !endReached && currentTime + LOOKAHEAD_SEC > loadedTo) continueWindow();
   }
 
+  function onSyncKey(event) {
+    if (!view || event.altKey || event.ctrlKey || event.metaKey) return;
+    const max = view.maxSyncOffsetSec;
+    let next;
+    if (event.key === "Home") next = -max;
+    else if (event.key === "End") next = max;
+    else if (event.key in SYNC_KEY_STEPS) next = syncOffset + SYNC_KEY_STEPS[event.key](syncStep());
+    else return;
+    event.preventDefault();
+    setSync(next);
+  }
+
+  /** The slider's step in seconds, as .NET rendered it on the input. */
+  function syncStep() {
+    const step = Number(el["chat-sync-range"]?.step);
+    if (!(step > 0)) throw new Error("The chat sync slider needs a positive step.");
+    return step;
+  }
+
   function setSync(value) {
     if (!view) return;
-    syncOffset = clamp(value, -view.maxSyncOffsetSec, view.maxSyncOffsetSec);
+    const step = syncStep();
+    const next = clamp(Math.round(value / step) * step,
+      -view.maxSyncOffsetSec, view.maxSyncOffsetSec);
+    showSync(next);
+    // The thumb already sits on the applied offset; refetching would only repeat the window.
+    if (next === syncOffset) return;
+    syncOffset = next;
     writeOffset(storage, view.recordingId, syncOffset, view.maxSyncOffsetSec);
-    updateSync();
     resetWindow();
     loadCurrentWindow({ replace: true });
   }
@@ -901,11 +971,11 @@ export function createChatPane(root, {
   // Image errors do not bubble, so capture them at the log.
   on(el["chat-log"], "error", onEmoteError, { capture: true });
   on(el["chat-jump"], "click", jumpToCurrent);
-  on(el["chat-sync-back2"], "click", () => setSync(syncOffset - 2));
-  on(el["chat-sync-back1"], "click", () => setSync(syncOffset - 1));
+  // Dragging only redraws; the offset is applied, and chat refetched, when the drag ends.
+  on(el["chat-sync-range"], "input", (event) => showSync(Number(event.target.value)));
+  on(el["chat-sync-range"], "change", (event) => setSync(Number(event.target.value)));
+  on(el["chat-sync-range"], "keydown", onSyncKey);
   on(el["chat-sync-reset"], "click", () => setSync(0));
-  on(el["chat-sync-forward1"], "click", () => setSync(syncOffset + 1));
-  on(el["chat-sync-forward2"], "click", () => setSync(syncOffset + 2));
   on(document, "sk:playhead", onPlayhead);
   on(document, "sk:chat-toggle", toggleAndPersist);
   on(document, "keydown", (event) => {

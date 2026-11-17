@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AngleSharp.Dom;
 using Bunit;
 using Bunit.TestDoubles;
 using Microsoft.Extensions.DependencyInjection;
@@ -154,6 +155,41 @@ public sealed class ChatPaneTests
             .Add(c => c.Open, true));
 
         Assert.Equal("Chat", cut.Find("[data-sk='chat-toggle'] > svg").GetAttribute("data-icon"));
+    }
+
+    [Fact]
+    public async Task The_sync_footer_is_a_labelled_slider_over_the_endpoint_limit()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(
+            out BunitJSModuleInterop module, out TestLibraryView _);
+        context.JSInterop.SetupModule(Module).Mode = JSRuntimeMode.Loose;
+
+        IRenderedComponent<ChatPane> cut = context.Render<ChatPane>(p => p
+            .Add(c => c.Recording, WithChat())
+            .Add(c => c.Open, true));
+
+        IElement range = cut.Find("[data-sk='chat-sync-range']");
+        Assert.Equal("range", range.GetAttribute("type"));
+        Assert.Equal("-30", range.GetAttribute("min"));
+        Assert.Equal("30", range.GetAttribute("max"));
+        Assert.Equal("0.5", range.GetAttribute("step"));
+        Assert.Equal("0", range.GetAttribute("value"));
+        Assert.Equal("0 seconds", range.GetAttribute("aria-valuetext"));
+        // The visible "Chat sync" label names the slider.
+        IElement label = cut.Find($"label[for='{range.Id}']");
+        Assert.Equal("Chat sync", label.TextContent.Trim());
+
+        IElement reset = cut.Find("[data-sk='chat-sync-reset']");
+        Assert.Equal("button", reset.GetAttribute("type"));
+        Assert.Equal("Reset chat sync to 0", reset.GetAttribute("aria-label"));
+        Assert.Equal("RestartAlt", reset.QuerySelector("svg")!.GetAttribute("data-icon"));
+        Assert.Equal("0.0 s", cut.Find("[data-sk='chat-sync-value']").TextContent.Trim());
+
+        string sync = cut.Find("[data-sk='chat-sync']").TextContent;
+        Assert.Contains("Earlier", sync, StringComparison.Ordinal);
+        Assert.Contains("Later", sync, StringComparison.Ordinal);
+        Assert.Single(cut.FindAll("[data-sk='chat-sync'] svg[data-icon='Tune']"));
+        Assert.Single(cut.FindAll("[data-sk='chat-sync'] button"));
     }
 
     [Fact]

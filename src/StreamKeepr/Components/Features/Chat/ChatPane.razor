@@ -3,6 +3,7 @@
 @inject UiPreferences Preferences
 @inject ILogger<ChatPane> Logger
 @inject IEnumerable<IEmoteProvider> EmoteProviders
+@using System.Globalization
 @using StreamKeepr.Hosting
 @using StreamKeepr.Infrastructure.Emotes
 @using StreamKeepr.Infrastructure.Storage
@@ -43,16 +44,33 @@
              tabindex="0"></div>
 
         <div class="sk-chat-footer" data-sk="chat-footer">
-            @* The nudges stay until the sync slider (#184). Each name starts with its visible text
-               (WCAG 2.5.3 label in name). *@
+            @* A native range styled like MudSlider Color.Primary: chat is a JS-owned island. The
+               module draws the readout, aria-valuetext and fill, and applies the offset on change.
+               The readout repeats the slider's value text, so it is hidden from assistive tech. *@
             <div class="sk-chat-sync" data-sk="chat-sync" hidden>
-                <span class="sk-chat-sync-label">Sync</span>
-                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-back2" aria-label="−2 s: shift chat 2 seconds earlier">−2 s</button>
-                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-back1" aria-label="−1 s: shift chat 1 second earlier">−1 s</button>
-                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-reset" aria-label="Reset chat sync">Reset</button>
-                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-forward1" aria-label="+1 s: shift chat 1 second later">+1 s</button>
-                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-forward2" aria-label="+2 s: shift chat 2 seconds later">+2 s</button>
-                <span class="sk-chat-sync-value" data-sk="chat-sync-value">0.0 s</span>
+                <div class="sk-chat-sync-head">
+                    @IslandIcon.Svg("Tune")
+                    <label class="sk-chat-sync-label" for="@SyncId">Chat sync</label>
+                    <span class="sk-chat-sync-value" data-sk="chat-sync-value" data-zero="true" aria-hidden="true">0.0 s</span>
+                    <button type="button" class="sk-chat-sync-reset" data-sk="chat-sync-reset" aria-label="Reset chat sync to 0">
+                        @IslandIcon.Svg("RestartAlt")
+                    </button>
+                </div>
+                <div class="sk-chat-sync-slider">
+                    <input id="@SyncId"
+                           class="sk-chat-sync-range"
+                           data-sk="chat-sync-range"
+                           type="range"
+                           min="@SyncMin"
+                           max="@SyncMax"
+                           step="@SyncStep"
+                           value="0"
+                           aria-valuetext="0 seconds" />
+                </div>
+                <div class="sk-chat-sync-ends" aria-hidden="true">
+                    <span>Earlier</span>
+                    <span>Later</span>
+                </div>
             </div>
             <button type="button" class="sk-chat-jump" data-sk="chat-jump" hidden>Jump to current time</button>
             <span class="sk-chat-notice" data-sk="chat-notice" role="status" aria-live="polite"></span>
@@ -64,6 +82,13 @@
     private const string ModulePath = "./Components/Features/Chat/ChatPane.razor.js";
 
     private readonly string _bodyId = $"sk-chat-{Guid.NewGuid():N}";
+    private string SyncId => $"{_bodyId}-sync";
+
+    // The endpoint's limit bounds the slider. Invariant culture keeps the attributes "-30" and
+    // "30" whatever the server locale. The module reads the step back from the input.
+    private static readonly string SyncMax = ChatReader.MaxSyncOffsetSeconds.ToString(CultureInfo.InvariantCulture);
+    private static readonly string SyncMin = (-ChatReader.MaxSyncOffsetSeconds).ToString(CultureInfo.InvariantCulture);
+    private const string SyncStep = "0.5";
     private ElementReference _root;
     private IJSObjectReference? _module;
     private DotNetObjectReference<ChatPane>? _self;

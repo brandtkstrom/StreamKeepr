@@ -676,15 +676,54 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 }
 .sk-chat-text img { height: 28px; width: auto; vertical-align: middle; }
 .sk-chat-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--divider); }
-/* The sync nudges stay until the chat sync slider (#184). */
-.sk-chat-sync { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
-.sk-chat-sync-label, .sk-chat-sync-value { color: var(--text-secondary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
-.sk-chat-sync-value { min-width: 36px; text-align: right; font-variant-numeric: var(--text-timecode-numeric); }
-.sk-chat-sync-btn {
-  height: 24px; padding: 0 6px; border: 1px solid var(--lines-inputs); border-radius: var(--radius-sm); background: transparent;
-  color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); cursor: pointer;
+/* Chat sync: a native range drawn like MudSlider Color.Primary. The module sets --sk-sync-lo and
+   --sk-sync-hi (0–1 along the track) so the fill runs from the centre to the thumb. */
+.sk-chat-sync { flex: 1 1 100%; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sk-chat-sync-head { display: flex; align-items: center; gap: var(--space-2); min-height: 28px; }
+.sk-chat-sync-head > svg[data-icon] { width: 20px; height: 20px; color: var(--action-default); }
+.sk-chat-sync-label { flex: 1; min-width: 0; color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
+.sk-chat-sync-value {
+  color: var(--text-primary); font: var(--text-timecode); letter-spacing: var(--text-timecode-letter-spacing);
+  font-variant-numeric: var(--text-timecode-numeric); white-space: nowrap;
 }
-.sk-chat-sync-btn:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
+.sk-chat-sync-value[data-zero="true"] { color: var(--text-secondary); }
+.sk-chat-sync-reset {
+  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0;
+  border: 0; border-radius: var(--radius-full); background: transparent; color: var(--action-default); cursor: pointer;
+}
+.sk-chat-sync-reset svg[data-icon] { width: 18px; height: 18px; }
+.sk-chat-sync-reset:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
+/* The zero tick sits behind the input, centred, so the thumb covers it at 0. */
+.sk-chat-sync-slider { position: relative; display: flex; align-items: center; height: 20px; }
+.sk-chat-sync-slider::before {
+  content: ""; position: absolute; left: 50%; top: 4px; width: 2px; height: 12px; margin-left: -1px;
+  border-radius: 1px; background: var(--text-secondary); pointer-events: none;
+}
+.sk-chat-sync-range {
+  --sk-sync-lo: 0.5; --sk-sync-hi: 0.5;
+  /* Thumb centres run from 8px to 100% − 8px, so the fill stops are mapped onto that span. */
+  --sk-sync-from: calc(8px + (100% - 16px) * var(--sk-sync-lo));
+  --sk-sync-to: calc(8px + (100% - 16px) * var(--sk-sync-hi));
+  --sk-sync-track:
+    linear-gradient(to right, transparent var(--sk-sync-from), var(--primary) var(--sk-sync-from),
+      var(--primary) var(--sk-sync-to), transparent var(--sk-sync-to)),
+    color-mix(in srgb, var(--primary) 24%, transparent);
+  position: relative; width: 100%; height: 20px; margin: 0; background: transparent; cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+}
+.sk-chat-sync-range::-webkit-slider-runnable-track { height: 4px; border-radius: var(--radius-full); background: var(--sk-sync-track); }
+.sk-chat-sync-range::-moz-range-track { height: 4px; border-radius: var(--radius-full); background: var(--sk-sync-track); }
+.sk-chat-sync-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin-top: -6px;
+  border: 0; border-radius: 50%; background: var(--primary);
+}
+.sk-chat-sync-range::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--primary); }
+.sk-chat-sync-range:hover::-webkit-slider-thumb { box-shadow: 0 0 0 8px color-mix(in srgb, var(--primary) calc(var(--hover-opacity) * 100%), transparent); }
+.sk-chat-sync-range:hover::-moz-range-thumb { box-shadow: 0 0 0 8px color-mix(in srgb, var(--primary) calc(var(--hover-opacity) * 100%), transparent); }
+.sk-chat-sync-ends {
+  display: flex; justify-content: space-between; color: var(--text-secondary);
+  font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
+}
 .sk-chat-jump {
   height: 24px; padding: 0 var(--space-3); border: 1px solid var(--primary); border-radius: var(--radius-full); background: transparent;
   color: var(--primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); cursor: pointer;
