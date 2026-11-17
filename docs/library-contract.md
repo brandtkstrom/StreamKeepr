@@ -130,12 +130,12 @@ Timings include Playwright round trips, so they err slow. Budgets are several ti
 
 - **Recording now** holds every open session (`state=recording`: `Recording` and `Reconnecting`), never truncated. **Recent recordings** holds the 20 newest complete sessions (`state=saved`: `Saved` and `Partial`). Both come from `ILibraryView.AllRecordings`, which merges every streamer's matching recordings in the library's order (§3: `StartedAt` descending, ties by `Id`).
 - The rows re-read the library on `ILibraryView.Changed`, so a session moves from the first row to the second when it completes, without a reload.
-- Each row is a `section` labelled by its `h2` (`h6` type): `Sensors` in `rec` and "Recording now" with the count, `History` and "Recent recordings" with "Newest first" and a "Show all" text button. The cards are a `ul` labelled by the same heading, one `li` per card.
-- With no open session, the first row keeps its heading (count 0) and shows one dashed note, "Nothing is recording right now. A watched channel starts recording when it goes live." (`[data-nothing-recording]`). With no recordings at all, no rows render; the empty library's own state is #185's.
+- Each row is a `section` labelled by its `h2` (`h6` type): `Sensors` in `rec` and "Recording now" with the count, `History` and "Recent recordings" with "Newest first", a "Show all" text button, and two chevrons (`[data-row-scroll]` `-1`/`1`) that page the row by its visible width through `HomeRows.razor.js` (`scrollRow`; a jump instead of a glide under reduced motion). The chevrons are mouse only: `aria-hidden`, `tabindex="-1"`, absent while loading, and hidden below Md. The cards are a `ul` labelled by the same heading, one `li` per card.
+- With no open session, the first row keeps its heading (count 0) and shows one dashed note, "Nothing is recording right now. A watched channel starts recording when it goes live." (`[data-nothing-recording]`). With no recordings at all, no rows render; the "No recordings yet" state is #185's (see §12).
 - While `IsLoaded` is false, each row shows three `MudSkeleton` cards (`[data-card-skeleton]`, hidden from assistive technology).
 - "Show all" calls `AppShell.ShowLibraryAsync("/?state=saved")` (the shell cascades itself to the page): Md and up it saves the drawer as expanded and navigates; below Md it navigates and then opens the temporary drawer. Outside the shell it only navigates.
-- Rows scroll sideways and never wrap (`scroll-snap-type: x`, `space-4` gap); the page itself never scrolls sideways, and the main column has no width cap on Home. Cards are 360px in Recording now and 264px in Recent recordings; below Md (960px) they are 85% and 60% of the row. There are no chevron scroll buttons (see the deviation note in §12).
-- `RecordingCard` is a real link to `/r/{id}` (`data-recording-id`, `data-state` = `recording`/`reconnecting`/`partial`/`saved`, `data-card-size` = `large`/`default`). Its name comes from its content: the title, then a visually hidden ", streamer, state" ("Late-night speedrun practice, Nightjar TV, recording"). The thumbnail (latest frame, lazy, or `Movie` on `surface-raised`; REC or Reconnecting chip top left; the timecode duration, elapsed while open; a 3px strip, full `rec` while open or `player-accent` to `ResumeSec`) is `aria-hidden`. The body has the decorative `ChannelAvatar` (32px), the title (`subtitle2`, `subtitle1` at Medium on large cards, two lines) and the meta line, which is the link's `aria-describedby`: "Name · Category · Started 9:04 PM" while open, "Name · Yesterday, 8:30 PM" once complete, in the viewer's time zone and the drawer's 12-hour time. A Partial chip sits under the meta line; Saved has none.
+- Rows scroll sideways and never wrap (`scroll-snap-type: x`, `space-4` gap); the page itself never scrolls sideways, and the main column has no width cap on Home. Cards are 360px in Recording now and 264px in Recent recordings; below Md (960px) they are 85% and 60% of the screen width (`vw`: there is no persistent drawer below Md).
+- `RecordingCard` is a real link to `/r/{id}` (`data-recording-id`, `data-state` = the drawer row's `rec`/`reconnecting`/`partial`/`saved`, from `RecordingStates.Hook`, `data-card-size` = `large`/`default`). Its name comes from its content: the title, then a visually hidden ", streamer, state" ("Late-night speedrun practice, Nightjar TV, recording"). The thumbnail (latest frame, lazy, or `Movie` on `surface-raised`; REC or Reconnecting chip top left; the timecode duration, elapsed while open; a 3px strip, full `rec` while open or `player-accent` to `ResumeSec`) is `aria-hidden`. The body has the decorative `ChannelAvatar` (32px), the title (`subtitle2`, `subtitle1` at Medium on large cards, two lines) and the meta line, which is the link's `aria-describedby`: "Name · Category · Started 9:04 PM" while open, "Name · Yesterday, 8:30 PM" once complete, in the viewer's time zone and the drawer's 12-hour time. A Partial chip sits under the meta line; Saved has none.
 
 ## 11. Test matrix
 
@@ -146,7 +146,7 @@ bUnit:
 - Row/group markup, status chips, selected `aria-current`, thumbnails/resume/live bars, rail behavior, channel colour per login, disk-usage footer and rail storage button.
 - Collapse persistence, skeleton/empty states, `Changed`/targeted re-render, reconnect note, dispose.
 - Keyboard ARIA/roving tabindex with `tree-nav.js` interop mocked.
-- Home rows: row sets and order, the 20 cap, the nothing-recording note, skeletons, a session moving rows on `Changed`, Show all; `RecordingCard` name, chips, meta, strip and sizes; `AppShell.ShowLibraryAsync` wide and compact.
+- Home rows: row sets and order, the 20 cap, the nothing-recording note, skeletons, a session moving rows on `Changed`, Show all, the chevrons; `RecordingCard` name, chips, meta, strip and sizes; `AppShell.ShowLibraryAsync` wide and compact.
 
 Vitest:
 
@@ -155,7 +155,9 @@ Vitest:
 Playwright:
 
 - Drawer expand/rail/theater; search debounce/highlight/clear; filters; sort; keyboard tree; rail jump; reload restores `sk-ui`/URL; live update/reconnect note; axe clean; keyboard-only.
-- Home: an open session stopped from another tab moves from Recording now to Recent recordings without a reload; at 375 the rows swipe with no sideways page scroll; Show all opens the Saved library at 1280 and 375; axe clean.
+- Home: an open session stopped from another tab moves from Recording now to Recent recordings without a reload; at 375 a touch swipe scrolls a row with no sideways page or main-column scroll and the cards are 85%/60% of the screen; at 1280 the chevron pages the row; Show all opens the Saved library at 1280 and 375; axe clean.
+
+Vitest: `HomeRows.razor.js` `scrollRow` (both directions, reduced motion, a missing row).
 - No visual regression; it is dropped for now (#106).
 
 No automatic retries; flaky tests are fixed or quarantined per the testing contract.
@@ -164,7 +166,13 @@ No automatic retries; flaky tests are fixed or quarantined per the testing contr
 
 Binding: grouping/sort/query/search/filter rules, day-header behavior, state/chip mapping, drawer structure and selected/rail/loading states, keyboard tree and focus rules, all-DOM long-list decision, `Changed`/targeted-render contract, F8-T3/F8-T4 boundary, JS module ownership, and the Home rows' sets, order, cap, card link and name, and Show all.
 
-Deviations from the Home and RecordingCard cards (#182): no chevron scroll buttons (the issue does not list them; rows scroll by wheel, trackpad, touch, and focus); times use the drawer's 12-hour format rather than the card's 24-hour examples; the meta line shows the display name rather than the login; below Md the 85% and 60% card widths are of the row (the screen less the main column's `space-4` gutters), not of the screen; Md and up, Show all saves the expanded drawer, as the menu does.
+Deviations from the Home and RecordingCard cards (#182), also recorded on the cards themselves:
+
+- **Empty library (handoff).** With no recordings, `/` renders only its hidden `h1`: the "No recordings yet" empty state belongs to #185 (PR #194). Merge #194 with or right after this, so a first run never shows a blank Home.
+- Show all, Md and up, saves the expanded drawer, as the menu does; the card only says it opens the drawer.
+- The chevrons never disable at the ends of a row (the preview disables the left one at the start); a click at an end does nothing.
+- Times use the drawer's 12-hour format rather than the card's 24-hour examples, and the meta line shows the display name rather than the login.
+- Headings are `h2` elements in `h6` type, as in the preview, under the page's hidden `h1`.
 
 Freedom: component internals beyond design-system classes, exact skeleton markup, JS implementation, error wording, and test harness.
 

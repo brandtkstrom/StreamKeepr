@@ -10,6 +10,8 @@ namespace StreamKeepr.Tests.Ui;
 /// <summary>Home at <c>/</c>: the Recording now and Recent recordings rows (#182).</summary>
 public sealed class HomeRowsTests
 {
+    private const string HomeRowsModule = "./Components/Features/Home/HomeRows.razor.js";
+
     private static readonly DateTimeOffset Now = new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
@@ -111,6 +113,43 @@ public sealed class HomeRowsTests
 
         var navigation = context.Services.GetRequiredService<NavigationManager>();
         Assert.Equal("?state=saved", navigation.ToBaseRelativePath(navigation.Uri));
+    }
+
+    [Fact]
+    public async Task Recent_recordings_has_mouse_only_chevrons_that_scroll_the_row_by_its_width()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out TestLibraryView view);
+        BunitJSModuleInterop module = context.JSInterop.SetupModule(HomeRowsModule);
+        module.SetupVoid("scrollRow", _ => true).SetVoidResult();
+        Seed(view, Card("ann-saved", "ann", RecordingState.Saved, hoursAgo: 5));
+        IRenderedComponent<Home> cut = context.Render<Home>();
+
+        IReadOnlyList<IElement> chevrons = cut.FindAll("[data-row-scroll]");
+        Assert.Equal(["-1", "1"], chevrons.Select(button => button.GetAttribute("data-row-scroll")));
+        Assert.All(chevrons, button =>
+        {
+            Assert.Equal("BUTTON", button.TagName);
+            Assert.Equal("true", button.GetAttribute("aria-hidden"));
+            Assert.Equal("-1", button.GetAttribute("tabindex"));
+        });
+
+        chevrons[1].Click();
+        chevrons[0].Click();
+
+        IReadOnlyList<JSRuntimeInvocation> calls = module.Invocations["scrollRow"];
+        Assert.Equal([1, -1], calls.Select(call => (int)call.Arguments[1]!));
+        Assert.All(calls, call => Assert.IsType<ElementReference>(call.Arguments[0]));
+    }
+
+    [Fact]
+    public async Task No_chevrons_while_the_library_loads()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out TestLibraryView view);
+        view.IsLoaded = false;
+
+        IRenderedComponent<Home> cut = context.Render<Home>();
+
+        Assert.Empty(cut.FindAll("[data-row-scroll]"));
     }
 
     [Fact]

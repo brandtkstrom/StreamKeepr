@@ -186,7 +186,7 @@
     private bool _breakpointKnown;
     private bool _modalOpen;
     private bool _modalRendered;
-    private bool _openModalAfterNavigation;
+    private string? _openModalOnArrivalAt;
     private bool _searchOpen;
     private bool _updatesPaused;
     private bool _reconnectModalVisible;
@@ -345,16 +345,18 @@
 
         if (_compact)
         {
-            // Navigating closes the temporary drawer, so open it once the new location lands.
-            // An unchanged URL raises no location change, so open it now instead.
-            if (Navigation.ToAbsoluteUri(url) == new Uri(Navigation.Uri))
+            // Navigating closes the temporary drawer, so open it once this navigation lands, and
+            // only there: any other location change clears the request. An unchanged URL raises
+            // no location change, so open it now instead.
+            Uri target = Navigation.ToAbsoluteUri(url);
+            if (target == new Uri(Navigation.Uri))
             {
                 _modalOpen = true;
                 StateHasChanged();
                 return;
             }
 
-            _openModalAfterNavigation = true;
+            _openModalOnArrivalAt = target.AbsoluteUri;
             Navigation.NavigateTo(url);
             return;
         }
@@ -425,8 +427,9 @@
     // ShowLibraryAsync's own navigation opens it instead.
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _ = InvokeAsync(() =>
     {
-        _modalOpen = _openModalAfterNavigation && _compact;
-        _openModalAfterNavigation = false;
+        _modalOpen = _compact && string.Equals(
+            new Uri(e.Location).AbsoluteUri, _openModalOnArrivalAt, StringComparison.Ordinal);
+        _openModalOnArrivalAt = null;
         StateHasChanged();
     });
 

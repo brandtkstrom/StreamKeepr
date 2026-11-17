@@ -22,12 +22,23 @@ public sealed class HomeJourneyTests(MockAppFixture app)
         ILocator recent = HomeRows.Recent(page);
         await HomeRows.Cards(recent).First.WaitForAsync();
 
-        // The phone sizes: active cards at 85% and recent cards at 60% of the row.
-        Assert.InRange(await CardShareAsync(HomeRows.Now(page)), 0.83, 0.87);
-        Assert.InRange(await CardShareAsync(recent), 0.58, 0.62);
+        // The phone sizes: active cards at 85% and recent cards at 60% of the screen width.
+        Assert.InRange(await CardWidthAsync(HomeRows.Now(page)) / Phone.Width, 0.84, 0.86);
+        Assert.InRange(await CardWidthAsync(recent) / Phone.Width, 0.59, 0.61);
+        Assert.False(await page.Locator("[data-row-scroll]").First.IsVisibleAsync(), "chevrons hide below Md");
 
-        // A swipe moves the row, not the page.
-        await recent.EvaluateAsync("row => row.scrollBy({ left: 400, behavior: 'instant' })");
+        // A touch swipe across the row moves the row, not the page.
+        LocatorBoundingBoxResult box = (await recent.BoundingBoxAsync())!;
+        ICDPSession cdp = await page.Context.NewCDPSessionAsync(page);
+        await cdp.SendAsync("Input.synthesizeScrollGesture", new Dictionary<string, object>
+        {
+            ["x"] = box.X + (box.Width * 0.8),
+            ["y"] = box.Y + (box.Height / 2),
+            ["xDistance"] = -240,
+            ["yDistance"] = 0,
+            ["gestureSourceType"] = "touch",
+            ["speed"] = 1200,
+        });
         await Expect(async () => await recent.EvaluateAsync<int>("row => row.scrollLeft") > 0 ? 1 : 0, 1);
         int[] overflow = await page.EvaluateAsync<int[]>("""
             () => {
@@ -44,11 +55,8 @@ public sealed class HomeJourneyTests(MockAppFixture app)
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "home-rows-375");
     }
 
-    private static async Task<double> CardShareAsync(ILocator row)
-    {
-        LocatorBoundingBoxResult card = (await row.GetByRole(AriaRole.Listitem).First.BoundingBoxAsync())!;
-        return card.Width / await row.EvaluateAsync<double>("row => row.clientWidth");
-    }
+    private static async Task<double> CardWidthAsync(ILocator row) =>
+        (await row.GetByRole(AriaRole.Listitem).First.BoundingBoxAsync())!.Width;
 
     [Fact]
     public async Task Cards_are_links_to_the_recording_and_show_all_opens_the_saved_library()
@@ -62,6 +70,12 @@ public sealed class HomeJourneyTests(MockAppFixture app)
             $"/r/{await card.GetAttributeAsync("data-recording-id")}",
             await card.GetAttributeAsync("href"));
         Assert.True(await HomeRows.Cards(HomeRows.Now(page)).CountAsync() >= 1, "the growing capture is recording");
+
+        // The mouse-only chevron pages the row by its visible width.
+        Assert.Equal(0, await recent.EvaluateAsync<int>("row => row.scrollLeft"));
+        await page.Locator("[data-row-scroll='1']").ClickAsync();
+        await Expect(async () => await recent.EvaluateAsync<int>("row => row.scrollLeft") > 0 ? 1 : 0, 1);
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "home-rows-1280");
 
         await page.GetByRole(AriaRole.Button, new() { Name = "Show all" }).ClickAsync();
 
@@ -125,6 +139,8 @@ public sealed class HomeRowMoveJourneyTests : IAsyncLifetime
         // Another tab completes the session.
         IPage admin = await session.Context.NewPageAsync();
         await admin.GotoAsync($"{_app.BaseUrl}/r/{id}", new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+        // Click only once the circuit is interactive; a click on the prerendered button is lost.
+        await admin.Locator($"{Search}[data-sk-ready]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
         await admin.Locator("button[data-stop-recording]").ClickAsync();
         await admin.Locator("[data-stop-confirm]").ClickAsync();
         await Feedback.Snackbar(admin, "Channel paused").WaitForAsync();

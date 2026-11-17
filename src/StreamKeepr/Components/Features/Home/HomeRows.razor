@@ -1,7 +1,9 @@
-@implements IDisposable
+@implements IAsyncDisposable
 @inject ILibraryView Library
 @inject ViewerClock Clock
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject ILogger<HomeRows> Logger
 
 @* Home at "/" with no recording open (design system: Home): every open session in the first row,
    the 20 newest complete sessions in the second, both newest first. The rows are the library's
@@ -46,6 +48,24 @@
                 <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="sk-shelf-caption">Newest first</MudBlazor.MudText>
                 <MudBlazor.MudSpacer />
                 <MudBlazor.MudButton Variant="MudBlazor.Variant.Text" Size="MudBlazor.Size.Small" OnClick="ShowAllSavedAsync">Show all</MudBlazor.MudButton>
+                @if (Library.IsLoaded)
+                {
+                    @* Mouse only: hidden from assistive technology and out of the tab order. *@
+                    <span class="sk-shelf-chevrons">
+                        <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.ChevronLeft"
+                                                 Size="MudBlazor.Size.Small"
+                                                 aria-hidden="true"
+                                                 tabindex="-1"
+                                                 data-row-scroll="-1"
+                                                 OnClick="() => ScrollRecentAsync(-1)" />
+                        <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.ChevronRight"
+                                                 Size="MudBlazor.Size.Small"
+                                                 aria-hidden="true"
+                                                 tabindex="-1"
+                                                 data-row-scroll="1"
+                                                 OnClick="() => ScrollRecentAsync(1)" />
+                    </span>
+                }
             </div>
             @if (!Library.IsLoaded)
             {
@@ -53,7 +73,7 @@
             }
             else
             {
-                <ul class="sk-shelf-row" aria-labelledby="@RecentHeadingId">
+                <ul class="sk-shelf-row" aria-labelledby="@RecentHeadingId" @ref="_recentRow">
                     @foreach (RecordingView recording in _recent)
                     {
                         <li @key="recording.Id">@Card(recording, RecordingCardSize.Default)</li>
@@ -66,7 +86,9 @@
 
 @code {
     /// <summary>How many complete sessions the Recent recordings row holds.</summary>
-    public const int RecentLimit = 20;
+    private const int RecentLimit = 20;
+
+    private const string Module = "./Components/Features/Home/HomeRows.razor.js";
 
     private const string NowHeadingId = "sk-now";
     private const string RecentHeadingId = "sk-recent";
@@ -77,6 +99,8 @@
     private IReadOnlyList<RecordingView> _open = [];
     private IReadOnlyList<RecordingView> _recent = [];
     private Dictionary<string, StreamerView> _streamers = new(StringComparer.Ordinal);
+    private ElementReference _recentRow;
+    private IJSObjectReference? _module;
 
     /// <summary>The shell, when Home renders inside it: it owns the drawer that "Show all" opens.</summary>
     [CascadingParameter] public AppShell? Shell { get; set; }
@@ -116,6 +140,24 @@
             await Shell.ShowLibraryAsync(url);
     }
 
+    private async Task ScrollRecentAsync(int direction)
+    {
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", Module);
+            await _module.InvokeVoidAsync("scrollRow", _recentRow, direction);
+        }
+        catch (JSException ex)
+        {
+            // The row still scrolls by wheel, trackpad, touch and focus; only the chevron is lost.
+            Logger.LogDebug(ex, "The Home rows module could not scroll a row.");
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, so there is no row left to scroll.
+        }
+    }
+
     private void OnLibraryChanged() => _ = InvokeAsync(() =>
     {
         Refresh();
@@ -124,9 +166,21 @@
 
     private void OnClockChanged() => _ = InvokeAsync(StateHasChanged);
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         Library.Changed -= OnLibraryChanged;
         Clock.Changed -= OnClockChanged;
+
+        if (_module is null)
+            return;
+
+        try
+        {
+            await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, so there is no module left to release.
+        }
     }
 }
