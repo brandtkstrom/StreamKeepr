@@ -27,8 +27,12 @@ public sealed class HomeJourneyTests(MockAppFixture app)
         Assert.InRange(await CardWidthAsync(recent) / Phone.Width, 0.59, 0.61);
         Assert.False(await page.Locator("[data-row-scroll]").First.IsVisibleAsync(), "chevrons hide below Md");
 
-        // A touch swipe across the row moves the row, not the page.
+        // A touch swipe across the row moves the row, not the page. Centre the row first: how
+        // far down it sits depends on the open sessions and the fonts, and a swipe that starts
+        // under the bottom navigation or past the fold scrolls nothing.
+        await recent.EvaluateAsync("row => row.scrollIntoView({ block: 'center', inline: 'nearest' })");
         LocatorBoundingBoxResult box = (await recent.BoundingBoxAsync())!;
+        Assert.True(box.Y >= 0 && box.Y + box.Height <= Phone.Height, $"the row is in view ({box.Y}, {box.Height})");
         ICDPSession cdp = await page.Context.NewCDPSessionAsync(page);
         await cdp.SendAsync("Input.synthesizeScrollGesture", new Dictionary<string, object>
         {
