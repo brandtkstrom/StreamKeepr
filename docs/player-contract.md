@@ -105,7 +105,7 @@ Control order, left to right, matches the design system:
 
 ## 7. Keyboard
 
-- The player listens on `document` while a recording is active. It ignores events with modifiers or `defaultPrevented`, editable targets (`input`, `textarea`, `select`, `[contenteditable]`), open menus/dialogs, keys handled by the seek/volume slider, and any target inside `[data-sk-chat]`.
+- The player listens on `document` while a recording is active. It ignores events with modifiers or `defaultPrevented`, editable targets (`input`, `textarea`, `select`, `[contenteditable]`), open menus/dialogs, keys handled by the seek/volume slider, and any target inside `[data-sk-chat]` or the settings sheet (`[data-settings-sheet]`, #183). The desktop sheet has no overlay, so with focus on the player beside it the keys still work.
 - Space/K toggle play/pause. They do nothing when the target is a button or link, so native activation wins.
 - J/L seek ±10 s; ←/→ seek ±5 s, except inside the drawer (tree keys win) or on a slider (the slider handles them).
 - M toggles mute; F toggles container fullscreen; T toggles theater; I toggles stats; C toggles the chat replay sidecar when the recording has chat. C is ignored in editable fields and open menus/dialogs.

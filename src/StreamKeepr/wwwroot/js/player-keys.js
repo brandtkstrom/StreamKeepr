@@ -13,14 +13,16 @@ const LETTERS = {
   i: "stats",
 };
 
+// The desktop settings sheet ([data-settings-sheet]) has no overlay, so it blocks the keys only
+// while focus is inside it; the player beside it keeps them.
 function overlayOpen(doc, target) {
-  if (target instanceof Element && target.closest("dialog[open], [role='menu'], [role='dialog']")) return true;
+  if (target instanceof Element && target.closest("dialog[open], [role='menu'], [role='dialog'], [data-settings-sheet]")) return true;
   return doc.querySelector("dialog[open], [role='dialog'], [role='menu']:not([hidden])") !== null;
 }
 
 /**
  * True when no single-letter app shortcut may act on this key: it was handled, is mid-IME,
- * has a modifier, targets an editable field, or an overlay is open. The player and the chat
+ * has a modifier, targets an editable field or the settings sheet, or an overlay is open. The player and the chat
  * pane's C both use it.
  * @param {KeyboardEvent} event
  * @param {Document} [doc]

@@ -362,6 +362,167 @@ public sealed class AppShellTests
         cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-shell][data-drawer-modal-open]")));
     }
 
+    [Fact]
+    public async Task Settings_opens_over_the_current_page_and_closing_goes_back()
+    {
+        await using var context = CreateContext();
+        NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo("/r/abc");
+        var cut = RenderShell(context);
+        await SetBreakpointAsync(cut, Breakpoint.Lg);
+
+        var toggle = cut.Find("header a[aria-label='Settings']");
+        Assert.Equal("false", toggle.GetAttribute("aria-expanded"));
+        // aria-controls names the sheet only while it exists.
+        Assert.Null(toggle.GetAttribute("aria-controls"));
+        // Closed, nothing is mounted: a closed drawer would be a second, unnamed aside landmark.
+        Assert.Empty(cut.FindAll("[id='sk-settings']"));
+        Assert.Single(cut.FindAll("aside"));
+
+        await cut.InvokeAsync(cut.Instance.ToggleSettingsAsync);
+
+        // Only the query changes: the page, and its player, stay.
+        Assert.Equal("http://localhost/r/abc?settings=open", navigation.Uri);
+        cut.WaitForAssertion(() =>
+        {
+            var sheet = cut.Find("[id='sk-settings']");
+            Assert.Equal("Settings", cut.Find($"[id='{sheet.GetAttribute("aria-labelledby")}']").TextContent.Trim());
+            Assert.NotNull(sheet.QuerySelector("[data-test='sections']"));
+            Assert.Equal("true", cut.Find("header a[aria-label='Settings']").GetAttribute("aria-expanded"));
+            Assert.Equal("sk-settings", cut.Find("header a[aria-label='Settings']").GetAttribute("aria-controls"));
+            Assert.Contains("Content", cut.Find("main").TextContent);
+        });
+
+        // The sheet pushed its entry, so closing it is a step back through history.
+        cut.Find("[data-settings-sheet] button[aria-label='Close settings']").Click();
+        cut.WaitForAssertion(() => context.JSInterop.VerifyInvoke("history.back"));
+
+        navigation.NavigateTo("/r/abc");
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Empty(cut.FindAll("[id='sk-settings']"));
+            Assert.Equal("false", cut.Find("header a[aria-label='Settings']").GetAttribute("aria-expanded"));
+        });
+    }
+
+    [Fact]
+    public async Task The_settings_toggle_closes_an_open_sheet()
+    {
+        await using var context = CreateContext();
+        NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
+        // A shared link: nothing to go back to, so closing replaces the entry.
+        navigation.NavigateTo("/r/abc?q=nova&settings=open");
+        var cut = RenderShell(context);
+        await SetBreakpointAsync(cut, Breakpoint.Lg);
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-settings-sheet]")));
+
+        await cut.InvokeAsync(cut.Instance.ToggleSettingsAsync);
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("http://localhost/r/abc?q=nova", navigation.Uri);
+            Assert.Empty(cut.FindAll("[data-settings-sheet]"));
+        });
+        Assert.DoesNotContain(context.JSInterop.Invocations, call => call.Identifier == "history.back");
+    }
+
+    [Fact]
+    public async Task On_the_settings_page_the_sheet_never_opens_and_settings_is_a_plain_link()
+    {
+        await using var context = CreateContext();
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/settings?settings=open");
+        var cut = RenderShell(context);
+        await SetBreakpointAsync(cut, Breakpoint.Lg);
+
+        Assert.Empty(cut.FindAll("[data-settings-sheet]"));
+        var link = cut.Find("header a[aria-label='Settings']");
+        Assert.Equal("/settings", link.GetAttribute("href"));
+        Assert.Null(link.GetAttribute("aria-expanded"));
+    }
+
+    [Fact]
+    public async Task On_a_phone_settings_is_a_full_screen_dialog_with_a_now_playing_strip()
+    {
+        await using var context = CreateContext();
+        NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo("/r/abc");
+        var dialogs = context.Render<MudDialogProvider>();
+        var cut = RenderShell(context, parameters => parameters
+            .Add(component => component.NowPlaying, Playing));
+        await SetBreakpointAsync(cut, Breakpoint.Xs);
+
+        await cut.InvokeAsync(cut.Instance.ToggleSettingsAsync);
+
+        dialogs.WaitForAssertion(() =>
+        {
+            var dialog = dialogs.OpenDialog("Settings");
+            Assert.NotNull(dialog);
+            Assert.NotNull(dialog!.QuerySelector("[data-test='sections']"));
+            Assert.NotNull(dialog.QuerySelector("button[aria-label='Close settings']"));
+            var strip = dialog.QuerySelector("[data-now-playing]")!;
+            Assert.Equal("Now playing", strip.GetAttribute("aria-label"));
+            Assert.Contains("Ranked climb to Diamond", strip.TextContent);
+            Assert.Contains("nova", strip.TextContent);
+            Assert.Equal("/media/nova/abc/thumb.jpg", strip.QuerySelector("img")!.GetAttribute("src"));
+            Assert.NotNull(strip.QuerySelector("button[data-now-playing-toggle]"));
+        });
+        // Only the dialog: no desktop sheet beside it.
+        Assert.Empty(cut.FindAll("[data-settings-sheet]"));
+
+        dialogs.Find("[data-now-playing] button[aria-label='Back to the video']").Click();
+        cut.WaitForAssertion(() => context.JSInterop.VerifyInvoke("history.back"));
+        navigation.NavigateTo("/r/abc");
+        dialogs.WaitForAssertion(() => Assert.False(dialogs.HasOpenDialog("Settings")));
+    }
+
+    [Fact]
+    public async Task On_a_phone_the_bottom_bar_settings_shows_the_open_sheet()
+    {
+        await using var context = CreateContext();
+        context.Render<MudDialogProvider>();
+        var cut = RenderShell(context);
+        await SetBreakpointAsync(cut, Breakpoint.Xs);
+
+        var settings = cut.Find("nav[aria-label='Main'] a[href='/settings']");
+        Assert.Equal("false", settings.GetAttribute("aria-expanded"));
+        Assert.Null(settings.GetAttribute("aria-controls"));
+
+        await cut.InvokeAsync(cut.Instance.ToggleSettingsAsync);
+
+        cut.WaitForAssertion(() =>
+        {
+            var open = cut.Find("nav[aria-label='Main'] a[href='/settings']");
+            Assert.Equal("true", open.GetAttribute("aria-expanded"));
+            Assert.Equal("sk-settings", open.GetAttribute("aria-controls"));
+            Assert.Equal("page", open.GetAttribute("aria-current"));
+            Assert.Null(cut.Find("nav[aria-label='Main'] a[href='/']").GetAttribute("aria-current"));
+        });
+    }
+
+    [Fact]
+    public async Task A_sheet_open_before_the_breakpoint_is_known_moves_into_the_phone_dialog()
+    {
+        // A phone reloading ?settings=open: the server renders the (CSS-hidden) drawer, then the
+        // breakpoint swaps it for the dialog, and the module must follow the dialog.
+        await using var context = CreateContext();
+        BunitJSModuleInterop module = context.JSInterop.SetupModule("./Components/Features/Settings/SettingsSheet.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/r/abc?settings=open");
+        var dialogs = context.Render<MudDialogProvider>();
+        var cut = RenderShell(context);
+        cut.WaitForAssertion(() => Assert.Single(module.Invocations, call => call.Identifier == "opened"));
+
+        await SetBreakpointAsync(cut, Breakpoint.Xs);
+
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog("Settings")));
+        cut.WaitForAssertion(() => Assert.Equal(2, module.Invocations.Count(call => call.Identifier == "opened")));
+    }
+
+    private static readonly RecordingView Playing = new(
+        "abc", "nova", "Ranked climb to Diamond", "Games", DateTimeOffset.UnixEpoch, null,
+        3280, RecordingState.Recording, 8, 1, 1024, "/media/nova/abc/thumb.jpg",
+        "/media/nova/abc/index.m3u8", null, []);
+
     private static Task SetBreakpointAsync(IRenderedComponent<AppShell> cut, Breakpoint breakpoint) =>
         cut.InvokeAsync(() => ((TestBrowserViewport)cut.Services.GetRequiredService<IBrowserViewportService>())
             .SetBreakpointAsync(breakpoint));
@@ -375,6 +536,8 @@ public sealed class AppShellTests
         return context.Render<AppShell>(parameters =>
         {
             parameters.AddChildContent("<div>Content</div>");
+            parameters.Add(component => component.SettingsContent, fragment =>
+                fragment.AddMarkupContent(0, "<div data-test='sections'>Sections</div>"));
             configure?.Invoke(parameters);
         });
     }

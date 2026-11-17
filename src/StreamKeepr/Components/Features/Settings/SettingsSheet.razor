@@ -1,0 +1,200 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject ILogger<SettingsSheet> Logger
+
+@* Design system: SettingsSheet. Settings over the current page, so a playing recording keeps
+   playing. Md and up it is a 440px end drawer with no overlay: the video and its controls stay
+   usable beside it, and clicking outside never closes it. Below Md it is a full-screen dialog
+   with a back arrow and the now-playing strip. The shell owns the open state (the URL's
+   ?settings=open); this component draws it and reports Close. SettingsSheet.razor.js moves
+   focus in and back, and owns Esc. *@
+@if (!Compact && Open)
+{
+    @* Mounted only while open: a closed drawer would be a second, unnamed aside landmark beside
+       the library's. No overlay, so MudDrawer reports nothing through OpenChanged; Close and Esc
+       are the exits. *@
+    <MudBlazor.MudDrawer Open="true"
+                         Anchor="MudBlazor.Anchor.End"
+                         Variant="MudBlazor.DrawerVariant.Temporary"
+                         ClipMode="MudBlazor.DrawerClipMode.Always"
+                         Overlay="false"
+                         Width="440px"
+                         Elevation="24"
+                         Class="sk-settings-sheet"
+                         id="@Id"
+                         aria-labelledby="@TitleId">
+        <div class="sk-settings-sheet-body" data-settings-sheet>
+            <div class="sk-settings-sheet-header">
+                <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Settings" />
+                <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2" id="@TitleId">Settings</MudBlazor.MudText>
+                <MudBlazor.MudTooltip Text="Close (Esc)" RootClass="sk-settings-sheet-close">
+                    <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Close"
+                                             OnClick="OnClose"
+                                             aria-label="Close settings"
+                                             aria-keyshortcuts="Escape"
+                                             data-settings-close />
+                </MudBlazor.MudTooltip>
+            </div>
+            @Sections
+        </div>
+    </MudBlazor.MudDrawer>
+}
+else if (Compact)
+{
+    @* MudDialog fixes its options when it opens, so Esc is the module's (as on the drawer) and
+       the backdrop never closes it. Focus goes to the back arrow from the module, not MudDialog. *@
+    <MudBlazor.MudDialog Visible="@Open"
+                         VisibleChanged="OnVisibleChanged"
+                         Options="DialogOptions"
+                         DefaultFocus="MudBlazor.DefaultFocus.None"
+                         AriaLabelledBy="@TitleId">
+        <DialogContent>
+            <div class="sk-settings-sheet-body compact" id="@Id" data-settings-sheet>
+                <div class="sk-settings-sheet-header">
+                    <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.ArrowBack"
+                                             OnClick="OnClose"
+                                             aria-label="Close settings"
+                                             aria-keyshortcuts="Escape"
+                                             data-settings-close />
+                    <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2" id="@TitleId">Settings</MudBlazor.MudText>
+                </div>
+                @Sections
+                @if (NowPlaying is { } recording)
+                {
+                    @* The playing state, time and progress are the module's, from the player's
+                       sk:playhead events; Blazor renders them once and never changes them. *@
+                    <div class="sk-now-playing" role="group" aria-label="Now playing" data-now-playing>
+                        <div class="thumb">
+                            @if (recording.ThumbnailUrl is { } thumbnail)
+                            {
+                                <img src="@thumbnail" alt="" width="64" height="36" />
+                            }
+                            <span class="progress" aria-hidden="true"><span data-now-playing-progress></span></span>
+                        </div>
+                        <div class="who">
+                            <span class="title">@recording.Title</span>
+                            <span class="meta">@recording.StreamerLogin<span data-now-playing-status></span></span>
+                        </div>
+                        @* The player's own button style and ligature icon, because the module swaps
+                           the icon text with the playing state, as the player's controls do. *@
+                        <button type="button" class="sk-icon-btn" aria-label="Play" data-now-playing-toggle>
+                            <span class="sk-icon fill" aria-hidden="true">play_arrow</span>
+                        </button>
+                        <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.ExpandLess"
+                                                 OnClick="OnClose"
+                                                 aria-label="Back to the video" />
+                    </div>
+                }
+            </div>
+        </DialogContent>
+    </MudBlazor.MudDialog>
+}
+
+@code {
+    /// <summary>The sheet's id, named by the Settings controls' <c>aria-controls</c>.</summary>
+    public const string Id = "sk-settings";
+
+    /// <summary>The cascade that tells <see cref="SettingsSection"/> it is inside the sheet.</summary>
+    public const string InSheetName = "SettingsSheet";
+
+    private const string TitleId = "sk-settings-title";
+    private const string Module = "./Components/Features/Settings/SettingsSheet.razor.js";
+
+    private static readonly MudBlazor.DialogOptions DialogOptions = new()
+    {
+        FullScreen = true,
+        NoHeader = true,
+        CloseOnEscapeKey = false,
+        BackdropClick = false,
+    };
+
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<SettingsSheet>? _self;
+    private bool _shown;
+    private bool _shownCompact;
+    private bool _disposed;
+
+    [Parameter] public bool Open { get; set; }
+
+    /// <summary>Below <c>Breakpoint.Md</c>: the full-screen dialog instead of the drawer.</summary>
+    [Parameter] public bool Compact { get; set; }
+
+    /// <summary>The recording on this page, for the phone's now-playing strip.</summary>
+    [Parameter] public RecordingView? NowPlaying { get; set; }
+
+    /// <summary>Raised by Close, the back arrow, Back to the video and Esc.</summary>
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    // The sections, in both the drawer and the dialog; SettingsSection reads the cascade.
+    private RenderFragment Sections => @<div class="sk-settings-sheet-sections">
+        <CascadingValue Name="@InSheetName" Value="true" IsFixed="true">
+            @ChildContent
+        </CascadingValue>
+    </div>;
+
+    /// <summary>The module's Esc.</summary>
+    [JSInvokable]
+    public Task CloseFromKeyboard() => InvokeAsync(() => OnClose.InvokeAsync());
+
+    private Task OnVisibleChanged(bool visible) => visible ? Task.CompletedTask : OnClose.InvokeAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // A breakpoint change while open swaps the drawer for the dialog (a phone reloading
+        // ?settings=open renders the drawer first), so focus and Esc follow the new one.
+        bool swapped = Open && _shown && _shownCompact != Compact;
+        if (_disposed || (_shown == Open && !swapped))
+            return;
+
+        _shown = Open;
+        _shownCompact = Compact;
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", Module);
+            _self ??= DotNetObjectReference.Create(this);
+            if (Open)
+                await _module.InvokeVoidAsync("opened", _self, $"#{Id}");
+            else
+                await _module.InvokeVoidAsync("closed");
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, so there is no focus left to move.
+        }
+        catch (JSException ex)
+        {
+            // The sheet still opens and closes; only focus handling and Esc are lost.
+            Logger.LogDebug(ex, "The settings sheet module could not follow the sheet.");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        try
+        {
+            if (_module is not null)
+            {
+                await _module.InvokeVoidAsync("closed");
+                await _module.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, and the module's listeners with it.
+        }
+        catch (JSException ex)
+        {
+            Logger.LogDebug(ex, "The settings sheet module could not be released.");
+        }
+        finally
+        {
+            _self?.Dispose();
+        }
+    }
+}

@@ -17,10 +17,10 @@ The whole StreamKeepr screen, built on MudBlazor's Layout 2 wireframe (an app ba
         @Body   @* Home rows at /, the watch view at /r/{id}, Settings at /settings *@
     </MudMainContent>
 
-    <MudDrawer @bind-Open="_settingsOpen" Anchor="Anchor.End" Variant="DrawerVariant.Temporary"
-               ClipMode="DrawerClipMode.Always" Overlay="false" Width="440px" Elevation="24">
-        <SettingsSheet />   @* desktop; phones use a full-screen MudDialog *@
-    </MudDrawer>
+    @* The end drawer Md and up, a full-screen MudDialog below; open while the URL has ?settings=open *@
+    <SettingsSheet Open="@SettingsOpen" Compact="@_compact" NowPlaying="@NowPlaying" OnClose="CloseSettingsAsync">
+        @SettingsContent   @* MainLayout passes SettingsSections *@
+    </SettingsSheet>
 
     @* Not MudHidden: it renders nothing until the circuit knows the breakpoint, so a phone's
        prerender would lose the bar's links. CSS hides the bar at 960px and up. *@

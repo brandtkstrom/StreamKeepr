@@ -1,11 +1,14 @@
-@* Design system: SettingsPage. One Settings section: an outlined MudPaper holding a section
-   labelled by its h2 (MudText h6), titled after a meaningful icon. Additional attributes (id,
-   data hooks) apply to the section. *@
+@* Design system: SettingsPage, SettingsSheet. One Settings section: an outlined MudPaper holding
+   a section labelled by its h2 (MudText h6), titled after a meaningful icon. Inside the settings
+   sheet, whose own title is the h2, the heading is an h3 in subtitle1 and sections are divided
+   by rules instead. Additional attributes (id, data hooks) apply to the section. *@
 <MudBlazor.MudPaper Elevation="0" Outlined="true" Class="sk-panel sk-settings-section">
     <section aria-labelledby="@HeadingId" @attributes="AdditionalAttributes">
         <div class="sk-settings-title">
             <MudBlazor.MudIcon Icon="@Icon" />
-            <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2" id="@HeadingId">@Title</MudBlazor.MudText>
+            <MudBlazor.MudText Typo="@(InSheet ? MudBlazor.Typo.subtitle1 : MudBlazor.Typo.h6)"
+                              HtmlTag="@(InSheet ? "h3" : "h2")"
+                              id="@HeadingId">@Title</MudBlazor.MudText>
         </div>
         @ChildContent
     </section>
@@ -21,6 +24,9 @@
     [Parameter, EditorRequired] public string Icon { get; set; } = "";
 
     [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Set by <see cref="SettingsSheet"/> around its sections.</summary>
+    [CascadingParameter(Name = SettingsSheet.InSheetName)] public bool InSheet { get; set; }
 
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }

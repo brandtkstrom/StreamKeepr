@@ -16,7 +16,7 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
     private static readonly ViewportSize Desktop = new() { Width = 1280, Height = 820 };
 
     [Fact]
-    public async Task On_a_phone_the_bottom_bar_navigates_between_home_and_settings()
+    public async Task On_a_phone_the_bottom_bar_opens_settings_over_home_and_navigates_home()
     {
         await using Session session = await OpenAsync(app.BaseUrl, viewport: Phone, hasTouch: true);
         IPage page = session.Page;
@@ -28,8 +28,18 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         Assert.Equal("page", await home.GetAttributeAsync("aria-current"));
         Assert.True(await page.Locator("[data-shell][data-layout='compact']").IsVisibleAsync());
 
+        // Settings opens over the page (#183): the full-screen dialog, with Settings current.
         await settings.TapAsync();
-        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/settings");
+        ILocator dialog = Feedback.Dialog(page, "Settings");
+        await dialog.WaitForAsync();
+        Assert.Equal("/", new Uri(page.Url).AbsolutePath);
+        await Assertions.Expect(settings).ToHaveAttributeAsync("aria-current", "page");
+        await Assertions.Expect(settings).ToHaveAttributeAsync("aria-expanded", "true");
+        await dialog.GetByRole(AriaRole.Button, new() { Name = "Close settings" }).TapAsync();
+        await dialog.WaitForAsync(new() { State = WaitForSelectorState.Detached });
+        await Assertions.Expect(settings).ToHaveAttributeAsync("aria-expanded", "false");
+
+        await page.GotoAsync($"{app.BaseUrl}/settings");
         await Assertions.Expect(bar.GetByRole(AriaRole.Link, new() { Name = "Settings" }))
             .ToHaveAttributeAsync("aria-current", "page");
 

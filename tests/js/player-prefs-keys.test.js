@@ -108,6 +108,16 @@ describe("player-keys.js", () => {
     expect(press("m")).toBeNull();
   });
 
+  it("pauses while focus is inside the settings sheet, and only then", () => {
+    // The desktop sheet has no overlay: the player keeps its keys while focus is beside it.
+    document.body.innerHTML = `
+      <aside id="sk-settings"><div data-settings-sheet><button id="in-sheet">Close</button></div></aside>
+      <div data-sk-player tabindex="0" id="player"></div>`;
+    expect(press("k", document.getElementById("in-sheet"))).toBeNull();
+    expect(press("j", document.getElementById("in-sheet"))).toBeNull();
+    expect(press("k", document.getElementById("player"))).toBe("toggle-play");
+  });
+
   it("lets buttons, sliders, and the drawer keep their own keys", () => {
     expect(press(" ", document.createElement("button"))).toBeNull();
     expect(press("m", document.createElement("button"))).toBe("mute");
