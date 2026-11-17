@@ -83,7 +83,7 @@ Rules:
 
 `Mock` registers:
 
-- `MockSeeder`: four streamers, eight recordings (finished VOD, two-part partial, growing EVENT capture), thumbnails, chapters. `Mock:Seed:ScaleRecordings` (default 0) adds finished archive recordings without media segments for the library scale measurement (#110).
+- `MockSeeder`: four streamers, eight recordings (finished VOD, two-part partial, growing EVENT capture), thumbnails, chapters. `Mock:Seed:ScaleRecordings` (default 0) adds finished archive recordings without media segments for the library scale measurement (#110). `Mock:Seed:Enabled=false` starts with no channels or recordings; `EmptyLibraryJourneyTests` uses it for the first-run empty states (#185).
 - `MockPoller` / `MockEventSub`: deterministic observations and push notifications driven by `FakeTimeProvider` or explicit test controls.
 - Fake signed-in and signed-out auth states; no OAuth.
 - `fake-streamlink` for the growing capture.
