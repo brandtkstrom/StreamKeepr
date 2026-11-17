@@ -36,6 +36,13 @@ public static class Format
 
     public static string Duration(double seconds) => Duration(TimeSpan.FromSeconds(seconds));
 
+    /// <summary>A CSS width such as "25%" for <paramref name="part"/> of <paramref name="whole"/>, clamped to 0–100.</summary>
+    public static string Percent(double part, double whole)
+    {
+        double percent = whole > 0 ? Math.Clamp(part / whole * 100, 0, 100) : 0;
+        return percent.ToString("0.#", CultureInfo.InvariantCulture) + "%";
+    }
+
     public static string DayHeader(DateTimeOffset when, DateTimeOffset now, TimeZoneInfo timeZone)
     {
         var localWhen = TimeZoneInfo.ConvertTime(when, timeZone);
