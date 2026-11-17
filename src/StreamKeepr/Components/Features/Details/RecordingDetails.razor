@@ -14,157 +14,208 @@
 @inject IRecordingAdmin Admin
 
 @* Spec: docs/details-auth-settings-contract.md §§2–4; player contract §11. The same
-   component instance survives recording swaps because Home keeps it in one slot. *@
-<Collapsible Open="@Preferences.DetailsOpen"
-             OnToggle="ToggleAsync"
-             data-recording-details="true">
-    <Header>
-        <h2>Recording details</h2>
-        <span class="hint" data-details-date>@StartLabel</span>
-    </Header>
-    <ChildContent>
-        <div class="sk-details-body">
-            <div class="sk-details-title">
-                <h3 data-details-title>@Recording.Title</h3>
+   component instance survives recording swaps because Home keeps it in one slot.
+   Design system: RecordingDetails and Buttons cards (#178). The panel is a MudPaper with a
+   MudCollapse rather than a MudExpansionPanel: MudBlazor 9.12's panel header is a focusable
+   div with no button role or aria-expanded, and this header must stay a disclosure button. *@
+<MudBlazor.MudPaper Outlined="true"
+                    Elevation="0"
+                    Class="sk-details"
+                    data-recording-details="true"
+                    data-expanded="@(Preferences.DetailsOpen ? "true" : "false")">
+    <button type="button"
+            class="sk-details-head"
+            data-collapsible-toggle
+            aria-expanded="@(Preferences.DetailsOpen ? "true" : "false")"
+            aria-controls="@_bodyId"
+            @onclick="() => ToggleAsync(!Preferences.DetailsOpen)">
+        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Info" Size="MudBlazor.Size.Small" />
+        <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2">Recording details</MudBlazor.MudText>
+        <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="hint" data-details-date="true">@StartLabel</MudBlazor.MudText>
+        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.ExpandMore" Class="chev" />
+    </button>
+    <MudBlazor.MudCollapse Expanded="@Preferences.DetailsOpen">
+        <div id="@_bodyId" class="sk-details-body" inert="@(!Preferences.DetailsOpen)">
+            @* The title has a row of its own; it wraps to two lines, then the tooltip has the rest.
+               It is a tab stop so keyboard users can open that tooltip too (MudTooltip shows on
+               focus); screen readers already read the whole title. *@
+            <MudBlazor.MudTooltip Text="@Recording.Title"
+                                  Placement="MudBlazor.Placement.Top"
+                                  RootClass="sk-details-title-root">
+                <MudBlazor.MudText Typo="MudBlazor.Typo.h5"
+                                   HtmlTag="h3"
+                                   Class="sk-details-title"
+                                   tabindex="0"
+                                   data-details-title="true">@Recording.Title</MudBlazor.MudText>
+            </MudBlazor.MudTooltip>
+
+            <div class="sk-details-row">
+                <div class="sk-details-meta" data-details-meta="true">
+                    @if (LiveChip is { } chip)
+                    {
+                        <StatusChip Status="@chip" />
+                    }
+                    <span class="who">
+                        <Avatar Name="@Recording.StreamerLogin" Tone="AvatarTone.Tertiary" />
+                        <span data-details-streamer>@Recording.StreamerLogin</span>
+                    </span>
+                    <span class="pair">
+                        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.SportsEsports" />
+                        <span data-details-category>@CategoryLabel</span>
+                    </span>
+                    <span class="pair">
+                        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Event" />
+                        <span data-details-start>@StartLabel</span>
+                    </span>
+                    <span class="pair">
+                        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Timer" />
+                        <span data-details-duration>@Format.Duration(Recording.DurationSec)</span>
+                    </span>
+                    <span class="pair">
+                        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.FolderOpen" />
+                        <span data-details-counts>
+                            <span data-details-segments>@Count(Recording.SegmentCount, "segment")</span>
+                            <span aria-hidden="true"> · </span>
+                            <span data-details-parts>@Count(Recording.PartCount, "part")</span>
+                        </span>
+                    </span>
+                    @if (ShowSize)
+                    {
+                        <span class="pair">
+                            <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Storage" />
+                            <span data-details-size>@Format.Bytes(Recording.SizeBytes)</span>
+                        </span>
+                    }
+                </div>
+
                 <div class="sk-actions">
+                    @* Stop and Delete sit in the row from Breakpoint.Md up and in More actions
+                       below it; components.css shows one or the other at 960px. *@
                     @if (IsLive)
                     {
-                        <RequiresTwitch>
-                            <Button Variant="ButtonVariant.Outlined"
-                                    Disabled="@_stopping"
-                                    OnClick="OpenStopDialog"
-                                    data-stop-recording="true">
-                                <Icon Name="pause" Size="IconSize.Small" />
-                                Stop recording
-                            </Button>
-                        </RequiresTwitch>
+                        <span class="sk-details-wide">
+                            <RequiresTwitch>
+                                <MudBlazor.MudButton Variant="MudBlazor.Variant.Outlined"
+                                                     Color="MudBlazor.Color.Error"
+                                                     StartIcon="@MudBlazor.Icons.Material.Rounded.Stop"
+                                                     IconSize="MudBlazor.Size.Small"
+                                                     Disabled="@_stopping"
+                                                     OnClick="OpenStopDialog"
+                                                     data-stop-recording="true">Stop recording</MudBlazor.MudButton>
+                            </RequiresTwitch>
+                        </span>
                     }
-                    <Button Variant="ButtonVariant.Outlined"
-                            OnClick="CopyPlaylistAsync"
-                            data-copy-playlist="true">
-                        <Icon Name="content_copy" Size="IconSize.Small" />
-                        Copy playlist URL
-                    </Button>
+                    <MudBlazor.MudButton Variant="MudBlazor.Variant.Outlined"
+                                         StartIcon="@MudBlazor.Icons.Material.Rounded.PlaylistPlay"
+                                         IconSize="MudBlazor.Size.Small"
+                                         OnClick="CopyPlaylistAsync"
+                                         data-copy-playlist="true">Copy playlist URL</MudBlazor.MudButton>
                     <RequiresTwitch>
                         @if (ExportBlockedReason is { } reason)
                         {
-                            <Tooltip Text="@reason" tabindex="0">
-                                <Button Variant="ButtonVariant.Tonal" Disabled="true" data-export="true">
-                                    <Icon Name="movie" Size="IconSize.Small" />
-                                    Export MP4
-                                </Button>
-                            </Tooltip>
+                            <Tooltip Text="@reason" tabindex="0">@ExportButton</Tooltip>
                         }
                         else
                         {
-                            <Button Variant="ButtonVariant.Tonal"
-                                    Disabled="@(_job?.IsActive == true || _starting)"
-                                    OnClick="StartExportAsync"
-                                    data-export="true">
-                                <Icon Name="movie" Size="IconSize.Small" />
-                                Export MP4
-                            </Button>
+                            @ExportButton
                         }
                     </RequiresTwitch>
-                    <RequiresTwitch>
-                        @if (DeleteBlockedReason is { } deleteReason)
-                        {
-                            <Tooltip Text="@deleteReason" tabindex="0" data-delete-blocked>
-                                <IconButton Icon="delete"
-                                            Label="Delete recording"
-                                            Disabled="true"
-                                            data-delete />
-                            </Tooltip>
-                        }
-                        else
-                        {
-                            <IconButton Icon="delete"
-                                        Label="Delete recording"
-                                        OnClick="OpenDeleteDialog"
-                                        data-delete />
-                        }
-                    </RequiresTwitch>
+                    <span class="sk-details-wide">
+                        <RequiresTwitch>
+                            @if (DeleteBlockedReason is { } deleteReason)
+                            {
+                                <Tooltip Text="@deleteReason" tabindex="0" data-delete-blocked>@DeleteButton</Tooltip>
+                            }
+                            else
+                            {
+                                @DeleteButton
+                            }
+                        </RequiresTwitch>
+                    </span>
+                    <span class="sk-details-compact">
+                        <RequiresTwitch>
+                            <MudBlazor.MudMenu Icon="@MudBlazor.Icons.Material.Rounded.MoreVert"
+                                               AriaLabel="More actions"
+                                               AnchorOrigin="MudBlazor.Origin.BottomRight"
+                                               TransformOrigin="MudBlazor.Origin.TopRight">
+                                @if (IsLive)
+                                {
+                                    <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Stop"
+                                                           Disabled="@_stopping"
+                                                           OnClick="OpenStopDialog">Stop recording</MudBlazor.MudMenuItem>
+                                }
+                                <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Delete"
+                                                       Disabled="@(DeleteBlockedReason is not null)"
+                                                       OnClick="OpenDeleteDialog">
+                                    Delete recording
+                                    @if (DeleteBlockedReason is { } menuReason)
+                                    {
+                                        <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="sk-menu-reason">@menuReason</MudBlazor.MudText>
+                                    }
+                                </MudBlazor.MudMenuItem>
+                            </MudBlazor.MudMenu>
+                        </RequiresTwitch>
+                    </span>
                 </div>
-            </div>
-
-            <div class="sk-details-meta">
-                <span class="who">
-                    <Avatar Name="@Recording.StreamerLogin" Tone="AvatarTone.Tertiary" />
-                    <span data-details-streamer>@Recording.StreamerLogin</span>
-                </span>
-                <span class="sep" aria-hidden="true"></span>
-                <span data-details-category>@CategoryLabel</span>
-                <span class="sep" aria-hidden="true"></span>
-                <span data-details-start>@StartLabel</span>
-                <span class="sep" aria-hidden="true"></span>
-                <span data-details-counts>
-                    <span data-details-segments>@Count(Recording.SegmentCount, "segment")</span>
-                    <span aria-hidden="true"> · </span>
-                    <span data-details-parts>@Count(Recording.PartCount, "part")</span>
-                    @if (ShowSize)
-                    {
-                        <span aria-hidden="true"> · </span>
-                        <span data-details-size>@Format.Bytes(Recording.SizeBytes)</span>
-                    }
-                </span>
             </div>
 
             @if (_job is { } job)
             {
                 int percent = (int)Math.Round(Math.Clamp(job.Progress, 0, 1) * 100);
                 <div class="sk-export-row" data-export-row="@job.State">
-                    <Icon Name="@ExportIcon(job.State)" Size="IconSize.Small" />
+                    <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Output"
+                                       Color="MudBlazor.Color.Secondary"
+                                       Size="MudBlazor.Size.Small" />
                     @* State changes are announced; per-percent changes are not. *@
                     <span class="text" role="status">@ExportText(job)</span>
                     @if (job.State == ExportState.Running)
                     {
                         <span class="pct" aria-hidden="true">@percent%</span>
-                        <div class="sk-export-progress"
-                             role="progressbar"
-                             aria-label="Export progress"
-                             aria-valuemin="0"
-                             aria-valuemax="100"
-                             aria-valuenow="@percent"
-                             aria-valuetext="@($"{percent}%")">
-                            <i style="width:@(percent)%"></i>
-                        </div>
+                        @* MudProgressLinear is a polite live region by default; the status
+                           text above is the one announcement. *@
+                        <MudBlazor.MudProgressLinear Color="MudBlazor.Color.Secondary"
+                                                     Value="@percent"
+                                                     Rounded="true"
+                                                     Class="sk-export-progress"
+                                                     aria-label="Export progress"
+                                                     aria-live="off"
+                                                     aria-valuetext="@($"{percent}%")" />
                     }
-                    @if (job.IsActive)
-                    {
-                        <RequiresTwitch>
-                            <Button Variant="ButtonVariant.Text"
-                                    Disabled="@_cancelling"
-                                    OnClick="CancelExportAsync"
-                                    data-export-cancel="true">
-                                Cancel
-                            </Button>
-                        </RequiresTwitch>
-                    }
-                    @if (CanRetry(job))
-                    {
-                        <RequiresTwitch>
-                            <Button Variant="ButtonVariant.Text"
-                                    Disabled="@_starting"
-                                    OnClick="StartExportAsync"
-                                    data-export-retry="true">
-                                <Icon Name="refresh" Size="IconSize.Small" />
-                                Retry
-                            </Button>
-                        </RequiresTwitch>
-                    }
-                    @if (job.State == ExportState.Succeeded)
-                    {
-                        <RequiresTwitch>
-                            <a class="sk-btn tonal"
-                               href="@StreamKeepr.Hosting.ExportDownloadEndpoint.For(job.Id)"
-                               download="@(job.FileName ?? "")"
-                               data-enhance-nav="false"
-                               data-export-download="true">
-                                <Icon Name="download" Size="IconSize.Small" />
-                                Download
-                            </a>
-                        </RequiresTwitch>
-                    }
+                    <span class="sk-export-actions">
+                        @if (job.IsActive)
+                        {
+                            <RequiresTwitch>
+                                <MudBlazor.MudButton Variant="MudBlazor.Variant.Text"
+                                                     Disabled="@_cancelling"
+                                                     OnClick="CancelExportAsync"
+                                                     data-export-cancel="true">Cancel</MudBlazor.MudButton>
+                            </RequiresTwitch>
+                        }
+                        @if (CanRetry(job))
+                        {
+                            <RequiresTwitch>
+                                <MudBlazor.MudButton Variant="MudBlazor.Variant.Text"
+                                                     StartIcon="@MudBlazor.Icons.Material.Rounded.Refresh"
+                                                     IconSize="MudBlazor.Size.Small"
+                                                     Disabled="@_starting"
+                                                     OnClick="StartExportAsync"
+                                                     data-export-retry="true">Retry</MudBlazor.MudButton>
+                            </RequiresTwitch>
+                        }
+                        @if (job.State == ExportState.Succeeded)
+                        {
+                            <RequiresTwitch>
+                                <MudBlazor.MudButton Variant="MudBlazor.Variant.Text"
+                                                     StartIcon="@MudBlazor.Icons.Material.Rounded.Download"
+                                                     IconSize="MudBlazor.Size.Small"
+                                                     Class="sk-tonal"
+                                                     Href="@StreamKeepr.Hosting.ExportDownloadEndpoint.For(job.Id)"
+                                                     download="@(job.FileName ?? "")"
+                                                     data-enhance-nav="false"
+                                                     data-export-download="true">Download</MudBlazor.MudButton>
+                            </RequiresTwitch>
+                        }
+                    </span>
                 </div>
             }
 
@@ -185,18 +236,18 @@
                                 @onclick="() => SeekToChapterAsync(chapter)">
                             <span class="sk-visually-hidden">Seek to </span>
                             <span class="time">@Format.Timecode(chapter.StartSeconds)</span>
-                            <span class="title">@chapter.Title</span>
+                            <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle2" HtmlTag="span" Class="title">@chapter.Title</MudBlazor.MudText>
                             @if (!string.IsNullOrWhiteSpace(chapter.Game))
                             {
-                                <span class="game">@chapter.Game</span>
+                                <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="game">@chapter.Game</MudBlazor.MudText>
                             }
                         </button>
                     }
                 </div>
             }
         </div>
-    </ChildContent>
-</Collapsible>
+    </MudBlazor.MudCollapse>
+</MudBlazor.MudPaper>
 
 <ConfirmDialog Visible="@_stopOpen"
                VisibleChanged="OnStopOpenChanged"
@@ -233,6 +284,7 @@
     private const string ModulePath = "./Components/Features/Details/RecordingDetails.razor.js";
 
     private IJSObjectReference? _module;
+    private readonly string _bodyId = $"sk-details-body-{Guid.NewGuid():N}";
 
     [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
 
@@ -258,6 +310,26 @@
 
     private bool IsLive =>
         Recording.State is RecordingState.Recording or RecordingState.Reconnecting;
+
+    // The live chip that leads the meta line; null once the recording has finished (a
+    // Partial recording's chip belongs to the library row, not here).
+    private StatusChipKind? LiveChip => IsLive ? RecordingStatusChip.For(Recording.State) : null;
+
+    // One Export MP4 button; a blocked one is disabled and sits in its reason's tooltip.
+    private RenderFragment ExportButton => @<MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
+                                                                Color="MudBlazor.Color.Primary"
+                                                                StartIcon="@MudBlazor.Icons.Material.Rounded.Output"
+                                                                IconSize="MudBlazor.Size.Small"
+                                                                Disabled="@(ExportBlockedReason is not null || _job?.IsActive == true || _starting)"
+                                                                OnClick="StartExportAsync"
+                                                                data-export="true">Export MP4</MudBlazor.MudButton>;
+
+    // One Delete icon button; a blocked one is disabled and sits in its reason's tooltip.
+    private RenderFragment DeleteButton => @<MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Delete"
+                                                                    aria-label="Delete recording"
+                                                                    Disabled="@(DeleteBlockedReason is not null)"
+                                                                    OnClick="OpenDeleteDialog"
+                                                                    data-delete="true" />;
 
     private bool IsIncompatible =>
         _job is { State: ExportState.Failed, Error: ExportService.IncompatibleParts };
@@ -504,16 +576,6 @@
         _ when job.Error == ExportService.IncompatibleParts => "This recording's parts cannot be joined into one MP4.",
         _ => job.Error ?? "Export failed",
     };
-
-    private static string ExportIcon(ExportState state) => state switch
-    {
-        ExportState.Queued => "schedule",
-        ExportState.Running => "hourglass_top",
-        ExportState.Succeeded => "check_circle",
-        ExportState.Cancelled => "cancel",
-        _ => "error",
-    };
-
 
     private void OpenStopDialog()
     {
