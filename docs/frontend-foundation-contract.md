@@ -158,7 +158,7 @@ Primitives use the design-system role tokens (the hand-built ones through `sk-` 
 ## 11. JavaScript
 
 - `wwwroot/js/prefs.js` is a plain ES module loaded from `App.razor`; it exposes `window.skPrefs` with cookie read/write and the browser time zone, and sets `sk-tz` on first load.
-- `AppShell.razor.js` is a collocated module for the `.scrolled` observer, the compact drawer's focus handling (`setModalDrawer`, Tab trap, Escape → `CloseModalDrawer`) and the paused-updates bridge (`sk:updates-paused`, the reconnect modal's visibility); Retry belongs to `reconnect.js`; it disposes on component dispose. The drawer's open state lives in `AppShell.razor`.
+- `AppShell.razor.js` is a collocated module for the `.scrolled` observer, the compact drawer's focus handling (`setModalDrawer`: focus moves in on open and back to the trigger on close, but only if focus is still in the drawer or was lost with it, so an action that moved focus on keeps it; Tab trap; Escape → `CloseModalDrawer`) and the paused-updates bridge (`sk:updates-paused`, the reconnect modal's visibility); Retry belongs to `reconnect.js`; it disposes on component dispose. The drawer's open state lives in `AppShell.razor`.
 - `UiPreferences`/`ViewerClock` call `prefs.js` through `IJSRuntime`; no JS reads or writes layout state directly.
 - `Editor`/player modules load later; hls.js is imported only by the player module, never by the shell.
 - `ChatPane.razor.js` owns the chat log, polling, auto-scroll, and sync controls; it listens to `sk:playhead` and never crosses the circuit for time updates.

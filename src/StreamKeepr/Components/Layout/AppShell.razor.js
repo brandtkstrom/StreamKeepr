@@ -39,7 +39,12 @@ function setModalDrawer(open) {
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     focusableElements()[0]?.focus();
   } else {
-    if (lastFocus instanceof HTMLElement && lastFocus.isConnected) lastFocus.focus();
+    // Give focus back only if it is still in the drawer or was lost with it. A drawer action
+    // that closes the drawer may already have moved focus on (Clear search focuses the search
+    // field); taking it back would depend on which of the two happened first.
+    const active = document.activeElement;
+    const stranded = !active || active === document.body || drawer?.contains(active);
+    if (stranded && lastFocus instanceof HTMLElement && lastFocus.isConnected) lastFocus.focus();
     lastFocus = null;
   }
 }
