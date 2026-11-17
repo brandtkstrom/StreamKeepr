@@ -152,6 +152,21 @@ public sealed class RecordingDetailsLayoutTests
         Assert.Empty(bar.QuerySelectorAll("[aria-live]:not([aria-live='off'])"));
     }
 
+    [Fact]
+    public async Task The_phone_summary_moves_the_live_chip_to_the_actions_and_trims_the_meta()
+    {
+        await using BunitContext context = CreateContext(signedIn: false);
+
+        IRenderedComponent<RecordingDetailsSummary> cut = context.Render<RecordingDetailsSummary>(p => p
+            .Add(component => component.Recording, Recording(RecordingState.Recording))
+            .Add(component => component.Compact, true));
+
+        Assert.Empty(cut.FindAll("[data-details-meta] [data-status]"));
+        Assert.NotNull(cut.Find("[data-details-actions] [data-status]"));
+        Assert.Empty(cut.FindAll("[data-details-category]"));
+        Assert.Empty(cut.FindAll("[data-details-counts]"));
+    }
+
     private static IElement MenuItem(IRenderedComponent<MudBlazor.MudPopoverProvider> popovers, string label) =>
         popovers.FindAll("[role='menuitem']").Single(item => item.TextContent.Trim().StartsWith(label, StringComparison.Ordinal));
 

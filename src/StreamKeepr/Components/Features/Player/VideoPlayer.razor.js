@@ -112,6 +112,7 @@ export function createPlayer(
   let resumePlaying = false; // VOD→live reload keeps playing if it was
   let prefs = readPlayerPrefs(storage); // read once; applied on every load
   let theater = false;
+  let theaterAvailable = true;
   let idleTimer = 0;
   let wasFullscreen = false;
   let lastPlayheadAt = 0;
@@ -401,6 +402,7 @@ export function createPlayer(
   }
 
   function toggleTheater() {
+    if (!theaterAvailable) return;
     // UiPreferences is the source of truth; SetTheater persists it and Changed comes back
     // through setTheater. The button reflects the request at once.
     theater = !theater;
@@ -1005,6 +1007,7 @@ export function createPlayer(
       stats.reset();
       setStatsPressed(Boolean(next.statsOpen));
       theater = Boolean(next.theater);
+      theaterAvailable = next.theaterAvailable !== false;
       renderTheater();
       renderPip();
       renderFullscreen();
@@ -1024,6 +1027,7 @@ export function createPlayer(
       if (disposed || !next || !view || next.recordingId !== view.recordingId) return;
       // Same recording: refresh what it shows, never the source or the position.
       view = { ...next, resumeSec: view.resumeSec };
+      theaterAvailable = next.theaterAvailable !== false;
       stats.setView(view);
       renderView();
       renderPosition();
@@ -1050,6 +1054,11 @@ export function createPlayer(
       if (disposed) return;
       theater = Boolean(open);
       renderTheater();
+    },
+
+    /** Below Breakpoint.Md theater does not exist; the button and T are inert. */
+    setTheaterAvailable(available) {
+      theaterAvailable = Boolean(available);
     },
 
     seek(time) {
@@ -1102,6 +1111,10 @@ export function update(root, view) {
 
 export function setTheater(root, open) {
   players.get(root)?.setTheater(open);
+}
+
+export function setTheaterAvailable(root, available) {
+  players.get(root)?.setTheaterAvailable(available);
 }
 
 export function seek(root, seconds) {

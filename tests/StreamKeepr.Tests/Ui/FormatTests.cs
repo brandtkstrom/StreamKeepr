@@ -26,6 +26,12 @@ public sealed class FormatTests
     public void Duration_formats_hours_and_minutes(double seconds, string expected) =>
         Assert.Equal(expected, Format.Duration(seconds));
 
+    [Fact]
+    public void FullDate_formats_the_viewer_local_start_date() =>
+        Assert.Equal(
+            "Wed, Nov 11, 2026 · 10:00 AM",
+            Format.FullDate(new DateTimeOffset(2026, 11, 11, 10, 0, 0, TimeSpan.Zero)));
+
     [Theory]
     [InlineData(0, 3600, "0%")]
     [InlineData(900, 3600, "25%")]

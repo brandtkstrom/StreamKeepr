@@ -121,8 +121,29 @@ public sealed class VideoPlayerTests
         Assert.Equal("saved", payload.GetProperty("state").GetString());
         Assert.Equal(3600, payload.GetProperty("durationSec").GetDouble());
         Assert.False(payload.GetProperty("statsOpen").GetBoolean());
+        Assert.True(payload.GetProperty("theaterAvailable").GetBoolean());
         Assert.Equal(60, payload.GetProperty("chapters")[0].GetProperty("startSeconds").GetDouble());
         Assert.Equal("Main", payload.GetProperty("chapters")[0].GetProperty("title").GetString());
+    }
+
+    [Fact]
+    public void Below_md_theater_availability_reaches_the_module_without_a_reload()
+    {
+        using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+        RecordingView recording = Recording("r1", "First");
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(p =>
+            p.Add(c => c.Recording, recording));
+
+        cut.Render(p =>
+        {
+            p.Add(c => c.Recording, recording);
+            p.Add(c => c.TheaterAvailable, false);
+        });
+
+        JSRuntimeInvocation call = Assert.Single(
+            module.Invocations, invocation => invocation.Identifier == "setTheaterAvailable");
+        Assert.False(Assert.IsType<bool>(call.Arguments[1]));
+        Assert.DoesNotContain(module.Invocations, invocation => invocation.Identifier == "load");
     }
 
     [Fact]

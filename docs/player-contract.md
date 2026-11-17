@@ -12,16 +12,26 @@ The stitched `index.m3u8` is a **single media playlist**, not a multi-variant ma
 
 ## 2. Composition and ownership
 
-- `Home.razor` resolves the selected recording through `ILibraryView.Find` and renders the player column in the fixed order player → details → stats.
+- `Home.razor` resolves the selected recording through `ILibraryView.Find` and renders the watch layout in §2a. Md and up the column is player → details → stats, with the chat sidecar beside the player; below Md the player is followed by `RecordingDetailsSummary` and the Chat/Details/Stats tabs.
+- `RecordingDetails` is composed of `RecordingDetailsSummary` (title, meta, actions, stop/delete dialogs) and `RecordingDetailsBody` (export row, chapters). Md and up both sit inside the details card and its collapse; below Md `Home` renders the summary outside the tabs and the body as the Details tab.
 - `VideoPlayer.razor` renders the complete player skeleton once: a `<video>` with no native controls, `playsinline`, `preload="metadata"`, and the thumbnail as poster; the title strip, centre play/replay, seek bar, control bar, menus, spinner, and error overlay. A mouse/pen click on the video frame toggles play/pause; controls, links, and menus keep their own click behaviour.
 - `VideoPlayer.razor.js` owns hls.js, every player control, all dynamic player DOM, idle state, keyboard handling, progress timing, and error recovery. It calls .NET only for progress, `sk-ui` preferences, and the stats snackbar.
 - After the first interactive render, `VideoPlayer` returns `ShouldRender() => false`. Parameter changes call the JS module (`load`/`update`) but never re-render the player markup, so Blazor cannot overwrite JS-owned attributes, classes, text, or SVG children.
-- `StatsPanel.razor` likewise renders its skeleton once; `stats.js` owns the open state, values, sparklines, and copy button. The panel's switch exposes `aria-checked` from `UiPreferences.StatsOpen`; the section carries a non-ARIA `data-open` hook for the 300 ms collapse. A section-level `aria-expanded` is deliberately not used because ARIA does not allow it on a generic section (axe reports `aria-allowed-attr`); the switch and the inert body carry the state. The switch is a button containing only phrasing content, with the panel heading outside it, because a heading is invalid button content.
-- `RecordingDetails` remains a normal Blazor component. It injects the scoped `PlayerBridge` to seek; it never manipulates the player DOM.
+- `StatsPanel.razor` likewise renders its skeleton once; `stats.js` owns the open state, values, sparklines, and copy button. The panel's switch exposes `aria-checked` from `UiPreferences.StatsOpen`; the section carries a non-ARIA `data-open` hook for the 300 ms collapse. A section-level `aria-expanded` is deliberately not used because ARIA does not allow it on a generic section (axe reports `aria-allowed-attr`); the switch and the inert body carry the state. The switch is a button containing only phrasing content, with the panel heading outside it, because a heading is invalid button content. With `Tab="true"` (the phone Stats tab) the switch is not rendered and the panel starts expanded; the tab owns the disclosure.
+- `RecordingDetails` remains a normal Blazor component inside the details card; it composes `RecordingDetailsSummary` (title, meta, actions, dialogs) and `RecordingDetailsBody` (export row, chapters). `RecordingDetailsBody` injects the scoped `PlayerBridge` to seek; neither part manipulates the player DOM.
 - **The three JS islands (player, stats, chat) contain no MudBlazor or primitive components** (#180, ADR 0012): their modules own the DOM, so they are plain markup restyled to the design-system cards. MudBlazor components and the shared primitives remain the default for non-island UI.
   - Colours: the player reads only the `player-*` tokens (plus `tertiary` for chapter ticks, `rec`, `warning` and `error`), so it never depends on the page theme. Stats and chat read the palette tokens (`surface`, `surface-raised`, `primary`, `secondary`, `tertiary`, `divider`, …) and chat names the `channel-*` tokens.
   - Icons are inline `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-icon="Name">` holding the MudBlazor `Icons.Material.Rounded.Name` glyph. Razor renders them from the MudBlazor constant (`StreamKeepr.Ui.IslandIcon.Svg`); modules swap them from `wwwroot/js/island-icons.js`, a copy that `IslandIconTests` keeps equal to the constants. `data-icon` names the glyph for tests.
   - Their ARIA and keyboard behaviour follows the foundation contract.
+
+## 2a. Watch layout (#175)
+
+`Home.razor` gives the player the largest area on every watch screen. The width and height rules are layout, not player behaviour; the player's markup and `data-sk` hooks are unchanged. The only player addition is the `theaterAvailable` payload flag and its `setTheaterAvailable` call (design system: AppShell, TheaterMode, PhoneLayout, VideoPlayer).
+
+- **Md and up.** The watch page has no max width. The first row is the player plus, when the recording has chat and the pane is open, the chat sidecar. The player is as wide as its flex share at 16:9, and its height is capped at `100dvh − appbar-height − 2 × space-6 − player-peek` (the main column's 24 px block gutters); when the cap applies the video letterboxes inside the black frame. The sidecar is `flex: 0 1 400px` with a `chat-width` (320px) minimum; collapsed it is the 44px strip. `RecordingDetails` follows the pair, then `StatsPanel`.
+- **Theater.** The shell hides the drawer and the main column's gutters. The player spans the full width of the view, edge to edge with square corners, at `min(16:9 width, 100dvh − appbar-height)`. `RecordingDetails` and the open chat pane follow below in one row (details left, chat 400px wide and about 260px tall; collapsed, 44px), and Stats for nerds follows full width. The chat never sits beside the player in theater. `T` and the player's theater button keep working. Theater is desktop-only: below Md it is inert, but the saved preference is kept for the next desktop view.
+- **Below Md.** The player is edge to edge with square corners; on Xs (below 600px) it is `position: sticky` under the app bar so it stays visible while the rest of the page scrolls. `RecordingDetailsSummary` renders the title (h6), meta line and actions directly below it, outside any panel. A `MudTabs` with `Color.Primary` and `KeepPanelsAlive` holds **Chat** (only when the recording has chat; first and selected when present), **Details** and **Stats**; Details is selected when there is no chat. The Details tab is `RecordingDetailsBody` (export row and chapters); the Stats tab is `StatsPanel` with `Tab="true"`, which drops its header switch and starts expanded; the Chat tab is `ChatPane` with `HideHeader="true"` and is always open. Theater is inert below Md (the player's `theaterAvailable` is false) and the player's Chat and Stats buttons are hidden because the tabs own those panels. On a phone in landscape (below Md and 500px height) the top bar hides and the player fills the screen.
+- The player stays the first child of the watch top row at every width, so crossing `Breakpoint.Md` does not remount it. The chat pane and the tab panels may remount when the breakpoint changes; chat catch-up follows the player's `sk:playhead` events.
 
 ## 3. Engine and source lifecycle
 
@@ -38,7 +48,7 @@ The stitched `index.m3u8` is a **single media playlist**, not a multi-variant ma
 - The init/update payload uses camelCase:
   - `recordingId`, `playlistUrl`, `title`, `streamerLogin`, `thumbnailUrl`
   - `state`: `recording`, `reconnecting`, `partial`, `saved`
-  - `durationSec`, `resumeSec`, `chapters[]`, `statsOpen`, `theater`
+  - `durationSec`, `resumeSec`, `chapters[]`, `statsOpen`, `theater`, `theaterAvailable`
   - `chapters[]` is `{ startSeconds, title, game }` from `RecordingView.Chapters`.
 - `dispose()` flushes progress, destroys hls/native media, clears timers and listeners, and releases the module reference. The `DotNetObjectReference` is disposed by the component.
 - The .NET reference exposes `SaveProgress(string recordingId, double)`, `ClearProgress(string recordingId)`, `SetStatsOpen(bool)`, `SetTheater(bool)`, and `Notify(string)`. The progress calls carry the recording id so a save in flight across a recording change lands on the recording it belongs to. `Notify` shows a snackbar (`ISnackbar.Show`); it is used only for copy-stats confirmation/failure.
@@ -99,7 +109,7 @@ Control order, left to right, matches the design system:
 - Picture-in-picture is button-only. It is hidden when `document.pictureInPictureEnabled` is false or the API is absent, disabled while fullscreen, and its icon/aria follows enter/leave events. No custom controls exist inside the PiP window.
 - Fullscreen targets the `.sk-player` container so custom controls remain. `:fullscreen` fills the viewport, contains the video, and drops the radius. If container fullscreen is unavailable, fall back to `video.requestFullscreen()`; native Safari may use its own controls. Entering fullscreen focuses the container; exiting returns focus to the fullscreen button. The chat sidecar is outside `.sk-player`, so it is not part of fullscreen and remains in its previous state when fullscreen exits.
 - Theater calls `UiPreferences.SetTheater(!Theater)` and updates its pressed state through `Changed`; the shell owns hiding the drawer and the background change. Theater does not resize the player beyond the shell.
-- Responsive control hiding uses the existing container queries: ≤720 px hides skip, PiP, and speed; ≤520 px hides theater, volume, the quality pill, and the live-edge label. Keyboard shortcuts remain available.
+- Responsive control hiding uses the existing container queries: ≤720 px hides skip, PiP, and speed; ≤520 px hides theater, volume, the quality pill, and the live-edge label. Below Md the watch layout also hides the player's Chat and Stats toggles because the tabs own those panels, and the theater toggle because theater has no compact form. Keyboard shortcuts remain available, except T below Md.
 - The status chip is the player's own (the module writes it): StatusChip's words, `data-status`/`data-status-icon` hooks and icons (`Sync` for Reconnecting, `Warning` for Partial, in `warning`) in overline type; REC is a filled `rec` chip with `rec-contrast-text`. Loading is a spinner in `player-accent`; the error overlay shows `Error` in `error`, a filled Retry (`player-accent`) and a text "Back to library".
 
 ## 6. Idle, overlays, and focus
@@ -115,7 +125,7 @@ Control order, left to right, matches the design system:
 - The player listens on `document` while a recording is active. It ignores events with modifiers or `defaultPrevented`, editable targets (`input`, `textarea`, `select`, `[contenteditable]`), open menus/dialogs, keys handled by the seek/volume slider, and any target inside `[data-sk-chat]` or the settings sheet (`[data-settings-sheet]`, #183). The desktop sheet has no overlay, so with focus on the player beside it the keys still work.
 - Space/K toggle play/pause. They do nothing when the target is a button or link, so native activation wins.
 - J/L seek ±10 s; ←/→ seek ±5 s, except inside the drawer (tree keys win) or on a slider (the slider handles them).
-- M toggles mute; F toggles container fullscreen; T toggles theater; I toggles stats; C toggles the chat replay sidecar when the recording has chat, as does the player's Chat button. C is ignored in editable fields and open menus/dialogs.
+- M toggles mute; F toggles container fullscreen; T toggles theater on Md and up (ignored below Md); I toggles stats; C toggles the chat replay sidecar when the recording has chat, as does the player's Chat button. C is ignored in editable fields and open menus/dialogs.
 - `/` and Esc belong to `shortcuts.js`; the player never handles them.
 - Menu keys: ↑/↓/Home/End move, Enter/Space choose, Esc/outside click close, Tab closes and continues; `role="menu"` with `menuitemradio` options and `aria-checked`.
 
@@ -171,8 +181,8 @@ Control order, left to right, matches the design system:
 
 The chat pane's behaviour (windows, polling, sync, backfill, emotes) is unchanged; this section fixes its look and the parts the player relies on.
 
-- Drawn like an outlined `MudPaper`: `surface`, `radius-lg`, a `lines-default` outline. Open on desktop it is `chat-width` (320 px) wide beside the player; collapsed it is a 44 px strip with only the `Chat` icon. The header holds the toggle (the `Chat` icon and "Chat" in `subtitle1`) and the state in `caption` (`error` when unavailable). The log is `body2`; names are 700 weight; replies are quoted in `caption` behind a `divider` rule. The sync nudges stay until the sync slider (#184); each nudge's accessible name starts with its visible text (for example "−2 s: shift chat 2 seconds earlier").
-- **Channel colour.** The init/load payload carries `channelLogin` (`RecordingView.StreamerLogin`) and `channelColor`, the 1–8 channel colour from `ChannelColor.For` (FNV-1a). The module never hashes logins itself. A message whose login equals `channelLogin` (case-insensitive) names its author in `var(--channel-N)` and carries `data-channel-color="N"` on its `[data-chat-name]`, the same number the drawer's avatar carries.
+- Drawn like an outlined `MudPaper`: `surface`, `radius-lg`, a `lines-default` outline. Open on desktop it is `flex: 0 1 400px` with a 320 px minimum beside the player; collapsed it is a 44 px strip with only the `Chat` icon. With `HideHeader="true"` (the phone Chat tab) it renders no header, is always open and fills the tab. The header holds the toggle (the `Chat` icon and "Chat" in `subtitle1`) and the state in `caption` (`error` when unavailable). The log is `body2`; names are 700 weight; replies are quoted in `caption` behind a `divider` rule. The sync nudges stay until the sync slider (#184); each nudge's accessible name starts with its visible text (for example "−2 s: shift chat 2 seconds earlier").
+- **Channel colour.** The init/load payload carries `channelLogin` (`RecordingView.StreamerLogin`) and `channelColor`, the 1–8 channel colour from `ChannelColor.For` (FNV-1a). The module never hashes logins itself. A message whose login equals `channelLogin` (case-insensitive) names its author in `var(--channel-N)` and carries `data-channel-color="N"` on its `[data-chat-name]`, the same number the drawer's avatar carries. With `fixedOpen` (the phone Chat tab) the pane ignores `sk:chat-toggle` and `C`, so the tab stays open.
 - **Other chatters** keep their Twitch colour only where it reaches 4.5:1 on the pane's background; otherwise the name has no inline colour and keeps `text-primary`.
 - Every keyboard focus in the pane shows the 2 px `primary` ring.
 
@@ -228,7 +238,9 @@ bUnit:
 - `UiPreferences.Changed` drives `setStatsOpen`/`setTheater`; the component's buttons call the .NET setters; `Notify` shows a snackbar (`ISnackbar.Show`).
 - The player dispatches `sk:playhead` with the recording id, time, duration, paused/rate/live flags, throttles `timeupdate` to 250 ms, and emits immediately on the state events above.
 - `PlayerBridge` queues until ready, clamps, flushes, and clears on detach.
-- `StatsPanel` initial open/closed markup, placeholders, inert collapsed body, and switch/player-button ARIA.
+- `StatsPanel` initial open/closed markup, placeholders, inert collapsed body, and switch/player-button ARIA; its tab form has no switch and starts expanded.
+- `ChatPane` tab form: no header toggle, `data-open="true"`, body not inert.
+- `Home` watch layout: Md and up renders player/details/stats in order; below Md the player stays outside `MudTabs`, the summary is outside the tabs, Chat is first when the recording has chat, and the player instance survives the breakpoint.
 - `Home` deletion: `Find` null shows the snackbar, opens the next item, or `/` when none; unknown id keeps the message.
 
 Vitest:
@@ -252,13 +264,14 @@ Playwright (Chrome channel against the Mock profile):
 - Stats: open/close, sampler values, player/panel sync, copy with clipboard permission and snackbar; reload restores `sk-ui`.
 - Idle after 3 s, pointer restore, reduced-motion emulation; preferences (volume/mute/speed) across reload; theater and keyboard shortcuts; fullscreen/PiP controls present and correctly hidden when unsupported.
 - axe clean and keyboard-only on the player page (closed and open stats, and open chat); no automatic retries.
+- Watch layout (#175): at 375×812 the edge-to-edge player stays sticky under the bar while the main column scrolls, and the Chat/Details/Stats tabs switch their panels; at 1280 theater mode's player is the view's full width with details and chat below; the open desktop chat sidecar is 320–400 px beside the player; crossing the breakpoint keeps the same `<video>` element; axe clean and no sideways scroll at both widths.
 - The player's Chat button and C toggle the same pane and the button mirrors it; the streamer's own message shows the channel colour the drawer shows; focus rings are `player-accent` in the player and `primary` in chat; the Stream section's empty state.
 
 Native HLS, iOS fullscreen, and PiP transitions are covered by Vitest/bUnit stubs only; the manual iPhone pass was dropped (#108), and the [iPhone Safari checklist](manual/iphone-safari-checklist.md) is kept for anyone who can test on a device; the E2E job installs branded Chrome because Playwright's bundled Chromium lacks H.264 (E-21). The E2E media fixture is a short H.264 fMP4 generated at test time; no large binaries are committed.
 
 ## 16. Binding versus implementation freedom
 
-Binding: static-player/JS ownership, module loading and native fallback, source lifecycle and payload, no autoplay, live-edge/follow semantics, live/VOD transitions, delete reaction, control order and responsive hiding, seek commit and ARIA, keyboard scope, idle rules, fullscreen/PiP/theater behaviour, resume cadence/skip/clear rules, `sk-player` schema, stats sampling/metrics/copy JSON, `PlayerBridge`, media/auth assumptions, error/waiting policy, and the test matrix.
+Binding: static-player/JS ownership, module loading and native fallback, source lifecycle and payload, no autoplay, live-edge/follow semantics, live/VOD transitions, delete reaction, control order and responsive hiding, seek commit and ARIA, keyboard scope, idle rules, fullscreen/PiP/theater behaviour, resume cadence/skip/clear rules, `sk-player` schema, stats sampling/metrics/copy JSON, `PlayerBridge`, the watch layout (§2a), media/auth assumptions, error/waiting policy, and the test matrix.
 
 Freedom: exact markup beyond the `sk-` classes, JS helper style and internal function names, error wording, menu animation, sparkline path details, and test implementation.
 

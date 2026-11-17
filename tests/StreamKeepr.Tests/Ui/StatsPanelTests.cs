@@ -142,6 +142,21 @@ public sealed class StatsPanelTests
     }
 
     [Fact]
+    public void The_phone_tab_form_has_no_header_and_starts_expanded()
+    {
+        using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<StatsPanel> cut = context.Render<StatsPanel>(p => p
+            .Add(c => c.Recording, Recording("r1"))
+            .Add(c => c.Tab, true));
+
+        Assert.Empty(cut.FindAll("[data-sk='stats-toggle']"));
+        Assert.Equal("tab", cut.Find("[data-sk-stats]").GetAttribute("data-chrome"));
+        Assert.Equal("true", cut.Find("[data-sk-stats]").GetAttribute("data-open"));
+        Assert.False(cut.Find("[data-sk='stats-body']").HasAttribute("inert"));
+    }
+
+    [Fact]
     public void Initializes_the_module_with_the_recording_and_initial_open_state()
     {
         using BunitContext context = CreateContext(out BunitJSModuleInterop module, stats: true);

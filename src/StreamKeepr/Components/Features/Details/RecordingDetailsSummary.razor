@@ -1,0 +1,468 @@
+@using System.Globalization
+@using System.Security.Claims
+@using StreamKeepr.Infrastructure.Storage
+@implements IDisposable
+@inject ViewerClock Clock
+@inject MudBlazor.ISnackbar Snackbars
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject ILogger<RecordingDetailsSummary> Logger
+@inject IExportService Exports
+@inject IChannelsView Channels
+@inject IRecordingAdmin Admin
+
+@* The recording's title, meta line and actions (design system: RecordingDetails, #178, #175).
+   Md and up it sits at the top of the details card; below Md it sits directly under the player,
+   outside the tabs, so the title and actions stay visible while the tabs scroll. The export's
+   progress and the chapters live in RecordingDetailsBody. *@
+<div class="sk-details-summary" data-details-summary>
+    @* The title has a row of its own; it wraps to two lines, then the tooltip has the rest.
+       It is a tab stop so keyboard users can open that tooltip too (MudTooltip shows on
+       focus); screen readers already read the whole title. *@
+    <MudBlazor.MudTooltip Text="@Recording.Title"
+                          Placement="MudBlazor.Placement.Top"
+                          RootClass="sk-details-title-root">
+        <MudBlazor.MudText Typo="@(Compact ? MudBlazor.Typo.h6 : MudBlazor.Typo.h5)"
+                           HtmlTag="@(Compact ? "h2" : "h3")"
+                           Class="sk-details-title"
+                           tabindex="0"
+                           data-details-title="true">@Recording.Title</MudBlazor.MudText>
+    </MudBlazor.MudTooltip>
+
+    <div class="sk-details-row">
+        <div class="sk-details-meta" data-details-meta="true">
+            @if (!Compact && LiveChip is { } chip)
+            {
+                <StatusChip Status="@chip" />
+            }
+            <span class="who">
+                <Avatar Name="@Recording.StreamerLogin" Tone="AvatarTone.Tertiary" />
+                <span data-details-streamer>@Recording.StreamerLogin</span>
+            </span>
+            @if (!Compact)
+            {
+                <span class="pair">
+                    <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.SportsEsports" />
+                    <span data-details-category>@CategoryLabel</span>
+                </span>
+            }
+            <span class="pair">
+                <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Event" />
+                <span data-details-start>@StartLabel</span>
+            </span>
+            <span class="pair">
+                <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Timer" />
+                <span data-details-duration>@Format.Duration(Recording.DurationSec)</span>
+            </span>
+            @if (!Compact)
+            {
+                <span class="pair">
+                    <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.FolderOpen" />
+                    <span data-details-counts>
+                        <span data-details-segments>@Count(Recording.SegmentCount, "segment")</span>
+                        <span aria-hidden="true"> · </span>
+                        <span data-details-parts>@Count(Recording.PartCount, "part")</span>
+                    </span>
+                </span>
+                @if (ShowSize)
+                {
+                    <span class="pair">
+                        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Storage" />
+                        <span data-details-size>@Format.Bytes(Recording.SizeBytes)</span>
+                    </span>
+                }
+            }
+        </div>
+
+        <div class="sk-actions" data-details-actions="true">
+            @* The live state leads the phone's actions row (PhoneLayout); Md and up it leads
+               the meta line instead. *@
+            @if (Compact && LiveChip is { } phoneChip)
+            {
+                <StatusChip Status="@phoneChip" />
+            }
+            @* Stop and Delete sit in the row from Breakpoint.Md up and in More actions
+               below it; components.css shows one or the other at 960px. *@
+            @if (IsLive)
+            {
+                <span class="sk-details-wide">
+                    <RequiresTwitch>
+                        <MudBlazor.MudButton Variant="MudBlazor.Variant.Outlined"
+                                             Color="MudBlazor.Color.Error"
+                                             StartIcon="@MudBlazor.Icons.Material.Rounded.Stop"
+                                             IconSize="MudBlazor.Size.Small"
+                                             Disabled="@_stopping"
+                                             OnClick="OpenStopDialog"
+                                             data-stop-recording="true">Stop recording</MudBlazor.MudButton>
+                    </RequiresTwitch>
+                </span>
+            }
+            <MudBlazor.MudButton Variant="MudBlazor.Variant.Outlined"
+                                 StartIcon="@MudBlazor.Icons.Material.Rounded.PlaylistPlay"
+                                 IconSize="MudBlazor.Size.Small"
+                                 OnClick="CopyPlaylistAsync"
+                                 data-copy-playlist="true">Copy playlist URL</MudBlazor.MudButton>
+            <RequiresTwitch>
+                @if (ExportBlockedReason is { } reason)
+                {
+                    <Tooltip Text="@reason" tabindex="0">@ExportButton</Tooltip>
+                }
+                else
+                {
+                    @ExportButton
+                }
+            </RequiresTwitch>
+            <span class="sk-details-wide">
+                <RequiresTwitch>
+                    @if (DeleteBlockedReason is { } deleteReason)
+                    {
+                        <Tooltip Text="@deleteReason" tabindex="0" data-delete-blocked>@DeleteButton</Tooltip>
+                    }
+                    else
+                    {
+                        @DeleteButton
+                    }
+                </RequiresTwitch>
+            </span>
+            <span class="sk-details-compact">
+                <RequiresTwitch>
+                    <MudBlazor.MudMenu Icon="@MudBlazor.Icons.Material.Rounded.MoreVert"
+                                       AriaLabel="More actions"
+                                       AnchorOrigin="MudBlazor.Origin.BottomRight"
+                                       TransformOrigin="MudBlazor.Origin.TopRight">
+                        @if (IsLive)
+                        {
+                            <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Stop"
+                                                   Disabled="@_stopping"
+                                                   OnClick="OpenStopDialog">Stop recording</MudBlazor.MudMenuItem>
+                        }
+                        <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Delete"
+                                               Disabled="@(DeleteBlockedReason is not null)"
+                                               OnClick="OpenDeleteDialog">
+                            Delete recording
+                            @if (DeleteBlockedReason is { } menuReason)
+                            {
+                                <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="sk-menu-reason">@menuReason</MudBlazor.MudText>
+                            }
+                        </MudBlazor.MudMenuItem>
+                    </MudBlazor.MudMenu>
+                </RequiresTwitch>
+            </span>
+        </div>
+    </div>
+</div>
+
+<ConfirmDialog Visible="@_stopOpen"
+               VisibleChanged="OnStopOpenChanged"
+               Title="@StopRecordingTitle"
+               ConfirmLabel="Stop recording"
+               HookPrefix="stop"
+               Busy="@_stopping"
+               OnCancel="CancelStop"
+               OnConfirm="ConfirmStopAsync">
+    <MudBlazor.MudText Typo="MudBlazor.Typo.body1">The current capture is finalized, and the channel stays paused until you resume.</MudBlazor.MudText>
+</ConfirmDialog>
+<ConfirmDialog Visible="@_deleteOpen"
+               VisibleChanged="OnDeleteOpenChanged"
+               Title="Delete recording?"
+               ConfirmLabel="Delete"
+               HookPrefix="delete"
+               Busy="@_deleting"
+               ConfirmDisabled="@(DeleteBlockedReason is not null)"
+               OnCancel="CancelDelete"
+               OnConfirm="ConfirmDeleteAsync">
+    @* The banner is an alert only once it carries an error; before that it states the
+       consequence, which the dialog's name already introduces. *@
+    <MudBlazor.MudAlert Severity="MudBlazor.Severity.Error"
+                        Variant="MudBlazor.Variant.Text"
+                        Dense="true"
+                        role="@(_deleteError is null ? "note" : "alert")"
+                        data-delete-banner>
+        <b>@Recording.Title — @Recording.StreamerLogin</b><br />
+        @(_deleteError ?? "The files and watch progress are removed permanently.")
+    </MudBlazor.MudAlert>
+</ConfirmDialog>
+
+@code {
+    private const string ModulePath = "./Components/Features/Details/RecordingDetails.razor.js";
+    private const string DeleteSessionEnded =
+        "Your Twitch session ended. Reconnect to delete recordings.";
+
+    private IJSObjectReference? _module;
+
+    private bool _starting;
+    private bool _stopOpen;
+    private bool _stopping;
+    private string? _stopRecordingId;
+    private bool _deleteOpen;
+    private bool _deleting;
+    private string? _deleteError;
+    private string? _deleteRecordingId;
+
+    [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
+
+    /// <summary>Below <c>Breakpoint.Md</c>: the summary sits outside the details card and tabs.</summary>
+    [Parameter] public bool Compact { get; set; }
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    private bool IsLive =>
+        Recording.State is RecordingState.Recording or RecordingState.Reconnecting;
+
+    private string StopRecordingTitle => $"Stop recording for {Recording.StreamerLogin}?";
+
+    // The live chip that leads the meta line; null once the recording has finished (a
+    // Partial recording's chip belongs to the library row, not here).
+    private StatusChipKind? LiveChip => IsLive ? RecordingStatusChip.For(Recording.State) : null;
+
+    // One Export MP4 button; a blocked one is disabled and sits in its reason's tooltip.
+    private RenderFragment ExportButton => @<MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
+                                                                Color="MudBlazor.Color.Primary"
+                                                                StartIcon="@MudBlazor.Icons.Material.Rounded.Output"
+                                                                IconSize="MudBlazor.Size.Small"
+                                                                Disabled="@(ExportBlockedReason is not null || ExportActive || _starting)"
+                                                                OnClick="StartExportAsync"
+                                                                data-export="true">Export MP4</MudBlazor.MudButton>;
+
+    // One Delete icon button; a blocked one is disabled and sits in its reason's tooltip.
+    private RenderFragment DeleteButton => @<MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Delete"
+                                                                    aria-label="Delete recording"
+                                                                    Disabled="@(DeleteBlockedReason is not null)"
+                                                                    OnClick="OpenDeleteDialog"
+                                                                    data-delete="true" />;
+
+    private bool ExportActive => Exports.FindByRecording(Recording.Id) is { IsActive: true };
+
+    private bool IsIncompatible =>
+        Exports.FindByRecording(Recording.Id) is
+            { State: ExportState.Failed, Error: ExportService.IncompatibleParts };
+
+    // Why Export MP4 is disabled with a tooltip; null when the button is live.
+    private string? ExportBlockedReason =>
+        IsLive ? "Available when the recording finishes"
+        : IsIncompatible ? "Its parts use different video settings, so one MP4 is not possible"
+        : null;
+
+    // Why Delete is disabled with a tooltip; null when the icon button is live.
+    private string? DeleteBlockedReason =>
+        IsLive ? "Available when the recording finishes"
+        : ExportActive ? "Cancel the export before deleting"
+        : null;
+
+    private bool ShowSize =>
+        Recording.State is RecordingState.Partial or RecordingState.Saved;
+
+    private string CategoryLabel =>
+        string.IsNullOrWhiteSpace(Recording.Category) ? "No category" : Recording.Category;
+
+    private string StartLabel => Format.FullDate(Clock.ToLocal(Recording.StartedAt));
+
+    private string AbsolutePlaylistUrl =>
+        new Uri(new Uri(Navigation.BaseUri), Recording.PlaylistUrl).AbsoluteUri;
+
+    protected override void OnInitialized()
+    {
+        Clock.Changed += OnClockChanged;
+        Exports.Changed += OnExportsChanged;
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (_stopRecordingId != Recording.Id)
+        {
+            _stopRecordingId = Recording.Id;
+            _stopOpen = false;
+        }
+
+        if (!IsLive)
+            _stopOpen = false;
+
+        // A different recording never keeps the previous recording's confirm dialog open.
+        if (_deleteRecordingId != Recording.Id)
+        {
+            _deleteRecordingId = Recording.Id;
+            _deleteOpen = false;
+            _deleteError = null;
+        }
+    }
+
+    private async Task StartExportAsync()
+    {
+        if (_starting)
+            return;
+
+        _starting = true;
+        try
+        {
+            await RecordingExportActions.StartAsync(
+                Exports, Snackbars, Logger, Recording.Id, AuthenticationState);
+        }
+        finally
+        {
+            _starting = false;
+        }
+    }
+
+    private void OpenDeleteDialog()
+    {
+        if (DeleteBlockedReason is not null)
+            return;
+
+        _deleteError = null;
+        _deleteOpen = true;
+    }
+
+    private void OnDeleteOpenChanged(bool open)
+    {
+        // A native Esc/close must not hide the dialog while the server call is in flight.
+        if (!open && _deleting)
+            return;
+
+        _deleteOpen = open;
+        if (!open)
+            _deleteError = null;
+    }
+
+    private void CancelDelete()
+    {
+        if (_deleting)
+            return;
+
+        _deleteOpen = false;
+        _deleteError = null;
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (_deleting || AuthenticationState is null)
+            return;
+
+        _deleting = true;
+        _deleteError = null;
+        try
+        {
+            ClaimsPrincipal user = (await AuthenticationState).User;
+            await Admin.DeleteAsync(Recording.Id, user, CancellationToken.None);
+            _deleteOpen = false;
+        }
+        catch (KeyNotFoundException)
+        {
+            _deleteOpen = false;
+            Snackbars.Show("Recording was already deleted");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _deleteOpen = false;
+            Snackbars.Show(DeleteSessionEnded);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Live or leased: the dialog stays open and the server's user-safe text replaces
+            // the permanence copy. A concurrent export may have started in another tab.
+            _deleteError = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Deleting recording {RecordingId} failed.", Recording.Id);
+            _deleteError = "Could not delete the recording. Try again.";
+        }
+        finally
+        {
+            _deleting = false;
+        }
+    }
+
+    private void OnExportsChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void OnClockChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task CopyPlaylistAsync()
+    {
+        bool copied = false;
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
+            copied = await _module.InvokeAsync<bool>("copyText", AbsolutePlaylistUrl);
+        }
+        catch (JSDisconnectedException ex)
+        {
+            // The circuit is gone; the failure snackbar cannot reach the page anyway.
+            Logger.LogDebug(ex, "The playlist URL was not copied because the circuit disconnected.");
+        }
+        catch (JSException ex)
+        {
+            Logger.LogDebug(ex, "The playlist URL could not be copied.");
+        }
+
+        Snackbars.Show(copied ? "Playlist URL copied" : "Could not copy playlist URL");
+    }
+
+    private static string Count(int value, string singular) =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"{value:N0} {(value == 1 ? singular : singular + "s")}");
+
+    private void OpenStopDialog()
+    {
+        if (!IsLive || _stopping)
+            return;
+
+        _stopOpen = true;
+    }
+
+    private void OnStopOpenChanged(bool open)
+    {
+        if (!open && _stopping)
+            return;
+
+        _stopOpen = open;
+    }
+
+    private void CancelStop()
+    {
+        if (!_stopping)
+            _stopOpen = false;
+    }
+
+    private async Task ConfirmStopAsync()
+    {
+        if (_stopping || !IsLive)
+            return;
+
+        _stopping = true;
+        try
+        {
+            // The recorder's stop budget bounds finalization; no client timeout.
+            await Channels.StopAsync(Recording.StreamerLogin, CancellationToken.None);
+            _stopOpen = false;
+            Snackbars.Show("Channel paused");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _stopOpen = false;
+            Snackbars.Show("Your Twitch session ended. Reconnect to manage channels.");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or KeyNotFoundException)
+        {
+            _stopOpen = false;
+            Snackbars.Show(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(
+                ex, "Stopping the recording for {Login} failed.", Recording.StreamerLogin);
+            _stopOpen = false;
+            Snackbars.Show("Could not stop the recording. Try again.");
+        }
+        finally
+        {
+            _stopping = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        Clock.Changed -= OnClockChanged;
+        Exports.Changed -= OnExportsChanged;
+    }
+}

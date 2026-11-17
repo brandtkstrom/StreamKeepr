@@ -1,7 +1,7 @@
 # Stream Keepr Details, Export, Delete, Auth, and Settings Contract
 
 Status: accepted (2026-11-10)
-Source: Implementation plan Part 2, F5/F6/F10/F11; `docs/backend-ui-contract.md`; `docs/twitch-auth-contract.md`; `docs/hosting-contract.md`; `docs/runtime-contract.md`; `docs/library-contract.md`; `docs/player-contract.md`; `docs/frontend-foundation-contract.md`; `docs/testing-contract.md`; plan review E-22/E-23.
+Source: Implementation plan Part 2, F5/F6/F10/F11; `docs/backend-ui-contract.md`; `docs/twitch-auth-contract.md`; `docs/hosting-contract.md`; `docs/runtime-contract.md`; `docs/library-contract.md`; `docs/player-contract.md`; `docs/frontend-foundation-contract.md`; `docs/testing-contract.md`; plan review E-22/E-23; #175 (the watch layout split).
 Binding: yes. Where this contract differs from the plan, this contract wins.
 
 ## 1. Scope
@@ -12,16 +12,16 @@ The backend contract wins over the plan's F10-T3: export is **always one MP4**. 
 
 ## 2. Recording details card
 
-- `RecordingDetails.razor` is a normal Blazor component, rendered above the stats panel on `/r/{id}`. Design system: the RecordingDetails and Buttons cards (#178). It is an outlined `MudPaper` whose header is a real disclosure `<button>` (`aria-expanded`, `aria-controls`, hook `data-collapsible-toggle`) over a `MudCollapse`; the collapsed body is `inert`. It is not a `MudExpansionPanel`, because MudBlazor 9.12's panel header is a focusable `div` with no button role or `aria-expanded`. `UiPreferences.DetailsOpen` (default open, so on desktop the title and actions show under the player without scrolling) drives it; the 48 px header shows an `Info` icon, “Recording details” (`h6`, an `h2`) and the start date (`caption`).
-- The body shows, in order:
+- `RecordingDetails.razor` is a normal Blazor component, rendered above the stats panel on `/r/{id}`. It composes `RecordingDetailsSummary` (the title, meta line and actions) and `RecordingDetailsBody` (the export row and chapters). Design system: the RecordingDetails and Buttons cards (#178). It is an outlined `MudPaper` whose header is a real disclosure `<button>` (`aria-expanded`, `aria-controls`, hook `data-collapsible-toggle`) over a `MudCollapse`; the collapsed body is `inert`. It is not a `MudExpansionPanel`, because MudBlazor 9.12's panel header is a focusable `div` with no button role or `aria-expanded`. `UiPreferences.DetailsOpen` (default open, so on desktop the title and actions show under the player without scrolling) drives it; the 48 px header shows an `Info` icon, “Recording details” (`h6`, an `h2`) and the start date (`caption`).
+- The card's body shows, in order:
   - the title on a row of its own (`h5`, an `h3`, hook `data-details-title`), the full width of the panel, wrapping to two lines before it ellipsises; a `MudTooltip` on it carries the full title and opens on hover over the text or on keyboard focus (the title is a tab stop, `tabindex=0`). Nothing shares that row;
   - one row with the meta line on the left and the actions on the right; when space runs out the actions wrap under the meta, never beside the title. The meta line (`caption`) starts with the live `StatusChip` (REC while Recording, Reconnecting while Reconnecting; none once finished), then the streamer login with its avatar/initials, then icon + text pairs with `icon-inline` (16 px) icons in `action-default`: `SportsEsports` category (or “No category”), `Event` full start date/time in the viewer's zone, `Timer` duration (`Format.Duration`, e.g. `2h 14m`; hook `data-details-duration`), `FolderOpen` counts in the form `1,342 segments · 3 parts`, and `Storage` size (`9.8 GB`). The size pair is omitted while Recording/Reconnecting;
   - the export status row, when applicable (§5);
   - a chapters list when `RecordingView.Chapters` is non-empty: one button per chapter with the timecode, title, and game/category; clicking it seeks through `PlayerBridge` and leaves focus on the button. The player scrolls into view only as an implementation detail; it must not autoplay.
 - Actions, labelled as verbs: Stop recording (outlined, `Color.Error`, `Stop` icon; live only), Copy playlist URL (outlined, `PlaylistPlay`), Export MP4 (the one filled `Color.Primary` button, `Output`), and Delete (a `MudIconButton` with `Delete`, `aria-label="Delete recording"`, `action-default` at rest). Actions that need Twitch stay visible behind `RequiresTwitch`; a blocked Export or Delete gives its reason in a tooltip.
-- Below `Breakpoint.Md` (960 px), Stop recording and Delete leave the row for a `MoreVert` menu (`MudMenu`, `aria-label="More actions"`, itself behind `RequiresTwitch`) with the same rules: Stop opens the stop confirmation, Delete opens the delete dialog, and a blocked Delete is a disabled item showing its reason. CSS shows one form or the other, so both render and the row's `data-stop-recording`/`data-delete` hooks stay unique. The card's phone layout (title, meta and actions outside the panel, the rest as a **Details** watch tab) is deferred to the phone watch tabs; until then the card is one collapsible panel at every width.
-- The start date uses `ViewerClock.ToLocal` and a full `ddd, MMM d, yyyy · h:mm tt`-style value; it re-renders when the clock service changes. The details component subscribes to `ViewerClock.Changed` and disposes.
-- The card re-renders when `RecordingView`, `UiPreferences`, `IExportService.Changed`, or the relevant channel state changes. It never reads files or calls the supervisor.
+- Below `Breakpoint.Md` (960 px), the title, meta and actions are rendered by `RecordingDetailsSummary` directly under the player, outside the watch tabs, and `RecordingDetailsBody` (the export row and chapters) becomes the **Details** tab. The phone summary's meta line keeps the streamer, start and duration; the live chip leads the actions row; category, segments/parts and size stay in the desktop card. Stop recording and Delete leave the row for a `MoreVert` menu (`MudMenu`, `aria-label="More actions"`, itself behind `RequiresTwitch`) with the same rules: Stop opens the stop confirmation, Delete opens the delete dialog, and a blocked Delete is a disabled item showing its reason. CSS shows one form or the other, so both render and the row's `data-stop-recording`/`data-delete` hooks stay unique.
+- The start date uses `ViewerClock.ToLocal` and `Format.FullDate` (`ddd, MMM d, yyyy · h:mm tt`); the header and the summary re-render when the clock service changes. Both subscribe to `ViewerClock.Changed` and dispose.
+- `RecordingDetails` re-renders on `UiPreferences.Changed`; `RecordingDetailsSummary` on the clock and `IExportService.Changed`, and the summary's actions read the export service's current job; `RecordingDetailsBody` subscribes to `IExportService.Changed` for the export row and its completion snackbars. None reads files or calls the supervisor.
 - A recording deleted while the card is open closes the dialog/row through the normal `Home` navigation; no stale title is left behind.
 
 ## 3. Chapters
@@ -56,7 +56,7 @@ ExportJob? FindByRecording(string recordingId);
 
 ### UI states
 
-The details card subscribes to `IExportService.Changed`, calls `FindByRecording` on init/parameter changes/events, and renders one row:
+`RecordingDetailsBody` subscribes to `IExportService.Changed`, calls `FindByRecording` on init/parameter changes/events, and renders one row:
 
 | Job state | Row | Actions |
 |---|---|---|
@@ -78,10 +78,10 @@ The details card subscribes to `IExportService.Changed`, calls `FindByRecording`
 - `Retry` calls `Start` again for the same recording. It is hidden for `ExportIncompatibleParts`; the server would produce the same failure.
 - The row sits on `surface-raised`: an `Output` icon in `secondary`, the state text, and while Running the percent in `timecode` and a `MudProgressLinear` in `secondary`, then the text Cancel/Retry buttons or a tonal Download link (`Download` icon).
 - Progress is `job.Progress` clamped to `[0,1]`. The row is a `role="status"` for state changes; the progressbar is `aria-valuemin=0`, `aria-valuemax=100`, `aria-valuenow`, and `aria-valuetext="42%"`. Per-percent changes are not announced as live text: the progressbar sets `aria-live="off"` over MudBlazor's default polite region.
-- Completion or failure raises one snackbar (“Export ready”, “Export failed”); cancellation does not. The row remains visible while the details card is open and is rehydrated after navigation.
+- Completion or failure raises one snackbar (“Export ready”, “Export failed”); cancellation does not. The row remains visible while the desktop details card is expanded or the phone Details tab is selected, and is rehydrated after navigation.
 - The Download action is a normal anchor to `/api/exports/{job.Id}/download` with `data-enhance-nav="false"`; the endpoint sets `Content-Disposition`. It requires sign-in and is wrapped in `RequiresTwitch`; the anchor is disabled while signed out/expired. If the session expires between click and response, the browser shows the endpoint's 401/403 and the user can return and reconnect. Range requests are handled by the server.
 - While an export for this recording is Queued/Running, Delete is disabled with the reason “Cancel the export first”; the server's lease is the final guard.
-- The export row is hidden when the details card is collapsed; the completion snackbar still fires. The job is independent of the circuit and continues if the user navigates away.
+- The export row is hidden when the desktop details card is collapsed or the phone Details tab is not selected; the completion snackbar still fires. The job is independent of the circuit and continues if the user navigates away.
 - A new export replaces the row only after `Start` returns; a stale job is never shown as current for a different recording.
 
 ## 6. Delete recording

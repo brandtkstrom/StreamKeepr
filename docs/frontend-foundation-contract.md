@@ -48,7 +48,8 @@ MudBreakpointProvider
       MudMainContent
         ReconnectNotice
         main
-          .sk-main-inner: player slot, details slot, stats slot
+          .sk-main-inner: Home rows/Settings, or the /r/{id} watch view
+                          (player, sidecar, details, stats; below Md: player, summary, tabs)
       BottomNav (compact or breakpoint not yet known; not on watch pages)
 ```
 
@@ -60,12 +61,12 @@ MudBreakpointProvider
 - **Compact search.** The field is hidden until the Search icon (`aria-expanded`, `aria-controls="sk-search"`) opens it as a full-width row under the bar (`[data-search-open]`). It starts open when the URL has `q`.
 - The wordmark returns to the default library home: it clears `q`/`state`/`sort`, closes the selected recording, preserves the drawer mode, and exits theater on the empty home because theater hides the drawer.
 - REC badge is lit while any streamer is recording. Disk usage is in the library drawer's footer (`docs/library-contract.md` §5), not the app bar.
-- The main column (`main`) is the scroll container, with 24px (`--space-6`) top padding below the app bar on every route, breakpoint, and theater mode.
+- The main column (`main`) is the scroll container, with 24px (`--space-6`) top padding below the app bar on every route and breakpoint; theater mode on a watch page and phone landscape drop the gutters (player contract §2a).
 - **Drawer, wide.** A `Mini` drawer: the 320px library when open, the 72px rail when closed, with the saved `hidden` mode taking it out of the layout. `nav#sk-drawer` carries `data-drawer` (`expanded`, `rail`, `hidden`) and the `rail` class for the library's CSS. The menu toggles expanded ↔ rail, at once rather than with MudDrawer's width slide (see `docs/library-contract.md` §5). `AppShell` cascades `LibraryRail` to the drawer's contents, and itself to the page, whose Home "Show all" calls `ShowLibraryAsync(url)`: the full drawer Md and up (saved like the menu's choice), the temporary drawer below Md, opened once the navigation lands (`docs/library-contract.md` §10). The choice is remembered per kind of page (§5): Home and other pages open the full library by default, and watch pages show the rail by default. Theater hides the drawer (`data-drawer-frame="hidden"`) and sets the main column to `background-gray`.
 - **Drawer, compact.** A `Temporary` drawer over `overlay-dark` at `elevation-4`, always the full library, opened from the bottom bar's Library button; `[data-shell][data-drawer-modal-open]` marks it open. `AppShell.razor.js` moves focus into it, traps Tab, and closes it on Escape, returning focus to the opener; the overlay closes it too; navigating (picking a recording) closes it.
 - **Bottom bar (compact, not on watch pages).** A fixed `MudAppBar Bottom` (`bottom-bar-height`, with the safe-area inset) holding `nav[aria-label=Main]`: Home (link to `/`), Library (a button with `aria-controls="sk-drawer"` and `aria-expanded`, and a `rec` dot while anything records) and Settings (link to `/settings`, which opens the settings dialog over the page with the circuit, with `aria-expanded`, #183). The current destination has `aria-current="page"`; Library is current while the drawer is open, and Settings while the settings dialog is open. The main column is padded so nothing hides under it.
-- **Phone landscape** (PhoneLayout: below 500px height the top bar hides and the player fills the screen) is part of the watch layout, #175; this shell does not implement it yet.
-- The player column order is fixed: player → details → stats. The player slot is wrapped in `.sk-player-row`; an optional chat pane is its second child. The row is two columns at ≥960 px and stacks below 960 px. In two columns the open pane takes the player's height (at least 240 px) and its log scrolls; messages never grow the row, so the sync footer stays put. Stacked, the pane sizes to its content up to 50vh. Short chat is anchored to the bottom of the log and grows upward. The recording main column may grow to 1280 px while chat is open; the library stays at 1100 px. (The watch layout slice, #175, replaces this column.)
+- **Phone landscape** (PhoneLayout): below 500px height the top bar hides and the player fills the screen (player contract §2a, #175).
+- The watch layout (player contract §2a, #175): Md and up the player row is player → chat sidecar → details → stats; the watch page has no max width, while the library keeps its 1100px. Below Md the player is edge to edge above `RecordingDetailsSummary` and the Chat/Details/Stats tabs.
 - Collapse/expand follows MudBlazor's drawer transition; `prefers-reduced-motion` turns the shell's transitions and the REC pulse off.
 - Every interactive element has the 2px `primary` focus ring. New shell styles read `tokens.css` variables, not the legacy `--sk-*` aliases.
 

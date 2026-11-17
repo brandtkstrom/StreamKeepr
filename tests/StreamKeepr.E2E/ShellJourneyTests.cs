@@ -57,7 +57,9 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             {
                 State = WaitForSelectorState.Attached,
             });
-            Assert.Equal(3, await main.Locator("[data-slot]").CountAsync());
+            // The library page is not a watch page: the player, details and stats slots exist
+            // only on /r/{id} (#175).
+            Assert.Equal(0, await main.Locator("[data-slot]").CountAsync());
             Assert.Equal(
                 "24px",
                 await page.EvaluateAsync<string>(

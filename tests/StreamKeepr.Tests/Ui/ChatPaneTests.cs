@@ -156,6 +156,29 @@ public sealed class ChatPaneTests
         Assert.Equal("Chat", cut.Find("[data-sk='chat-toggle'] > svg").GetAttribute("data-icon"));
     }
 
+    [Fact]
+    public async Task The_phone_tab_form_has_no_header_and_starts_open()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(
+            out BunitJSModuleInterop module, out TestLibraryView _);
+        module = context.JSInterop.SetupModule(Module);
+        module.Mode = JSRuntimeMode.Loose;
+
+        IRenderedComponent<ChatPane> cut = context.Render<ChatPane>(p => p
+            .Add(c => c.Recording, WithChat())
+            .Add(c => c.Open, false)
+            .Add(c => c.HideHeader, true));
+
+        Assert.Empty(cut.FindAll("[data-sk='chat-toggle']"));
+        Assert.Equal("true", cut.Find("[data-sk-chat]").GetAttribute("data-open"));
+        Assert.False(cut.Find("[data-sk='chat-body']").HasAttribute("inert"));
+
+        JSRuntimeInvocation init = Assert.Single(module.Invocations, call => call.Identifier == "init");
+        JsonElement payload = JsonSerializer.SerializeToElement(
+            init.Arguments[2], new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.True(payload.GetProperty("open").GetBoolean());
+    }
+
     private static RecordingView WithChat() =>
         VideoPlayerTests.Recording("r1", "First") with { HasChat = true };
 

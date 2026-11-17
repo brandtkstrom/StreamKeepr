@@ -227,6 +227,8 @@ export function createChatPane(root, {
 
   let view = null;
   let open = false;
+  // The phone Chat tab owns the disclosure: no toggle or C may close it (#175).
+  let fixedOpen = false;
   let disposed = false;
   let currentTime = 0;
   let paused = true;
@@ -368,6 +370,7 @@ export function createChatPane(root, {
   }
 
   function toggleAndPersist() {
+    if (fixedOpen) return;
     setOpen(!open);
     persistOpen(open);
   }
@@ -383,6 +386,15 @@ export function createChatPane(root, {
   }
 
   function setOpen(next) {
+    if (fixedOpen) {
+      if (!open) {
+        open = true;
+        applyOpen();
+        resume();
+      }
+      return;
+    }
+
     const value = Boolean(next);
     if (open === value) return;
     open = value;
@@ -410,10 +422,11 @@ export function createChatPane(root, {
     const changed = view?.recordingId !== next.recordingId;
     const hadChat = view?.hasChat === true;
     view = next;
+    fixedOpen = Boolean(next.fixedOpen);
     // A session's chat log can appear while the recording is live, but it never disappears.
     // Keep a true value when a stale summary payload says false, and keep status in step.
     if (!changed && hadChat) view = { ...next, hasChat: true };
-    open = Boolean(next.open);
+    open = fixedOpen || Boolean(next.open);
     if (changed) {
       resetWindow();
       emoteController?.abort();
@@ -897,7 +910,7 @@ export function createChatPane(root, {
   on(document, "sk:chat-toggle", toggleAndPersist);
   on(document, "keydown", (event) => {
     // Holding C must not flap the pane.
-    if (event.repeat || event.key.toLowerCase() !== "c") return;
+    if (fixedOpen || event.repeat || event.key.toLowerCase() !== "c") return;
     if (shortcutBlocked(event, document)) return;
     event.preventDefault();
     toggleAndPersist();

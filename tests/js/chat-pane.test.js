@@ -214,6 +214,25 @@ describe("chat replay pane", () => {
     pane.dispose();
   });
 
+  it("keeps the phone Chat tab open when the player asks to toggle", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const invokeMethodAsync = vi.fn().mockResolvedValue(undefined);
+    const pane = createChatPane(root, {
+      fetch: fakeFetch(),
+      storage: storage(),
+      dotNet: { invokeMethodAsync },
+    });
+    await pane.load({ ...VIEW, open: false, fixedOpen: true });
+
+    document.dispatchEvent(new CustomEvent("sk:chat-toggle"));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "c", bubbles: true }));
+
+    expect(root.dataset.open).toBe("true");
+    expect(invokeMethodAsync).not.toHaveBeenCalled();
+    pane.dispose();
+  });
+
   it("names the channel's own messages in its channel colour", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");

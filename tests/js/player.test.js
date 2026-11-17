@@ -1205,6 +1205,15 @@ describe("VideoPlayer.razor.js", () => {
       expect(hook("theater").getAttribute("aria-pressed")).toBe("true");
     });
 
+    it("ignores theater when it is not available", async () => {
+      await start(view({ theaterAvailable: false }));
+
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "t", bubbles: true }));
+      hook("theater").click();
+
+      expect(dotNet.invokeMethodAsync).not.toHaveBeenCalledWith("SetTheater", expect.anything());
+    });
+
     it("puts the player container in fullscreen and returns focus on exit", async () => {
       await start();
       let current = null;

@@ -9,27 +9,32 @@
 
 @* Rendered once. ChatPane.razor.js owns the log, polling, sync controls, and auto-scroll;
    Blazor never re-renders the pane after init. The toggle is JS-owned for the same reason.
-   No MudBlazor components: it is drawn like an outlined MudPaper with plain markup. *@
+   No MudBlazor components: it is drawn like an outlined MudPaper with plain markup.
+   HideHeader renders the phone Chat tab (#175): the tab owns the disclosure, so the pane is
+   always open and the header's toggle and state are left out. *@
 <aside class="sk-chat"
        data-sk-chat
-       data-open="@(Open ? "true" : "false")"
+       data-open="@(_open ? "true" : "false")"
        aria-label="Chat replay"
        @ref="_root">
-    <header class="sk-chat-head">
-        <button type="button"
-                class="sk-chat-toggle"
-                data-sk="chat-toggle"
-                aria-expanded="@(Open ? "true" : "false")"
-                aria-keyshortcuts="C"
-                aria-controls="@_bodyId"
-                aria-label="@(Open ? "Collapse chat" : "Open chat")">
-            @IslandIcon.Svg("Chat")
-            <span class="sk-chat-title" aria-hidden="true">Chat</span>
-        </button>
-        <span class="sk-chat-state" data-sk="chat-state" role="status" aria-live="polite">Loading chat…</span>
-    </header>
+    @if (!HideHeader)
+    {
+        <header class="sk-chat-head">
+            <button type="button"
+                    class="sk-chat-toggle"
+                    data-sk="chat-toggle"
+                    aria-expanded="@(Open ? "true" : "false")"
+                    aria-keyshortcuts="C"
+                    aria-controls="@_bodyId"
+                    aria-label="@(Open ? "Collapse chat" : "Open chat")">
+                @IslandIcon.Svg("Chat")
+                <span class="sk-chat-title" aria-hidden="true">Chat</span>
+            </button>
+            <span class="sk-chat-state" data-sk="chat-state" role="status" aria-live="polite">Loading chat…</span>
+        </header>
+    }
 
-    <div id="@_bodyId" class="sk-chat-body" data-sk="chat-body" inert="@(Open ? null : "inert")">
+    <div id="@_bodyId" class="sk-chat-body" data-sk="chat-body" inert="@(_open ? null : "inert")">
         <div class="sk-chat-log"
              data-sk="chat-log"
              role="log"
@@ -71,9 +76,15 @@
 
     [Parameter] public bool Open { get; set; }
 
+    /// <summary>Below <c>Breakpoint.Md</c>: the Chat tab owns the disclosure, so the pane is
+    /// always open and its header toggle and state are not rendered.</summary>
+    [Parameter] public bool HideHeader { get; set; }
+
     protected override bool ShouldRender() => !_ready;
 
-    protected override void OnInitialized() => _open = Open;
+    protected override void OnInitialized() => _open = WantsOpen;
+
+    private bool WantsOpen => HideHeader || Open;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -89,14 +100,14 @@
             _loaded.HasChat != Recording.HasChat)
         {
             _loaded = Recording;
-            _open = Open;
-            await InvokeModuleAsync("load", _root, ToPayload(Recording, Open));
+            _open = WantsOpen;
+            await InvokeModuleAsync("load", _root, ToPayload(Recording, _open));
             return;
         }
 
-        if (_open != Open)
+        if (_open != WantsOpen)
         {
-            _open = Open;
+            _open = WantsOpen;
             await InvokeModuleAsync("setOpen", _root, _open);
         }
     }
@@ -142,6 +153,7 @@
     {
         recordingId = recording.Id,
         open,
+        fixedOpen = HideHeader,
         emotesEnabled = EmotesEnabled,
         state = recording.State switch
         {
