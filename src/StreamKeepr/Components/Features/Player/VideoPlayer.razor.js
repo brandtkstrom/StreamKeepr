@@ -11,6 +11,7 @@ import { createProgress } from "/js/player-progress.js";
 import { readPlayerPrefs, writePlayerPrefs } from "/js/player-prefs.js";
 import { playerAction } from "/js/player-keys.js";
 import { formatTimecode } from "/js/timecode.js";
+import { iconMarkup, setIcon } from "/js/island-icons.js";
 
 // Defaults plus the contract's overrides. The stitched playlist targets 12 s segments, so one
 // target duration behind the end is the live edge.
@@ -44,13 +45,14 @@ const UNSUPPORTED_MESSAGE = "This browser can't play HLS video. Try a current ve
 const FAILED_MESSAGE = "The video could not be played.";
 const UNAVAILABLE_MESSAGE = "This recording is unavailable.";
 
-// Mirrors Primitives/StatusChip.razor markup for the states the player shows.
+// The player's own status chip: StatusChip's words, hooks and icons (Primitives/StatusChip.razor)
+// drawn without MudBlazor, because the island owns this DOM. REC is the one filled chip.
 const CHIPS = {
-  recording: '<span class="sk-status rec"><span class="dot" aria-hidden="true"></span>Rec</span>',
+  recording: '<span class="sk-player-chip rec" data-status="rec"><span class="dot" data-status-dot aria-hidden="true"></span>Rec</span>',
   reconnecting:
-    '<span class="sk-status partial"><span class="sk-icon" aria-hidden="true">sync_problem</span>Reconnecting</span>',
+    `<span class="sk-player-chip" data-status="reconnecting" data-status-icon="sync">${iconMarkup("Sync")}Reconnecting</span>`,
   partial:
-    '<span class="sk-status partial"><span class="sk-icon" aria-hidden="true">warning</span>Partial</span>',
+    `<span class="sk-player-chip" data-status="partial" data-status-icon="warning">${iconMarkup("Warning")}Partial</span>`,
   saved: "",
 };
 
@@ -59,7 +61,7 @@ export const HOOKS = [
   "video", "title", "streamer", "chip", "center", "spinner", "overlay", "overlay-message",
   "retry", "seek", "buffered", "played", "ticks", "knob", "hover-time", "play", "back",
   "forward", "mute", "volume", "volume-level", "current", "duration", "speed", "speed-menu",
-  "stats", "edge", "live", "waiting", "pip", "theater", "fullscreen",
+  "stats", "chat", "edge", "live", "waiting", "pip", "theater", "fullscreen",
 ];
 
 // Re-exported for the player's own callers and tests; /js/timecode.js holds it.
@@ -276,10 +278,10 @@ export function createPlayer(
   function renderPlayState() {
     const playing = !video.paused && !video.ended;
     el.play.setAttribute("aria-label", playing ? "Pause" : "Play");
-    el.play.querySelector(".sk-icon").textContent = playing ? "pause" : "play_arrow";
+    setIcon(el.play, playing ? "Pause" : "PlayArrow");
     el.center.hidden = playing;
     el.center.setAttribute("aria-label", video.ended ? "Replay" : "Play");
-    el.center.querySelector(".sk-icon").textContent = video.ended ? "replay" : "play_arrow";
+    setIcon(el.center, video.ended ? "Replay" : "PlayArrow");
   }
 
   function renderVolume() {
@@ -290,7 +292,7 @@ export function createPlayer(
     el.volume.setAttribute("aria-valuetext", video.muted ? `${value}%, muted` : `${value}%`);
     const silent = video.muted || video.volume === 0;
     el.mute.setAttribute("aria-label", video.muted ? "Unmute" : "Mute");
-    el.mute.querySelector(".sk-icon").textContent = silent ? "volume_off" : "volume_up";
+    setIcon(el.mute, silent ? "VolumeOff" : "VolumeUp");
   }
 
   function renderSpeed() {
@@ -299,9 +301,8 @@ export function createPlayer(
     el.speed.setAttribute("aria-label", `Playback speed: ${rate}×`);
     for (const item of el["speed-menu"].querySelectorAll("[data-rate]")) {
       const checked = Number(item.dataset.rate) === rate;
+      // Every item carries the Check glyph; CSS shows it only on the checked one.
       item.setAttribute("aria-checked", checked ? "true" : "false");
-      const icon = item.querySelector(".sk-icon");
-      if (icon) icon.textContent = checked ? "check" : "";
     }
   }
 
@@ -397,7 +398,6 @@ export function createPlayer(
   function renderTheater() {
     if (!el.theater) return;
     el.theater.setAttribute("aria-pressed", theater ? "true" : "false");
-    el.theater.classList.toggle("on", theater);
   }
 
   function toggleTheater() {
@@ -432,7 +432,7 @@ export function createPlayer(
     const ours = fullscreenElement() === root;
     if (el.fullscreen) {
       el.fullscreen.setAttribute("aria-label", ours ? "Exit full screen" : "Full screen");
-      el.fullscreen.querySelector(".sk-icon").textContent = ours ? "fullscreen_exit" : "fullscreen";
+      setIcon(el.fullscreen, ours ? "FullscreenExit" : "Fullscreen");
     }
     if (el.pip) el.pip.disabled = active;
     if (ours && !wasFullscreen) root.focus();
@@ -457,7 +457,8 @@ export function createPlayer(
     el.pip.hidden = !pipSupported();
     const inPip = doc.pictureInPictureElement === video;
     el.pip.setAttribute("aria-label", inPip ? "Exit picture in picture" : "Picture in picture");
-    el.pip.querySelector(".sk-icon").textContent = inPip ? "picture_in_picture_off" : "picture_in_picture_alt";
+    // Material Rounded has no "picture in picture off"; the docked-window glyph marks leaving.
+    setIcon(el.pip, inPip ? "PictureInPicture" : "PictureInPictureAlt");
   }
 
   // ----- idle -----
@@ -509,6 +510,22 @@ export function createPlayer(
       bubbles: true,
     }));
     void invokeDotNet("SetStatsOpen", open);
+  }
+
+  // ----- chat toggle -----
+  // The chat pane is a separate island beside the player. It announces itself and its open
+  // state with sk:chat; the button asks it to toggle with sk:chat-toggle, the same request
+  // the C shortcut makes, so the pane stays the one owner of its state and persistence.
+
+  function renderChat({ available, open }) {
+    if (!el.chat) return;
+    el.chat.hidden = !available;
+    el.chat.setAttribute("aria-pressed", available && open ? "true" : "false");
+  }
+
+  function chatPaneInPage() {
+    const pane = doc.querySelector("[data-sk-chat]");
+    return { available: pane !== null, open: pane?.dataset.open === "true" };
   }
 
   async function invokeDotNet(identifier, ...args) {
@@ -857,6 +874,12 @@ export function createPlayer(
     const next = event instanceof CustomEvent ? event.detail?.open : undefined;
     if (typeof next === "boolean") setStatsPressed(next);
   });
+  on(el.chat, "click", () => doc.dispatchEvent(new CustomEvent("sk:chat-toggle")));
+  on(doc, "sk:chat", (event) => {
+    const detail = event instanceof CustomEvent ? event.detail : null;
+    if (detail) renderChat({ available: detail.available === true, open: detail.open === true });
+  });
+  renderChat(chatPaneInPage());
 
   on(el.volume, "keydown", (event) => {
     const steps = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 };

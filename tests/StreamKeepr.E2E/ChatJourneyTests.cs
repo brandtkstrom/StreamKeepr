@@ -42,6 +42,75 @@ public sealed class ChatJourneyTests(MockAppFixture app)
     }
 
     [Fact]
+    public async Task The_player_chat_button_mirrors_C_and_the_streamer_speaks_in_the_channel_colour()
+    {
+        await using LibraryJourneyTests.Session session =
+            await LibraryJourneyTests.OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+
+        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
+        string id = (await saved.GetAttributeAsync("data-recording-id"))!;
+        await saved.ClickAsync();
+        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await page.Locator("[data-sk='seek'][aria-disabled='false']")
+            .WaitForAsync(new() { Timeout = 20_000 });
+
+        ILocator pane = page.Locator("[data-sk-chat]");
+        ILocator chat = page.Locator("[data-sk-player]").GetByRole(AriaRole.Button, new() { Name = "Chat", Exact = true });
+        await chat.WaitForAsync();
+        Assert.Equal("C", await chat.GetAttributeAsync("aria-keyshortcuts"));
+        string opened = (await pane.GetAttributeAsync("data-open"))!;
+        Assert.Equal(opened, await chat.GetAttributeAsync("aria-pressed"));
+
+        // The player's button and the C key make the same request, and the button mirrors both.
+        await chat.ClickAsync();
+        string toggled = opened == "true" ? "false" : "true";
+        await page.WaitForFunctionAsync($"() => document.querySelector('[data-sk-chat]').dataset.open === '{toggled}'");
+        Assert.Equal(toggled, await chat.GetAttributeAsync("aria-pressed"));
+        await page.Keyboard.PressAsync("c");
+        await page.WaitForFunctionAsync($"() => document.querySelector('[data-sk-chat]').dataset.open === '{opened}'");
+        Assert.Equal(opened, await chat.GetAttributeAsync("aria-pressed"));
+        if (opened != "true")
+            await chat.ClickAsync();
+        await page.WaitForFunctionAsync("() => document.querySelector('[data-sk-chat]').dataset.open === 'true'");
+
+        ILocator seek = page.Locator("[data-sk='seek']");
+        await seek.FocusAsync();
+        await page.Keyboard.PressAsync("Home");
+        for (int i = 0; i < 4; i++)
+            await page.Keyboard.PressAsync("ArrowRight");
+        ILocator streamer = page.Locator("[data-sk='chat-log'] [data-message-id='seed-streamer'] [data-chat-name]");
+        await streamer.WaitForAsync(new() { Timeout = 20_000 });
+
+        // Chat gets its colour from .NET in the pane payload and the drawer from its avatar;
+        // the streamer's name must show the same channel colour the drawer shows.
+        ChannelColours colours = await page.EvaluateAsync<ChannelColours>(
+            """
+            id => {
+              const name = document.querySelector("[data-message-id='seed-streamer'] [data-chat-name]");
+              const avatar = document.querySelector(`a[data-recording-id="${id}"]`)
+                .closest('[data-streamer-group]').querySelector('[data-channel-color]');
+              return {
+                chat: name.dataset.channelColor ?? '',
+                drawer: avatar.dataset.channelColor,
+                shown: getComputedStyle(name).color,
+              };
+            }
+            """, id);
+        Assert.Equal(colours.Drawer, colours.Chat);
+        Assert.Equal(await TokenColourAsync(page, $"--channel-{colours.Drawer}"), colours.Shown);
+
+        // Keyboard focus rings: player-accent inside the player, primary in the chat island.
+        await page.Keyboard.PressAsync("Shift+Tab");
+        await chat.FocusAsync();
+        Assert.Equal(await TokenColourAsync(page, "--player-accent"), await RingAsync(chat));
+        await page.Locator("[data-sk='chat-log']").FocusAsync();
+        Assert.Equal(await TokenColourAsync(page, "--primary"), await RingAsync(page.Locator("[data-sk='chat-log']")));
+
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-chat");
+    }
+
+    [Fact]
     public async Task Polls_live_chat_while_a_growing_capture_plays()
     {
         await using LibraryJourneyTests.Session session =
@@ -221,5 +290,27 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         public double LastRowBottom { get; set; }
         public double ContentTop { get; set; }
         public double ContentBottom { get; set; }
+    }
+
+    private static Task<string> RingAsync(ILocator element) => element.EvaluateAsync<string>(
+        "el => el.matches(':focus-visible') && getComputedStyle(el).outlineStyle === 'solid' && getComputedStyle(el).outlineWidth === '2px' ? getComputedStyle(el).outlineColor : 'no ring'");
+
+    private static Task<string> TokenColourAsync(IPage page, string token) => page.EvaluateAsync<string>(
+        """
+        token => {
+          const probe = document.createElement('span');
+          probe.style.color = `var(${token})`;
+          document.body.append(probe);
+          const colour = getComputedStyle(probe).color;
+          probe.remove();
+          return colour;
+        }
+        """, token);
+
+    private sealed class ChannelColours
+    {
+        public string Chat { get; set; } = "";
+        public string Drawer { get; set; } = "";
+        public string Shown { get; set; } = "";
     }
 }

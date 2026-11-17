@@ -4,37 +4,39 @@ import {
   formatTimecode,
   HLS_CONFIG,
 } from "../../src/StreamKeepr/Components/Features/Player/VideoPlayer.razor.js";
+import { ICONS } from "../../src/StreamKeepr/wwwroot/js/island-icons.js";
 
 // Mirrors the data-sk hooks VideoPlayer.razor renders (VideoPlayerTests guards the markup side).
 const MARKUP = `
   <div class="sk-player" data-sk-player aria-busy="true" tabindex="0">
     <video data-sk="video"></video>
     <div class="sk-player-top"><div class="t"><b data-sk="title"></b><span data-sk="streamer"></span></div><span data-sk="chip"></span></div>
-    <button data-sk="center" aria-label="Play"><span class="sk-icon">play_arrow</span></button>
+    <button data-sk="center" aria-label="Play"><svg data-icon="PlayArrow"></svg></button>
     <div data-sk="spinner" hidden><span data-sk="spinner-text">Loading video</span><p data-sk="waiting" role="status" hidden>Waiting for the first segment…</p></div>
     <div data-sk="overlay" role="alert" hidden><p data-sk="overlay-message"></p><button data-sk="retry">Retry</button><a href="/">Back</a></div>
     <div class="sk-seek" data-sk="seek" role="slider" tabindex="0" aria-disabled="true">
       <div class="track"><div data-sk="buffered"></div><div data-sk="played"></div></div>
       <div data-sk="ticks"></div><div data-sk="knob"></div><span data-sk="edge" hidden></span><span data-sk="hover-time"></span>
     </div>
-    <button data-sk="play" aria-label="Play"><span class="sk-icon">play_arrow</span></button>
+    <button data-sk="play" aria-label="Play"><svg data-icon="PlayArrow"></svg></button>
     <button data-sk="back" disabled></button>
     <button data-sk="forward" disabled></button>
-    <button data-sk="mute" aria-label="Mute"><span class="sk-icon">volume_up</span></button>
+    <button data-sk="mute" aria-label="Mute"><svg data-icon="VolumeUp"></svg></button>
     <div data-sk="volume" role="slider" tabindex="0" aria-valuenow="100"><i data-sk="volume-level"></i></div>
     <span data-sk="current"></span><span data-sk="duration"></span>
     <button data-sk="live" aria-label="Jump to live edge" hidden>Live edge</button>
     <button data-sk="speed" aria-expanded="false">1×</button>
     <div data-sk="speed-menu" role="menu" hidden>
-      <button role="menuitemradio" data-rate="0.5" aria-checked="false"><span class="sk-icon"></span></button>
-      <button role="menuitemradio" data-rate="1" aria-checked="true"><span class="sk-icon">check</span></button>
-      <button role="menuitemradio" data-rate="1.5" aria-checked="false"><span class="sk-icon"></span></button>
-      <button role="menuitemradio" data-rate="2" aria-checked="false"><span class="sk-icon"></span></button>
+      <button role="menuitemradio" data-rate="0.5" aria-checked="false"></button>
+      <button role="menuitemradio" data-rate="1" aria-checked="true"><svg data-icon="Check"></svg></button>
+      <button role="menuitemradio" data-rate="1.5" aria-checked="false"></button>
+      <button role="menuitemradio" data-rate="2" aria-checked="false"></button>
     </div>
-    <button data-sk="stats" aria-label="Stats for nerds" aria-pressed="false"><span class="sk-icon">query_stats</span></button>
-    <button data-sk="pip" aria-label="Picture in picture" hidden><span class="sk-icon">picture_in_picture_alt</span></button>
-    <button data-sk="theater" aria-label="Theater mode" aria-pressed="false"><span class="sk-icon">width_wide</span></button>
-    <button data-sk="fullscreen" aria-label="Full screen"><span class="sk-icon">fullscreen</span></button>
+    <button data-sk="stats" aria-label="Stats for nerds" aria-pressed="false"><svg data-icon="QueryStats"></svg></button>
+    <button data-sk="chat" aria-label="Chat" aria-pressed="false" aria-keyshortcuts="C" hidden><svg data-icon="Chat"></svg></button>
+    <button data-sk="pip" aria-label="Picture in picture" hidden><svg data-icon="PictureInPictureAlt"></svg></button>
+    <button data-sk="theater" aria-label="Theater mode" aria-pressed="false"><svg data-icon="WidthWide"></svg></button>
+    <button data-sk="fullscreen" aria-label="Full screen"><svg data-icon="Fullscreen"></svg></button>
   </div>`;
 
 const hook = (name) => document.querySelector(`[data-sk="${name}"]`);
@@ -364,6 +366,75 @@ describe("VideoPlayer.razor.js", () => {
   });
 
   describe("controls", () => {
+    it("swaps the inline Material Rounded glyphs with the play and mute state", async () => {
+      await start();
+      const glyph = (name) => hook(name).querySelector("svg");
+      // The DOM re-serialises the copied markup, so compare against it parsed the same way.
+      const parsed = (name) => {
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.innerHTML = ICONS[name];
+        return svg.innerHTML;
+      };
+
+      hook("center").click();
+      expect(glyph("play").dataset.icon).toBe("Pause");
+      expect(glyph("play").innerHTML).toBe(parsed("Pause"));
+
+      hook("play").click();
+      expect(glyph("play").dataset.icon).toBe("PlayArrow");
+      expect(glyph("play").innerHTML).toBe(parsed("PlayArrow"));
+
+      hook("mute").click();
+      expect(glyph("mute").dataset.icon).toBe("VolumeOff");
+      expect(glyph("mute").innerHTML).toBe(parsed("VolumeOff"));
+    });
+
+    describe("chat toggle", () => {
+      const announce = (detail) =>
+        document.dispatchEvent(new CustomEvent("sk:chat", { detail }));
+
+      it("stays hidden while the recording has no chat pane", async () => {
+        await start();
+
+        expect(hook("chat").hidden).toBe(true);
+      });
+
+      it("shows when a chat pane announces itself and mirrors its open state", async () => {
+        await start();
+
+        announce({ available: true, open: false });
+        expect(hook("chat").hidden).toBe(false);
+        expect(hook("chat").getAttribute("aria-pressed")).toBe("false");
+
+        announce({ available: true, open: true });
+        expect(hook("chat").getAttribute("aria-pressed")).toBe("true");
+
+        announce({ available: false, open: false });
+        expect(hook("chat").hidden).toBe(true);
+      });
+
+      it("picks up a chat pane already in the page when it loads", async () => {
+        document.body.insertAdjacentHTML("beforeend", '<aside data-sk-chat data-open="true"></aside>');
+
+        await start();
+
+        expect(hook("chat").hidden).toBe(false);
+        expect(hook("chat").getAttribute("aria-pressed")).toBe("true");
+      });
+
+      it("asks the chat pane to toggle, the same request as the C shortcut", async () => {
+        await start();
+        announce({ available: true, open: false });
+        const requests = vi.fn();
+        document.addEventListener("sk:chat-toggle", requests);
+
+        hook("chat").click();
+
+        expect(requests).toHaveBeenCalledOnce();
+        document.removeEventListener("sk:chat-toggle", requests);
+      });
+    });
+
     it("plays and pauses from the control bar and the centre button", async () => {
       await start();
 
@@ -386,7 +457,7 @@ describe("VideoPlayer.razor.js", () => {
       media.currentTime = 120;
       hook("video").dispatchEvent(new Event("ended"));
 
-      expect(hook("center").querySelector(".sk-icon").textContent).toBe("replay");
+      expect(hook("center").querySelector("svg").dataset.icon).toBe("Replay");
       hook("center").click();
 
       expect(media.seeks).toContain(0);

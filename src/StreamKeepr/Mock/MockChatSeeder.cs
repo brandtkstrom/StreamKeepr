@@ -42,6 +42,9 @@ public sealed class MockChatSeeder(
                 "moderator", "1");
             Append(store, summary.Channel, baseAt, 2, "seed-emotes",
                 "Fixture emotes KEKW :tf: CatJAM BrokenEmote", null, null);
+            // The streamer's own message, so the chat shows the channel colour (#180).
+            Append(store, summary.Channel, baseAt, 9, "seed-streamer", "Thanks for watching the replay",
+                "broadcaster", "1", Chatter.Streamer(summary.Channel));
             Append(store, summary.Channel, baseAt, 16, "seed-2", "Kappa this is a chat replay",
                 null, null);
             Append(store, summary.Channel, baseAt, 27, "seed-3", "PogChamp nice clip",
@@ -63,17 +66,19 @@ public sealed class MockChatSeeder(
         string id,
         string text,
         string? badgeSet,
-        string? badgeVersion)
+        string? badgeVersion,
+        Chatter? chatter = null)
     {
+        Chatter who = chatter ?? Chatter.Viewer;
         var message = new ChatMessage(
             id,
             channel,
             baseAt + (offsetSeconds * 1000L),
             AtIsLocal: false,
-            UserId: "mock-viewer",
-            Login: "mock_viewer",
-            DisplayName: "MockViewer",
-            Color: "#9146FF",
+            UserId: who.UserId,
+            Login: who.Login,
+            DisplayName: who.DisplayName,
+            Color: who.Color,
             Badges: badgeSet is null
                 ? []
                 : [new ChatBadge(badgeSet, badgeVersion!, null)],
@@ -86,5 +91,13 @@ public sealed class MockChatSeeder(
             Text: text);
 
         store.Append(channel, new ChatSourceEvent.MessageEvent(message));
+    }
+
+    private sealed record Chatter(string UserId, string Login, string DisplayName, string Color)
+    {
+        public static Chatter Viewer { get; } = new("mock-viewer", "mock_viewer", "MockViewer", "#9146FF");
+
+        // A Twitch colour unlike every channel colour, so the chat visibly overrides it.
+        public static Chatter Streamer(string login) => new($"mock-{login}", login, login, "#1E90FF");
     }
 }

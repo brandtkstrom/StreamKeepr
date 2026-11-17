@@ -164,6 +164,103 @@ describe("chat replay pane", () => {
     pane.dispose();
   });
 
+  it("announces itself and its open state to the player", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const announced = [];
+    const listen = (event) => announced.push(event.detail);
+    document.addEventListener("sk:chat", listen);
+
+    const pane = createChatPane(root, { fetch: fakeFetch(), storage: storage() });
+    pane.setOpen(true);
+    document.querySelector("[data-sk='chat-toggle']").click();
+    pane.dispose();
+    document.removeEventListener("sk:chat", listen);
+
+    expect(announced).toEqual([
+      { available: true, open: false },
+      { available: true, open: true },
+      { available: true, open: false },
+      { available: false, open: false },
+    ]);
+  });
+
+  it("toggles and persists when the player's Chat button asks", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const invokeMethodAsync = vi.fn().mockResolvedValue(undefined);
+    const pane = createChatPane(root, {
+      fetch: fakeFetch(),
+      storage: storage(),
+      dotNet: { invokeMethodAsync },
+    });
+
+    document.dispatchEvent(new CustomEvent("sk:chat-toggle"));
+
+    expect(root.dataset.open).toBe("true");
+    expect(invokeMethodAsync).toHaveBeenCalledWith("SetChatOpen", true);
+    pane.dispose();
+  });
+
+  it("names the channel's own messages in its channel colour", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        v: 1, recordingId: "r1", state: "complete", hasChat: true, source: "mock",
+        leadInSec: 0, fromSec: 0, toSec: 120, syncOffsetSec: 0, gaps: [],
+        hasMoreBefore: false, hasMoreAfter: false,
+        messages: [
+          { ...message, id: "own", mt: 2, login: "Mock_Nova", display: "Mock_Nova", color: "#123456" },
+          { ...message, id: "viewer", mt: 3 },
+        ],
+      }),
+    }));
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, channelLogin: "mock_nova", channelColor: 5 });
+    playhead(10);
+    await flush();
+
+    const own = document.querySelector("[data-message-id='own'] [data-chat-name]");
+    expect(own.dataset.channelColor).toBe("5");
+    expect(own.style.color).toBe("var(--channel-5)");
+    const viewer = document.querySelector("[data-message-id='viewer'] [data-chat-name]");
+    expect(viewer.hasAttribute("data-channel-color")).toBe(false);
+    expect(viewer.style.color).toBe("rgb(0, 255, 0)");
+    pane.dispose();
+  });
+
+  it("keeps a chatter's Twitch colour only where it reaches 4.5:1 on the pane", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    root.style.backgroundColor = "rgb(55, 55, 64)"; // the surface token, #373740
+    const fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        v: 1, recordingId: "r1", state: "complete", hasChat: true, source: "mock",
+        leadInSec: 0, fromSec: 0, toSec: 120, syncOffsetSec: 0, gaps: [],
+        hasMoreBefore: false, hasMoreAfter: false,
+        messages: [
+          { ...message, id: "bright", mt: 2, color: "#00FF00" },
+          { ...message, id: "dark", mt: 3, color: "#9146FF" },
+        ],
+      }),
+    }));
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW });
+    playhead(10);
+    await flush();
+
+    const name = (id) => document.querySelector(`[data-message-id='${id}'] [data-chat-name]`);
+    expect(name("bright").style.color).toBe("rgb(0, 255, 0)");
+    // #9146FF is 2.6:1 on #373740, so the name keeps text-primary from the log.
+    expect(name("dark").style.color).toBe("");
+    pane.dispose();
+  });
+
   it("persists and sends the per-recording sync offset", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");

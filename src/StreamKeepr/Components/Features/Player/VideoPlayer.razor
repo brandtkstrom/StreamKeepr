@@ -9,7 +9,8 @@
 
 @* Rendered once. VideoPlayer.razor.js owns hls.js, every control, and all dynamic player DOM;
    Blazor never re-renders this markup, so it cannot overwrite JS-owned attributes or text.
-   Hooks are data-sk attributes (see the HOOKS list in the module). *@
+   Hooks are data-sk attributes (see the HOOKS list in the module). No MudBlazor components:
+   icons are inline Material Rounded SVG (IslandIcon) and colours come from the player-* tokens. *@
 <div class="sk-player"
      data-sk-player
      role="region"
@@ -31,9 +32,7 @@
         <span data-sk="chip"></span>
     </div>
 
-    <button type="button" class="sk-player-center" data-sk="center" aria-label="Play">
-        <span class="sk-icon" aria-hidden="true">play_arrow</span>
-    </button>
+    <button type="button" class="sk-player-center" data-sk="center" aria-label="Play">@IslandIcon.Svg("PlayArrow")</button>
 
     <div class="sk-player-spinner" data-sk="spinner" hidden>
         <span class="sk-spin" data-spinner aria-hidden="true"></span>
@@ -42,11 +41,11 @@
     </div>
 
     <div class="sk-player-overlay" data-sk="overlay" role="alert" hidden>
-        <span class="sk-icon" aria-hidden="true">error</span>
+        @IslandIcon.Svg("Error")
         <p data-sk="overlay-message"></p>
         <div class="actions">
-            <button type="button" class="sk-btn" data-sk="retry">Retry</button>
-            <a class="sk-btn text" href="/">Back to library</a>
+            <button type="button" class="sk-player-action filled" data-sk="retry">Retry</button>
+            <a class="sk-player-action text" href="/">Back to library</a>
         </div>
     </div>
 
@@ -72,19 +71,11 @@
         </div>
 
         <div class="sk-controls">
-            <button type="button" class="sk-icon-btn" data-sk="play" aria-label="Play">
-                <span class="sk-icon fill" aria-hidden="true">play_arrow</span>
-            </button>
-            <button type="button" class="sk-icon-btn" data-sk="back" data-skip="-10" aria-label="Back 10 seconds" disabled>
-                <span class="sk-icon" aria-hidden="true">replay_10</span>
-            </button>
-            <button type="button" class="sk-icon-btn" data-sk="forward" data-skip="10" aria-label="Forward 10 seconds" disabled>
-                <span class="sk-icon" aria-hidden="true">forward_10</span>
-            </button>
+            <button type="button" class="sk-player-btn" data-sk="play" aria-label="Play">@IslandIcon.Svg("PlayArrow")</button>
+            <button type="button" class="sk-player-btn" data-sk="back" data-skip="-10" aria-label="Back 10 seconds" disabled>@IslandIcon.Svg("Replay10")</button>
+            <button type="button" class="sk-player-btn" data-sk="forward" data-skip="10" aria-label="Forward 10 seconds" disabled>@IslandIcon.Svg("Forward10")</button>
             <div class="sk-vol">
-                <button type="button" class="sk-icon-btn" data-sk="mute" aria-label="Mute">
-                    <span class="sk-icon" aria-hidden="true">volume_up</span>
-                </button>
+                <button type="button" class="sk-player-btn" data-sk="mute" aria-label="Mute">@IslandIcon.Svg("VolumeUp")</button>
                 <div class="bar"
                      data-sk="volume"
                      role="slider"
@@ -103,7 +94,7 @@
                 <span class="dot" aria-hidden="true"></span><span class="lbl-long">Live edge</span>
             </button>
             <span class="grow"></span>
-            <div class="sk-menu-anchor">
+            <div class="sk-player-menu-anchor">
                 <button type="button"
                         class="sk-pill"
                         data-sk="speed"
@@ -112,7 +103,7 @@
                         aria-expanded="false"
                         aria-controls="@SpeedMenuId"
                         aria-label="Playback speed: 1×">1×</button>
-                <div class="sk-menu sk-player-menu" id="@SpeedMenuId" data-sk="speed-menu" role="menu" aria-label="Playback speed" hidden>
+                <div class="sk-player-menu" id="@SpeedMenuId" data-sk="speed-menu" role="menu" aria-label="Playback speed" hidden>
                     @foreach (double rate in Speeds)
                     {
                         <button type="button"
@@ -120,7 +111,7 @@
                                 tabindex="-1"
                                 data-rate="@rate.ToString(CultureInfo.InvariantCulture)"
                                 aria-checked="@(rate == 1 ? "true" : "false")">
-                            <span class="sk-icon" aria-hidden="true">@(rate == 1 ? "check" : "")</span>
+                            @IslandIcon.Svg("Check")
                             <span class="sp">@(rate == 1 ? "Normal" : $"{rate.ToString(CultureInfo.InvariantCulture)}×")</span>
                         </button>
                     }
@@ -129,26 +120,26 @@
             @* One captured quality, so the quality control is static text (E-20). *@
             <span class="sk-pill sk-quality" data-quality title="Quality: source">Source</span>
             <button type="button"
-                    class="sk-icon-btn"
+                    class="sk-player-btn"
                     data-sk="stats"
                     aria-label="Stats for nerds"
-                    aria-pressed="@(StatsOpen ? "true" : "false")">
-                <span class="sk-icon" aria-hidden="true">query_stats</span>
-            </button>
-            <button type="button" class="sk-icon-btn" data-sk="pip" data-pip aria-label="Picture in picture" hidden>
-                <span class="sk-icon" aria-hidden="true">picture_in_picture_alt</span>
-            </button>
+                    aria-pressed="@(StatsOpen ? "true" : "false")">@IslandIcon.Svg("QueryStats")</button>
+            @* Shown by the module once a chat pane announces itself (sk:chat); mirrors the C key. *@
             <button type="button"
-                    class="sk-icon-btn @(Preferences.Theater ? "on" : null)"
+                    class="sk-player-btn"
+                    data-sk="chat"
+                    aria-label="Chat"
+                    aria-keyshortcuts="C"
+                    aria-pressed="false"
+                    hidden>@IslandIcon.Svg("Chat")</button>
+            <button type="button" class="sk-player-btn" data-sk="pip" data-pip aria-label="Picture in picture" hidden>@IslandIcon.Svg("PictureInPictureAlt")</button>
+            <button type="button"
+                    class="sk-player-btn"
                     data-sk="theater"
                     data-theater
                     aria-label="Theater mode"
-                    aria-pressed="@(Preferences.Theater ? "true" : "false")">
-                <span class="sk-icon" aria-hidden="true">width_wide</span>
-            </button>
-            <button type="button" class="sk-icon-btn" data-sk="fullscreen" aria-label="Full screen">
-                <span class="sk-icon" aria-hidden="true">fullscreen</span>
-            </button>
+                    aria-pressed="@(Preferences.Theater ? "true" : "false")">@IslandIcon.Svg("WidthWide")</button>
+            <button type="button" class="sk-player-btn" data-sk="fullscreen" aria-label="Full screen">@IslandIcon.Svg("Fullscreen")</button>
         </div>
     </div>
 </div>
