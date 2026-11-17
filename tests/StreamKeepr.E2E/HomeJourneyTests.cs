@@ -34,16 +34,14 @@ public sealed class HomeJourneyTests(MockAppFixture app)
         LocatorBoundingBoxResult box = (await recent.BoundingBoxAsync())!;
         Assert.True(box.Y >= 0 && box.Y + box.Height <= Phone.Height, $"the row is in view ({box.Y}, {box.Height})");
         ICDPSession cdp = await page.Context.NewCDPSessionAsync(page);
-        await cdp.SendAsync("Input.synthesizeScrollGesture", new Dictionary<string, object>
-        {
-            ["x"] = box.X + (box.Width * 0.8),
-            ["y"] = box.Y + (box.Height / 2),
-            ["xDistance"] = -240,
-            ["yDistance"] = 0,
-            ["gestureSourceType"] = "touch",
-            ["speed"] = 1200,
-        });
-        await Expect(async () => await recent.EvaluateAsync<int>("row => row.scrollLeft") > 0 ? 1 : 0, 1);
+        await SwipeLeftAsync(cdp, box.X + (box.Width * 0.8), box.Y + (box.Height / 2), distance: 240);
+        // Wait for the row to move; on failure, say what the row looked like.
+        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+        while (await recent.EvaluateAsync<int>("row => row.scrollLeft") == 0 && DateTime.UtcNow < deadline)
+            await Task.Delay(50);
+        string state = await recent.EvaluateAsync<string>(
+            "row => { const s = getComputedStyle(row); return `scrollLeft=${row.scrollLeft} scrollWidth=${row.scrollWidth} clientWidth=${row.clientWidth} overflowX=${s.overflowX} touchAction=${s.touchAction}`; }");
+        Assert.True(await recent.EvaluateAsync<int>("row => row.scrollLeft") > 0, $"the swipe did not move the row ({state})");
         int[] overflow = await page.EvaluateAsync<int[]>("""
             () => {
               const page = document.scrollingElement;
@@ -58,6 +56,33 @@ public sealed class HomeJourneyTests(MockAppFixture app)
         await page.ScreenshotAsync(new() { Path = Path.Combine(app.ArtifactsDirectory, "home-rows-375.png") });
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "home-rows-375");
     }
+
+    // A finger drag as raw touch events. Chrome turns them into a native touch scroll, the way
+    // a phone would; Input.synthesizeScrollGesture with a touch source does nothing on CI's
+    // headless Linux Chrome.
+    private static async Task SwipeLeftAsync(ICDPSession cdp, double x, double y, double distance)
+    {
+        const int Steps = 12;
+        await Touch(cdp, "touchStart", x, y);
+        for (int step = 1; step <= Steps; step++)
+        {
+            await Touch(cdp, "touchMove", x - (distance * step / Steps), y);
+            await Task.Delay(16);
+        }
+
+        await cdp.SendAsync("Input.dispatchTouchEvent", new Dictionary<string, object>
+        {
+            ["type"] = "touchEnd",
+            ["touchPoints"] = Array.Empty<object>(),
+        });
+    }
+
+    private static Task Touch(ICDPSession cdp, string type, double x, double y) =>
+        cdp.SendAsync("Input.dispatchTouchEvent", new Dictionary<string, object>
+        {
+            ["type"] = type,
+            ["touchPoints"] = new object[] { new Dictionary<string, object> { ["x"] = x, ["y"] = y } },
+        });
 
     private static async Task<double> CardWidthAsync(ILocator row) =>
         (await row.GetByRole(AriaRole.Listitem).First.BoundingBoxAsync())!.Width;
