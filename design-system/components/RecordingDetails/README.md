@@ -1,5 +1,7 @@
 A collapsible panel under the player with the recording's title, its actions, its meta line, an export's progress and the chapter strip.
 
+Built as `RecordingDetailsSummary` (title, meta line, actions, stop/delete dialogs) and `RecordingDetailsBody` (export row, chapters), composed by `RecordingDetails`; below `Breakpoint.Md` the summary renders outside the watch tabs and the body becomes the Details tab.
+
 ## Build it from
 
 ```razor
@@ -38,7 +40,7 @@ A collapsible panel under the player with the recording's title, its actions, it
 - Actions that need Twitch stay visible. Wrap them in `MudTooltip` "Connect Twitch to use this" and disable them. A blocked export or delete gives its reason in the tooltip.
 - Meta line, in `caption`, as icon + text pairs (`icon-inline` 16px icons in `action-default`): the live chip first while live (REC while recording, Reconnecting while reconnecting), the avatar and streamer, `SportsEsports` category, `Event` start, `Timer` duration, `FolderOpen` segments and parts, and `Storage` size (omitted while live).
 - It is expanded by default directly under the player, so on desktop the title and actions show without scrolling. Below `Breakpoint.Md` Stop recording and Delete move into a `MoreVert` "More actions" menu; a blocked Delete is a disabled item showing its reason.
-- **Not built yet:** below `Breakpoint.Md` the title, meta and actions should sit under the player outside any panel, with the rest (export row, chapters) as the **Details** tab (`MudTabPanel Icon="@Icons.Material.Rounded.Info"`). That waits for the phone watch tabs (PhoneLayout); until then the whole card is the one collapsible panel at every width.
+- **Below `Breakpoint.Md`** the title, meta and actions sit under the player outside any panel, and the rest (export row, chapters) is the **Details** tab (`MudTabPanel Icon="@Icons.Material.Rounded.Info"`).
 - The export row sits on `surface-raised`: an `Output` icon in `secondary`, state text, `MudProgressLinear` in `secondary` with the percent in `timecode` while running (the bar is not a live region; the state text is the one announcement), then Cancel, Retry or a tonal Download link (a real `<a download>`). The tonal link is a 14% `primary` tint behind a `text-primary` label, because `primary` text is under 4.5:1 on `surface-raised`.
 - Chapters are buttons with the offset in `timecode` (`tertiary`), the title in `subtitle2` and the game in `caption`. On hover the row is `surface-raised` and the offset turns `text-primary`, because `tertiary` text is under 4.5:1 there.
 - **Not built yet:** the current chapter shown as `selection`. It needs the player's position in the details card.

@@ -33,7 +33,7 @@ The whole StreamKeepr screen, built on MudBlazor's Layout 2 wireframe (an app ba
 
 - `MudMainContent` has `pa-4` and no max-width.
 - The first row is the player plus, when the recording has chat and it is open, the chat sidecar. The player takes the remaining width (`flex: 1`) at 16:9. The sidecar is `flex: 0 1 400px` with a 320px minimum, so on wide screens it widens instead of leaving empty space.
-- The player's height is capped at `100dvh − appbar-height − 2 × space-4 − player-peek`. The recording title, its actions and its meta line (`RecordingDetails`, expanded by default) sit directly below, always visible without scrolling. Stats for nerds follows.
+- The player's height is capped at `100dvh − appbar-height − 2 × space-6 − player-peek`. The recording title, its actions and its meta line (`RecordingDetails`, expanded by default) sit directly below, always visible without scrolling. Stats for nerds follows.
 - The drawer is the 72px rail while watching: Home, then streamer avatars (the open one ringed in `primary`), then the disk icon at the foot. The menu button opens the full 320px library over the same clipped area.
 
 ## The consumer provides

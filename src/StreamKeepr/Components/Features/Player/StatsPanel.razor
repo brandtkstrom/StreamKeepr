@@ -8,25 +8,31 @@
    the copy action; Blazor never re-renders this markup, so it cannot overwrite JS-owned
    text, attributes, or SVG children. The player's stats button is wired by the same module.
    No MudBlazor components: it is drawn like a MudExpansionPanel with plain markup, the
-   series colours and inline Material Rounded SVG (IslandIcon). *@
+   series colours and inline Material Rounded SVG (IslandIcon).
+   Tab renders the phone Stats tab (#175): the tab owns the disclosure, so there is no
+   header or switch and the panel opens expanded. *@
 <section class="sk-stats-panel"
          data-sk-stats
          data-open="@(_open ? "true" : "false")"
+         data-chrome="@(Tab ? "tab" : null)"
          aria-labelledby="@_titleId"
          @ref="_root">
     <h2 id="@_titleId" class="sk-visually-hidden" data-sr-only>Stats for nerds</h2>
-    <button type="button"
-            class="sk-stats-head"
-            data-sk="stats-toggle"
-            role="switch"
-            aria-label="Stats for nerds"
-            aria-checked="@(_open ? "true" : "false")"
-            aria-controls="@_bodyId">
-        @IslandIcon.Svg("QueryStats")
-        <span class="title" aria-hidden="true">Stats for nerds</span>
-        <span class="hint" data-sk="stats-hint">—</span>
-        <span class="sk-stats-switch" aria-hidden="true"></span>
-    </button>
+    @if (!Tab)
+    {
+        <button type="button"
+                class="sk-stats-head"
+                data-sk="stats-toggle"
+                role="switch"
+                aria-label="Stats for nerds"
+                aria-checked="@(_open ? "true" : "false")"
+                aria-controls="@_bodyId">
+            @IslandIcon.Svg("QueryStats")
+            <span class="title" aria-hidden="true">Stats for nerds</span>
+            <span class="hint" data-sk="stats-hint">—</span>
+            <span class="sk-stats-switch" aria-hidden="true"></span>
+        </button>
+    }
 
     <div class="sk-stats-collapse"
          id="@_bodyId"
@@ -164,13 +170,18 @@
 
     [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
 
+    /// <summary>Below <c>Breakpoint.Md</c>: the Stats tab owns the disclosure, so there is no
+    /// header switch and the panel starts expanded.</summary>
+    [Parameter] public bool Tab { get; set; }
+
     // The skeleton renders once; afterwards the module changes every dynamic part.
     protected override bool ShouldRender() => !_ready;
 
     protected override void OnInitialized()
     {
-        _open = Preferences.StatsOpen;
-        Preferences.Changed += OnPreferencesChanged;
+        _open = Tab || Preferences.StatsOpen;
+        if (!Tab)
+            Preferences.Changed += OnPreferencesChanged;
     }
 
     protected override async Task OnParametersSetAsync()

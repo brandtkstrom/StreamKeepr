@@ -43,39 +43,97 @@ else
     </section>
 }
 
-@* The player column keeps its fixed order (player, details, stats). The same VideoPlayer
-   instance survives recording changes and swaps the source in JS. Chat is a sidecar only
-   when the recording has chat, or is live while capture is on; the pane owns its open state in JS. *@
-<div class="sk-player-row" data-chat-open="@(ShowChat && Preferences.ChatOpen ? "true" : "false")">
-    <div data-slot="player" data-selected-recording="@Selected?.Id">
-        @if (Selected is { } playing)
+@* The watch view (player contract §2a, #175; design system: AppShell, TheaterMode, PhoneLayout).
+   Md and up the first row is the player plus the chat sidecar, with details and stats below;
+   theater moves the chat and details under the full-width player. Below Md the player is edge
+   to edge above a summary and the Chat/Details/Stats tabs, so the title and actions stay put
+   while a tab scrolls. The VideoPlayer stays the first child of the top row at every width, so
+   a breakpoint change never reloads it. *@
+@if (RecordingId is not null)
+{
+    <div class="sk-watch" data-watch>
+        <div class="sk-watch-top" data-watch-top>
+            <div class="sk-watch-player" data-slot="player" data-selected-recording="@Selected?.Id">
+                @if (Selected is { } playing)
+                {
+                    <VideoPlayer Recording="playing"
+                                 StatsOpen="@Preferences.StatsOpen"
+                                 TheaterAvailable="@(!Compact)" />
+                }
+            </div>
+
+            @if (!Compact && Selected is { } chatRecording && ShowChat)
+            {
+                <div class="sk-watch-chat" data-watch-chat>
+                    <ChatPane Recording="chatRecording" Open="@Preferences.ChatOpen" />
+                </div>
+            }
+        </div>
+
+        @if (Compact)
         {
-            <VideoPlayer Recording="playing" StatsOpen="@Preferences.StatsOpen" />
+            @if (Selected is { } phone)
+            {
+                <div class="sk-watch-summary" data-watch-summary>
+                    <RecordingDetailsSummary Recording="phone" Compact="true" />
+                </div>
+
+                <MudBlazor.MudTabs Class="sk-watch-tabs"
+                                   Color="MudBlazor.Color.Primary"
+                                   MinimumTabWidth="0"
+                                   KeepPanelsAlive="true">
+                    @if (ShowChat)
+                    {
+                        <MudBlazor.MudTabPanel @key="@("chat")"
+                                               Text="Chat"
+                                               Icon="@MudBlazor.Icons.Material.Rounded.Chat">
+                            <div class="sk-watch-tab-panel">
+                                <ChatPane Recording="phone" Open="true" HideHeader="true" />
+                            </div>
+                        </MudBlazor.MudTabPanel>
+                    }
+                    <MudBlazor.MudTabPanel @key="@("details")"
+                                           Text="Details"
+                                           Icon="@MudBlazor.Icons.Material.Rounded.Info">
+                        <div class="sk-watch-tab-panel">
+                            <RecordingDetailsBody Recording="phone" />
+                        </div>
+                    </MudBlazor.MudTabPanel>
+                    <MudBlazor.MudTabPanel @key="@("stats")"
+                                           Text="Stats"
+                                           Icon="@MudBlazor.Icons.Material.Rounded.QueryStats">
+                        <div class="sk-watch-tab-panel">
+                            <StatsPanel Recording="phone" Tab="true" />
+                        </div>
+                    </MudBlazor.MudTabPanel>
+                </MudBlazor.MudTabs>
+            }
+        }
+        else
+        {
+            <div data-slot="details">
+                @if (Selected is { } detailed)
+                {
+                    <RecordingDetails Recording="detailed" />
+                }
+            </div>
+
+            <div data-slot="stats">
+                @if (Selected is { } statRecording)
+                {
+                    <StatsPanel Recording="statRecording" />
+                }
+            </div>
         }
     </div>
-
-    @if (Selected is { } chatRecording && ShowChat)
-    {
-        <ChatPane Recording="chatRecording" Open="@Preferences.ChatOpen" />
-    }
-</div>
-
-<div data-slot="details">
-    @if (Selected is { } detailed)
-    {
-        <RecordingDetails Recording="detailed" />
-    }
-</div>
-
-<div data-slot="stats">
-    @if (Selected is { } statRecording)
-    {
-        <StatsPanel Recording="statRecording"/>
-    }
-</div>
+}
 
 @code {
     [Parameter] public string? RecordingId { get; set; }
+
+    // Md and up keep the desktop watch layout; below Md the shell reports compact (#175).
+    [CascadingParameter(Name = AppShell.CompactCascade)]
+    private bool Compact { get; set; }
 
     private string? _lastRecordingId;
     private bool _resolved;
@@ -98,9 +156,9 @@ else
 
     protected override void OnParametersSet()
     {
-        // Theater hides the drawer and the empty home has no player, so leaving it
-        // on would show a blank main column. The layout preference is not useful here.
-        if (RecordingId is null && Preferences.Theater)
+        // Theater hides the drawer and is desktop-only. On the empty home there is no player,
+        // and below Md theater does not exist, so leaving it on would misstate the layout.
+        if (Preferences.Theater && (RecordingId is null || Compact))
         {
             Preferences.SetTheater(false);
             _theaterResetPending = true;

@@ -157,10 +157,12 @@
                 <main class="sk-main">
                     <div class="sk-main-inner">
                         @* Pages reach the shell for actions that need its drawer, such as Home's "Show all". *@
-                        <CascadingValue Value="this" IsFixed="true">
-                            @* Settings' exit asks whether there is a StreamKeepr page to go back to. *@
-                            <CascadingValue Value="_history" IsFixed="true">
-                                @ChildContent
+                        <CascadingValue Name="@CompactCascade" Value="_compact">
+                            <CascadingValue Value="this" IsFixed="true">
+                                @* Settings' exit asks whether there is a StreamKeepr page to go back to. *@
+                                <CascadingValue Value="_history" IsFixed="true">
+                                    @ChildContent
+                                </CascadingValue>
                             </CascadingValue>
                         </CascadingValue>
                     </div>
@@ -195,6 +197,9 @@
 @code {
     /// <summary>The library drawer's id, named by the menu and Library buttons' <c>aria-controls</c>.</summary>
     public const string DrawerId = "sk-drawer";
+
+    /// <summary>The cascade carrying <c>_compact</c> to pages such as the watch layout.</summary>
+    public const string CompactCascade = "ShellCompact";
 
     private IJSObjectReference? _module;
     private DotNetObjectReference<AppShell>? _self;

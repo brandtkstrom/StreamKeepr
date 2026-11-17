@@ -155,12 +155,16 @@
     private RecordingView? _loaded;
     private bool _ready;
     private bool _theater;
+    private bool _theaterAvailable = true;
     private bool _disposed;
 
     [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
 
     /// <summary>Initial sk-ui stats state; the player and panel modules toggle it.</summary>
     [Parameter] public bool StatsOpen { get; set; }
+
+    /// <summary>False below <c>Breakpoint.Md</c>: theater has no meaning there.</summary>
+    [Parameter] public bool TheaterAvailable { get; set; } = true;
 
     private string Max => Math.Max(0, Recording.DurationSec).ToString("0.###", CultureInfo.InvariantCulture);
 
@@ -170,12 +174,25 @@
     protected override void OnInitialized()
     {
         _theater = Preferences.Theater;
+        _theaterAvailable = TheaterAvailable;
         Preferences.Changed += OnPreferencesChanged;
     }
 
     protected override async Task OnParametersSetAsync()
     {
-        if (_module is null || _loaded is null || ReferenceEquals(_loaded, Recording))
+        if (_module is null || _loaded is null)
+        {
+            _theaterAvailable = TheaterAvailable;
+            return;
+        }
+
+        if (_theaterAvailable != TheaterAvailable)
+        {
+            _theaterAvailable = TheaterAvailable;
+            await InvokeAsync("setTheaterAvailable", _root, _theaterAvailable);
+        }
+
+        if (ReferenceEquals(_loaded, Recording))
             return;
 
         string identifier = string.Equals(_loaded.Id, Recording.Id, StringComparison.Ordinal)
@@ -260,6 +277,7 @@
         resumeSec = recording.ResumeSec,
         statsOpen = StatsOpen,
         theater = Preferences.Theater,
+        theaterAvailable = TheaterAvailable,
         chapters = recording.Chapters.Select(chapter => new
         {
             startSeconds = chapter.StartSeconds,

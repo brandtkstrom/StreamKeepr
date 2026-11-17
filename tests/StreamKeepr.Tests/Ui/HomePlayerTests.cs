@@ -1,5 +1,8 @@
 using Bunit.TestDoubles;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Rendering;
 using StreamKeepr.Configuration;
+using StreamKeepr.Components.Layout;
 using StreamKeepr.Infrastructure.Storage;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
@@ -101,6 +104,73 @@ public sealed class HomePlayerTests
         Assert.Equal("Second", cut.Find("[data-details-title]").TextContent);
     }
 
+    [Fact]
+    public async Task Below_md_the_player_sits_above_the_summary_and_the_chat_details_and_stats_tabs()
+    {
+        await using BunitContext context = CreateContext(out _, out TestLibraryView view);
+        view.FindById["r1"] = VideoPlayerTests.Recording("r1", "First") with { HasChat = true };
+
+        IRenderedComponent<Home> home = RenderShell(context, compact: true);
+
+        Assert.NotNull(home.Find("[data-watch-top] [data-slot='player'] [data-sk-player]"));
+        Assert.NotNull(home.Find("[data-watch-summary] [data-details-summary]"));
+        Assert.Empty(home.FindAll("[data-watch-summary] [data-details-category]"));
+        Assert.Empty(home.FindAll("[data-watch-summary] [data-details-counts]"));
+        Assert.NotNull(home.Find("[data-watch-summary] [data-details-streamer]"));
+        Assert.NotNull(home.Find("[data-watch-summary] [data-details-start]"));
+        Assert.NotNull(home.Find("[data-watch-summary] [data-details-duration]"));
+        Assert.Equal(
+            ["Chat", "Details", "Stats"],
+            home.FindAll("[role='tab']").Select(tab => tab.TextContent.Trim()));
+        Assert.Empty(home.FindAll("[data-slot='details']"));
+        Assert.Empty(home.FindAll("[data-slot='stats']"));
+        Assert.NotNull(home.Find("[role='tabpanel'] [data-sk-chat]"));
+        Assert.NotNull(home.Find("[role='tabpanel'] [data-details-extra]"));
+        Assert.Equal(
+            "tab",
+            home.Find("[role='tabpanel'] [data-sk-stats]").GetAttribute("data-chrome"));
+        // The Chat tab owns its disclosure: the pane has no header toggle of its own.
+        Assert.Empty(home.FindAll("[data-sk='chat-toggle']"));
+    }
+
+    [Fact]
+    public async Task Below_md_a_saved_theater_mode_is_cleared_on_the_watch_page()
+    {
+        const string theaterCookie =
+            """{"v":1,"drawer":"expanded","theater":true,"stats":false,"details":true,"collapsed":[]}""";
+        await using BunitContext context = CreateContext(out _, theaterCookie);
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
+        Assert.True(preferences.Theater);
+
+        context.Render<CompactHost>(parameters => parameters
+            .Add(component => component.Compact, true));
+
+        Assert.False(preferences.Theater);
+    }
+
+    [Fact]
+    public async Task Crossing_the_breakpoint_keeps_the_player_instance_and_swaps_the_tabs()
+    {
+        await using BunitContext context = CreateContext(out _, out TestLibraryView view);
+        view.FindById["r1"] = VideoPlayerTests.Recording("r1", "First") with { HasChat = true };
+
+        IRenderedComponent<CompactHost> host = context.Render<CompactHost>(parameters => parameters
+            .Add(component => component.Compact, false));
+        VideoPlayer before = host.FindComponent<VideoPlayer>().Instance;
+        Assert.NotNull(host.Find("[data-slot='details'] [data-recording-details]"));
+
+        host.Render(parameters => parameters.Add(component => component.Compact, true));
+
+        Assert.Same(before, host.FindComponent<VideoPlayer>().Instance);
+        Assert.NotNull(host.Find("[role='tab']"));
+        Assert.Empty(host.FindAll("[data-slot='details']"));
+    }
+
+    private static IRenderedComponent<Home> RenderShell(BunitContext context, bool compact) =>
+        context.Render<Home>(parameters => parameters
+            .Add(component => component.RecordingId, "r1")
+            .AddCascadingValue(AppShell.CompactCascade, compact));
+
     private static BunitContext CreateContext(out BunitJSModuleInterop module, string? statsCookie = null) =>
         CreateContext(out module, out _, statsCookie);
 
@@ -140,5 +210,25 @@ public sealed class HomePlayerTests
         // Production defaults: chat capture and third-party emotes are off.
         context.Services.AddSingleton(Options.Create(new ChatOptions()));
         return context;
+    }
+
+    // Renders Home under a cascading compact flag so the test can cross Breakpoint.Md.
+    private sealed class CompactHost : ComponentBase
+    {
+        [Parameter] public bool Compact { get; set; }
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<CascadingValue<bool>>(0);
+            builder.AddAttribute(1, nameof(CascadingValue<bool>.Name), AppShell.CompactCascade);
+            builder.AddAttribute(2, nameof(CascadingValue<bool>.Value), Compact);
+            builder.AddAttribute(3, nameof(CascadingValue<bool>.ChildContent), (RenderFragment)(content =>
+            {
+                content.OpenComponent<Home>(0);
+                content.AddAttribute(1, nameof(Home.RecordingId), "r1");
+                content.CloseComponent();
+            }));
+            builder.CloseComponent();
+        }
     }
 }

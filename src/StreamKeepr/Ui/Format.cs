@@ -36,6 +36,10 @@ public static class Format
 
     public static string Duration(double seconds) => Duration(TimeSpan.FromSeconds(seconds));
 
+    /// <summary>The full viewer-local start date, for example "Wed, Nov 11, 2026 · 10:00 AM".</summary>
+    public static string FullDate(DateTimeOffset local) =>
+        local.ToString("ddd, MMM d, yyyy · h:mm tt", CultureInfo.InvariantCulture);
+
     /// <summary>A CSS width such as "25%" for <paramref name="part"/> of <paramref name="whole"/>, clamped to 0–100.</summary>
     public static string Percent(double part, double whole)
     {

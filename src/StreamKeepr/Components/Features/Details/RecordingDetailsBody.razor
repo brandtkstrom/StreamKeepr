@@ -1,0 +1,249 @@
+@using System.Globalization
+@using StreamKeepr.Infrastructure.Storage
+@implements IDisposable
+@inject MudBlazor.ISnackbar Snackbars
+@inject PlayerBridge Bridge
+@inject ILogger<RecordingDetailsBody> Logger
+@inject IExportService Exports
+
+@* The rest of Recording details below the title, meta and actions (design system:
+   RecordingDetails, #175): the export's progress and the chapter strip. Md and up it sits in
+   the details card; below Md the phone's Details tab holds it. *@
+<div class="sk-details-extra" data-details-extra>
+    @if (_job is { } job)
+    {
+        int percent = (int)Math.Round(Math.Clamp(job.Progress, 0, 1) * 100);
+        <div class="sk-export-row" data-export-row="@job.State">
+            <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Output"
+                               Color="MudBlazor.Color.Secondary"
+                               Size="MudBlazor.Size.Small" />
+            @* State changes are announced; per-percent changes are not. *@
+            <span class="text" role="status">@ExportText(job)</span>
+            @if (job.State == ExportState.Running)
+            {
+                <span class="pct" aria-hidden="true">@percent%</span>
+                @* MudProgressLinear is a polite live region by default; the status
+                   text above is the one announcement. *@
+                <MudBlazor.MudProgressLinear Color="MudBlazor.Color.Secondary"
+                                             Value="@percent"
+                                             Rounded="true"
+                                             Class="sk-export-progress"
+                                             aria-label="Export progress"
+                                             aria-live="off"
+                                             aria-valuetext="@($"{percent}%")" />
+            }
+            <span class="sk-export-actions">
+                @if (job.IsActive)
+                {
+                    <RequiresTwitch>
+                        <MudBlazor.MudButton Variant="MudBlazor.Variant.Text"
+                                             Disabled="@_cancelling"
+                                             OnClick="CancelExportAsync"
+                                             data-export-cancel="true">Cancel</MudBlazor.MudButton>
+                    </RequiresTwitch>
+                }
+                @if (CanRetry(job))
+                {
+                    <RequiresTwitch>
+                        <MudBlazor.MudButton Variant="MudBlazor.Variant.Text"
+                                             StartIcon="@MudBlazor.Icons.Material.Rounded.Refresh"
+                                             IconSize="MudBlazor.Size.Small"
+                                             Disabled="@_starting"
+                                             OnClick="StartExportAsync"
+                                             data-export-retry="true">Retry</MudBlazor.MudButton>
+                    </RequiresTwitch>
+                }
+                @if (job.State == ExportState.Succeeded)
+                {
+                    <RequiresTwitch>
+                        <MudBlazor.MudButton Variant="MudBlazor.Variant.Text"
+                                             StartIcon="@MudBlazor.Icons.Material.Rounded.Download"
+                                             IconSize="MudBlazor.Size.Small"
+                                             Class="sk-tonal"
+                                             Href="@StreamKeepr.Hosting.ExportDownloadEndpoint.For(job.Id)"
+                                             download="@(job.FileName ?? "")"
+                                             data-enhance-nav="false"
+                                             data-export-download="true">Download</MudBlazor.MudButton>
+                    </RequiresTwitch>
+                }
+            </span>
+        </div>
+    }
+
+    @{
+        IReadOnlyList<Chapter> chapters = VisibleChapters;
+    }
+    @if (chapters.Count > 0)
+    {
+        <div class="sk-chapters" role="group" aria-label="Chapters">
+            @for (int index = 0; index < chapters.Count; index++)
+            {
+                Chapter chapter = chapters[index];
+                <button type="button"
+                        class="sk-chapter"
+                        @key="ChapterKey(index, chapter)"
+                        data-chapter="@ChapterOffset(chapter)"
+                        data-chapter-key="@ChapterKey(index, chapter)"
+                        @onclick="() => SeekToChapterAsync(chapter)">
+                    <span class="sk-visually-hidden">Seek to </span>
+                    <span class="time">@Format.Timecode(chapter.StartSeconds)</span>
+                    <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle2" HtmlTag="span" Class="title">@chapter.Title</MudBlazor.MudText>
+                    @if (!string.IsNullOrWhiteSpace(chapter.Game))
+                    {
+                        <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="game">@chapter.Game</MudBlazor.MudText>
+                    }
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private ExportJob? _job;
+    private string? _jobRecordingId;
+
+    // Jobs this card saw active; each finished one raises one snackbar, even after the
+    // body has moved on to another recording.
+    private readonly HashSet<string> _watching = new(StringComparer.Ordinal);
+
+    private bool _starting;
+    private bool _cancelling;
+
+    [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    private IReadOnlyList<Chapter> VisibleChapters =>
+        Recording.Chapters
+            .Where(chapter =>
+                double.IsFinite(chapter.StartSeconds) &&
+                chapter.StartSeconds >= 0 &&
+                (Recording.DurationSec <= 0 || chapter.StartSeconds <= Recording.DurationSec))
+            .ToArray();
+
+    protected override void OnInitialized() => Exports.Changed += OnExportsChanged;
+
+    protected override void OnParametersSet()
+    {
+        // A different recording never shows the previous recording's job.
+        if (_jobRecordingId != Recording.Id)
+            RefreshExport();
+    }
+
+    private void RefreshExport()
+    {
+        _jobRecordingId = Recording.Id;
+        _job = Exports.FindByRecording(Recording.Id);
+        if (_job is { IsActive: true })
+            _watching.Add(_job.Id);
+    }
+
+    private void AnnounceFinishedExports()
+    {
+        foreach (string id in _watching.ToArray())
+        {
+            if (Exports.Find(id) is not { } job)
+            {
+                _watching.Remove(id);
+                continue;
+            }
+
+            if (job.IsActive)
+                continue;
+
+            _watching.Remove(id);
+            if (job.State == ExportState.Succeeded)
+                Snackbars.Show("Export ready");
+            else if (job.State == ExportState.Failed)
+                Snackbars.Show("Export failed");
+        }
+    }
+
+    private async Task StartExportAsync()
+    {
+        if (_starting)
+            return;
+
+        _starting = true;
+        try
+        {
+            if (await RecordingExportActions.StartAsync(
+                    Exports, Snackbars, Logger, Recording.Id, AuthenticationState) is { } job)
+            {
+                _watching.Add(job.Id);
+                _job = job;
+                _jobRecordingId = Recording.Id;
+            }
+        }
+        finally
+        {
+            _starting = false;
+        }
+    }
+
+    private async Task CancelExportAsync()
+    {
+        if (_cancelling || _job is not { IsActive: true } job || AuthenticationState is null)
+            return;
+
+        _cancelling = true;
+        try
+        {
+            // No confirmation: Retry is right there.
+            Exports.Cancel(job.Id, (await AuthenticationState).User);
+        }
+        catch (Exception ex) when (RecordingExportActions.IsUserSafe(ex))
+        {
+            // Usually the job finished first; re-read it and only report a job still running.
+            RefreshExport();
+            if (_job is { IsActive: true })
+                Snackbars.Show(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Cancelling export {ExportId} failed.", job.Id);
+            RefreshExport();
+            if (_job is { IsActive: true })
+                Snackbars.Show("Could not cancel the export. Try again.");
+        }
+        finally
+        {
+            _cancelling = false;
+        }
+    }
+
+    // Retrying an incompatible recording would fail the same way.
+    private static bool CanRetry(ExportJob job) =>
+        job.State == ExportState.Cancelled
+        || job is { State: ExportState.Failed, Error: not ExportService.IncompatibleParts };
+
+    private static string ExportText(ExportJob job) => job.State switch
+    {
+        ExportState.Queued => "Queued — waiting for another export",
+        ExportState.Running => "Exporting…",
+        ExportState.Succeeded => job.FileName is { } name ? $"MP4 ready · {name}" : "MP4 ready",
+        ExportState.Cancelled => "Export cancelled",
+        _ when job.Error == ExportService.IncompatibleParts => "This recording's parts cannot be joined into one MP4.",
+        _ => job.Error ?? "Export failed",
+    };
+
+    private void OnExportsChanged() => _ = InvokeAsync(() =>
+    {
+        AnnounceFinishedExports();
+        RefreshExport();
+        StateHasChanged();
+    });
+
+    private async Task SeekToChapterAsync(Chapter chapter) =>
+        await Bridge.SeekAsync(chapter.StartSeconds);
+
+    private static string ChapterOffset(Chapter chapter) =>
+        chapter.StartSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+
+    // Offsets are not unique (two metadata changes can land in one segment); the index
+    // keeps sibling keys unique while preserving the offset for stable data attributes.
+    private static string ChapterKey(int index, Chapter chapter) =>
+        $"{ChapterOffset(chapter)}:{index}";
+
+    public void Dispose() => Exports.Changed -= OnExportsChanged;
+}
