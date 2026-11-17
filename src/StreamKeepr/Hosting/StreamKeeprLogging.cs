@@ -34,11 +34,12 @@ internal static class StreamKeeprLogging
             .CreateBootstrapLogger();
 
     /// <summary>
-    /// Mock and Testing hosts can start several times in one process under
-    /// <c>WebApplicationFactory</c>. That factory runs the entry point itself and learns
-    /// about a startup failure only from the exception the entry point throws.
+    /// True for the Testing and Mock environments. Both can start several times in one
+    /// process under <c>WebApplicationFactory</c>, which runs the entry point itself and
+    /// learns about a startup failure only from the exception the entry point throws.
+    /// A standalone Mock run takes the same path.
     /// </summary>
-    public static bool IsInProcessTestHost(IHostEnvironment environment) =>
+    public static bool IsTestOrMockEnvironment(IHostEnvironment environment) =>
         environment.IsEnvironment(TestingEnvironmentName) ||
         environment.IsEnvironment(MockEnvironment.Name);
 
@@ -47,7 +48,7 @@ internal static class StreamKeeprLogging
     /// written alongside Serilog's.
     /// </summary>
     /// <remarks>
-    /// A bootstrap logger can be frozen only once, so in-process test hosts keep a private
+    /// A bootstrap logger can be frozen only once, so Testing and Mock hosts keep a private
     /// logger and leave the static one alone. Only Testing forwards to registered
     /// providers, so test assertions on <c>ListLoggerProvider</c> keep working without
     /// Mock writing each console line twice.
@@ -60,7 +61,7 @@ internal static class StreamKeeprLogging
                 .ReadFrom.Configuration(builder.Configuration)
                 .ReadFrom.Services(services)
                 .Enrich.FromLogContext(),
-            preserveStaticLogger: IsInProcessTestHost(builder.Environment),
+            preserveStaticLogger: IsTestOrMockEnvironment(builder.Environment),
             writeToProviders: builder.Environment.IsEnvironment(TestingEnvironmentName));
 
         return builder;

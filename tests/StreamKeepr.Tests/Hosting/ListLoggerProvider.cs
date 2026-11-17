@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
 using Microsoft.Extensions.Logging;
+using Serilog.Events;
 using Serilog.Parsing;
 
 namespace StreamKeepr.Tests.Hosting;
@@ -56,11 +57,14 @@ internal sealed class ListLoggerProvider : ILoggerProvider
     }
 
     // Mirrors Microsoft.Extensions.Logging's LogValuesFormatter: invariant culture,
-    // "(null)" for nulls, and comma-joined sequences.
+    // "(null)" for nulls, and comma-joined sequences. Serilog forwards scalars as CLR
+    // values but keeps sequences as SequenceValue. ListLoggerProviderTests pins this.
     private static string Format(object? value, string? format) => value switch
     {
         null => "(null)",
         string text => text,
+        ScalarValue scalar => Format(scalar.Value, format),
+        SequenceValue sequence => string.Join(", ", sequence.Elements.Select(item => Format(item, format))),
         IFormattable formattable => formattable.ToString(format, CultureInfo.InvariantCulture),
         IEnumerable sequence => string.Join(", ", sequence.Cast<object?>().Select(item => Format(item, format))),
         _ => value.ToString() ?? string.Empty,

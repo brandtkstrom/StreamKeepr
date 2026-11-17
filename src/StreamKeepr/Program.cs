@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting.StaticWebAssets;
 using Microsoft.Extensions.Options;
 using Serilog;
+using Serilog.Extensions.Hosting;
 using StreamKeepr.Components;
 using StreamKeepr.Components.Features.Player;
 using StreamKeepr.Configuration;
@@ -19,13 +20,19 @@ using StreamKeepr.Ui;
 
 // Two-stage Serilog bootstrap: this logger covers startup until configuration is read,
 // so configuration and options-validation failures are logged before the process exits.
-Log.Logger = StreamKeeprLogging.CreateBootstrapLogger();
-bool rethrowFatal = false;
+ReloadableLogger bootstrapLogger = StreamKeeprLogging.CreateBootstrapLogger();
+bool testOrMockHost = false;
 
 try
 {
     var builder = WebApplication.CreateBuilder(args);
-    rethrowFatal = StreamKeeprLogging.IsInProcessTestHost(builder.Environment);
+    testOrMockHost = StreamKeeprLogging.IsTestOrMockEnvironment(builder.Environment);
+
+    // Only a real host publishes the process-wide logger; AddSerilog then freezes it into
+    // the configured pipeline. Test and Mock hosts share a process, so they keep it local.
+    if (!testOrMockHost)
+        Log.Logger = bootstrapLogger;
+
     builder.AddStreamKeeprLogging();
 
     // MapStaticAssets serves build-time assets, but the framework only installs their
@@ -363,17 +370,21 @@ try
 // that is test plumbing, not a failure.
 catch (Exception exception) when (exception is not HostAbortedException)
 {
-    Log.Fatal(exception, "Stream Keepr terminated unexpectedly");
+    // Once frozen, the bootstrap logger forwards to the configured pipeline.
+    bootstrapLogger.Fatal(exception, "Stream Keepr terminated unexpectedly");
 
-    // A test host reports startup failures from the entry point's exception.
-    if (rethrowFatal)
+    // WebApplicationFactory reports startup failures from the entry point's exception.
+    if (testOrMockHost)
         throw;
 
     Environment.ExitCode = 1;
 }
 finally
 {
-    await Log.CloseAndFlushAsync();
+    if (testOrMockHost)
+        bootstrapLogger.Dispose();
+    else
+        await Log.CloseAndFlushAsync();
 }
 
 public partial class Program;

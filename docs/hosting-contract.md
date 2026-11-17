@@ -124,7 +124,7 @@ Docker healthcheck: `/health/live`, interval 30 s, timeout 5 s, start period 60 
 - `HEALTHCHECK` as above; `ENTRYPOINT ["dotnet", "StreamKeepr.dll"]`.
 - Only `src/` enters the build; tests, secrets, recordings, and docs never enter an image layer.
 
-Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6.3`, static FFmpeg/ffprobe `9.0.2-1`, CliWrap `3.10.5`, Resilience `10.11.0`, OAuth `10.1.0`. Update deliberately; Streamlink is the one to watch and the build arg allows a bump.
+Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6.3`, static FFmpeg/ffprobe `9.0.2-1`, CliWrap `3.10.5`, Resilience `10.11.0`, OAuth `10.1.0`, Serilog.AspNetCore `10.0.0`. Update deliberately; Streamlink is the one to watch and the build arg allows a bump.
 
 ### `.dockerignore`
 

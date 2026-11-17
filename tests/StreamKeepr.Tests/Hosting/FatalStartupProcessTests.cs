@@ -12,10 +12,11 @@ public sealed class FatalStartupProcessTests
     private static readonly TimeSpan ExitTimeout = TimeSpan.FromSeconds(60);
 
     [Theory]
-    [InlineData("Twitch__ClientId", "", "ClientId")]
-    [InlineData("Serilog__MinimumLevel__Default", "Loud", "Loud")]
+    [InlineData("Production", "Twitch__ClientId", "", "ClientId")]
+    [InlineData("Production", "Serilog__MinimumLevel__Default", "Loud", "Loud")]
+    [InlineData("Mock", "Serilog__MinimumLevel__Default", "Loud", "Loud")]
     public async Task Bad_configuration_logs_a_fatal_line_and_exits_non_zero(
-        string key, string value, string expectedDetail)
+        string environment, string key, string value, string expectedDetail)
     {
         string recordings = Path.Combine(
             Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
@@ -24,11 +25,12 @@ public sealed class FatalStartupProcessTests
         {
             (int exitCode, string output) = await RunAppAsync(new Dictionary<string, string>
             {
-                ["ASPNETCORE_ENVIRONMENT"] = "Production",
+                ["ASPNETCORE_ENVIRONMENT"] = environment,
                 ["ASPNETCORE_URLS"] = "http://127.0.0.1:0",
                 ["Twitch__ClientId"] = "fatal-test-client-id",
                 ["Twitch__ClientSecret"] = SecretValue,
                 ["Storage__RecordingsRoot"] = recordings,
+                ["Mock__Seed__Enabled"] = "false",
                 [key] = value,
             });
 
@@ -45,6 +47,29 @@ public sealed class FatalStartupProcessTests
         }
     }
 
+    [Fact]
+    public async Task Production_fatal_exit_is_clean_while_mock_rethrows_for_the_test_host()
+    {
+        (int productionExit, string production) = await RunAppAsync(new Dictionary<string, string>
+        {
+            ["ASPNETCORE_ENVIRONMENT"] = "Production",
+            ["ASPNETCORE_URLS"] = "http://127.0.0.1:0",
+            ["Twitch__ClientId"] = "",
+        });
+        (int mockExit, string mock) = await RunAppAsync(new Dictionary<string, string>
+        {
+            ["ASPNETCORE_ENVIRONMENT"] = "Mock",
+            ["ASPNETCORE_URLS"] = "http://127.0.0.1:0",
+            ["Mock__Seed__Enabled"] = "false",
+            ["Serilog__MinimumLevel__Default"] = "Loud",
+        });
+
+        Assert.Equal(1, productionExit);
+        Assert.DoesNotContain("Unhandled exception", production, StringComparison.Ordinal);
+        Assert.NotEqual(0, mockExit);
+        Assert.Contains("Unhandled exception", mock, StringComparison.Ordinal);
+    }
+
     private static async Task<(int ExitCode, string Output)> RunAppAsync(
         IReadOnlyDictionary<string, string> environment)
     {
@@ -57,6 +82,11 @@ public sealed class FatalStartupProcessTests
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+
+        // Same content root as "dotnet run": the shipped appsettings files, and the Mock
+        // profile finds its fake Streamlink fixture relative to it.
+        start.Environment["ASPNETCORE_CONTENTROOT"] =
+            Path.Combine(TestPaths.RepositoryRoot(), "src", "StreamKeepr");
 
         foreach (var (key, value) in environment)
             start.Environment[key] = value;

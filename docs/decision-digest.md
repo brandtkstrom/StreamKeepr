@@ -139,6 +139,7 @@ This is the single handoff for the full application specification. It records th
 - `/media`: only `.m3u8`, `.m4s`, `.mp4`, `.jpg`, `.png`; dot-prefixed segments and traversal 404; `session.json`, `.streamkeepr`, exports, temp files never served; explicit content types; playlists `no-cache`, segments/init/thumbnails immutable; GET/HEAD/Range; missing = 404.
 - `/health/live` runs DVR only; `/health/ready` runs DVR, disk, and library-loaded. Docker uses live.
 - Data Protection keys persist under `.streamkeepr/keys`; tool preflight (`ffmpeg`, `ffprobe`, `streamlink`) and writable roots fail startup with clear ownership guidance.
+- Logging (#197): Serilog with one console sink; Docker `json-file` owns retention. Template `[timestamp LVL] SourceContext: message {properties}`. Levels: default `Information`, `Microsoft` and `System.Net.Http.HttpClient` `Warning`, `Microsoft.Hosting.Lifetime` `Information`. Destructure limits: depth 4, string length 1024, collection count 32; chosen with the owner because the cited research memo is not in the repo. Fatal startup failures are logged and exit 1; Testing/Mock rethrow for `WebApplicationFactory` and never touch the static logger.
 - Container: multi-stage .NET 10 image, Python/Streamlink venv, static FFmpeg/ffprobe, non-root UID 1654, `/recordings` volume, `EXPOSE 8080`, healthcheck; Compose publishes plain HTTP 8080, uses secrets, init, log rotation, and 50 s stop grace; HTTPS is external (E-15).
 
 ### 4.8 Testing and CI

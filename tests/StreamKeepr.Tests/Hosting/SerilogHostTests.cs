@@ -70,6 +70,19 @@ public sealed class SerilogHostTests
     }
 
     [Fact]
+    public void In_process_hosts_never_touch_the_process_wide_static_logger()
+    {
+        using var testing = new StreamKeeprAppFactory();
+        using var mock = new MockLoggingFactory();
+
+        _ = testing.Services;
+        _ = mock.Services;
+
+        // Parallel test hosts share Serilog.Log; only the untouched silent default is safe.
+        Assert.Equal("SilentLogger", Serilog.Log.Logger.GetType().Name);
+    }
+
+    [Fact]
     public void Mock_host_logs_through_serilog_without_writing_to_other_providers()
     {
         using var factory = new MockLoggingFactory();

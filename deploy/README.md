@@ -121,7 +121,7 @@ To back up, copy the volume's contents. `docker volume inspect stream-keepr_reco
 
 Logs go to the console, so `docker compose logs stream-keepr` shows them, and Docker's `json-file` settings in `compose.yaml` decide how much is kept. Each line has a timestamp, level, source, message and any structured properties, for example `{"Channel":"somechannel"}`.
 
-The default level is `Information`; framework (`Microsoft.*`) and HTTP-client logs show only `Warning` and above. To change a level, uncomment a `Serilog__MinimumLevel__…` line under `environment:` in `compose.yaml`, then run `docker compose up -d`. No rebuild is needed.
+The default level is `Information`. Framework (`Microsoft.*`) and HTTP-client logs show only `Warning` and above, except `Microsoft.Hosting.Lifetime`, which stays at `Information` so startup and shutdown are visible. To change a level, uncomment a `Serilog__MinimumLevel__…` line under `environment:` in `compose.yaml`, then run `docker compose up -d`. No rebuild is needed.
 
 ```yaml
 Serilog__MinimumLevel__Default: Information
@@ -129,6 +129,8 @@ Serilog__MinimumLevel__Override__StreamKeepr: Debug
 ```
 
 `Debug` is noisy; switch it back once you've found what you need.
+
+Older `Logging__LogLevel__…` settings no longer have any effect. Replace them with the matching `Serilog__MinimumLevel__…` setting.
 
 ## Health
 
