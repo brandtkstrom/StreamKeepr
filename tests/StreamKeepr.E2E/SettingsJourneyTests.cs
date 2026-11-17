@@ -146,7 +146,7 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
         // Opened directly, there is no StreamKeepr page to go back to: Esc goes Home.
         await page.GotoAsync($"{app.BaseUrl}/settings");
         await page.Locator("[data-channel]").First.WaitForAsync();
-        await page.Locator("[data-settings-page][data-sk-ready]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
+        await page.Locator("[data-settings-exit][data-sk-ready]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
         await page.Keyboard.PressAsync("Escape");
         await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/");
     }

@@ -80,7 +80,8 @@ public sealed class SettingsPageTests
             new("bob", "Bob", null, true, false, ChannelRuntimeState.Watching, false, "User ID not resolved yet"),
         ];
 
-        IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
+        // Connection status is a sibling section of Channels (#179 review), so render both.
+        IRenderedComponent<SettingsSections> cut = context.Render<SettingsSections>();
 
         Assert.Equal("Connection status", cut.Find("[data-connection-status] h2").TextContent);
         Assert.Empty(cut.FindAll("[data-push-status]"));
@@ -109,7 +110,8 @@ public sealed class SettingsPageTests
         dialogs.Find("[data-channel-stop-confirm]").Click();
 
         Assert.Equal(["stop:ann"], channels.Calls);
-        Assert.Equal("Stopping…", cut.Find("[data-channel='ann'] [role='status']").TextContent);
+        Assert.Equal("Stopping…", cut.Find("[data-channel='ann'] [data-channel-busy]").TextContent);
+        Assert.Equal("status", cut.Find("[data-channel='ann'] [data-channel-busy]").GetAttribute("role"));
 
         channels.Items = [new("ann", "Ann", null, true, true, ChannelRuntimeState.Paused, true, "EventSub connected")];
         await cut.InvokeAsync(pending.SetResult);
@@ -130,7 +132,8 @@ public sealed class SettingsPageTests
         cut.Find("[data-channel='ann'] [data-channel-resume]").Click();
 
         Assert.Equal(["resume:ann"], channels.Calls);
-        Assert.Equal("Resuming…", cut.Find("[data-channel='ann'] [role='status']").TextContent);
+        Assert.Equal("Resuming…", cut.Find("[data-channel='ann'] [data-channel-busy]").TextContent);
+        Assert.Equal("status", cut.Find("[data-channel='ann'] [data-channel-busy]").GetAttribute("role"));
 
         channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected")];
         await cut.InvokeAsync(pending.SetResult);
@@ -225,7 +228,8 @@ public sealed class SettingsPageTests
 
         Assert.Equal(["remove:ann"], channels.Calls);
         Assert.False(dialogs.HasOpenDialog("Remove Ann?"));
-        Assert.Equal("Removing…", cut.Find("[data-channel='ann'] [role='status']").TextContent);
+        Assert.Equal("Removing…", cut.Find("[data-channel='ann'] [data-channel-busy]").TextContent);
+        Assert.Equal("status", cut.Find("[data-channel='ann'] [data-channel-busy]").GetAttribute("role"));
         Assert.Empty(cut.FindAll("[data-channel='ann'] [data-channel-remove]"));
 
         channels.Items = [];
@@ -273,46 +277,96 @@ public sealed class SettingsPageTests
     public async Task Exit_goes_home_after_a_direct_visit()
     {
         await using BunitContext context = CreateContext(out _, signedIn: true);
+        BunitJSModuleInterop module = context.JSInterop.SetupModule(ExitModule);
         var navigation = context.Services.GetRequiredService<NavigationManager>();
 
         IRenderedComponent<Settings> cut = context.Render<Settings>();
         ExitButton(cut).Click();
 
         Assert.Equal("http://localhost/", navigation.Uri);
-        Assert.Empty(context.JSInterop.Invocations["history.back"]);
+        Assert.Empty(module.Invocations["back"]);
     }
 
     [Fact]
     public async Task Exit_goes_back_to_the_previous_page_in_history()
     {
         await using BunitContext context = CreateContext(out _, signedIn: true);
+        BunitJSModuleInterop module = context.JSInterop.SetupModule(ExitModule);
         var navigation = context.Services.GetRequiredService<NavigationManager>();
-        var history = new NavigationHistory("http://localhost/r/abc");
-        history.Visit(navigation.Uri);
 
-        IRenderedComponent<CascadingValue<NavigationHistory>> cut = context.Render<CascadingValue<NavigationHistory>>(
-            parameters => parameters
-                .Add(value => value.Value, history)
-                .Add(value => value.IsFixed, true)
-                .AddChildContent<Settings>());
+        IRenderedComponent<CascadingValue<NavigationHistory>> cut = RenderWithHistory(context);
         ExitButton(cut).Click();
 
-        context.JSInterop.VerifyInvoke("history.back");
+        module.VerifyInvoke("back");
         Assert.Equal("http://localhost/settings", navigation.Uri);
     }
 
     [Fact]
-    public async Task Escape_is_wired_to_exit_through_the_page_module()
+    public async Task Exit_goes_back_only_once_when_pressed_twice()
+    {
+        // A double click (or Esc and the button together) must not skip a page of history.
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+        BunitJSModuleInterop module = context.JSInterop.SetupModule(ExitModule);
+
+        IRenderedComponent<CascadingValue<NavigationHistory>> cut = RenderWithHistory(context);
+        ExitButton(cut).Click();
+        await cut.InvokeAsync(() => cut.FindComponent<SettingsExit>().Instance.ExitAsync());
+
+        module.VerifyInvoke("back", calledTimes: 1);
+    }
+
+    [Fact]
+    public async Task The_exit_module_installs_esc_and_marks_the_button_ready()
     {
         await using BunitContext context = CreateContext(out _, signedIn: true);
-        BunitJSModuleInterop module = context.JSInterop.SetupModule("./Components/Pages/Settings.razor.js");
+        BunitJSModuleInterop module = context.JSInterop.SetupModule(ExitModule);
 
         IRenderedComponent<Settings> cut = context.Render<Settings>();
 
         JSRuntimeInvocation install = module.VerifyInvoke("install");
-        Assert.IsType<DotNetObjectReference<Settings>>(install.Arguments[0]);
-        await cut.InvokeAsync(() => cut.Instance.ExitAsync());
-        Assert.Equal("http://localhost/", context.Services.GetRequiredService<NavigationManager>().Uri);
+        Assert.IsType<DotNetObjectReference<SettingsExit>>(install.Arguments[0]);
+        cut.WaitForAssertion(() => Assert.True(ExitButton(cut).HasAttribute("data-sk-ready")));
+    }
+
+    [Fact]
+    public async Task Leaving_the_page_uninstalls_esc()
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+        BunitJSModuleInterop module = context.JSInterop.SetupModule(ExitModule);
+        context.Render<Settings>();
+
+        await context.DisposeComponentsAsync();
+
+        module.VerifyInvoke("uninstall");
+    }
+
+    [Fact]
+    public async Task Connection_status_is_its_own_section_after_channels()
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+
+        IRenderedComponent<ChannelSettings> channels = context.Render<ChannelSettings>();
+        IRenderedComponent<SettingsSections> sections = context.Render<SettingsSections>();
+
+        // The sheet (F2) can place Channels and Connection status independently.
+        Assert.Empty(channels.FindAll("[data-connection-status]"));
+        Assert.NotNull(sections.Find("[data-connection-status]"));
+    }
+
+    [Fact]
+    public async Task A_capturing_channel_shows_the_rec_badge_on_its_avatar()
+    {
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        channels.Items =
+        [
+            new("ann", "Ann", null, true, false, ChannelRuntimeState.Recording, true, "EventSub connected"),
+            new("bob", "Bob", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected"),
+        ];
+
+        IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
+
+        Assert.NotNull(cut.Find("[data-channel='ann'] [data-live-ring]"));
+        Assert.Empty(cut.FindAll("[data-channel='bob'] [data-live-ring]"));
     }
 
     [Fact]
@@ -377,6 +431,18 @@ public sealed class SettingsPageTests
         Assert.Equal("healthy", cut.Find("[data-push='connected']").GetAttribute("data-status"));
         Assert.Equal("partial", cut.Find("[data-push='polling']").GetAttribute("data-status"));
         Assert.Equal("schedule", cut.Find("[data-push='polling']").GetAttribute("data-status-icon"));
+    }
+
+    private const string ExitModule = "./Components/Features/Settings/SettingsExit.razor.js";
+
+    private static IRenderedComponent<CascadingValue<NavigationHistory>> RenderWithHistory(BunitContext context)
+    {
+        var history = new NavigationHistory("http://localhost/r/abc");
+        history.Visit(context.Services.GetRequiredService<NavigationManager>().Uri);
+        return context.Render<CascadingValue<NavigationHistory>>(parameters => parameters
+            .Add(value => value.Value, history)
+            .Add(value => value.IsFixed, true)
+            .AddChildContent<Settings>());
     }
 
     private static AngleSharp.Dom.IElement ExitButton<TComponent>(IRenderedComponent<TComponent> cut)

@@ -18,38 +18,36 @@
 
 <AuthorizeView>
     <Authorized>
-        <MudBlazor.MudPaper Elevation="0" Outlined="true" Class="sk-panel sk-settings-section">
-            <section id="twitch" aria-labelledby="sk-settings-twitch">
-                <div class="sk-settings-title">
-                    <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.ManageAccounts" />
-                    <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2" id="sk-settings-twitch">Twitch account</MudBlazor.MudText>
+        <SettingsSection id="twitch"
+                         HeadingId="sk-settings-twitch"
+                         Title="Twitch account"
+                         Icon="@MudBlazor.Icons.Material.Rounded.ManageAccounts">
+            <div class="sk-settings-account">
+                <ChannelAvatar Login="@TwitchAccount.Login(context.User)"
+                               Name="@TwitchAccount.DisplayName(context.User)"
+                               Decorative="true" />
+                <div class="who">
+                    <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle1" data-account-name>@TwitchAccount.DisplayName(context.User)</MudBlazor.MudText>
+                    <MudBlazor.MudText Typo="MudBlazor.Typo.caption" data-account-login>@TwitchAccount.Login(context.User)</MudBlazor.MudText>
                 </div>
-                <div class="sk-settings-account">
-                    <ChannelAvatar Login="@TwitchAccount.Login(context.User)"
-                                   Name="@TwitchAccount.DisplayName(context.User)"
-                                   Decorative="true" />
-                    <div class="who">
-                        <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle1" data-account-name>@TwitchAccount.DisplayName(context.User)</MudBlazor.MudText>
-                        <MudBlazor.MudText Typo="MudBlazor.Typo.caption" data-account-login>@TwitchAccount.Login(context.User)</MudBlazor.MudText>
-                    </div>
-                    <span class="sk-settings-connected" data-account-connected>
-                        <span class="sk-auth-dot" aria-hidden="true"></span>
-                        <span>Connected<span class="sk-visually-hidden"> to Twitch</span></span>
-                    </span>
-                    <form method="post" action="@AdminAuth.LogoutPath" class="actions">
-                        <AntiforgeryToken />
-                        <input type="hidden" name="returnUrl" value="/settings" />
-                        <MudBlazor.MudButton Variant="MudBlazor.Variant.Outlined"
-                                             ButtonType="MudBlazor.ButtonType.Submit"
-                                             data-settings-disconnect>
-                            Disconnect
-                        </MudBlazor.MudButton>
-                    </form>
-                </div>
-            </section>
-        </MudBlazor.MudPaper>
+                <span class="sk-settings-connected" data-account-connected>
+                    <span class="sk-auth-dot" aria-hidden="true"></span>
+                    <span>Connected<span class="sk-visually-hidden"> to Twitch</span></span>
+                </span>
+                <form method="post" action="@AdminAuth.LogoutPath" class="actions">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="returnUrl" value="/settings" />
+                    <MudBlazor.MudButton Variant="MudBlazor.Variant.Outlined"
+                                         ButtonType="MudBlazor.ButtonType.Submit"
+                                         data-settings-disconnect>
+                        Disconnect
+                    </MudBlazor.MudButton>
+                </form>
+            </div>
+        </SettingsSection>
 
         <ChannelSettings />
+        <ConnectionStatusPanel />
     </Authorized>
     <NotAuthorized>
         <MudBlazor.MudPaper Elevation="0" Outlined="true" Class="sk-panel sk-settings-signin">

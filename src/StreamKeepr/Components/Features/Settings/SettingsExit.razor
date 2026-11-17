@@ -1,0 +1,110 @@
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject ILogger<SettingsExit> Logger
+@implements IAsyncDisposable
+
+@* Design system: SettingsPage. The page header's exit: the button and Esc both go back through
+   browser history to the StreamKeepr page the viewer came from, or Home after a direct visit.
+   The raw MudTooltip follows the app bar's icon buttons; the Tooltip primitive holds no controls. *@
+<MudBlazor.MudTooltip Text="Exit settings (Esc)" RootClass="sk-settings-exit">
+    <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.ArrowBack"
+                             OnClick="ExitAsync"
+                             aria-label="Exit settings"
+                             aria-keyshortcuts="Escape"
+                             data-settings-exit
+                             data-sk-ready="@(_ready ? "" : null)" />
+</MudBlazor.MudTooltip>
+
+@code {
+    private const string Module = "./Components/Features/Settings/SettingsExit.razor.js";
+
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<SettingsExit>? _self;
+    private bool _ready;
+    private bool _exiting;
+
+    /// <summary>The shell's record of this circuit's pages; absent outside the shell.</summary>
+    [CascadingParameter] public NavigationHistory? History { get; set; }
+
+    /// <summary>
+    /// Leaves Settings once: a second call while the first is under way (a double click, or Esc
+    /// with the button) is ignored, so history never skips a page. Arriving anywhere resets it.
+    /// </summary>
+    [JSInvokable]
+    public async Task ExitAsync()
+    {
+        if (_exiting)
+            return;
+        _exiting = true;
+
+        if (History?.HasPreviousPage != true)
+        {
+            Navigation.NavigateTo("/");
+            return;
+        }
+
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", Module);
+            await _module.InvokeVoidAsync("back");
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, so there is no page left to leave.
+        }
+    }
+
+    protected override void OnInitialized() => Navigation.LocationChanged += OnLocationChanged;
+
+    // History back to a same-path entry (an in-page anchor) leaves this page in place.
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _exiting = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        try
+        {
+            _self = DotNetObjectReference.Create(this);
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", Module);
+            await _module.InvokeVoidAsync("install", _self);
+            _ready = true;
+            StateHasChanged();
+        }
+        catch (JSException ex)
+        {
+            // The exit button still works; only the Esc shortcut is lost.
+            Logger.LogDebug(ex, "The Settings exit module could not install its Esc shortcut.");
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit ended before the page finished its first render.
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+        try
+        {
+            if (_module is not null)
+            {
+                await _module.InvokeVoidAsync("uninstall");
+                await _module.DisposeAsync();
+            }
+        }
+        catch (JSException ex)
+        {
+            Logger.LogDebug(ex, "The Settings exit module could not remove its Esc shortcut.");
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, and its listener with it.
+        }
+        finally
+        {
+            _self?.Dispose();
+        }
+    }
+}

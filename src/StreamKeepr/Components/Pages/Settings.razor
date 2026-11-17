@@ -1,107 +1,15 @@
 @page "/settings"
 @using StreamKeepr.Components.Features.Settings
-@inject NavigationManager Navigation
-@inject IJSRuntime JS
-@inject ILogger<Settings> Logger
-@implements IAsyncDisposable
 
 <PageTitle>Settings · Stream Keepr</PageTitle>
 
 @* Spec: docs/details-auth-settings-contract.md §8; design system: SettingsPage. A public route
-   for bookmarks and direct visits; the sections themselves are SettingsSections. *@
-<div class="sk-settings" data-settings-page data-sk-ready="@(_ready ? "" : null)">
+   for bookmarks and direct visits; the exit is SettingsExit and the sections SettingsSections. *@
+<div class="sk-settings" data-settings-page>
     <div class="sk-settings-header">
-        <MudBlazor.MudTooltip Text="Exit settings (Esc)" RootClass="sk-settings-exit">
-            <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.ArrowBack"
-                                     OnClick="ExitAsync"
-                                     aria-label="Exit settings"
-                                     aria-keyshortcuts="Escape"
-                                     data-settings-exit />
-        </MudBlazor.MudTooltip>
+        <SettingsExit />
         <MudBlazor.MudText Typo="MudBlazor.Typo.h5" HtmlTag="h1">Settings</MudBlazor.MudText>
     </div>
 
     <SettingsSections />
 </div>
-
-@code {
-    private const string Module = "./Components/Pages/Settings.razor.js";
-
-    private IJSObjectReference? _module;
-    private DotNetObjectReference<Settings>? _self;
-    private bool _ready;
-
-    /// <summary>The shell's record of this circuit's pages; absent outside the shell.</summary>
-    [CascadingParameter] public NavigationHistory? History { get; set; }
-
-    /// <summary>
-    /// Leaves Settings: back through browser history to the StreamKeepr page the viewer came
-    /// from, or Home after a direct visit. The exit button and Esc both land here.
-    /// </summary>
-    [JSInvokable]
-    public async Task ExitAsync()
-    {
-        if (History?.HasPreviousPage != true)
-        {
-            Navigation.NavigateTo("/");
-            return;
-        }
-
-        try
-        {
-            await JS.InvokeVoidAsync("history.back");
-        }
-        catch (JSDisconnectedException)
-        {
-            // The circuit is gone, so there is no page left to leave.
-        }
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (!firstRender)
-            return;
-
-        try
-        {
-            _self = DotNetObjectReference.Create(this);
-            _module = await JS.InvokeAsync<IJSObjectReference>("import", Module);
-            await _module.InvokeVoidAsync("install", _self);
-            _ready = true;
-            StateHasChanged();
-        }
-        catch (JSException ex)
-        {
-            // The exit button still works; only the Esc shortcut is lost.
-            Logger.LogDebug(ex, "The Settings page module could not install its Esc shortcut.");
-        }
-        catch (JSDisconnectedException)
-        {
-            // The circuit ended before the page finished its first render.
-        }
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        try
-        {
-            if (_module is not null)
-            {
-                await _module.InvokeVoidAsync("uninstall");
-                await _module.DisposeAsync();
-            }
-        }
-        catch (JSException ex)
-        {
-            Logger.LogDebug(ex, "The Settings page module could not remove its Esc shortcut.");
-        }
-        catch (JSDisconnectedException)
-        {
-            // The circuit is gone, and its listener with it.
-        }
-        finally
-        {
-            _self?.Dispose();
-        }
-    }
-}

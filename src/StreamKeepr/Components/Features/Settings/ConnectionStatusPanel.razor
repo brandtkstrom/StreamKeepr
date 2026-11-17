@@ -8,84 +8,81 @@
    when signed out, and the panel then renders nothing. *@
 @if (_status is { } status)
 {
-    <MudBlazor.MudPaper Elevation="0" Outlined="true" Class="sk-panel sk-settings-section">
-        <section aria-labelledby="sk-settings-connection" data-connection-status>
-            <div class="sk-settings-title">
-                <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Wifi" />
-                <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2" id="sk-settings-connection">Connection status</MudBlazor.MudText>
-            </div>
-            <MudBlazor.MudSimpleTable Dense="true" Elevation="0" Class="sk-connection-status">
-                <tbody>
+    <SettingsSection HeadingId="sk-settings-connection"
+                     Title="Connection status"
+                     Icon="@MudBlazor.Icons.Material.Rounded.Wifi"
+                     data-connection-status>
+        <MudBlazor.MudSimpleTable Dense="true" Elevation="0" Class="sk-connection-status">
+            <tbody>
+                <tr>
+                    <th scope="row">Service health</th>
+                    <td data-health="@status.Health">
+                        <StatusChip Status="@HealthChip(status.Health)" Label="@status.Health.ToString()" />
+                        @if (!string.IsNullOrWhiteSpace(status.HealthDescription))
+                        {
+                            <span class="detail">@status.HealthDescription</span>
+                        }
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Transport</th>
+                    <td data-transport>@status.Transport</td>
+                </tr>
+                <tr>
+                    <th scope="row">Connection</th>
+                    <td>
+                        @{ (StatusChipKind chip, string label, string? icon) = ConnectionChip(status.Connection); }
+                        <StatusChip Status="@chip" Label="@label" Icon="@icon" data-connection="@status.Connection" />
+                    </td>
+                </tr>
+                @if (status.Connection == EventSubConnection.Connected)
+                {
+                    bool full = FullyCovered(status);
                     <tr>
-                        <th scope="row">Service health</th>
-                        <td data-health="@status.Health">
-                            <StatusChip Status="@HealthChip(status.Health)" Label="@status.Health.ToString()" />
-                            @if (!string.IsNullOrWhiteSpace(status.HealthDescription))
-                            {
-                                <span class="detail">@status.HealthDescription</span>
-                            }
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Transport</th>
-                        <td data-transport>@status.Transport</td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Connection</th>
+                        <th scope="row">Coverage</th>
                         <td>
-                            @{ (StatusChipKind chip, string label, string? icon) = ConnectionChip(status.Connection); }
-                            <StatusChip Status="@chip" Label="@label" Icon="@icon" data-connection="@status.Connection" />
+                            <StatusChip Status="@(full ? StatusChipKind.Healthy : StatusChipKind.Partial)"
+                                        Label="@($"{status.Covered} of {status.Watched} channels")"
+                                        data-coverage="@(full ? "full" : "partial")" />
                         </td>
                     </tr>
-                    @if (status.Connection == EventSubConnection.Connected)
-                    {
-                        bool full = FullyCovered(status);
-                        <tr>
-                            <th scope="row">Coverage</th>
-                            <td>
-                                <StatusChip Status="@(full ? StatusChipKind.Healthy : StatusChipKind.Partial)"
-                                            Label="@($"{status.Covered} of {status.Watched} channels")"
-                                            data-coverage="@(full ? "full" : "partial")" />
-                            </td>
-                        </tr>
-                    }
-                    <tr>
-                        <th scope="row">Last message</th>
-                        <td data-last-message>@Format.Ago(status.LastMessageAt, status.Now)</td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Last poll</th>
-                        <td data-last-poll>
-                            <span data-poll-attempt>@Format.Ago(status.LastPollAt, status.Now)</span>
-                            @if (status.LastSuccessfulPollAt is { } succeeded && succeeded < status.LastPollAt)
-                            {
-                                <span class="detail" data-poll-success>last successful @Format.Ago(status.LastSuccessfulPollAt, status.Now)</span>
-                            }
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Twitch API</th>
-                        <td data-api-time>@Format.Milliseconds(status.ApiRoundTrip)</td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Poll interval</th>
-                        <td data-poll-interval>@Format.Every(status.PollInterval)</td>
-                    </tr>
-                </tbody>
-            </MudBlazor.MudSimpleTable>
+                }
+                <tr>
+                    <th scope="row">Last message</th>
+                    <td data-last-message>@Format.Ago(status.LastMessageAt, status.Now)</td>
+                </tr>
+                <tr>
+                    <th scope="row">Last poll</th>
+                    <td data-last-poll>
+                        <span data-poll-attempt>@Format.Ago(status.LastPollAt, status.Now)</span>
+                        @if (status.LastSuccessfulPollAt is { } succeeded && succeeded < status.LastPollAt)
+                        {
+                            <span class="detail" data-poll-success>last successful @Format.Ago(status.LastSuccessfulPollAt, status.Now)</span>
+                        }
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Twitch API</th>
+                    <td data-api-time>@Format.Milliseconds(status.ApiRoundTrip)</td>
+                </tr>
+                <tr>
+                    <th scope="row">Poll interval</th>
+                    <td data-poll-interval>@Format.Every(status.PollInterval)</td>
+                </tr>
+            </tbody>
+        </MudBlazor.MudSimpleTable>
 
-            @if (status.Connection == EventSubConnection.Connected && !FullyCovered(status))
-            {
-                <MudBlazor.MudAlert Severity="MudBlazor.Severity.Info"
-                                    Dense="true"
-                                    Icon="@MudBlazor.Icons.Material.Rounded.Schedule"
-                                    role="note"
-                                    data-coverage-note>
-                    <span>All channels are polled @Format.Every(status.UncoveredPollInterval).ToLowerInvariant() until every channel is covered.</span>
-                </MudBlazor.MudAlert>
-            }
-        </section>
-    </MudBlazor.MudPaper>
+        @if (status.Connection == EventSubConnection.Connected && !FullyCovered(status))
+        {
+            <MudBlazor.MudAlert Severity="MudBlazor.Severity.Info"
+                                Dense="true"
+                                Icon="@MudBlazor.Icons.Material.Rounded.Schedule"
+                                role="note"
+                                data-coverage-note>
+                <span>All channels are polled @Format.Every(status.UncoveredPollInterval).ToLowerInvariant() until every channel is covered.</span>
+            </MudBlazor.MudAlert>
+        }
+    </SettingsSection>
 }
 
 @code {

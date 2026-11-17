@@ -8,12 +8,10 @@
 @* Design system: ChannelSettings. Rendered only for a signed-in admin; ChannelsView enforces the
    same rule on every call. Rows are a plain list rather than MudListItem, which wraps its
    content in a <p> that cannot hold the avatar or the actions. *@
-<MudBlazor.MudPaper Elevation="0" Outlined="true" Class="sk-panel sk-settings-section">
-    <section id="channels" aria-labelledby="sk-settings-channels">
-        <div class="sk-settings-title">
-            <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.LiveTv" />
-            <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2" id="sk-settings-channels">Channels</MudBlazor.MudText>
-        </div>
+<SettingsSection id="channels"
+                 HeadingId="sk-settings-channels"
+                 Title="Channels"
+                 Icon="@MudBlazor.Icons.Material.Rounded.LiveTv">
 
         @if (_channels.Count == 0)
         {
@@ -29,11 +27,10 @@
                     bool busy = removing || IsBusy(channel.Login);
                     (StatusChipKind pushChip, string pushLabel, string? pushIcon, string pushHook) = PushChip(channel.PushConnected);
                     <li class="sk-channel-row" role="listitem" @key="channel.Login" data-channel="@channel.Login" aria-busy="@(busy ? "true" : null)">
-                        @* No rec badge: the REC chip states it, and MudBadge's dot is an empty
-                           role="status" live region that would shadow the row's busy status. *@
                         <ChannelAvatar Login="@channel.Login"
                                        Name="@channel.DisplayName"
                                        ImageUrl="@channel.AvatarUrl"
+                                       Live="@IsLive(channel)"
                                        Size="MudBlazor.Size.Medium"
                                        Decorative="true" />
                         <span class="who">
@@ -45,8 +42,8 @@
                         <span class="grow"></span>
                         @if (busy)
                         {
-                            @* MudProgressCircular carries its own status role, so it sits hidden inside the row's. *@
-                            <span class="sk-channel-busy" role="status"><MudBlazor.MudProgressCircular Size="MudBlazor.Size.Small" Indeterminate="true" aria-hidden="true" data-spinner />@BusyLabel(channel.Login)</span>
+                            @* data-channel-busy names this status: the live avatar's MudBadge is a role="status" too. *@
+                            <span class="sk-channel-busy" role="status" data-channel-busy><MudBlazor.MudProgressCircular Size="MudBlazor.Size.Small" Indeterminate="true" aria-hidden="true" data-spinner />@BusyLabel(channel.Login)</span>
                         }
                         else
                         {
@@ -122,10 +119,7 @@
         {
             <p class="sk-field-error" id="sk-channel-add-error" role="alert" data-channel-add-error>@_addError</p>
         }
-    </section>
-</MudBlazor.MudPaper>
-
-<ConnectionStatusPanel />
+</SettingsSection>
 
 @* Both confirmations close as soon as they are confirmed: the row shows the work in
    progress, and a failure is reported on the row. *@
