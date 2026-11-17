@@ -8,7 +8,7 @@
    href="@Href"
    aria-describedby="@MetaId"
    data-recording-id="@Recording.Id"
-   data-state="@StateWord"
+   data-state="@Recording.State.Hook()"
    data-card-size="@(Size == RecordingCardSize.Large ? "large" : "default")">
     <span class="sk-thumb @(IsOpen ? "live" : null)" data-thumb aria-hidden="true">
         @if (Recording.ThumbnailUrl is string thumbnail)
@@ -70,7 +70,7 @@
 
     private string Href => $"/r/{Uri.EscapeDataString(Recording.Id)}";
 
-    private bool IsOpen => Recording.State is RecordingState.Recording or RecordingState.Reconnecting;
+    private bool IsOpen => Recording.State.IsOpen();
 
     private StatusChipKind? ThumbStatus => Recording.State switch
     {
@@ -79,6 +79,7 @@
         _ => null,
     };
 
+    // The state as the link's name says it, which is plain words rather than the data-state hook.
     private string StateWord => Recording.State switch
     {
         RecordingState.Recording => "recording",

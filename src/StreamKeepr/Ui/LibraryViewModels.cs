@@ -22,6 +22,23 @@ public enum RecordingState
     Saved,
 }
 
+/// <summary>The one map from a library state to its glossary meaning and its markup hook.</summary>
+public static class RecordingStates
+{
+    /// <summary>An open session: still being written (Recording, or Reconnecting after its recorder stopped).</summary>
+    public static bool IsOpen(this RecordingState state) =>
+        state is RecordingState.Recording or RecordingState.Reconnecting;
+
+    /// <summary>The <c>data-state</c> word on drawer rows and Home cards.</summary>
+    public static string Hook(this RecordingState state) => state switch
+    {
+        RecordingState.Recording => "rec",
+        RecordingState.Reconnecting => "reconnecting",
+        RecordingState.Partial => "partial",
+        _ => "saved",
+    };
+}
+
 /// <summary>One library row, projected from a session summary and live DVR status.</summary>
 public sealed record RecordingView(
     string Id,

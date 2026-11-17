@@ -21,6 +21,8 @@ public sealed class RecordingCardTests
 
         IElement link = cut.Find("a");
         Assert.Equal("/r/r%201", link.GetAttribute("href"));
+        // The same data-state words as the drawer rows.
+        Assert.Equal("rec", link.GetAttribute("data-state"));
         Assert.Equal("Late-night speedrun practice, Nightjar TV, recording", AccessibleName(link));
         Assert.Null(link.GetAttribute("aria-label"));
         Assert.Equal(
@@ -41,6 +43,7 @@ public sealed class RecordingCardTests
         IRenderedComponent<RecordingCard> cut = Render(context, Recording("r1", RecordingState.Reconnecting));
 
         Assert.Equal("reconnecting", cut.Find("[data-thumb-state] [data-status]").GetAttribute("data-status"));
+        Assert.Equal("reconnecting", cut.Find("a").GetAttribute("data-state"));
         Assert.EndsWith(", reconnecting", AccessibleName(cut.Find("a")));
     }
 

@@ -8,7 +8,7 @@ namespace StreamKeepr.E2E;
 [Trait("Category", "E2E")]
 public sealed class LibraryJourneyTests(MockAppFixture app)
 {
-    private const string Search = "input[data-search-input]";
+    internal const string Search = "input[data-search-input]";
 
     [Fact]
     public async Task Search_filters_sort_and_shortcuts_live_in_the_url()
@@ -20,7 +20,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         await page.Locator(Search).FillAsync("NIGHT");
         await page.WaitForURLAsync(url => url.Contains("q=NIGHT", StringComparison.Ordinal));
         await Expect(() => Rows(page).CountAsync(), 2);
-        Assert.Equal(2, await page.Locator("a[data-recording-id] mark").CountAsync());
+        Assert.Equal(2, await page.Locator($"{LibraryHooks.Row} mark").CountAsync());
         await AssertAxeCleanAsync(page, "library-search");
 
         await page.Locator(Search).PressAsync("Escape");
@@ -35,7 +35,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         await page.Locator("[data-filter='saved']").ClickAsync();
         await page.WaitForURLAsync(url => url.Contains("state=saved", StringComparison.Ordinal));
         await Expect(
-            () => page.Locator("a[data-recording-id][data-state='rec'], a[data-recording-id][data-state='reconnecting']").CountAsync(),
+            () => page.Locator($"{LibraryHooks.Row}:is([data-state='rec'], [data-state='reconnecting'])").CountAsync(),
             0);
         Assert.True(await Rows(page).CountAsync() >= 5);
 

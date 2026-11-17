@@ -9,7 +9,7 @@
    data-tree-key="@($"r:{Recording.Id}")"
    aria-current="@(Selected ? "true" : null)"
    data-recording-id="@Recording.Id"
-   data-state="@StateName">
+   data-state="@Recording.State.Hook()">
     <span class="sk-thumb @(IsRecording ? "live" : null)">
         @if (Recording.ThumbnailUrl is string thumbnail)
         {
@@ -72,14 +72,6 @@
         RecordingState.Reconnecting => StatusChipKind.Reconnecting,
         RecordingState.Partial => StatusChipKind.Partial,
         _ => null,
-    };
-
-    private string StateName => Recording.State switch
-    {
-        RecordingState.Recording => "rec",
-        RecordingState.Reconnecting => "reconnecting",
-        RecordingState.Partial => "partial",
-        _ => "saved",
     };
 
     private string Meta

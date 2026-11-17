@@ -146,7 +146,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 State = WaitForSelectorState.Visible,
                 Timeout = 30_000,
             });
-        await page.Locator("a[data-recording-id] [data-status=rec]").First.WaitForAsync(
+        await page.Locator($"{LibraryHooks.Row} [data-status=rec]").First.WaitForAsync(
             new LocatorWaitForOptions
             {
                 State = WaitForSelectorState.Visible,

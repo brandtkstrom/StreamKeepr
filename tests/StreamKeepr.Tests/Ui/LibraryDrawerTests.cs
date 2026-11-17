@@ -612,7 +612,7 @@ internal sealed class TestLibraryView : ILibraryView
             .SelectMany(recordings => recordings)
             .Where(recording => query.State switch
             {
-                "recording" => recording.State is RecordingState.Recording or RecordingState.Reconnecting,
+                "recording" => recording.State.IsOpen(),
                 "saved" => recording.State is RecordingState.Saved or RecordingState.Partial,
                 _ => true,
             })

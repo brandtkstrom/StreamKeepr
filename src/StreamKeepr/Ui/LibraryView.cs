@@ -100,12 +100,7 @@ public sealed class LibraryView : ILibraryView
             }
 
             var matches = new List<RecordingView>(recordings.Count);
-            foreach (RecordingView recording in recordings)
-            {
-                if (Matches(recording, streamer, normalized))
-                    matches.Add(recording);
-            }
-
+            AddMatches(matches, recordings, streamer, normalized);
             matches.Sort((left, right) => CompareRecordings(left, right, normalized.Sort));
             return matches;
         }
@@ -120,14 +115,8 @@ public sealed class LibraryView : ILibraryView
             var matches = new List<RecordingView>();
             foreach ((string login, IReadOnlyList<RecordingView> recordings) in _recordingsByChannel)
             {
-                if (!_streamersByLogin.TryGetValue(login, out StreamerView? streamer))
-                    continue;
-
-                foreach (RecordingView recording in recordings)
-                {
-                    if (Matches(recording, streamer, normalized))
-                        matches.Add(recording);
-                }
+                if (_streamersByLogin.TryGetValue(login, out StreamerView? streamer))
+                    AddMatches(matches, recordings, streamer, normalized);
             }
 
             matches.Sort((left, right) => CompareRecordings(left, right, normalized.Sort));
@@ -377,6 +366,19 @@ public sealed class LibraryView : ILibraryView
         return false;
     }
 
+    private static void AddMatches(
+        List<RecordingView> matches,
+        IReadOnlyList<RecordingView> recordings,
+        StreamerView streamer,
+        NormalizedQuery query)
+    {
+        foreach (RecordingView recording in recordings)
+        {
+            if (Matches(recording, streamer, query))
+                matches.Add(recording);
+        }
+    }
+
     private static bool Matches(
         RecordingView recording,
         StreamerView streamer,
@@ -399,7 +401,7 @@ public sealed class LibraryView : ILibraryView
 
     private static bool MatchesState(RecordingState state, string filter) => filter switch
     {
-        "recording" => state is RecordingState.Recording or RecordingState.Reconnecting,
+        "recording" => state.IsOpen(),
         "reconnecting" => state == RecordingState.Reconnecting,
         "partial" => state == RecordingState.Partial,
         "saved" => state is RecordingState.Saved or RecordingState.Partial,
