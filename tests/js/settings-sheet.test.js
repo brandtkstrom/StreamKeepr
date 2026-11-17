@@ -173,7 +173,7 @@ describe("SettingsSheet.razor.js", () => {
       <div data-now-playing>
         <span data-now-playing-progress></span>
         <span data-now-playing-status></span>
-        <button data-now-playing-toggle aria-label="Play"><span>play_arrow</span></button>
+        <button data-now-playing-toggle aria-label="Play"><svg data-icon="PlayArrow"></svg></button>
       </div>`);
     const play = vi.fn();
     document.getElementById("play").addEventListener("click", play);
@@ -183,7 +183,7 @@ describe("SettingsSheet.razor.js", () => {
     const toggle = document.querySelector("[data-now-playing-toggle]");
     expect(document.querySelector("[data-now-playing-status]").textContent).toBe(" · 54:40 · playing");
     expect(toggle.getAttribute("aria-label")).toBe("Pause");
-    expect(toggle.textContent).toBe("pause");
+    expect(toggle.querySelector("svg").dataset.icon).toBe("Pause");
     expect(document.querySelector("[data-now-playing-progress]").style.width).toBe("50%");
 
     toggle.click();
@@ -192,6 +192,7 @@ describe("SettingsSheet.razor.js", () => {
     playhead({ time: 3281, duration: 0, paused: true });
     expect(document.querySelector("[data-now-playing-status]").textContent).toBe(" · 54:41 · paused");
     expect(toggle.getAttribute("aria-label")).toBe("Play");
+    expect(toggle.querySelector("svg").dataset.icon).toBe("PlayArrow");
     expect(document.querySelector("[data-now-playing-progress]").style.width).toBe("0%");
 
     closed();
@@ -204,7 +205,7 @@ describe("SettingsSheet.razor.js", () => {
       <div data-now-playing>
         <span data-now-playing-progress></span>
         <span data-now-playing-status></span>
-        <button data-now-playing-toggle aria-label="Play"><span>play_arrow</span></button>
+        <button data-now-playing-toggle aria-label="Play"><svg data-icon="PlayArrow"></svg></button>
       </div>`);
     const video = document.querySelector("video");
     Object.defineProperty(video, "currentTime", { value: 61 });

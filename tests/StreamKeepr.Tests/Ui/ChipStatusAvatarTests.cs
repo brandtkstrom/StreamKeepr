@@ -27,7 +27,7 @@ public sealed class ChipStatusAvatarTests
 
         var chip = cut.Find("[data-status]");
         Assert.Equal(expectedStatus, chip.GetAttribute("data-status"));
-        // Material Symbols render their ligature name as text; the label follows it.
+        // The icon is an SVG with no text, so the label ends the chip's text.
         Assert.EndsWith(expectedText, chip.TextContent.Trim());
     }
 

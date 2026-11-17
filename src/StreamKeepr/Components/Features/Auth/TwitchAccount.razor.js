@@ -1,12 +1,15 @@
 // Connecting feedback for the top-bar "Connect with Twitch" link. The link is a full-page
 // navigation to the OAuth endpoint and works without this module; a click only shows that
 // Twitch is on its way. One delegated listener covers every render of the link.
+// TwitchConnectLabel.razor renders the link's icon ([data-twitch-icon]) and label (.lbl).
 
 const CONNECT = "[data-twitch-connect]";
 let installed = false;
 
-const IDLE_LABEL = "Connect with Twitch";
 const BUSY_LABEL = "Waiting for Twitch…";
+
+// The icon and label each busy link showed, put back as they were when it resets.
+const idle = new WeakMap();
 
 export function showConnecting(link) {
   if (link.getAttribute("aria-busy") === "true") return;
@@ -15,21 +18,23 @@ export function showConnecting(link) {
   spinner.className = "sk-spin";
   spinner.dataset.spinner = "";
   spinner.setAttribute("aria-hidden", "true");
-  link.querySelector(".sk-icon")?.replaceWith(spinner);
+  const icon = link.querySelector("[data-twitch-icon]");
   const label = link.querySelector(".lbl");
+  idle.set(link, { icon, label: label?.textContent });
+  icon?.replaceWith(spinner);
   if (label) label.textContent = BUSY_LABEL;
 }
 
 export function resetConnecting(link) {
   if (link.getAttribute("aria-busy") !== "true") return;
   link.removeAttribute("aria-busy");
-  const icon = document.createElement("span");
-  icon.className = "sk-icon";
-  icon.setAttribute("aria-hidden", "true");
-  icon.textContent = "link";
-  link.querySelector(".sk-spin")?.replaceWith(icon);
+  const saved = idle.get(link);
+  idle.delete(link);
+  const spinner = link.querySelector("[data-spinner]");
+  if (saved?.icon) spinner?.replaceWith(saved.icon);
+  else spinner?.remove();
   const label = link.querySelector(".lbl");
-  if (label) label.textContent = IDLE_LABEL;
+  if (label && saved?.label !== undefined) label.textContent = saved.label;
 }
 
 function onClick(event) {

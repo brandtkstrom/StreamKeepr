@@ -58,8 +58,7 @@
                 }
                 <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2" id="sk-settings-signin">Connect Twitch to manage channels</MudBlazor.MudText>
                 <a class="sk-twitch" href="@AuthLinks.LoginHref(Navigation.Uri)" data-enhance-nav="false" data-twitch-connect>
-                    <span class="sk-icon" aria-hidden="true">link</span>
-                    <span class="lbl">@(Session.Expired ? "Reconnect Twitch" : "Connect with Twitch")</span>
+                    <TwitchConnectLabel Label="@(Session.Expired ? "Reconnect Twitch" : "Connect with Twitch")" />
                 </a>
             </section>
         </MudBlazor.MudPaper>

@@ -1,93 +1,41 @@
 /* StreamKeepr components. Every colour, type and spacing value comes from tokens.css.
  *
- * Legacy aliases (ADR 0012): the variables these hand-built components read, re-pointed at the
- * MudBlazor design system in tokens.css. Each surface PR that moves to MudBlazor stops using its
- * aliases; the block goes with this file once the last surface is migrated. Shapes (radii) keep
- * their old values until their surface is migrated. */
+ * Legacy aliases (ADR 0012): the variables the remaining hand-built rules read, pointed at the
+ * MudBlazor design system in tokens.css. Only aliases with a reader stay (#181); new rules read
+ * tokens.css directly, and an alias goes when its last reader does. */
 :root {
-  --sk-app-bar-height: var(--appbar-height);
-  --sk-control-bar-height: var(--control-bar-height);
-  --sk-drawer-width: var(--drawer-width);
-  --sk-elevation-1: var(--elevation-4);
-  --sk-elevation-2: var(--elevation-8);
-  --sk-elevation-3: var(--elevation-24);
-  --sk-error: var(--error);
   --sk-error-container: color-mix(in srgb, var(--error) calc(var(--tint-opacity) * 100%), transparent);
-  --sk-font-icons: "Material Symbols Rounded";
   --sk-font-sans: var(--font-sans);
-  --sk-highlight: var(--highlight);
   --sk-icon-button: var(--player-button);
-  --sk-inverse-on-surface: var(--text-primary);
-  --sk-inverse-primary: var(--primary);
-  --sk-inverse-surface: var(--surface-raised);
   --sk-on-error-container: var(--text-primary);
-  --sk-on-highlight: var(--highlight-contrast-text);
-  --sk-on-player: var(--player-text);
-  --sk-on-primary: var(--primary-contrast-text);
   --sk-on-primary-container: var(--text-primary);
-  --sk-on-rec: var(--rec-contrast-text);
   --sk-on-secondary-container: var(--text-primary);
   --sk-on-surface: var(--text-primary);
   --sk-on-surface-variant: var(--text-secondary);
   --sk-on-tertiary-container: var(--text-primary);
   --sk-on-twitch: var(--twitch-contrast-text);
-  --sk-on-warning-container: var(--text-primary);
-  --sk-outline: var(--lines-inputs);
-  --sk-outline-variant: var(--lines-default);
-  --sk-player-bg: var(--player-background);
-  --sk-player-scrim: var(--player-scrim);
   --sk-primary: var(--primary);
   --sk-primary-container: var(--selection);
   --sk-radius-full: var(--radius-full);
-  --sk-radius-lg: 16px;
   --sk-radius-md: var(--radius-lg);
-  --sk-radius-sm: var(--radius-md);
-  --sk-radius-xl: 28px;
-  --sk-radius-xs: var(--radius-sm);
-  --sk-rail-width: var(--drawer-mini-width);
   --sk-rec: var(--rec);
-  --sk-scrim: var(--overlay-dark);
-  --sk-secondary: var(--player-buffered);
   --sk-secondary-container: var(--selection);
-  --sk-space-1: var(--space-1);
   --sk-space-2: var(--space-2);
   --sk-space-3: var(--space-3);
   --sk-space-4: var(--space-4);
-  --sk-space-6: var(--space-6);
-  --sk-space-8: var(--space-8);
   --sk-state-disabled: var(--disabled-opacity);
   --sk-state-hover: var(--hover-opacity);
   --sk-state-pressed: var(--ripple-opacity);
   --sk-success: var(--success);
   --sk-surface: var(--background);
-  --sk-surface-bright: var(--tooltip-background);
   --sk-surface-container: var(--surface);
-  --sk-surface-container-high: var(--surface-raised);
   --sk-surface-container-highest: var(--surface-raised);
   --sk-surface-container-low: var(--drawer-background);
-  --sk-surface-container-lowest: var(--background-gray);
   --sk-tertiary-container: color-mix(in srgb, var(--info) calc(var(--tint-opacity) * 100%), transparent);
-  --sk-text-body-large: var(--text-body1);
   --sk-text-body-medium: var(--text-body2);
-  --sk-text-body-small: var(--text-caption);
-  --sk-text-headline-small: var(--text-h5);
   --sk-text-label-large: var(--text-button);
-  --sk-text-label-medium: var(--text-label);
-  --sk-text-label-small: var(--text-label);
-  --sk-text-stat-hero: var(--text-stat-hero);
-  --sk-text-stat-hero-numeric: var(--text-stat-hero-numeric);
-  --sk-text-stat-value: var(--text-stat-value);
-  --sk-text-stat-value-numeric: var(--text-stat-value-numeric);
-  --sk-text-timecode: var(--text-timecode);
-  --sk-text-timecode-numeric: var(--text-timecode-numeric);
-  --sk-text-title-large: var(--text-wordmark);
-  --sk-text-title-medium: var(--text-subtitle1);
-  --sk-text-title-small: var(--text-subtitle2);
-  --sk-thumb-width: var(--thumb-width);
   --sk-twitch: var(--twitch);
   --sk-twitch-hover: var(--twitch-hover);
-  --sk-warning: var(--warning);
-  --sk-warning-container: color-mix(in srgb, var(--warning) calc(var(--tint-opacity) * 100%), transparent);
 }
 
 /* Kept for today's markup until its surface is migrated (tokens.css no longer emits type classes). */
@@ -99,60 +47,31 @@ html { color-scheme: dark; }
 body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); font-family: var(--sk-font-sans); letter-spacing: normal; -webkit-font-smoothing: antialiased; }
 *, *::before, *::after { box-sizing: border-box; }
 
-/* ---------- icons ---------- */
-.sk-icon {
-  font-family: var(--sk-font-icons); font-weight: normal; font-style: normal;
-  font-size: 24px; line-height: 1; letter-spacing: normal; text-transform: none;
-  display: inline-block; white-space: nowrap; direction: ltr; flex: none;
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-  -webkit-font-smoothing: antialiased; user-select: none;
-}
-.sk-icon.fill { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
-.sk-icon.sm { font-size: 20px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20; }
-.sk-icon.xs { font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20; }
-
 /* ---------- focus + state layers ---------- */
-.sk-btn, .sk-icon-btn, .sk-collapse-head {
+.sk-icon-btn {
   position: relative; isolation: isolate; cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-.sk-btn::before, .sk-icon-btn::before, .sk-collapse-head::before {
+.sk-icon-btn::before {
   content: ""; position: absolute; inset: 0; border-radius: inherit; background: currentColor;
   opacity: 0; transition: opacity 150ms cubic-bezier(0.2, 0, 0, 1); z-index: -1; pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .sk-btn::before, .sk-icon-btn::before, .sk-collapse-head::before { transition: none; }
+  .sk-icon-btn::before { transition: none; }
 }
-.sk-btn:hover::before, .sk-icon-btn:hover::before, .sk-collapse-head:hover::before { opacity: var(--sk-state-hover); }
-.sk-btn:active::before, .sk-icon-btn:active::before, .sk-collapse-head:active::before { opacity: var(--sk-state-pressed); }
+.sk-icon-btn:hover::before { opacity: var(--sk-state-hover); }
+.sk-icon-btn:active::before { opacity: var(--sk-state-pressed); }
 /* MudBlazor's buttons and chips only tint on focus; the Keyboard card sets the ring once for all of them. */
 .mud-button-root:focus-visible, .mud-chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-:where(.sk-btn, .sk-icon-btn, .sk-collapse-head, .sk-switch, .sk-tooltip-wrap[tabindex]):focus-visible {
+:where(.sk-icon-btn, .sk-tooltip-wrap[tabindex]):focus-visible {
   outline: 2px solid var(--sk-primary); outline-offset: 2px;
 }
 
-/* ---------- buttons ---------- */
-.sk-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: var(--sk-space-2);
-  height: 40px; padding: 0 var(--sk-space-6); border: 0; border-radius: var(--sk-radius-full);
-  font: var(--sk-text-label-large); white-space: nowrap;
-}
-.sk-btn .sk-icon { font-size: 18px; margin-left: -8px; }
-.sk-btn.filled { background: var(--sk-primary); color: var(--sk-on-primary); }
-.sk-btn.filled:hover { box-shadow: var(--sk-elevation-1); }
-.sk-btn.tonal { background: var(--sk-secondary-container); color: var(--sk-on-secondary-container); }
-.sk-btn.outlined { background: transparent; color: var(--sk-primary); box-shadow: inset 0 0 0 1px var(--sk-outline); }
-.sk-btn.text { background: transparent; color: var(--sk-primary); padding: 0 var(--sk-space-3); }
-.sk-btn.text .sk-icon { margin-left: -4px; }
-.sk-btn.danger { background: transparent; color: var(--sk-error); box-shadow: inset 0 0 0 1px var(--sk-outline); }
-.sk-btn:disabled { opacity: var(--sk-state-disabled); pointer-events: none; }
-
+/* ---------- icon button (the settings sheet's now-playing toggle) ---------- */
 .sk-icon-btn {
   display: inline-grid; place-items: center; width: var(--sk-icon-button); height: var(--sk-icon-button);
   padding: 0; border: 0; border-radius: var(--sk-radius-full); background: transparent; color: var(--sk-on-surface-variant);
 }
-.sk-icon-btn.on { color: var(--sk-primary); }
-.sk-icon-btn.tonal { background: var(--sk-secondary-container); color: var(--sk-on-secondary-container); }
-.sk-icon-btn.sm { width: 32px; height: 32px; }
+.sk-icon-btn svg[data-icon] { display: block; width: 24px; height: 24px; fill: currentColor; }
 
 /* ---------- Twitch auth ---------- */
 .sk-twitch {
@@ -162,7 +81,6 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 }
 .sk-twitch:hover, .sk-twitch:active { background: var(--sk-twitch-hover); }
 .sk-twitch:focus-visible { outline: 2px solid var(--sk-primary); outline-offset: 2px; }
-.sk-twitch .sk-icon { font-size: 20px; }
 .sk-twitch[aria-busy="true"] { background: var(--sk-twitch-hover); cursor: progress; }
 .sk-twitch .sk-spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--sk-on-twitch); border-right-color: transparent; animation: sk-spin 800ms linear infinite; }
 @keyframes sk-spin { to { transform: rotate(360deg); } }
@@ -216,21 +134,8 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 .mud-chip.sk-status-saved .mud-chip-icon { color: var(--text-secondary); }
 .mud-chip.sk-status-rec { background: var(--rec); color: var(--rec-contrast-text); }
 .mud-chip.sk-status-rec .dot { width: 6px; height: 6px; border-radius: var(--radius-full); background: var(--rec-contrast-text); animation: sk-pulse 1.6s ease-in-out infinite; }
-/* Legacy span chips, still hand-built by the player island (VideoPlayer.razor.js CHIPS) and the
-   expired account chip (TwitchAccount.razor). Remove when those surfaces move to StatusChip. */
-.sk-status:not(.mud-chip) {
-  display: inline-flex; align-items: center; gap: var(--sk-space-1); height: 20px; padding: 0 6px; border-radius: var(--sk-radius-xs);
-  font: var(--sk-text-label-small); letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap;
-}
-.sk-status:not(.mud-chip) .sk-icon { font-size: 14px; font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 20; }
-.sk-status:not(.mud-chip).rec { background: var(--sk-rec); color: var(--sk-on-rec); }
-.sk-status:not(.mud-chip).rec .dot { width: 6px; height: 6px; border-radius: var(--sk-radius-full); background: var(--sk-on-rec); animation: sk-pulse 1.6s ease-in-out infinite; }
-.sk-status:not(.mud-chip).processing { background: var(--sk-tertiary-container); color: var(--sk-on-tertiary-container); }
-.sk-status:not(.mud-chip).saved { background: transparent; color: var(--sk-on-surface-variant); box-shadow: inset 0 0 0 1px var(--sk-outline); }
-.sk-status:not(.mud-chip).failed { background: var(--sk-error-container); color: var(--sk-on-error-container); }
-.sk-status:not(.mud-chip).partial { background: var(--sk-warning-container); color: var(--sk-on-warning-container); }
 @keyframes sk-pulse { 50% { opacity: 0.35; } }
-@media (prefers-reduced-motion: reduce) { .mud-chip.sk-status-rec .dot, .sk-status:not(.mud-chip).rec .dot, .sk-twitch .sk-spin { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .mud-chip.sk-status-rec .dot, .sk-twitch .sk-spin { animation: none; } }
 
 /* ---------- top app bar (MudAppBar; design system: TopAppBar) ----------
    New shell rules read tokens.css directly, not the legacy --sk-* aliases (ADR 0012). */
@@ -827,27 +732,8 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   .sk-stats-collapse, .sk-stats-switch::before, .sk-stats-switch::after, .sk-tile .tip { transition: none; }
 }
 
-/* ---------- collapsible panel and switch (Collapsible, Switch primitives) ---------- */
+/* ---------- panel ---------- */
 .sk-panel { background: var(--sk-surface-container); border-radius: var(--sk-radius-md); overflow: hidden; }
-.sk-collapse-head {
-  display: flex; align-items: center; gap: var(--sk-space-3); width: 100%; min-height: 48px; padding: 0 var(--sk-space-2) 0 var(--sk-space-4);
-  border: 0; background: transparent; color: var(--sk-on-surface); text-align: left; border-radius: var(--sk-radius-md);
-}
-.sk-collapse-head :is(h2, h3) { margin: 0; flex: 1; font: var(--sk-text-title-medium); }
-.sk-collapse-head .hint { color: var(--sk-on-surface-variant); font: 500 12px/16px var(--sk-font-sans); white-space: nowrap; }
-.sk-collapse-head .chev { color: var(--sk-on-surface-variant); transition: transform 300ms cubic-bezier(0.2, 0, 0, 1); }
-.sk-collapse[data-expanded="false"] > .sk-collapse-head .chev { transform: rotate(-90deg); }
-.sk-collapse-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 300ms cubic-bezier(0.2, 0, 0, 1); }
-.sk-collapse-body > div { min-height: 0; overflow: hidden; }
-.sk-collapse[aria-expanded="false"] > .sk-collapse-body,
-.sk-collapse[data-expanded="false"] > .sk-collapse-body { grid-template-rows: 0fr; }
-
-.sk-switch-field { display: flex; align-items: center; gap: var(--sk-space-4); width: 100%; }
-.sk-switch-label { flex: 1; font: var(--sk-text-title-medium); }
-.sk-switch { position: relative; width: 52px; height: 32px; flex: none; padding: 0; border: 0; border-radius: var(--sk-radius-full); background: var(--sk-surface-container-highest); box-shadow: inset 0 0 0 2px var(--sk-outline); transition: background 200ms; cursor: pointer; }
-.sk-switch::after { content: ""; position: absolute; top: 8px; left: 8px; width: 16px; height: 16px; border-radius: var(--sk-radius-full); background: var(--sk-outline); transition: all 200ms cubic-bezier(0.2, 0, 0, 1); }
-[aria-checked="true"] > .sk-switch, .sk-switch[aria-checked="true"] { background: var(--sk-primary); box-shadow: none; }
-[aria-checked="true"] > .sk-switch::after, .sk-switch[aria-checked="true"]::after { top: 4px; left: 24px; width: 24px; height: 24px; background: var(--sk-on-primary); }
 
 /* ---------- details (design system: RecordingDetails, #178) ---------- */
 .sk-details { background: var(--surface); border-radius: var(--radius-lg); overflow: hidden; }
@@ -957,8 +843,7 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sk-search-field, .sk-group-body, .sk-collapse-body,
-  .sk-group-head .chev, .sk-collapse-head .chev { transition: none; }
+  .sk-search-field, .sk-group-body, .sk-group-head .chev { transition: none; }
   /* MudBlazor's own transitions and ripples (drawer, app bar, buttons, menus, tooltips,
      overlays) use longer selectors than ours, so reduced motion overrides them outright. */
   [class*="mud-"], [class*="mud-"]::before, [class*="mud-"]::after { transition: none !important; animation: none !important; }
@@ -1057,16 +942,6 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 /* Above the phone's bottom navigation, which would otherwise cover it. */
 body:has([data-bottom-nav]) .mud-snackbar-location-bottom-left {
   bottom: calc(var(--bottom-bar-height) + env(safe-area-inset-bottom, 0px) + 8px);
-}
-
-/* ---------- development gallery ---------- */
-.sk-dev-note { margin: 0; color: var(--sk-on-surface-variant); font: var(--sk-text-body-medium); }
-.sk-dev-section { margin-top: var(--sk-space-8); }
-.sk-dev-section h2 { margin: 0 0 var(--sk-space-3); font: var(--sk-text-title-large); }
-.sk-dev-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sk-space-3); }
-
-@media (prefers-reduced-motion: reduce) {
-  .sk-switch, .sk-switch::after { transition: none; }
 }
 
 /* Visually hidden but available to assistive technology; used for page headings. */

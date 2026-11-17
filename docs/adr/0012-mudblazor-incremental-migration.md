@@ -32,6 +32,6 @@ The existing tests are coupled to today's markup: 22 bUnit test files assert `sk
 ## Consequences
 
 - For a few weeks, migrated and unmigrated surfaces coexist. The palette re-point keeps them visually close; layout and component shapes still differ until each surface lands.
-- `components.css`, the `Components/Primitives/` components and the Material Symbols webfont stay until the last surface that uses them is migrated, then are deleted.
+- `components.css`, the `Components/Primitives/` components and the Material Symbols webfont stay until the last surface that uses them is migrated, then are deleted. (Done in #181: the webfont, the dev gallery and the unused primitives are gone; `components.css` keeps the app's own rules and the primitives still in use stay.)
 - Changing a design value means editing `tokens.json`, regenerating `tokens.css` and updating `StreamKeeprTheme.cs`; CI fails if any of the three disagree.
 - Tests can no longer find elements by how they look. New UI needs an accessible role and name, or a `data-*` hook.

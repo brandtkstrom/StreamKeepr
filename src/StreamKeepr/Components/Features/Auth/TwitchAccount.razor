@@ -14,12 +14,12 @@
 @if (Session.Expired)
 {
     <span class="sk-auth-expired" data-auth-state="expired">
-        <span class="sk-status failed" role="status">
-            <span class="sk-icon" aria-hidden="true">warning</span>Twitch session expired
-        </span>
-        <a class="sk-btn text" href="@LoginHref" data-enhance-nav="false">
-            <span class="sk-icon" aria-hidden="true">refresh</span>Reconnect
-        </a>
+        <StatusChip Status="StatusChipKind.Error" Label="Twitch session expired" role="status" />
+        <MudBlazor.MudButton Variant="MudBlazor.Variant.Text"
+                             Color="MudBlazor.Color.Primary"
+                             Href="@LoginHref"
+                             StartIcon="@MudBlazor.Icons.Material.Rounded.Refresh"
+                             data-enhance-nav="false">Reconnect</MudBlazor.MudButton>
     </span>
 }
 else
@@ -80,8 +80,7 @@ else
                data-enhance-nav="false"
                data-twitch-connect
                data-auth-state="disconnected">
-                <span class="sk-icon" aria-hidden="true">link</span>
-                <span class="lbl">Connect with Twitch</span>
+                <TwitchConnectLabel />
             </a>
         </NotAuthorized>
     </AuthorizeView>
