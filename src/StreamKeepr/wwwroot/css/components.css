@@ -588,7 +588,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-stats-actions { display: flex; justify-content: flex-end; padding: 0 var(--sk-space-4) var(--sk-space-4); }
 
 /* ---------- details (design system: RecordingDetails, #178) ---------- */
-.sk-details { background: var(--surface); border-radius: var(--radius-md); overflow: hidden; }
+.sk-details { background: var(--surface); border-radius: var(--radius-lg); overflow: hidden; }
 .sk-details-head {
   display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 48px; padding: 0 var(--space-2) 0 var(--space-4);
   border: 0; background: transparent; color: var(--text-primary); text-align: left; border-radius: var(--radius-md); cursor: pointer;
@@ -604,12 +604,15 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
    The tooltip's hover target is the text, not the empty rest of the row beside a short title. */
 .sk-details-title-root { display: inline-block; max-width: 100%; vertical-align: top; }
 .sk-details-title { margin: 0; padding: var(--space-2) 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.sk-details-title:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--radius-sm); }
 .sk-details-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin-top: var(--space-1); }
 .sk-details-meta { flex: 1 1 320px; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
 .sk-details-meta .who { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-primary); font-weight: 600; }
 .sk-details-meta .pair { display: inline-flex; align-items: center; gap: var(--space-1); }
-.sk-details-meta .pair .mud-icon-root { font-size: 16px; color: var(--action-default); }
+.sk-details-meta .pair .mud-icon-root { font-size: var(--icon-inline); color: var(--action-default); }
 .sk-details .sk-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+/* Buttons card: icon buttons rest in action-default (MudBlazor's button root is currentColor). */
+.sk-details .sk-actions .mud-icon-button:not(:disabled) { color: var(--action-default); }
 .sk-details-wide, .sk-details-compact { display: contents; }
 /* Below Breakpoint.Md, Stop recording and Delete move into More actions. */
 @media (max-width: 959.98px) { .sk-details-wide { display: none; } }

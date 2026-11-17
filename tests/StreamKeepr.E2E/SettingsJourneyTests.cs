@@ -66,23 +66,6 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
     }
 
     [Fact]
-    public async Task Status_chips_change_colour_at_once()
-    {
-        // The Mock poller moves channels between states while a page is open. A chip that
-        // faded its fill (MudChip's 300ms background transition) would pass through colours
-        // its text fails contrast on, which axe catches whenever a state changes mid-scan.
-        await using Session session = await OpenAsync($"{app.BaseUrl}/settings");
-        IPage page = session.Page;
-        await page.Locator("[data-channel] [data-status]").First.WaitForAsync();
-
-        string[] transitions = await page.EvaluateAsync<string[]>(
-            "() => [...document.querySelectorAll('[data-status]')].map(chip => getComputedStyle(chip).transitionDuration)");
-
-        Assert.NotEmpty(transitions);
-        Assert.All(transitions, duration => Assert.Matches("^0s(, 0s)*$", duration));
-    }
-
-    [Fact]
     public async Task Signed_out_settings_shows_the_connect_prompt_without_channel_data()
     {
         await using Session session = await OpenAsync(app.BaseUrl);

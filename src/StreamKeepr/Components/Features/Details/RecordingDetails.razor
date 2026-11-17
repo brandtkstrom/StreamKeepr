@@ -36,13 +36,16 @@
     </button>
     <MudBlazor.MudCollapse Expanded="@Preferences.DetailsOpen">
         <div id="@_bodyId" class="sk-details-body" inert="@(!Preferences.DetailsOpen)">
-            @* The title has a row of its own; it wraps to two lines, then the tooltip has the rest. *@
+            @* The title has a row of its own; it wraps to two lines, then the tooltip has the rest.
+               It is a tab stop so keyboard users can open that tooltip too (MudTooltip shows on
+               focus); screen readers already read the whole title. *@
             <MudBlazor.MudTooltip Text="@Recording.Title"
                                   Placement="MudBlazor.Placement.Top"
                                   RootClass="sk-details-title-root">
                 <MudBlazor.MudText Typo="MudBlazor.Typo.h5"
                                    HtmlTag="h3"
                                    Class="sk-details-title"
+                                   tabindex="0"
                                    data-details-title="true">@Recording.Title</MudBlazor.MudText>
             </MudBlazor.MudTooltip>
 
@@ -110,43 +113,22 @@
                     <RequiresTwitch>
                         @if (ExportBlockedReason is { } reason)
                         {
-                            <Tooltip Text="@reason" tabindex="0">
-                                <MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
-                                                     Color="MudBlazor.Color.Primary"
-                                                     StartIcon="@MudBlazor.Icons.Material.Rounded.Output"
-                                                     IconSize="MudBlazor.Size.Small"
-                                                     Disabled="true"
-                                                     data-export="true">Export MP4</MudBlazor.MudButton>
-                            </Tooltip>
+                            <Tooltip Text="@reason" tabindex="0">@ExportButton</Tooltip>
                         }
                         else
                         {
-                            <MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
-                                                 Color="MudBlazor.Color.Primary"
-                                                 StartIcon="@MudBlazor.Icons.Material.Rounded.Output"
-                                                 IconSize="MudBlazor.Size.Small"
-                                                 Disabled="@(_job?.IsActive == true || _starting)"
-                                                 OnClick="StartExportAsync"
-                                                 data-export="true">Export MP4</MudBlazor.MudButton>
+                            @ExportButton
                         }
                     </RequiresTwitch>
                     <span class="sk-details-wide">
                         <RequiresTwitch>
                             @if (DeleteBlockedReason is { } deleteReason)
                             {
-                                <Tooltip Text="@deleteReason" tabindex="0" data-delete-blocked>
-                                    <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Delete"
-                                                             aria-label="Delete recording"
-                                                             Disabled="true"
-                                                             data-delete="true" />
-                                </Tooltip>
+                                <Tooltip Text="@deleteReason" tabindex="0" data-delete-blocked>@DeleteButton</Tooltip>
                             }
                             else
                             {
-                                <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Delete"
-                                                         aria-label="Delete recording"
-                                                         OnClick="OpenDeleteDialog"
-                                                         data-delete="true" />
+                                @DeleteButton
                             }
                         </RequiresTwitch>
                     </span>
@@ -329,13 +311,25 @@
     private bool IsLive =>
         Recording.State is RecordingState.Recording or RecordingState.Reconnecting;
 
-    // The live chip that leads the meta line; null once the recording has finished.
-    private StatusChipKind? LiveChip => Recording.State switch
-    {
-        RecordingState.Recording => StatusChipKind.Rec,
-        RecordingState.Reconnecting => StatusChipKind.Reconnecting,
-        _ => null,
-    };
+    // The live chip that leads the meta line; null once the recording has finished (a
+    // Partial recording's chip belongs to the library row, not here).
+    private StatusChipKind? LiveChip => IsLive ? RecordingStatusChip.For(Recording.State) : null;
+
+    // One Export MP4 button; a blocked one is disabled and sits in its reason's tooltip.
+    private RenderFragment ExportButton => @<MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
+                                                                Color="MudBlazor.Color.Primary"
+                                                                StartIcon="@MudBlazor.Icons.Material.Rounded.Output"
+                                                                IconSize="MudBlazor.Size.Small"
+                                                                Disabled="@(ExportBlockedReason is not null || _job?.IsActive == true || _starting)"
+                                                                OnClick="StartExportAsync"
+                                                                data-export="true">Export MP4</MudBlazor.MudButton>;
+
+    // One Delete icon button; a blocked one is disabled and sits in its reason's tooltip.
+    private RenderFragment DeleteButton => @<MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Delete"
+                                                                    aria-label="Delete recording"
+                                                                    Disabled="@(DeleteBlockedReason is not null)"
+                                                                    OnClick="OpenDeleteDialog"
+                                                                    data-delete="true" />;
 
     private bool IsIncompatible =>
         _job is { State: ExportState.Failed, Error: ExportService.IncompatibleParts };

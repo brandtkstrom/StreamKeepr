@@ -121,6 +121,32 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
     }
 
     [Fact]
+    public async Task Status_chips_change_colour_at_once_wherever_they_show()
+    {
+        // A StatusChip-level styling gate, kept with the other style invariants because only a
+        // browser computes styles. The Mock poller moves channels between states while a page
+        // is open; a chip that faded its fill (MudChip's 300ms background transition) would
+        // pass through colours its text fails contrast on, which axe catches mid-scan.
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        await page.Locator(LibraryHooks.Row).First.WaitForAsync();
+        await AssertChipsDoNotTransitionAsync(page, "home");
+
+        await page.GotoAsync($"{app.BaseUrl}/settings");
+        await page.Locator("[data-channel] [data-status]").First.WaitForAsync();
+        await AssertChipsDoNotTransitionAsync(page, "settings");
+    }
+
+    private static async Task AssertChipsDoNotTransitionAsync(IPage page, string screen)
+    {
+        string[] transitions = await page.EvaluateAsync<string[]>(
+            "() => [...document.querySelectorAll('[data-status]')].map(chip => getComputedStyle(chip).transitionDuration)");
+
+        Assert.True(transitions.Length > 0, $"{screen} shows no status chips");
+        Assert.All(transitions, duration => Assert.Matches("^0s(, 0s)*$", duration));
+    }
+
+    [Fact]
     public async Task Reduced_motion_stops_the_rec_pulse_fades_and_collapse_animations()
     {
         await using Session session = await OpenAsync(app.BaseUrl);

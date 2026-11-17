@@ -66,6 +66,22 @@ public sealed class RecordingDetailsLayoutTests
     }
 
     [Fact]
+    public async Task Keyboard_focus_on_the_title_shows_the_full_title()
+    {
+        await using BunitContext context = CreateContext(signedIn: false);
+        var popovers = context.Render<MudBlazor.MudPopoverProvider>();
+        const string title = "A very long stream title that wraps to two lines before it is cut short";
+        IRenderedComponent<RecordingDetails> cut = Render(context, Recording(title: title));
+        Assert.DoesNotContain(title, popovers.Markup);
+
+        IElement heading = cut.Find("[data-details-title]");
+        Assert.Equal("0", heading.GetAttribute("tabindex"));
+        await heading.FocusInAsync(new Microsoft.AspNetCore.Components.Web.FocusEventArgs());
+
+        popovers.WaitForAssertion(() => Assert.Contains(title, popovers.Markup));
+    }
+
+    [Fact]
     public async Task The_title_is_a_heading_below_the_panel_heading()
     {
         await using BunitContext context = CreateContext(signedIn: false);
