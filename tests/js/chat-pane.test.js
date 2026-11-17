@@ -29,9 +29,10 @@ const MARKUP = `
       <div data-sk="chat-log" role="log" aria-live="off" tabindex="0"></div>
       <div>
         <div data-sk="chat-sync" hidden>
-          <button data-sk="chat-sync-back2"></button><button data-sk="chat-sync-back1"></button>
-          <button data-sk="chat-sync-reset"></button><button data-sk="chat-sync-forward1"></button>
-          <button data-sk="chat-sync-forward2"></button><span data-sk="chat-sync-value"></span>
+          <label for="sync">Chat sync</label>
+          <span data-sk="chat-sync-value"></span>
+          <button type="button" data-sk="chat-sync-reset" aria-label="Reset chat sync to 0"></button>
+          <input id="sync" type="range" data-sk="chat-sync-range" min="-30" max="30" step="0.5" value="0">
         </div>
         <button data-sk="chat-jump" hidden></button>
         <span data-sk="chat-notice"></span>
@@ -289,14 +290,123 @@ describe("chat replay pane", () => {
     }));
     await flush();
 
-    document.querySelector("[data-sk='chat-sync-forward1']").click();
+    const range = document.querySelector("[data-sk='chat-sync-range']");
+    range.value = "1.5";
+    range.dispatchEvent(new Event("change", { bubbles: true }));
     await flush();
 
-    expect(JSON.parse(store.getItem("sk-chat")).offsets.r1).toBe(1);
-    expect(fetch.mock.calls.some(([url]) => url.searchParams.get("syncOffsetSec") === "1.000"))
+    expect(JSON.parse(store.getItem("sk-chat")).offsets.r1).toBe(1.5);
+    expect(fetch.mock.calls.some(([url]) => url.searchParams.get("syncOffsetSec") === "1.500"))
       .toBe(true);
 
     pane.dispose();
+  });
+
+  describe("sync slider", () => {
+    /** A loaded pane with the playhead at 10 s and its first window fetched. */
+    async function syncPane(store = storage()) {
+      document.body.innerHTML = MARKUP;
+      const root = document.querySelector("[data-sk-chat]");
+      const fetch = fakeFetch();
+      const pane = createChatPane(root, { fetch, storage: store });
+      await pane.load({ ...VIEW });
+      playhead(10);
+      await flush();
+      const range = document.querySelector("[data-sk='chat-sync-range']");
+      const offsets = () => fetch.mock.calls.map(([url]) => url.searchParams.get("syncOffsetSec"));
+      return { pane, fetch, range, store, offsets };
+    }
+
+    const readout = () => document.querySelector("[data-sk='chat-sync-value']").textContent;
+
+    it("updates the readout while dragging and refetches only when the drag ends", async () => {
+      const { pane, range, offsets, store } = await syncPane();
+      const before = offsets().length;
+
+      for (const value of ["0.5", "1", "1.5", "-3"]) {
+        range.value = value;
+        range.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      await flush();
+
+      expect(readout()).toBe("\u22123.0 s");
+      expect(range.getAttribute("aria-valuetext")).toBe("3 seconds earlier");
+      expect(offsets()).toHaveLength(before);
+      expect(store.getItem("sk-chat")).toBeNull();
+
+      range.dispatchEvent(new Event("change", { bubbles: true }));
+      await flush();
+
+      expect(offsets().slice(before)).toEqual(["-3.000"]);
+      expect(JSON.parse(store.getItem("sk-chat")).offsets.r1).toBe(-3);
+      pane.dispose();
+    });
+
+    it("applies and refetches per key press: arrows 0.5 s, Page keys 5 s, Home/End to the limit", async () => {
+      const { pane, range, offsets } = await syncPane();
+      const before = offsets().length;
+      const press = (key) => {
+        const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+        range.dispatchEvent(event);
+        return event.defaultPrevented;
+      };
+
+      const steps = [
+        ["ArrowRight", "0.500", "+0.5 s", "0.5 seconds later"],
+        ["ArrowUp", "1.000", "+1.0 s", "1 second later"],
+        ["PageUp", "6.000", "+6.0 s", "6 seconds later"],
+        ["ArrowLeft", "5.500", "+5.5 s", "5.5 seconds later"],
+        ["PageDown", "0.500", "+0.5 s", "0.5 seconds later"],
+        ["ArrowDown", "0.000", "0.0 s", "0 seconds"],
+        ["Home", "-30.000", "\u221230.0 s", "30 seconds earlier"],
+        ["End", "30.000", "+30.0 s", "30 seconds later"],
+      ];
+      for (const [key, sent, shown, spoken] of steps) {
+        expect(press(key)).toBe(true);
+        await flush();
+        expect(offsets().at(-1), key).toBe(sent);
+        expect(readout(), key).toBe(shown);
+        expect(range.getAttribute("aria-valuetext"), key).toBe(spoken);
+        expect(range.value, key).toBe(String(Number(sent)));
+      }
+      expect(offsets()).toHaveLength(before + steps.length);
+
+      // At the limit a further press changes nothing and fetches nothing.
+      press("PageUp");
+      await flush();
+      expect(offsets()).toHaveLength(before + steps.length);
+      expect(readout()).toBe("+30.0 s");
+      pane.dispose();
+    });
+
+    it("starts on the recording's saved offset and resets it to 0", async () => {
+      const store = storage();
+      store.setItem("sk-chat", JSON.stringify({ v: 1, offsets: { r1: 4.5 } }));
+      const { pane, range, offsets } = await syncPane(store);
+
+      expect(range.value).toBe("4.5");
+      expect(readout()).toBe("+4.5 s");
+      expect(range.getAttribute("aria-valuetext")).toBe("4.5 seconds later");
+      expect(offsets().at(-1)).toBe("4.500");
+
+      document.querySelector("[data-sk='chat-sync-reset']").click();
+      await flush();
+
+      expect(range.value).toBe("0");
+      expect(readout()).toBe("0.0 s");
+      expect(range.getAttribute("aria-valuetext")).toBe("0 seconds");
+      expect(offsets().at(-1)).toBe("0.000");
+      expect(JSON.parse(store.getItem("sk-chat")).offsets.r1).toBe(0);
+      pane.dispose();
+    });
+
+    it("leaves other keys to the browser", async () => {
+      const { pane, range } = await syncPane();
+      const event = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+      range.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+      pane.dispose();
+    });
   });
 
   it("keeps one fetch in flight until the first window loads", async () => {
@@ -1014,7 +1124,9 @@ describe("third-party emotes in the pane", () => {
     expect(log.textContent).toContain("KEKW");
 
     // A sync change rebuilds the log from the same messages.
-    document.querySelector("[data-sk='chat-sync-forward1']").click();
+    const range = document.querySelector("[data-sk='chat-sync-range']");
+    range.value = "1";
+    range.dispatchEvent(new Event("change", { bubbles: true }));
     await flush();
 
     expect(log.querySelector("img[alt='KEKW']")).toBeNull();
