@@ -55,6 +55,18 @@ public sealed class SettingsPageTests
         Assert.Equal("pause", cut.Find("[data-channel='bob'] [data-channel-state]").GetAttribute("data-status-icon"));
     }
 
+    [Fact]
+    public async Task The_channels_section_is_the_target_of_settings_channels()
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+
+        IRenderedComponent<Settings> cut = context.Render<Settings>();
+
+        // The empty library's "Add a channel" links to /settings#channels.
+        AngleSharp.Dom.IElement section = cut.Find("section#channels");
+        string labelledBy = section.GetAttribute("aria-labelledby")!;
+        Assert.Equal("Channels", cut.Find($"#{labelledBy}").TextContent);
+    }
 
     [Fact]
     public async Task Connection_status_replaces_push_status_and_each_badge_is_per_channel()

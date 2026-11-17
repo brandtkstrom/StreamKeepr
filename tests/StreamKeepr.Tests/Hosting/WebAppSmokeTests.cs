@@ -70,16 +70,17 @@ public sealed class WebAppSmokeTests
         using var factory = new StreamKeeprAppFactory();
         using var client = factory.CreateClient();
 
-        // CreateClient can return before ApplicationStarted callbacks run.
-        IHostApplicationLifetime lifetime =
-            factory.Services.GetRequiredService<IHostApplicationLifetime>();
-        var started = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        using CancellationTokenRegistration registration =
-            lifetime.ApplicationStarted.Register(() => started.TrySetResult());
-        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        // The warning is logged from an ApplicationStarted callback, which can run after
+        // CreateClient returns. Waiting for ApplicationStarted ourselves is not enough:
+        // token callbacks run in reverse registration order, so ours fires before the app's.
+        // Wait for the message itself instead.
+        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!HasWarning() && DateTime.UtcNow < deadline)
+            await Task.Delay(20);
 
-        Assert.Contains(factory.Logs.Messages,
+        Assert.True(HasWarning(), "the open-admin warning was not logged");
+
+        bool HasWarning() => factory.Logs.Messages.Any(
             message => message.Contains("AllowedTwitchLogins is empty", StringComparison.Ordinal));
     }
 }

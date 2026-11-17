@@ -14,6 +14,11 @@
 @if (RecordingId is null)
 {
     <h1 class="sk-visually-hidden">Stream Keepr library</h1>
+    @* HomeRows renders nothing for a loaded, empty library; the empty state covers it. *@
+    @if (Library.IsLoaded && Library.Streamers(new LibraryQuery()).Count == 0)
+    {
+        <LibraryEmptyState />
+    }
     <HomeRows />
 }
 else if (!Library.IsLoaded)
@@ -27,12 +32,14 @@ else if (Selected is { } recording)
 }
 else
 {
-    <section data-unknown-recording>
-        <h1>Recording not found</h1>
-        <p class="body-medium">
+    @* Design system: EmptyStates, recording not found. It leads with Search. *@
+    <section class="sk-empty-state sk-empty-state-page" data-unknown-recording data-empty-icon="search">
+        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Search" Class="sk-empty-icon" aria-hidden="true" />
+        <MudBlazor.MudText Typo="MudBlazor.Typo.h4" HtmlTag="h1">Recording not found</MudBlazor.MudText>
+        <MudBlazor.MudText Typo="MudBlazor.Typo.body1">
             That recording is not in the library.
             <a href="/">Back to library</a>
-        </p>
+        </MudBlazor.MudText>
     </section>
 }
 

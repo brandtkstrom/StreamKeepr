@@ -66,13 +66,7 @@
 
     private bool IsRecording => Recording.State == RecordingState.Recording;
 
-    private StatusChipKind? Status => Recording.State switch
-    {
-        RecordingState.Recording => StatusChipKind.Rec,
-        RecordingState.Reconnecting => StatusChipKind.Reconnecting,
-        RecordingState.Partial => StatusChipKind.Partial,
-        _ => null,
-    };
+    private StatusChipKind? Status => RecordingStatusChip.For(Recording.State);
 
     private string Meta
     {
