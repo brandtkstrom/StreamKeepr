@@ -584,22 +584,43 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 /* ---------- stats actions ---------- */
 .sk-stats-actions { display: flex; justify-content: flex-end; padding: 0 var(--sk-space-4) var(--sk-space-4); }
 
-/* ---------- details ---------- */
-.sk-details-title { display: flex; align-items: flex-start; gap: var(--sk-space-4); }
-.sk-details-title :is(h1, h2, h3) { flex: 1; margin: 0; font: var(--sk-text-headline-small); padding: var(--sk-space-2) 0; }
-.sk-details-meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sk-space-2) var(--sk-space-3); margin-top: var(--sk-space-2); color: var(--sk-on-surface-variant); font: var(--sk-text-body-medium); }
-.sk-details-meta .who { display: inline-flex; align-items: center; gap: var(--sk-space-2); color: var(--sk-on-surface); font-weight: 600; }
-.sk-details-meta .sep { width: 4px; height: 4px; border-radius: var(--sk-radius-full); background: var(--sk-outline); }
-.sk-details-body { padding: 0 var(--sk-space-4) var(--sk-space-4); }
-.sk-chapters { display: flex; flex-direction: column; gap: 2px; margin-top: var(--sk-space-3); }
-.sk-chapter { display: flex; align-items: baseline; gap: var(--sk-space-3); width: 100%; padding: 6px var(--sk-space-2); border: 0; border-radius: var(--sk-radius-sm); background: transparent; color: var(--sk-on-surface); text-align: left; cursor: pointer; }
-.sk-chapter:hover { background: var(--sk-surface-container-high); }
-.sk-chapter:hover .time { color: var(--sk-on-surface); }
-.sk-chapter:focus-visible { outline: 2px solid var(--sk-primary); outline-offset: -2px; }
-.sk-chapter .time { flex: none; color: var(--sk-primary); font: var(--sk-text-label-medium); font-variant-numeric: var(--sk-text-timecode-numeric); }
-.sk-chapter .title { flex: 1; font: var(--sk-text-body-medium); }
-.sk-chapter .game { color: var(--sk-on-surface-variant); font: var(--sk-text-body-small); }
-.sk-actions { display: flex; gap: var(--sk-space-2); flex-wrap: wrap; }
+/* ---------- details (design system: RecordingDetails, #178) ---------- */
+.sk-details { background: var(--surface); border-radius: var(--radius-md); overflow: hidden; }
+.sk-details-head {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 48px; padding: 0 var(--space-2) 0 var(--space-4);
+  border: 0; background: transparent; color: var(--text-primary); text-align: left; border-radius: var(--radius-md); cursor: pointer;
+}
+.sk-details-head:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
+.sk-details-head:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.sk-details-head h2 { flex: 1; margin: 0; }
+.sk-details-head .hint { color: var(--text-secondary); white-space: nowrap; }
+.sk-details-head .chev { color: var(--action-default); transition: transform 300ms cubic-bezier(0.2, 0, 0, 1); }
+.sk-details[data-expanded="false"] .sk-details-head .chev { transform: rotate(-90deg); }
+.sk-details-body { padding: 0 var(--space-4) var(--space-4); }
+/* The title has the row to itself: two lines, then an ellipsis; the tooltip has the rest.
+   The tooltip's hover target is the text, not the empty rest of the row beside a short title. */
+.sk-details-title-root { display: inline-block; max-width: 100%; vertical-align: top; }
+.sk-details-title { margin: 0; padding: var(--space-2) 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.sk-details-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin-top: var(--space-1); }
+.sk-details-meta { flex: 1 1 320px; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
+.sk-details-meta .who { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-primary); font-weight: 600; }
+.sk-details-meta .pair { display: inline-flex; align-items: center; gap: var(--space-1); }
+.sk-details-meta .pair .mud-icon-root { font-size: 16px; color: var(--action-default); }
+.sk-details .sk-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.sk-details-wide, .sk-details-compact { display: contents; }
+/* Below Breakpoint.Md, Stop recording and Delete move into More actions. */
+@media (max-width: 959.98px) { .sk-details-wide { display: none; } }
+@media (min-width: 960px) { .sk-details-compact { display: none; } }
+.sk-menu-reason { display: block; color: var(--text-secondary); }
+.sk-chapters { display: flex; flex-direction: column; gap: 2px; margin-top: var(--space-3); }
+.sk-chapter { display: flex; align-items: baseline; gap: var(--space-3); width: 100%; padding: 6px var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }
+.sk-chapter:hover { background: var(--surface-raised); }
+/* tertiary as text is under 4.5:1 on surface-raised, so the hovered offset turns text-primary. */
+.sk-chapter:hover .time { color: var(--text-primary); }
+.sk-chapter:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.sk-chapter .time { flex: none; color: var(--tertiary); font: var(--text-timecode); letter-spacing: var(--text-timecode-letter-spacing); font-variant-numeric: var(--text-timecode-numeric); }
+.sk-chapter .title { flex: 1; min-width: 0; }
+.sk-chapter .game { color: var(--text-secondary); }
 
 /* ---------- app shell (MudLayout; design system: AppShell, PhoneLayout) ---------- */
 .sk-shell { height: 100vh; height: 100dvh; overflow: hidden; background: var(--background); }
@@ -824,12 +845,11 @@ body:has([data-bottom-nav]) .mud-snackbar-location-bottom-left {
 @media (prefers-reduced-motion: reduce) { .sk-channel-add .sk-btn .sk-spin { animation-duration: 2400ms; } }
 
 /* ---------- export row (details/auth/settings contract §5) ---------- */
-.sk-export-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sk-space-2) var(--sk-space-3); padding: var(--sk-space-2) var(--sk-space-3); border-radius: var(--sk-radius-sm); background: var(--sk-surface-container-high); font: var(--sk-text-body-medium); }
+.sk-export-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-top: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--surface-raised); font: var(--text-body2); }
 .sk-export-row .text { min-width: 0; overflow-wrap: anywhere; }
-.sk-export-row .pct { font: var(--sk-text-timecode); font-variant-numeric: var(--sk-text-timecode-numeric); }
-.sk-export-progress { flex: 1 1 160px; height: 4px; border-radius: var(--sk-radius-full); background: var(--sk-surface-container-highest); overflow: hidden; }
-.sk-export-progress i { display: block; height: 100%; background: var(--sk-primary); transition: width 200ms linear; }
-.sk-export-row .sk-btn { margin-left: auto; }
-/* primary as text is only ≥4.5:1 up to surface-container (tokens.css); this row is -high. */
-.sk-export-row .sk-btn.text { color: var(--sk-on-surface); }
-@media (prefers-reduced-motion: reduce) { .sk-export-progress i { transition: none; } }
+.sk-export-row .pct { font: var(--text-timecode); letter-spacing: var(--text-timecode-letter-spacing); font-variant-numeric: var(--text-timecode-numeric); }
+.sk-export-row .sk-export-progress { flex: 1 1 160px; width: auto; }
+.sk-export-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-left: auto; }
+/* Tonal: a 14% primary tint (MudBlazor 9 has no tonal variant). The label stays text-primary:
+   primary as text is under 4.5:1 on surface-raised. */
+.sk-export-row .sk-tonal { background: color-mix(in srgb, var(--primary) calc(var(--tint-opacity) * 100%), transparent); }

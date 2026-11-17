@@ -12,12 +12,14 @@ The backend contract wins over the plan's F10-T3: export is **always one MP4**. 
 
 ## 2. Recording details card
 
-- `RecordingDetails.razor` is a normal Blazor component, rendered above the stats panel on `/r/{id}`. It uses the `Collapsible` primitive and `UiPreferences.DetailsOpen` (default open); the collapsed header is 48 px and shows “Recording details” plus the start date.
-- The body shows:
-  - title (`headline-small`);
-  - a meta row with the streamer login and avatar/initials, category (or “No category”), full start date/time in the viewer's zone, and counts in the form `1,342 segments · 3 parts · 9.8 GB`; `SizeBytes` is omitted or shown as `—` while Recording/Reconnecting;
-  - a chapters list when `RecordingView.Chapters` is non-empty: one button per chapter with the timecode, title, and game/category; clicking it seeks through `PlayerBridge` and leaves focus on the button. The player scrolls into view only as an implementation detail; it must not autoplay;
-  - the actions row and, when applicable, the export status row.
+- `RecordingDetails.razor` is a normal Blazor component, rendered above the stats panel on `/r/{id}`. Design system: the RecordingDetails and Buttons cards (#178). It is an outlined `MudPaper` whose header is a real disclosure `<button>` (`aria-expanded`, `aria-controls`, hook `data-collapsible-toggle`) over a `MudCollapse`; the collapsed body is `inert`. It is not a `MudExpansionPanel`, because MudBlazor 9.12's panel header is a focusable `div` with no button role or `aria-expanded`. `UiPreferences.DetailsOpen` (default open, so on desktop the title and actions show under the player without scrolling) drives it; the 48 px header shows an `Info` icon, “Recording details” (`h6`, an `h2`) and the start date (`caption`).
+- The body shows, in order:
+  - the title on a row of its own (`h5`, an `h3`, hook `data-details-title`), the full width of the panel, wrapping to two lines before it ellipsises; a `MudTooltip` on it carries the full title. Nothing shares that row;
+  - one row with the meta line on the left and the actions on the right; when space runs out the actions wrap under the meta, never beside the title. The meta line (`caption`) starts with the live `StatusChip` (REC while Recording, Reconnecting while Reconnecting; none once finished), then the streamer login with its avatar/initials, then icon + text pairs with 16 px icons in `action-default`: `SportsEsports` category (or “No category”), `Event` full start date/time in the viewer's zone, `Timer` duration (`Format.Duration`, e.g. `2h 14m`; hook `data-details-duration`), `FolderOpen` counts in the form `1,342 segments · 3 parts`, and `Storage` size (`9.8 GB`). The size pair is omitted while Recording/Reconnecting;
+  - the export status row, when applicable (§5);
+  - a chapters list when `RecordingView.Chapters` is non-empty: one button per chapter with the timecode, title, and game/category; clicking it seeks through `PlayerBridge` and leaves focus on the button. The player scrolls into view only as an implementation detail; it must not autoplay.
+- Actions, labelled as verbs: Stop recording (outlined, `Color.Error`, `Stop` icon; live only), Copy playlist URL (outlined, `PlaylistPlay`), Export MP4 (the one filled `Color.Primary` button, `Output`), and Delete (a `MudIconButton` with `Delete`, `aria-label="Delete recording"`). Actions that need Twitch stay visible behind `RequiresTwitch`; a blocked Export or Delete gives its reason in a tooltip.
+- Below `Breakpoint.Md` (960 px), Stop recording and Delete leave the row for a `MoreVert` menu (`MudMenu`, `aria-label="More actions"`, itself behind `RequiresTwitch`) with the same rules: Stop opens the stop confirmation, Delete opens the delete dialog, and a blocked Delete is a disabled item showing its reason. CSS shows one form or the other, so both render and the row's `data-stop-recording`/`data-delete` hooks stay unique.
 - The start date uses `ViewerClock.ToLocal` and a full `ddd, MMM d, yyyy · h:mm tt`-style value; it re-renders when the clock service changes. The details component subscribes to `ViewerClock.Changed` and disposes.
 - The card re-renders when `RecordingView`, `UiPreferences`, `IExportService.Changed`, or the relevant channel state changes. It never reads files or calls the supervisor.
 - A recording deleted while the card is open closes the dialog/row through the normal `Home` navigation; no stale title is left behind.
@@ -25,13 +27,13 @@ The backend contract wins over the plan's F10-T3: export is **always one MP4**. 
 ## 3. Chapters
 
 - Chapters come only from `RecordingView.Chapters` (`StartSeconds`, `Title`, `Game`). Empty or invalid data produces no list and no player ticks.
-- Each entry is a `<button>` with an accessible name such as “Seek to 1:02:13 — Celeste (game)”. The timecode uses `Format.Timecode`; the chapter title is the stream title; the game is shown when present.
+- Each entry is a `<button>` with an accessible name such as “Seek to 1:02:13 — Celeste (game)”. The timecode uses `Format.Timecode` in `timecode` type and `tertiary`; the chapter title is the stream title in `subtitle2`; the game is shown, in `caption`, when present.
 - The list updates with the `RecordingView` instance; `@key` by `StartSeconds`.
 - Seeking while playing continues playback; seeking while paused stays paused. No progress is written just because a chapter was clicked.
 
 ## 4. Copy playlist URL
 
-- The button is an Outlined action and is public; it is never wrapped in `RequiresTwitch`.
+- The button is an outlined `MudButton` with the `PlaylistPlay` icon (it copies the HLS playlist's address) and is public; it is never wrapped in `RequiresTwitch`.
 - The absolute URL is built from `NavigationManager.BaseUri` and the relative `RecordingView.PlaylistUrl` (`/media/{channel}/{id}/index.m3u8`). Use `new Uri(new Uri(NavigationManager.BaseUri), playlistUrl).AbsoluteUri`; never construct the media path by hand. Forwarded-header configuration makes this the public origin.
 - Copy through the clipboard API; confirm “Playlist URL copied” through a snackbar (`ISnackbar.Show`). A missing/rejected clipboard shows “Could not copy playlist URL”. No legacy fallback.
 - Copy failure is not an auth error and never opens a dialog.
@@ -65,7 +67,7 @@ The details card subscribes to `IExportService.Changed`, calls `FindByRecording`
 | Failed (other) | User-safe error message | Retry |
 | Cancelled | “Export cancelled” | Retry |
 
-- `Export MP4` is a Tonal action. It is disabled:
+- `Export MP4` is the filled `Color.Primary` action with the `Output` icon. It is disabled:
   - signed out → `RequiresTwitch` tooltip “Connect Twitch to use this”;
   - Recording/Reconnecting → tooltip “Available when the recording finishes”;
   - an active job for this recording → the row is the action surface;
@@ -73,7 +75,8 @@ The details card subscribes to `IExportService.Changed`, calls `FindByRecording`
 - `Start` requires the authenticated `ClaimsPrincipal` and a Complete recording. Expected exceptions are caught: `InvalidOperationException` (live), `KeyNotFoundException` (unknown), `UnauthorizedAccessException` (session), otherwise a generic message. The UI never relies on the disabled button alone.
 - `Cancel` calls `IExportService.Cancel(job.Id, user)`; no confirmation because Retry is available. Cancelling a Queued job removes it. A failed cancel re-reads the job and ignores an already-finished state.
 - `Retry` calls `Start` again for the same recording. It is hidden for `ExportIncompatibleParts`; the server would produce the same failure.
-- Progress is `job.Progress` clamped to `[0,1]`. The row is a `role="status"` for state changes; the progressbar is `aria-valuemin=0`, `aria-valuemax=100`, `aria-valuenow`, and `aria-valuetext="42%"`. Per-percent changes are not announced as live text.
+- The row sits on `surface-raised`: an `Output` icon in `secondary`, the state text, and while Running the percent in `timecode` and a `MudProgressLinear` in `secondary`, then the text Cancel/Retry buttons or a tonal Download link (`Download` icon).
+- Progress is `job.Progress` clamped to `[0,1]`. The row is a `role="status"` for state changes; the progressbar is `aria-valuemin=0`, `aria-valuemax=100`, `aria-valuenow`, and `aria-valuetext="42%"`. Per-percent changes are not announced as live text: the progressbar sets `aria-live="off"` over MudBlazor's default polite region.
 - Completion or failure raises one snackbar (“Export ready”, “Export failed”); cancellation does not. The row remains visible while the details card is open and is rehydrated after navigation.
 - The Download action is a normal anchor to `/api/exports/{job.Id}/download` with `data-enhance-nav="false"`; the endpoint sets `Content-Disposition`. It requires sign-in and is wrapped in `RequiresTwitch`; the anchor is disabled while signed out/expired. If the session expires between click and response, the browser shows the endpoint's 401/403 and the user can return and reconnect. Range requests are handled by the server.
 - While an export for this recording is Queued/Running, Delete is disabled with the reason “Cancel the export first”; the server's lease is the final guard.
@@ -82,7 +85,7 @@ The details card subscribes to `IExportService.Changed`, calls `FindByRecording`
 
 ## 6. Delete recording
 
-- The Delete action is an icon button (`aria-label="Delete recording"`) in the details actions, wrapped in `RequiresTwitch`. It is disabled for Recording/Reconnecting and while this recording has a Queued/Running export, with a visible tooltip reason.
+- The Delete action is an icon button (`aria-label="Delete recording"`) in the details actions (in More actions below `Breakpoint.Md`, §2), wrapped in `RequiresTwitch`. It is disabled for Recording/Reconnecting and while this recording has a Queued/Running export, with a visible tooltip reason.
 - On click, open a `ConfirmDialog` (an inline `MudDialog`, design system Dialog card; #177; see the foundation contract §8): extra small, full width, no close button:
   - title “Delete recording?” (`h6`), which names the `dialog`;
   - a `MudAlert` Error banner (`Variant.Text`, dense) naming the recording (`title — streamer`) and stating that the files and progress are removed permanently; it is a `note` until it carries an error, then an `alert`;
