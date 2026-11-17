@@ -1,0 +1,15 @@
+@* Three placeholder cards while the library loads (design system: Home, Layout). *@
+<ul class="sk-shelf-row @(Size == RecordingCardSize.Large ? "large" : null)" aria-hidden="true">
+    @for (int i = 0; i < 3; i++)
+    {
+        <li class="sk-card" data-card-skeleton>
+            <MudBlazor.MudSkeleton SkeletonType="MudBlazor.SkeletonType.Rectangle" Class="sk-thumb" />
+            <MudBlazor.MudSkeleton SkeletonType="MudBlazor.SkeletonType.Text" Width="80%" />
+            <MudBlazor.MudSkeleton SkeletonType="MudBlazor.SkeletonType.Text" Width="50%" />
+        </li>
+    }
+</ul>
+
+@code {
+    [Parameter] public RecordingCardSize Size { get; set; }
+}

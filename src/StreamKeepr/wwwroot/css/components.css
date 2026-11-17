@@ -833,3 +833,47 @@ body:has([data-bottom-nav]) .mud-snackbar-location-bottom-left {
 /* primary as text is only ≥4.5:1 up to surface-container (tokens.css); this row is -high. */
 .sk-export-row .sk-btn.text { color: var(--sk-on-surface); }
 @media (prefers-reduced-motion: reduce) { .sk-export-progress i { transition: none; } }
+
+/* ---------- Home rows (design system: Home, RecordingCard) ----------
+   Two sideways rows of cards; a row never wraps and the last card is cut at the edge. */
+.sk-main-inner:has([data-home-rows]) { max-width: none; }
+.sk-home { display: flex; flex-direction: column; gap: var(--space-8); min-width: 0; }
+.sk-shelf { min-width: 0; }
+.sk-shelf-head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
+.sk-shelf-head h2 { margin: 0; }
+.sk-shelf-icon { color: var(--text-secondary); }
+.sk-shelf-icon.rec { color: var(--rec); }
+.sk-shelf-caption { color: var(--text-secondary); }
+.sk-shelf-note {
+  margin: 0; padding: var(--space-4); border: 1px dashed var(--divider); border-radius: var(--radius-lg);
+  color: var(--text-secondary); font: var(--text-body2);
+}
+.sk-shelf-row {
+  display: flex; gap: var(--space-4); margin: 0; padding: 0 0 var(--space-2); list-style: none;
+  overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: thin;
+}
+.sk-shelf-row > li { flex: 0 0 264px; min-width: 0; scroll-snap-align: start; }
+.sk-shelf-row.large > li { flex-basis: 360px; }
+
+.sk-card {
+  position: relative; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2);
+  border-radius: var(--radius-lg); color: var(--text-primary); text-decoration: none;
+}
+.sk-card::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--text-primary); opacity: 0; pointer-events: none; }
+a.sk-card:hover::after { opacity: var(--hover-opacity); }
+a.sk-card:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.sk-card .sk-thumb { width: 100%; }
+.sk-card-chip { position: absolute; top: var(--space-2); left: var(--space-2); }
+.sk-card-body { display: flex; gap: var(--space-3); align-items: flex-start; min-width: 0; }
+.sk-card-avatar.mud-avatar { width: 32px; height: 32px; font-size: 0.875rem; }
+.sk-card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sk-card-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+[data-card-size="large"] .sk-card-title { font-weight: 500; }
+.sk-card-meta { color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-card-state { align-self: flex-start; margin-top: 2px; }
+
+/* Below Md: swipe rows, active cards at 85% and recent cards at 60% of the width. */
+@media (max-width: 959.98px) {
+  .sk-shelf-row > li { flex-basis: 60%; }
+  .sk-shelf-row.large > li { flex-basis: 85%; }
+}

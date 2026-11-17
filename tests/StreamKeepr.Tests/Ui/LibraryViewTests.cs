@@ -183,6 +183,32 @@ public sealed class LibraryViewTests
     }
 
     [Fact]
+    public async Task All_recordings_merge_every_streamer_newest_first_with_the_library_filters()
+    {
+        using Harness harness = await Harness.CreateAsync("alpha", "beta");
+        DateTimeOffset same = Now.AddHours(-3);
+        harness.Add(Summary("a-old", "alpha", Now.AddHours(-9)));
+        harness.Add(Summary("b-tie", "beta", same, parts: 2));
+        harness.Add(Summary("a-tie", "alpha", same));
+        harness.Add(Summary("b-new", "beta", Now.AddHours(-1)));
+        harness.Add(Summary("a-open", "alpha", Now.AddHours(-2), recording: true));
+        harness.Clock.Advance(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(
+            ["b-new", "a-open", "a-tie", "b-tie", "a-old"],
+            harness.View.AllRecordings(new LibraryQuery()).Select(item => item.Id));
+        Assert.Equal(
+            ["b-new", "a-tie", "b-tie", "a-old"],
+            harness.View.AllRecordings(new LibraryQuery(State: "saved")).Select(item => item.Id));
+        Assert.Equal(
+            ["a-open"],
+            harness.View.AllRecordings(new LibraryQuery(State: "recording")).Select(item => item.Id));
+        Assert.Equal(
+            ["a-old", "a-tie", "b-tie", "a-open", "b-new"],
+            harness.View.AllRecordings(new LibraryQuery(Sort: "oldest")).Select(item => item.Id));
+    }
+
+    [Fact]
     public async Task Invalid_filter_sort_and_empty_search_fall_back()
     {
         using Harness harness = await Harness.CreateAsync("alpha");

@@ -62,6 +62,12 @@ public interface ILibraryView : IDisposable
 
     IReadOnlyList<RecordingView> Recordings(string streamerLogin, LibraryQuery query);
 
+    /// <summary>
+    /// Every streamer's recordings that match <paramref name="query"/>, in one list ordered by
+    /// its sort (newest first by default, ties by id). The Home rows read their sets from here.
+    /// </summary>
+    IReadOnlyList<RecordingView> AllRecordings(LibraryQuery query);
+
     RecordingView? Find(string id);
 
     StorageView Storage { get; }

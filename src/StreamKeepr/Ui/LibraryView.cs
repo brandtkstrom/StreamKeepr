@@ -111,6 +111,30 @@ public sealed class LibraryView : ILibraryView
         }
     }
 
+    public IReadOnlyList<RecordingView> AllRecordings(LibraryQuery query)
+    {
+        var normalized = Normalize(query);
+
+        lock (_gate)
+        {
+            var matches = new List<RecordingView>();
+            foreach ((string login, IReadOnlyList<RecordingView> recordings) in _recordingsByChannel)
+            {
+                if (!_streamersByLogin.TryGetValue(login, out StreamerView? streamer))
+                    continue;
+
+                foreach (RecordingView recording in recordings)
+                {
+                    if (Matches(recording, streamer, normalized))
+                        matches.Add(recording);
+                }
+            }
+
+            matches.Sort((left, right) => CompareRecordings(left, right, normalized.Sort));
+            return matches;
+        }
+    }
+
     public RecordingView? Find(string id)
     {
         ArgumentNullException.ThrowIfNull(id);

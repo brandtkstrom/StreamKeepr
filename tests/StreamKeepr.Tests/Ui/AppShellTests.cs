@@ -317,6 +317,51 @@ public sealed class AppShellTests
         });
     }
 
+    [Fact]
+    public async Task Show_library_expands_the_rail_and_applies_the_filter()
+    {
+        await using var context = CreateContext(
+            """{"v":1,"drawer":"rail","theater":false,"stats":false,"details":true,"collapsed":[]}""");
+        var cut = RenderShell(context);
+        await SetBreakpointAsync(cut, Breakpoint.Lg);
+
+        await cut.InvokeAsync(() => cut.Instance.ShowLibraryAsync("/?state=saved"));
+
+        var navigation = context.Services.GetRequiredService<NavigationManager>();
+        Assert.Equal("/?state=saved", "/" + navigation.ToBaseRelativePath(navigation.Uri));
+        cut.WaitForAssertion(() =>
+            Assert.Equal("expanded", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer")));
+    }
+
+    [Fact]
+    public async Task On_a_phone_show_library_opens_the_temporary_drawer_after_navigating()
+    {
+        await using var context = CreateContext();
+        var cut = RenderShell(context);
+        await SetBreakpointAsync(cut, Breakpoint.Xs);
+
+        await cut.InvokeAsync(() => cut.Instance.ShowLibraryAsync("/?state=saved"));
+
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-shell][data-drawer-modal-open]")));
+
+        // The next navigation (picking a recording) still closes it.
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/r/abc");
+        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll("[data-shell][data-drawer-modal-open]")));
+    }
+
+    [Fact]
+    public async Task On_a_phone_show_library_opens_the_drawer_when_the_filter_is_already_set()
+    {
+        await using var context = CreateContext();
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/?state=saved");
+        var cut = RenderShell(context);
+        await SetBreakpointAsync(cut, Breakpoint.Xs);
+
+        await cut.InvokeAsync(() => cut.Instance.ShowLibraryAsync("/?state=saved"));
+
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-shell][data-drawer-modal-open]")));
+    }
+
     private static Task SetBreakpointAsync(IRenderedComponent<AppShell> cut, Breakpoint breakpoint) =>
         cut.InvokeAsync(() => ((TestBrowserViewport)cut.Services.GetRequiredService<IBrowserViewportService>())
             .SetBreakpointAsync(breakpoint));
