@@ -16,6 +16,7 @@ This contract defines the test seams, projects, fake-Twitch harness, determinism
 | Integration | `tests/StreamKeepr.Tests` | `WebApplicationFactory`: media, health, auth, progress, export, channel, chat, and emote catalog endpoints; real DI with fake external services |
 | Component | `tests/StreamKeepr.Tests` | bUnit: primitives, library, player shell, stats, chat pane, details, auth, settings |
 | JS | `tests/js` | Vitest: timecode, preferences, tree navigation, shortcuts, sparkline, player pure logic, chat playhead/reveal/sync, third-party emote matching |
+| Process | `tests/StreamKeepr.Tests` | The built app as a child process, only for behavior `WebApplicationFactory` cannot observe: fatal startup logging, log flush, and exit code. Temp roots, no network, killed on timeout |
 | E2E | `tests/StreamKeepr.E2E` | Playwright .NET against the Mock profile: journeys, chat replay, emote replay, axe, keyboard, screenshots |
 | Container | `tests/StreamKeepr.E2E` or CI | Docker build, non-root smoke, health, deep links, restart |
 
@@ -152,7 +153,7 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 | Session store | Manifest round-trip; atomic writes; lock coverage; stitch/ENDLIST/chapters; live cache; recovery; corrupt manifests; missing index; library events; disk guard; no retention |
 | Runtime | Command order; open failure skip; finalize failure; job overrun fatal; retry timer; disk full; channel add/remove/stop/resume; Helix validation; seeded failure; control gate; shutdown |
 | Twitch/auth | Token cache/refresh/401; forced admin-token refresh; poller batch/Unknown/offline/profile; schedule/coverage; EventSub welcome/refusal/409 session verification/429 capacity/partial coverage/no-resolved-channel idle/non-live online/dedupe/reconnect handoff/malformed and route isolation/401 retry/timeouts/backoff; allowlist empty/configured; callback/HTTPS/cookie/logout; token encryption/rotation/clear/wait; subscriber token |
-| Hosting | Media allowlist/traversal/content types/cache/Range; live vs final index; health push-aware/readiness; Data Protection persistence; preflight; endpoint auth |
+| Hosting | Media allowlist/traversal/content types/cache/Range; live vs final index; health push-aware/readiness; Data Protection persistence; preflight; endpoint auth; Serilog pipeline (Serilog factory, levels from the `Serilog` section, no duplicate providers, static logger untouched by test hosts), shipped logging config and template, fatal startup log and non-zero exit |
 | Frontend | bUnit primitives and feature components; Vitest helpers/player logic; Playwright journeys; axe/keyboard |
 | Emotes | Provider normalization and static URL assembly; cache TTL/stale/single-flight and bounds; channel-ID fallback and memoization; cold global with a slow resolver; endpoint shape/disabled/failure; matcher precedence and native-range protection; image attributes and text fallback; Mock/E2E fixture; no external network |
 | Container | Build; non-root; health; deep links; volume; secrets; stop finalize; restart recovery |
