@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using StreamKeepr.Configuration;
+using StreamKeepr.Hosting;
 
 namespace StreamKeepr.Tests.Hosting;
 
@@ -71,7 +72,7 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Testing");
+        builder.UseEnvironment(StreamKeeprLogging.TestingEnvironmentName);
         builder.ConfigureAppConfiguration((_, configuration) =>
             configuration.AddInMemoryCollection(_settings));
         builder.ConfigureLogging(logging => logging.AddProvider(Logs));

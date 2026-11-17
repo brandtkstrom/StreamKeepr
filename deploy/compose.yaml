@@ -71,6 +71,12 @@ services:
       # Hosting__ForwardedHeaders__KnownProxies__0: 172.18.0.1
       # Hosting__ForwardedHeaders__KnownNetworks__0: 172.18.0.0/16
 
+      # Log levels (Verbose, Debug, Information, Warning, Error, Fatal). Change one
+      # and run "docker compose up -d"; no rebuild is needed. See README.md.
+      # Serilog__MinimumLevel__Default: Information
+      # Serilog__MinimumLevel__Override__StreamKeepr: Debug
+      # Serilog__MinimumLevel__Override__Microsoft.AspNetCore: Information
+
     # Secret files are mounted under /run/secrets and read as configuration: the
     # file name maps "__" to ":", so Twitch__ClientId becomes Twitch:ClientId.
     secrets:

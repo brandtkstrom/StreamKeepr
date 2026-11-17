@@ -137,7 +137,7 @@ Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6
 - Environment: `ASPNETCORE_ENVIRONMENT=Production`, `TZ`, optional `Twitch__Channels__0` seed.
 - Secrets: `Twitch__ClientId`, `Twitch__ClientSecret`; optional `Recorder__TwitchUserOAuthToken`. Mounted as `/run/secrets` and loaded by `AddKeyPerFile`.
 - Volume: `recordings:/recordings`; bind mount requires `chown -R 1654:1654 ./recordings`.
-- Logging: `json-file`, `max-size: 10m`, `max-file: 5`.
+- Logging: `json-file`, `max-size: 10m`, `max-file: 5`. The app writes through Serilog's console sink only, configured by the `Serilog` section; `Serilog__MinimumLevel__…` environment variables change levels on restart.
 - The image healthcheck is inherited; no Compose override.
 
 ## 9. Shutdown

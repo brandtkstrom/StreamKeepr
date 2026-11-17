@@ -18,6 +18,9 @@ services:
       # Optional first-start channel seed. An empty value fails options
       # validation, so uncomment the line only when you set the login.
       # Twitch__Channels__0: ${TWITCH_CHANNEL_LOGIN}
+      # Optional log levels; a restart applies them without a rebuild.
+      # Serilog__MinimumLevel__Default: Information
+      # Serilog__MinimumLevel__Override__StreamKeepr: Debug
     secrets:
       - Twitch__ClientId
       - Twitch__ClientSecret
