@@ -11,6 +11,8 @@ namespace StreamKeepr.Tests.Ui;
 
 public sealed class LibrarySearchTests
 {
+    private const string DrawerModule = "./Components/Features/Library/LibraryDrawer.razor.js";
+
     private static readonly DateTimeOffset Now = new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
@@ -129,11 +131,76 @@ public sealed class LibrarySearchTests
 
         navigation.NavigateTo("/?q=zzz");
         cut.WaitForAssertion(() =>
-            Assert.Equal("No recordings match", cut.Find("[data-library-empty]").TextContent));
+            Assert.Equal("No recordings match “zzz”", cut.Find("[data-library-empty]").TextContent));
+    }
+
+    [Fact]
+    public async Task A_search_with_no_match_clears_only_the_search()
+    {
+        await using BunitContext context = CreateContext(new TestLibraryView());
+        BunitJSModuleInterop drawerModule = context.JSInterop.SetupModule(DrawerModule);
+        var navigation = (BunitNavigationManager)context.Services
+            .GetRequiredService<NavigationManager>();
+        navigation.NavigateTo("/?q=speed&state=saved");
+
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        Assert.Equal("No recordings match “speed”", cut.Find("[data-library-empty]").TextContent);
+        Assert.Contains("Try another title, streamer or category.", cut.Find("[data-library-no-match]").TextContent);
+        Assert.False(cut.Find("[data-drawer-list]").HasNamed("button", "Show all recordings"));
+        Button(cut, "Clear search").Click();
+
+        Assert.EndsWith("/?state=saved", navigation.Uri);
+        AssertFocusedNext(drawerModule, "[data-search-input]");
+        Assert.True(navigation.History.First().Options.ReplaceHistoryEntry);
+        cut.WaitForAssertion(() =>
+            Assert.Contains("No saved recordings.", cut.Find("[data-library-no-match]").TextContent));
+    }
+
+    [Fact]
+    public async Task A_filter_with_no_match_says_so_and_shows_all_recordings()
+    {
+        await using BunitContext context = CreateContext(new TestLibraryView());
+        BunitJSModuleInterop drawerModule = context.JSInterop.SetupModule(DrawerModule);
+        var navigation = (BunitNavigationManager)context.Services
+            .GetRequiredService<NavigationManager>();
+        navigation.NavigateTo("/r/r1?state=recording&sort=oldest");
+
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        Assert.Equal("No recordings match", cut.Find("[data-library-empty]").TextContent);
+        Assert.Contains("Nothing is recording right now.", cut.Find("[data-library-no-match]").TextContent);
+        Assert.Equal("search", cut.Find("[data-library-no-match]").GetAttribute("data-empty-icon"));
+        Button(cut, "Show all recordings").Click();
+
+        Assert.EndsWith("/r/r1?sort=oldest", navigation.Uri);
+        AssertFocusedNext(drawerModule, "[data-filter='all']");
+        Assert.True(navigation.History.First().Options.ReplaceHistoryEntry);
+    }
+
+    [Fact]
+    public async Task The_saved_filter_names_itself_when_nothing_matches()
+    {
+        await using BunitContext context = CreateContext(new TestLibraryView());
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/?state=saved");
+
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        Assert.Contains("No saved recordings.", cut.Find("[data-library-no-match]").TextContent);
+        Assert.NotNull(Button(cut, "Show all recordings"));
     }
 
     private static AngleSharp.Dom.IElement Chip(IRenderedComponent<LibraryDrawer> cut, string filter) =>
         cut.Find($"[role='group'][aria-label='Filter recordings'] [data-filter='{filter}']");
+
+    private static AngleSharp.Dom.IElement Button(IRenderedComponent<LibraryDrawer> cut, string name) =>
+        cut.Find("[data-drawer-list]").Named("button", name);
+
+    // The pressed button disappears, so the drawer's focus module hands focus on.
+    private static void AssertFocusedNext(BunitJSModuleInterop module, string selector) =>
+        Assert.Contains(
+            module.Invocations["focusWhenPresent"],
+            invocation => (string?)invocation.Arguments[0] == selector);
 
     private static TestLibraryView OneStreamer()
     {

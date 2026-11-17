@@ -765,6 +765,12 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 /* ---------- requires Twitch ---------- */
 .sk-requires-twitch { display: contents; }
 
+/* ---------- empty states (design system: EmptyStates) ---------- */
+.sk-empty-state { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding: var(--space-6) var(--space-4); text-align: center; }
+.sk-empty-state > .mud-icon-root { color: var(--action-default); }
+.sk-empty-state-page { padding-block: var(--space-8); gap: var(--space-3); }
+.sk-empty-state-page > .sk-empty-icon { font-size: 48px; }
+
 /* ---------- alerts (MudAlert Variant.Text; design system Feedback card) ----------
    A 14% tint of the severity colour and the icon in that colour; the text never takes it. */
 .mud-alert[class*="mud-alert-text-"] { color: var(--text-primary); }

@@ -96,7 +96,21 @@
         IReadOnlyList<StreamerView> streamers = Library.Streamers(_query);
         if (streamers.Count == 0)
         {
-            <p class="body-medium" data-library-empty>@(Filtered ? "No recordings match" : "No recordings yet")</p>
+            if (!Filtered)
+            {
+                <p class="body-medium" data-library-empty>No recordings yet</p>
+            }
+            else
+            {
+                @* Design system: EmptyStates, no match. One icon, one headline, one sentence, one way out. *@
+                NoMatchState noMatch = NoMatch;
+                <div class="sk-empty-state" data-library-no-match data-empty-icon="search">
+                    <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Search" aria-hidden="true" />
+                    <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle1" HtmlTag="p" data-library-empty>@noMatch.Headline</MudBlazor.MudText>
+                    <MudBlazor.MudText Typo="MudBlazor.Typo.body2">@noMatch.Line</MudBlazor.MudText>
+                    <MudBlazor.MudButton Variant="MudBlazor.Variant.Text" Color="MudBlazor.Color.Primary" OnClick="noMatch.OnAction">@noMatch.Action</MudBlazor.MudButton>
+                </div>
+            }
         }
         else
         {
@@ -147,6 +161,9 @@
         ("recording", "Recording", MudBlazor.Icons.Material.Rounded.FiberManualRecord),
         ("saved", "Saved", MudBlazor.Icons.Material.Rounded.Inventory2),
     ];
+
+    // What the drawer says when a search or filter matches nothing, and its one way out.
+    private sealed record NoMatchState(string Headline, string Line, string Action, Func<Task> OnAction);
 
     /// <summary>True while the shell shows the desktop rail (set by <c>AppShell</c>).</summary>
     [CascadingParameter(Name = "LibraryRail")] public bool Rail { get; set; }
@@ -296,6 +313,30 @@
 
     private bool Filtered => _query.Search is not null || _query.State is not null;
 
+    // Search wins when both are set: clearing it is the smaller step, and the filter's own
+    // no-match message follows if the filter still matches nothing. LibraryUrl normalizes
+    // state to recording, saved or null, and null with no search is not a no-match.
+    private NoMatchState NoMatch => _query.Search is { } search
+        ? new($"No recordings match “{search}”", "Try another title, streamer or category.", "Clear search", ClearSearchAsync)
+        : new(
+            "No recordings match",
+            _query.State == "recording" ? "Nothing is recording right now." : "No saved recordings.",
+            "Show all recordings",
+            ShowAllAsync);
+
+    // The button that was pressed disappears, so focus moves to the control that now holds the state.
+    private async Task ShowAllAsync()
+    {
+        SetState(null);
+        await FocusAsync("[data-filter='all']");
+    }
+
+    private async Task ClearSearchAsync()
+    {
+        Navigate(_query with { Search = null });
+        await FocusAsync("[data-search-input]");
+    }
+
     private SortChoice CurrentSort =>
         Array.Find(SortChoices, choice => choice.Key == _query.Sort) ?? SortChoices[0];
 
@@ -303,17 +344,19 @@
 
     private void OnSortMenuOpenChanged(bool open) => _focusSortMenu = open;
 
-    private async Task FocusSortChoiceAsync()
+    // Without the module the menu still works; only the first Escape moves focus instead.
+    private Task FocusSortChoiceAsync() => FocusAsync($"[data-sort-option='{CurrentSort.Key}']");
+
+    private async Task FocusAsync(string selector)
     {
         try
         {
             _drawerModule ??= await JS.InvokeAsync<IJSObjectReference>("import", DrawerModule);
-            await _drawerModule.InvokeAsync<bool>("focusWhenPresent", $"[data-sort-option='{CurrentSort.Key}']");
+            await _drawerModule.InvokeAsync<bool>("focusWhenPresent", selector);
         }
         catch (JSException ex)
         {
-            // Without the module the menu still works; only the first Escape moves focus instead.
-            Logger.LogDebug(ex, "Could not focus the sort menu's current choice.");
+            Logger.LogDebug(ex, "Could not focus {Selector}.", selector);
         }
         catch (JSDisconnectedException)
         {

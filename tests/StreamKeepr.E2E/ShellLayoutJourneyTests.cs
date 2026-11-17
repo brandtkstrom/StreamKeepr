@@ -74,6 +74,48 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         await bar.WaitForAsync();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task On_a_phone_clear_search_leaves_focus_on_a_visible_control(bool closeSearchRowFirst)
+    {
+        await using Session session = await OpenAsync(app.BaseUrl, viewport: Phone, hasTouch: true);
+        IPage page = session.Page;
+        ILocator search = page.Locator("input[data-search-input]");
+        await page.GetByRole(AriaRole.Button, new() { Name = "Search", Exact = true }).TapAsync();
+        await search.FillAsync("zzzz-no-such-stream");
+        await page.WaitForURLAsync(url => url.Contains("q=", StringComparison.Ordinal));
+        if (closeSearchRowFirst)
+        {
+            // The query stays in the URL; only the row is put away.
+            await page.GetByRole(AriaRole.Button, new() { Name = "Search", Exact = true }).TapAsync();
+            await search.WaitForAsync(new() { State = WaitForSelectorState.Hidden });
+        }
+
+        ILocator bar = page.GetByRole(AriaRole.Navigation, new() { Name = "Main" });
+        await bar.GetByRole(AriaRole.Button, new() { Name = "Library" }).TapAsync();
+        await page.Locator("[data-shell][data-drawer-modal-open]").WaitForAsync();
+        ILocator noMatch = page.Locator("[data-library-no-match]");
+        await noMatch.WaitForAsync();
+
+        await noMatch.GetByRole(AriaRole.Button, new() { Name = "Clear search" }).TapAsync();
+        await page.WaitForURLAsync(url => !url.Contains("q=", StringComparison.Ordinal));
+        await page.Locator("[data-shell]:not([data-drawer-modal-open])").WaitForAsync();
+
+        // Clearing navigates, which closes the temporary drawer. With the search row open, focus
+        // goes to the search field; with the row put away, the drawer hands it back to Library.
+        ILocator expected = closeSearchRowFirst
+            ? bar.GetByRole(AriaRole.Button, new() { Name = "Library" })
+            : search;
+        await LibraryJourneyTests.Expect(
+            async () => await expected.EvaluateAsync<bool>("e => e === document.activeElement") ? 1 : 0,
+            1);
+        Assert.True(await expected.IsVisibleAsync());
+        // And it stays there: nothing moves it once the drawer has closed.
+        await Task.Delay(500);
+        Assert.True(await expected.EvaluateAsync<bool>("e => e === document.activeElement"));
+    }
+
     [Fact]
     public async Task Watch_pages_open_on_the_rail_and_each_page_kind_remembers_its_drawer()
     {

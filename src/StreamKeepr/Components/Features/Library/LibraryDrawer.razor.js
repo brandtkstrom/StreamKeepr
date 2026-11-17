@@ -1,7 +1,8 @@
 // Focus for the drawer's sort menu. MudMenu renders its items in the popover provider a frame or
 // two after it opens, and leaves focus on its trigger after a pointer open, so the first Escape
 // would only move focus into the list. Focusing the current choice on open follows the
-// menu-button pattern: one Escape closes the menu and returns focus to the trigger.
+// menu-button pattern: one Escape closes the menu and returns focus to the trigger. The no-match
+// state uses the same helper to hand focus on once its button has gone.
 
 /**
  * Focuses the first element matching `selector` once it exists.
