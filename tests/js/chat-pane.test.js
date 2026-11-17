@@ -84,6 +84,18 @@ function fakeFetch(payload = message) {
   }));
 }
 
+/** A complete window holding `messages`, with no lead-in, offset or gaps. */
+function windowFetch(messages) {
+  return vi.fn(async () => ({
+    ok: true,
+    json: async () => ({
+      v: 1, recordingId: "r1", state: "complete", hasChat: true, source: "mock",
+      leadInSec: 0, fromSec: 0, toSec: 120, syncOffsetSec: 0, gaps: [],
+      hasMoreBefore: false, hasMoreAfter: false, messages,
+    }),
+  }));
+}
+
 const VIEW = {
   recordingId: "r1",
   open: true,
@@ -205,18 +217,10 @@ describe("chat replay pane", () => {
   it("names the channel's own messages in its channel colour", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
-    const fetch = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
-        v: 1, recordingId: "r1", state: "complete", hasChat: true, source: "mock",
-        leadInSec: 0, fromSec: 0, toSec: 120, syncOffsetSec: 0, gaps: [],
-        hasMoreBefore: false, hasMoreAfter: false,
-        messages: [
-          { ...message, id: "own", mt: 2, login: "Mock_Nova", display: "Mock_Nova", color: "#123456" },
-          { ...message, id: "viewer", mt: 3 },
-        ],
-      }),
-    }));
+    const fetch = windowFetch([
+      { ...message, id: "own", mt: 2, login: "Mock_Nova", display: "Mock_Nova", color: "#123456" },
+      { ...message, id: "viewer", mt: 3 },
+    ]);
     const pane = createChatPane(root, { fetch, storage: storage() });
 
     await pane.load({ ...VIEW, channelLogin: "mock_nova", channelColor: 5 });
@@ -236,18 +240,10 @@ describe("chat replay pane", () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
     root.style.backgroundColor = "rgb(55, 55, 64)"; // the surface token, #373740
-    const fetch = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
-        v: 1, recordingId: "r1", state: "complete", hasChat: true, source: "mock",
-        leadInSec: 0, fromSec: 0, toSec: 120, syncOffsetSec: 0, gaps: [],
-        hasMoreBefore: false, hasMoreAfter: false,
-        messages: [
-          { ...message, id: "bright", mt: 2, color: "#00FF00" },
-          { ...message, id: "dark", mt: 3, color: "#9146FF" },
-        ],
-      }),
-    }));
+    const fetch = windowFetch([
+      { ...message, id: "bright", mt: 2, color: "#00FF00" },
+      { ...message, id: "dark", mt: 3, color: "#9146FF" },
+    ]);
     const pane = createChatPane(root, { fetch, storage: storage() });
 
     await pane.load({ ...VIEW });

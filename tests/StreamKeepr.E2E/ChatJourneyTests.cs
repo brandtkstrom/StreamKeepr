@@ -65,14 +65,14 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         // The player's button and the C key make the same request, and the button mirrors both.
         await chat.ClickAsync();
         string toggled = opened == "true" ? "false" : "true";
-        await page.WaitForFunctionAsync($"() => document.querySelector('[data-sk-chat]').dataset.open === '{toggled}'");
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-open", toggled);
         Assert.Equal(toggled, await chat.GetAttributeAsync("aria-pressed"));
         await page.Keyboard.PressAsync("c");
-        await page.WaitForFunctionAsync($"() => document.querySelector('[data-sk-chat]').dataset.open === '{opened}'");
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-open", opened);
         Assert.Equal(opened, await chat.GetAttributeAsync("aria-pressed"));
         if (opened != "true")
             await chat.ClickAsync();
-        await page.WaitForFunctionAsync("() => document.querySelector('[data-sk-chat]').dataset.open === 'true'");
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-open", "true");
 
         ILocator seek = page.Locator("[data-sk='seek']");
         await seek.FocusAsync();

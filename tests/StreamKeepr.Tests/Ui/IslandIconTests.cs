@@ -1,5 +1,7 @@
 using System.Reflection;
 using System.Text.RegularExpressions;
+using Bunit;
+using StreamKeepr.Components.Primitives;
 using StreamKeepr.Ui;
 
 namespace StreamKeepr.Tests.Ui;
@@ -14,8 +16,7 @@ public sealed partial class IslandIconTests
     [Fact]
     public void Every_js_glyph_is_the_MudBlazor_rounded_glyph_of_the_same_name()
     {
-        string path = Path.Combine(TestPaths.RepositoryRoot(), "src", "StreamKeepr", "wwwroot", "js", "island-icons.js");
-        MatchCollection entries = Entry().Matches(File.ReadAllText(path));
+        MatchCollection entries = Entry().Matches(ReadSource("wwwroot", "js", "island-icons.js"));
 
         Assert.NotEmpty(entries);
         foreach (Match entry in entries)
@@ -30,8 +31,7 @@ public sealed partial class IslandIconTests
     [Fact]
     public void The_js_svg_wrapper_matches_the_razor_one()
     {
-        string path = Path.Combine(TestPaths.RepositoryRoot(), "src", "StreamKeepr", "wwwroot", "js", "island-icons.js");
-        Match wrapper = Wrapper().Match(File.ReadAllText(path));
+        Match wrapper = Wrapper().Match(ReadSource("wwwroot", "js", "island-icons.js"));
 
         Assert.True(wrapper.Success, "island-icons.js must declare SVG_ATTRIBUTES.");
         Assert.StartsWith(
@@ -53,13 +53,44 @@ public sealed partial class IslandIconTests
         Assert.Contains(MudBlazor.Icons.Material.Rounded.PlayArrow, markup, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(StatusChipKind.Reconnecting, "Sync")]
+    [InlineData(StatusChipKind.Partial, "Warning")]
+    public async Task The_player_chip_copies_StatusChip_hooks_words_and_glyph(StatusChipKind status, string glyph)
+    {
+        await using var context = new BunitContext();
+        context.Services.AddStreamKeeprMudServices();
+        var chip = context.Render<StatusChip>(parameters => parameters.Add(component => component.Status, status))
+            .Find("[data-status]");
+        string player = ReadSource("Components", "Features", "Player", "VideoPlayer.razor.js");
+
+        // VideoPlayer.razor.js CHIPS draws this chip without MudBlazor; it must say what StatusChip says.
+        Assert.Contains(
+            $"data-status=\"{chip.GetAttribute("data-status")}\" data-status-icon=\"{chip.GetAttribute("data-status-icon")}\">" +
+            $"${{iconMarkup(\"{glyph}\")}}{chip.TextContent.Trim()}</span>",
+            player,
+            StringComparison.Ordinal);
+        // The DOM re-serialises the glyph, so compare its path data.
+        string constant = (string)typeof(MudBlazor.Icons.Material.Rounded).GetField(glyph)!.GetValue(null)!;
+        Assert.Equal(
+            PathData().Matches(constant).Select(match => match.Groups["d"].Value),
+            chip.QuerySelectorAll("svg path").Select(path => path.GetAttribute("d")));
+    }
+
     [Fact]
     public void An_unknown_glyph_fails_fast() =>
         Assert.Throws<ArgumentException>(() => IslandIcon.Svg("NotAnIcon"));
 
+    private static string ReadSource(params string[] path) =>
+        File.ReadAllText(Path.Combine([TestPaths.RepositoryRoot(), "src", "StreamKeepr", .. path]));
+
     /// <summary>The attributes every module-built icon carries before its <c>data-icon</c>.</summary>
     [GeneratedRegex(@"^const SVG_ATTRIBUTES = '(?<attributes>[^']*)';", RegexOptions.Multiline)]
     private static partial Regex Wrapper();
+
+    /// <summary>The <c>d</c> attribute of each path in a glyph.</summary>
+    [GeneratedRegex(@"\bd=""(?<d>[^""]*)""")]
+    private static partial Regex PathData();
 
     /// <summary>One <c>Name: 'glyph',</c> line of the frozen ICONS object.</summary>
     [GeneratedRegex(@"^\s*(?<name>[A-Z]\w*):\s*'(?<glyph><[^']*)',?\s*$", RegexOptions.Multiline)]

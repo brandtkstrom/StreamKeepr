@@ -303,6 +303,11 @@ describe("VideoPlayer.razor.js", () => {
       expect(hls.instances[0].destroy).not.toHaveBeenCalled();
       expect(media.seeks).toEqual([]);
       expect(hook("chip").textContent).toContain("Partial");
+      // StatusChip's hooks and glyph (IslandIconTests pins the copy to StatusChip.razor).
+      const chip = hook("chip").querySelector("[data-status]");
+      expect(chip.dataset.status).toBe("partial");
+      expect(chip.dataset.statusIcon).toBe("warning");
+      expect(chip.querySelector("svg").dataset.icon).toBe("Warning");
     });
 
     it("starts finished recordings at their resume position", async () => {
@@ -1004,6 +1009,10 @@ describe("VideoPlayer.razor.js", () => {
 
       expect(hook("waiting").hidden).toBe(false);
       expect(hook("chip").textContent).toContain("Reconnecting");
+      const chip = hook("chip").querySelector("[data-status]");
+      expect(chip.dataset.status).toBe("reconnecting");
+      expect(chip.dataset.statusIcon).toBe("sync");
+      expect(chip.querySelector("svg").dataset.icon).toBe("Sync");
     });
 
     it("becomes an error only once the session is complete", async () => {

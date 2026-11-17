@@ -421,7 +421,8 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   font: var(--text-button); letter-spacing: var(--text-button-letter-spacing); text-transform: uppercase;
   text-decoration: none; cursor: pointer;
 }
-.sk-player-action.filled { background: var(--player-accent); color: var(--primary-contrast-text); box-shadow: var(--elevation-4); }
+/* The filled label is player-background, black on player-accent (9.0:1), so the player reads no page token. */
+.sk-player-action.filled { background: var(--player-accent); color: var(--player-background); box-shadow: var(--elevation-4); }
 .sk-player-action.text:hover { background: color-mix(in srgb, var(--player-text) calc(var(--hover-opacity) * 100%), transparent); }
 
 /* Seek: a 4px track at 24% player-text, buffered in player-buffered, played and the 14px knob in

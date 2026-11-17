@@ -240,7 +240,7 @@ Vitest:
 
 xUnit/bUnit (islands):
 
-- `IslandIconTests`: every glyph in `island-icons.js` equals its MudBlazor constant; `IslandIcon.Svg` markup and its unknown-name failure.
+- `IslandIconTests`: every glyph in `island-icons.js` equals its MudBlazor constant; `IslandIcon.Svg` markup and its unknown-name failure; the player's Reconnecting and Partial chips carry StatusChip's hooks, words and glyph.
 - Each player control draws its Material Rounded glyph; the Chat toggle is hidden, named, `aria-keyshortcuts="C"`, beside stats; speed items carry `Check`. Stats section icons, sparkline colours, the Stream empty state and a plain Copy button. The chat payload's `channelColor` matches the drawer's colour for the same login.
 
 Playwright (Chrome channel against the Mock profile):
