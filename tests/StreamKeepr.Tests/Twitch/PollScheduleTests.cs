@@ -16,7 +16,7 @@ public sealed class PollScheduleTests
 
         Task wait = schedule.WaitAsync(Normal, WithPush, CancellationToken.None);
         clock.Advance(TimeSpan.FromSeconds(29));
-        Assert.False(wait.IsCompleted);
+        await AssertStillWaiting(wait);
 
         clock.Advance(TimeSpan.FromSeconds(1));
         await wait.WaitAsync(TimeSpan.FromSeconds(1));
@@ -31,7 +31,7 @@ public sealed class PollScheduleTests
 
         Task wait = schedule.WaitAsync(Normal, WithPush, CancellationToken.None);
         clock.Advance(TimeSpan.FromSeconds(299));
-        Assert.False(wait.IsCompleted);
+        await AssertStillWaiting(wait);
 
         clock.Advance(TimeSpan.FromSeconds(1));
         await wait.WaitAsync(TimeSpan.FromSeconds(1));
@@ -49,7 +49,7 @@ public sealed class PollScheduleTests
 
         Task first = schedule.WaitAsync(Normal, WithPush, CancellationToken.None);
         clock.Advance(TimeSpan.FromSeconds(9));
-        Assert.False(first.IsCompleted);
+        await AssertStillWaiting(first);
         clock.Advance(TimeSpan.FromSeconds(1));
         await first.WaitAsync(TimeSpan.FromSeconds(1));
 
@@ -57,10 +57,11 @@ public sealed class PollScheduleTests
         clock.Advance(TimeSpan.FromSeconds(10));
         await second.WaitAsync(TimeSpan.FromSeconds(1));
 
+        // Past the three-minute window, polling returns to the normal interval.
         clock.Advance(TimeSpan.FromSeconds(180));
         Task afterBurst = schedule.WaitAsync(Normal, WithPush, CancellationToken.None);
-        clock.Advance(TimeSpan.FromSeconds(299));
-        Assert.False(afterBurst.IsCompleted);
+        clock.Advance(TimeSpan.FromSeconds(29));
+        await AssertStillWaiting(afterBurst);
         clock.Advance(TimeSpan.FromSeconds(1));
         await afterBurst.WaitAsync(TimeSpan.FromSeconds(1));
     }
@@ -81,7 +82,7 @@ public sealed class PollScheduleTests
             .WaitAsync(TimeSpan.FromSeconds(1));
 
         Task next = schedule.WaitAsync(Normal, WithPush, CancellationToken.None);
-        Assert.False(next.IsCompleted);
+        await AssertStillWaiting(next);
         clock.Advance(Normal);
         await next.WaitAsync(TimeSpan.FromSeconds(1));
     }
@@ -99,7 +100,7 @@ public sealed class PollScheduleTests
 
         Task normal = schedule.WaitAsync(Normal, WithPush, CancellationToken.None);
         clock.Advance(TimeSpan.FromSeconds(29));
-        Assert.False(normal.IsCompleted);
+        await AssertStillWaiting(normal);
         clock.Advance(TimeSpan.FromSeconds(1));
         await normal.WaitAsync(TimeSpan.FromSeconds(1));
     }
@@ -240,6 +241,15 @@ public sealed class PollScheduleTests
         Assert.Equal(TimeSpan.FromSeconds(10), schedule.CurrentInterval);
         schedule.Nudge();
         await wait.WaitAsync(TimeSpan.FromSeconds(1));
+    }
+
+    // A FakeTimeProvider timer fires synchronously on Advance, but the wait's completion
+    // runs asynchronously after it, so an immediate IsCompleted check can pass by luck.
+    // Give a finished wait real time to complete before asserting it is still pending.
+    private static async Task AssertStillWaiting(Task wait)
+    {
+        Task winner = await Task.WhenAny(wait, Task.Delay(TimeSpan.FromMilliseconds(100)));
+        Assert.NotSame(wait, winner);
     }
 
     private static string[] Logins(int count) =>
