@@ -125,4 +125,29 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
         Assert.Contains("WATCHING", await row.Locator("[data-channel-state]").InnerTextAsync());
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "settings-resumed");
     }
+
+    [Fact]
+    public async Task Exit_settings_returns_to_the_previous_page_or_home()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+
+        // From a recording, the exit goes back to it through browser history.
+        ILocator row = page.Locator(LibraryHooks.Row).First;
+        string id = (await row.GetAttributeAsync("data-recording-id"))!;
+        await row.ClickAsync();
+        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == $"/r/{id}");
+        await page.GetByRole(AriaRole.Link, new() { Name = "Settings", Exact = true }).ClickAsync();
+        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/settings");
+        await page.Locator("[data-channel]").First.WaitForAsync();
+        await page.GetByRole(AriaRole.Button, new() { Name = "Exit settings" }).ClickAsync();
+        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == $"/r/{id}");
+
+        // Opened directly, there is no StreamKeepr page to go back to: Esc goes Home.
+        await page.GotoAsync($"{app.BaseUrl}/settings");
+        await page.Locator("[data-channel]").First.WaitForAsync();
+        await page.Locator("[data-settings-exit][data-sk-ready]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
+        await page.Keyboard.PressAsync("Escape");
+        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/");
+    }
 }

@@ -152,7 +152,10 @@
                     <div class="sk-main-inner">
                         @* Pages reach the shell for actions that need its drawer, such as Home's "Show all". *@
                         <CascadingValue Value="this" IsFixed="true">
-                            @ChildContent
+                            @* Settings' exit asks whether there is a StreamKeepr page to go back to. *@
+                            <CascadingValue Value="_history" IsFixed="true">
+                                @ChildContent
+                            </CascadingValue>
                         </CascadingValue>
                     </div>
                 </main>
@@ -188,6 +191,7 @@
     private bool _modalRendered;
     private string? _openModalOnArrivalAt;
     private bool _searchOpen;
+    private NavigationHistory _history = null!;
     private bool _updatesPaused;
     private bool _reconnectModalVisible;
     private bool _disposed;
@@ -255,6 +259,7 @@
 
     protected override void OnInitialized()
     {
+        _history = new NavigationHistory(Navigation.Uri);
         _searchOpen = LibraryUrl.Parse(Navigation.Uri).Search is not null;
         Preferences.Changed += OnPreferencesChanged;
         Navigation.LocationChanged += OnLocationChanged;
@@ -427,6 +432,7 @@
     // ShowLibraryAsync's own navigation opens it instead.
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _ = InvokeAsync(() =>
     {
+        _history.Visit(e.Location);
         _modalOpen = _compact && string.Equals(
             new Uri(e.Location).AbsoluteUri, _openModalOnArrivalAt, StringComparison.Ordinal);
         _openModalOnArrivalAt = null;

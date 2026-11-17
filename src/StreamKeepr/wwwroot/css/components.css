@@ -210,6 +210,7 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 .mud-chip.sk-status-reconnecting, .mud-chip.sk-status-partial { --sk-chip-color: var(--warning); }
 .mud-chip.sk-status-processing { --sk-chip-color: var(--secondary); }
 .mud-chip.sk-status-error { --sk-chip-color: var(--error); }
+.mud-chip.sk-status-healthy { --sk-chip-color: var(--success); }
 /* Saved and the other neutral kinds: 8% text-primary, the icon in text-secondary. */
 .mud-chip.sk-status-saved { background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
 .mud-chip.sk-status-saved .mud-chip-icon { color: var(--text-secondary); }
@@ -822,40 +823,44 @@ body:has([data-bottom-nav]) .mud-snackbar-location-bottom-left {
   white-space: nowrap; border: 0;
 }
 
-/* ---------- settings (details/auth/settings contract §8) ---------- */
-.sk-settings { display: flex; flex-direction: column; gap: var(--sk-space-4); max-width: 760px; }
-.sk-settings h1 { margin: 0; font: var(--sk-text-headline-small); }
-.sk-settings-section { padding: var(--sk-space-4); display: flex; flex-direction: column; gap: var(--sk-space-3); }
-.sk-settings-section h2, .sk-settings-signin h2 { margin: 0; font: var(--sk-text-title-medium); }
-.sk-settings-note { display: flex; align-items: center; gap: var(--sk-space-2); margin: 0; padding: var(--sk-space-3); border-radius: var(--sk-radius-sm); background: var(--sk-warning-container); color: var(--sk-on-warning-container); font: var(--sk-text-body-medium); }
-.sk-settings-signin { display: flex; flex-direction: column; align-items: center; gap: var(--sk-space-3); padding: var(--sk-space-8) var(--sk-space-4); text-align: center; }
-.sk-connection-status { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--sk-space-2) var(--sk-space-4); margin: 0; font: var(--sk-text-body-medium); }
-.sk-connection-status dt { color: var(--sk-on-surface-variant); }
-.sk-connection-status dd { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sk-space-2); margin: 0; min-width: 0; }
-.sk-connection-status .detail { color: var(--sk-on-surface-variant); font: var(--sk-text-body-small); }
-.sk-settings-account { display: flex; align-items: center; gap: var(--sk-space-3); }
+/* ---------- settings (details/auth/settings contract §8; design system: SettingsPage,
+   ChannelSettings, ConnectionStatus). Sections are outlined MudPapers; MudText sets the type. */
+.sk-settings { display: flex; flex-direction: column; gap: var(--space-4); max-width: var(--form-max-width); }
+.sk-settings-header { display: flex; align-items: center; gap: var(--space-2); }
+.sk-settings-header h1 { margin: 0; }
+/* A tight tooltip root: an open MudTooltip trips axe's region rule, so only the button opens it. */
+.sk-settings-exit { display: inline-flex; }
+.mud-paper.sk-settings-section { padding: var(--space-4); }
+.sk-settings-section > section { display: flex; flex-direction: column; gap: var(--space-3); }
+.sk-settings-title { display: flex; align-items: center; gap: var(--space-2); }
+.sk-settings-title h2, .sk-settings-signin h2 { margin: 0; }
+.mud-paper.sk-settings-signin { padding: var(--space-8) var(--space-4); }
+.sk-settings-signin > section { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); text-align: center; }
+.sk-settings-account { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .sk-settings-account .who, .sk-channel-row .who { display: flex; flex-direction: column; min-width: 0; }
-.sk-settings-account .who span, .sk-channel-row .login { color: var(--sk-on-surface-variant); font: var(--sk-text-body-small); }
+.sk-settings-account .who .mud-typography-caption, .sk-channel-row .login { color: var(--text-secondary); }
+.sk-settings-connected { display: inline-flex; align-items: center; gap: var(--space-1); font: var(--text-body2); }
 .sk-settings-account .actions { margin-left: auto; }
-.sk-settings-empty { margin: 0; color: var(--sk-on-surface-variant); font: var(--sk-text-body-medium); }
+.sk-settings-empty { color: var(--text-secondary); }
+.sk-connection-status.mud-simple-table { background: transparent; }
+.sk-connection-status tr { height: 40px; }
+.sk-connection-status th, .sk-connection-status td { border-bottom: 1px solid var(--divider); }
+.sk-connection-status tr:last-child th, .sk-connection-status tr:last-child td { border-bottom: 0; }
+.sk-connection-status th { width: 1%; white-space: nowrap; text-align: left; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
+.sk-connection-status td { font: var(--text-body2); }
+.sk-connection-status .detail { margin-left: var(--space-2); color: var(--text-secondary); font: var(--text-caption); }
 .sk-channel-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.sk-channel-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sk-space-3); padding: var(--sk-space-2) 0; border-bottom: 1px solid var(--sk-outline-variant); }
+.sk-channel-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--divider); }
 .sk-channel-row:last-child { border-bottom: 0; }
 .sk-channel-row .grow { flex: 1; }
 .sk-channel-row .sk-field-error { flex-basis: 100%; }
-.sk-channel-busy { color: var(--sk-on-surface-variant); font: var(--sk-text-label-large); }
-.sk-channel-add { display: flex; flex-direction: column; gap: var(--sk-space-2); }
-.sk-channel-add label { font: var(--sk-text-label-large); }
-.sk-channel-add .row { display: flex; gap: var(--sk-space-2); }
-.sk-channel-add input {
-  flex: 1; min-width: 0; height: 40px; padding: 0 var(--sk-space-3); border: 1px solid var(--sk-outline); border-radius: var(--sk-radius-xs);
-  background: transparent; color: var(--sk-on-surface); font: var(--sk-text-body-large);
-}
-.sk-channel-add input:focus-visible { outline: 2px solid var(--sk-primary); outline-offset: 1px; }
-.sk-channel-add input[aria-invalid="true"] { border-color: var(--sk-error); }
-.sk-channel-add .sk-btn .sk-spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: sk-spin 800ms linear infinite; }
-.sk-field-error { margin: 0; color: var(--sk-error); font: var(--sk-text-body-small); }
-@media (prefers-reduced-motion: reduce) { .sk-channel-add .sk-btn .sk-spin { animation-duration: 2400ms; } }
+.sk-channel-busy { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); font: var(--text-body2); }
+.sk-channel-add { display: flex; align-items: center; gap: var(--space-2); }
+.sk-channel-add .mud-input-control { flex: 1; min-width: 0; margin: 0; }
+/* Add errors render below as their own role="alert" paragraph, so the field's empty helper row goes. */
+.sk-channel-add .mud-input-control-helper-container { display: none; }
+.sk-channel-add .mud-button .mud-progress-circular { margin-right: var(--space-2); }
+.sk-field-error { margin: 0; color: var(--error); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
 
 /* ---------- export row (details/auth/settings contract §5) ---------- */
 .sk-export-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-top: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--surface-raised); font: var(--text-body2); }

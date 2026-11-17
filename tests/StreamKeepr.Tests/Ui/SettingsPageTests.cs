@@ -11,6 +11,8 @@ using StreamKeepr.Components.Pages;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Ui;
+using Microsoft.JSInterop;
+using NavigationHistory = StreamKeepr.Ui.NavigationHistory;
 
 namespace StreamKeepr.Tests.Ui;
 
@@ -78,7 +80,8 @@ public sealed class SettingsPageTests
             new("bob", "Bob", null, true, false, ChannelRuntimeState.Watching, false, "User ID not resolved yet"),
         ];
 
-        IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
+        // Connection status is a sibling section of Channels (#179 review), so render both.
+        IRenderedComponent<SettingsSections> cut = context.Render<SettingsSections>();
 
         Assert.Equal("Connection status", cut.Find("[data-connection-status] h2").TextContent);
         Assert.Empty(cut.FindAll("[data-push-status]"));
@@ -107,7 +110,8 @@ public sealed class SettingsPageTests
         dialogs.Find("[data-channel-stop-confirm]").Click();
 
         Assert.Equal(["stop:ann"], channels.Calls);
-        Assert.Equal("Stopping…", cut.Find("[data-channel='ann'] [role='status']").TextContent);
+        Assert.Equal("Stopping…", cut.Find("[data-channel='ann'] [data-channel-busy]").TextContent);
+        Assert.Equal("status", cut.Find("[data-channel='ann'] [data-channel-busy]").GetAttribute("role"));
 
         channels.Items = [new("ann", "Ann", null, true, true, ChannelRuntimeState.Paused, true, "EventSub connected")];
         await cut.InvokeAsync(pending.SetResult);
@@ -128,7 +132,8 @@ public sealed class SettingsPageTests
         cut.Find("[data-channel='ann'] [data-channel-resume]").Click();
 
         Assert.Equal(["resume:ann"], channels.Calls);
-        Assert.Equal("Resuming…", cut.Find("[data-channel='ann'] [role='status']").TextContent);
+        Assert.Equal("Resuming…", cut.Find("[data-channel='ann'] [data-channel-busy]").TextContent);
+        Assert.Equal("status", cut.Find("[data-channel='ann'] [data-channel-busy]").GetAttribute("role"));
 
         channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected")];
         await cut.InvokeAsync(pending.SetResult);
@@ -223,7 +228,8 @@ public sealed class SettingsPageTests
 
         Assert.Equal(["remove:ann"], channels.Calls);
         Assert.False(dialogs.HasOpenDialog("Remove Ann?"));
-        Assert.Equal("Removing…", cut.Find("[data-channel='ann'] [role='status']").TextContent);
+        Assert.Equal("Removing…", cut.Find("[data-channel='ann'] [data-channel-busy]").TextContent);
+        Assert.Equal("status", cut.Find("[data-channel='ann'] [data-channel-busy]").GetAttribute("role"));
         Assert.Empty(cut.FindAll("[data-channel='ann'] [data-channel-remove]"));
 
         channels.Items = [];
@@ -249,6 +255,199 @@ public sealed class SettingsPageTests
             Assert.Equal("Could not remove Ann. Try again.", cut.Find("[data-channel='ann'] [role='alert']").TextContent));
         Assert.NotNull(cut.Find("[data-channel='ann'] [data-channel-remove]"));
     }
+
+    [Fact]
+    public async Task The_header_puts_an_exit_button_before_the_heading()
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+
+        IRenderedComponent<Settings> cut = context.Render<Settings>();
+
+        AngleSharp.Dom.IElement exit = ExitButton(cut);
+        AngleSharp.Dom.IElement heading = cut.Find("h1");
+        Assert.Equal("Settings", heading.TextContent.Trim());
+        Assert.Equal("Escape", exit.GetAttribute("aria-keyshortcuts"));
+        // Document order: the exit comes first, then the heading.
+        Assert.Equal(
+            [exit, heading],
+            cut.FindAll("button[aria-label='Exit settings'], h1"));
+    }
+
+    [Fact]
+    public async Task Exit_goes_home_after_a_direct_visit()
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+        BunitJSModuleInterop module = context.JSInterop.SetupModule(ExitModule);
+        var navigation = context.Services.GetRequiredService<NavigationManager>();
+
+        IRenderedComponent<Settings> cut = context.Render<Settings>();
+        ExitButton(cut).Click();
+
+        Assert.Equal("http://localhost/", navigation.Uri);
+        Assert.Empty(module.Invocations["back"]);
+    }
+
+    [Fact]
+    public async Task Exit_goes_back_to_the_previous_page_in_history()
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+        BunitJSModuleInterop module = context.JSInterop.SetupModule(ExitModule);
+        var navigation = context.Services.GetRequiredService<NavigationManager>();
+
+        IRenderedComponent<CascadingValue<NavigationHistory>> cut = RenderWithHistory(context);
+        ExitButton(cut).Click();
+
+        module.VerifyInvoke("back");
+        Assert.Equal("http://localhost/settings", navigation.Uri);
+    }
+
+    [Fact]
+    public async Task Exit_goes_back_only_once_when_pressed_twice()
+    {
+        // A double click (or Esc and the button together) must not skip a page of history.
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+        BunitJSModuleInterop module = context.JSInterop.SetupModule(ExitModule);
+
+        IRenderedComponent<CascadingValue<NavigationHistory>> cut = RenderWithHistory(context);
+        ExitButton(cut).Click();
+        await cut.InvokeAsync(() => cut.FindComponent<SettingsExit>().Instance.ExitAsync());
+
+        module.VerifyInvoke("back", calledTimes: 1);
+    }
+
+    [Fact]
+    public async Task The_exit_module_installs_esc_and_marks_the_button_ready()
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+        BunitJSModuleInterop module = context.JSInterop.SetupModule(ExitModule);
+
+        IRenderedComponent<Settings> cut = context.Render<Settings>();
+
+        JSRuntimeInvocation install = module.VerifyInvoke("install");
+        Assert.IsType<DotNetObjectReference<SettingsExit>>(install.Arguments[0]);
+        cut.WaitForAssertion(() => Assert.True(ExitButton(cut).HasAttribute("data-sk-ready")));
+    }
+
+    [Fact]
+    public async Task Leaving_the_page_uninstalls_esc()
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+        BunitJSModuleInterop module = context.JSInterop.SetupModule(ExitModule);
+        context.Render<Settings>();
+
+        await context.DisposeComponentsAsync();
+
+        module.VerifyInvoke("uninstall");
+    }
+
+    [Fact]
+    public async Task Connection_status_is_its_own_section_after_channels()
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+
+        IRenderedComponent<ChannelSettings> channels = context.Render<ChannelSettings>();
+        IRenderedComponent<SettingsSections> sections = context.Render<SettingsSections>();
+
+        // The sheet (F2) can place Channels and Connection status independently.
+        Assert.Empty(channels.FindAll("[data-connection-status]"));
+        Assert.NotNull(sections.Find("[data-connection-status]"));
+    }
+
+    [Fact]
+    public async Task A_capturing_channel_shows_the_rec_badge_on_its_avatar()
+    {
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        channels.Items =
+        [
+            new("ann", "Ann", null, true, false, ChannelRuntimeState.Recording, true, "EventSub connected"),
+            new("bob", "Bob", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected"),
+        ];
+
+        IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
+
+        Assert.NotNull(cut.Find("[data-channel='ann'] [data-live-ring]"));
+        Assert.Empty(cut.FindAll("[data-channel='bob'] [data-live-ring]"));
+    }
+
+    [Fact]
+    public async Task Signed_in_sections_are_twitch_account_channels_then_connection_status()
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+
+        IRenderedComponent<Settings> cut = context.Render<Settings>();
+
+        // The page and the settings sheet (F2) render the same shared sections.
+        Assert.NotNull(cut.FindComponent<SettingsSections>());
+        Assert.Equal(
+            ["Twitch account", "Channels", "Connection status"],
+            cut.FindAll("section[aria-labelledby]")
+                .Select(section => cut.Find($"#{section.GetAttribute("aria-labelledby")}").TextContent.Trim()));
+    }
+
+    [Fact]
+    public async Task The_account_avatar_takes_the_login_channel_colour()
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+
+        IRenderedComponent<SettingsSections> cut = context.Render<SettingsSections>();
+
+        Assert.Equal(
+            ChannelColor.For("mock_admin").ToString(System.Globalization.CultureInfo.InvariantCulture),
+            cut.Find("#twitch [data-channel-color]").GetAttribute("data-channel-color"));
+        Assert.Contains("Connected", cut.Find("#twitch [data-account-connected]").TextContent);
+    }
+
+    [Fact]
+    public async Task Channel_rows_are_a_list_and_the_add_field_is_labelled()
+    {
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        channels.Items =
+        [
+            new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected"),
+            new("bob", "Bob", null, true, false, ChannelRuntimeState.Watching, false, "User ID not resolved yet"),
+        ];
+
+        IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
+
+        Assert.Equal("list", cut.Find("[data-channel-list]").GetAttribute("role"));
+        Assert.All(cut.FindAll("[data-channel]"), row => Assert.Equal("listitem", row.GetAttribute("role")));
+        string id = cut.Find("[data-channel-login]").GetAttribute("id")!;
+        Assert.Equal("Add channel", cut.Find($"label[for='{id}']").TextContent.Trim());
+        Assert.Equal("false", cut.Find("[data-channel-login]").GetAttribute("spellcheck"));
+    }
+
+    [Fact]
+    public async Task Push_is_healthy_and_polling_is_amber_with_a_schedule_icon()
+    {
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        channels.Items =
+        [
+            new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected"),
+            new("bob", "Bob", null, true, false, ChannelRuntimeState.Watching, false, "User ID not resolved yet"),
+        ];
+
+        IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
+
+        Assert.Equal("healthy", cut.Find("[data-push='connected']").GetAttribute("data-status"));
+        Assert.Equal("partial", cut.Find("[data-push='polling']").GetAttribute("data-status"));
+        Assert.Equal("schedule", cut.Find("[data-push='polling']").GetAttribute("data-status-icon"));
+    }
+
+    private const string ExitModule = "./Components/Features/Settings/SettingsExit.razor.js";
+
+    private static IRenderedComponent<CascadingValue<NavigationHistory>> RenderWithHistory(BunitContext context)
+    {
+        var history = new NavigationHistory("http://localhost/r/abc");
+        history.Visit(context.Services.GetRequiredService<NavigationManager>().Uri);
+        return context.Render<CascadingValue<NavigationHistory>>(parameters => parameters
+            .Add(value => value.Value, history)
+            .Add(value => value.IsFixed, true)
+            .AddChildContent<Settings>());
+    }
+
+    private static AngleSharp.Dom.IElement ExitButton<TComponent>(IRenderedComponent<TComponent> cut)
+        where TComponent : IComponent =>
+        cut.Find("button[aria-label='Exit settings']");
 
     private static BunitContext CreateContext(
         out TestChannelsView channels, bool signedIn, string? baseUri = null)

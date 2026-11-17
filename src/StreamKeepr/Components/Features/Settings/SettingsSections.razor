@@ -1,0 +1,86 @@
+@using StreamKeepr.Infrastructure.Twitch
+@using StreamKeepr.Components.Features.Library
+@using Microsoft.AspNetCore.Components.Forms
+@inject NavigationManager Navigation
+@inject AdminSessionState Session
+@implements IDisposable
+
+@* Spec: docs/details-auth-settings-contract.md §8; design system: SettingsPage. The sections
+   the /settings page shows, shared so the settings sheet (F2) never drifts from the page.
+   Signed out it never creates a ChannelsView, which is the server-side guard for channel data
+   and changes. *@
+@if (HttpsRequired)
+{
+    <MudBlazor.MudAlert Severity="MudBlazor.Severity.Info" Dense="true" role="note" data-https-note>
+        Twitch sign-in needs HTTPS through the reverse proxy. This page is plain HTTP.
+    </MudBlazor.MudAlert>
+}
+
+<AuthorizeView>
+    <Authorized>
+        <SettingsSection id="twitch"
+                         HeadingId="sk-settings-twitch"
+                         Title="Twitch account"
+                         Icon="@MudBlazor.Icons.Material.Rounded.ManageAccounts">
+            <div class="sk-settings-account">
+                <ChannelAvatar Login="@TwitchAccount.Login(context.User)"
+                               Name="@TwitchAccount.DisplayName(context.User)"
+                               Decorative="true" />
+                <div class="who">
+                    <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle1" data-account-name>@TwitchAccount.DisplayName(context.User)</MudBlazor.MudText>
+                    <MudBlazor.MudText Typo="MudBlazor.Typo.caption" data-account-login>@TwitchAccount.Login(context.User)</MudBlazor.MudText>
+                </div>
+                <span class="sk-settings-connected" data-account-connected>
+                    <span class="sk-auth-dot" aria-hidden="true"></span>
+                    <span>Connected<span class="sk-visually-hidden"> to Twitch</span></span>
+                </span>
+                <form method="post" action="@AdminAuth.LogoutPath" class="actions">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="returnUrl" value="/settings" />
+                    <MudBlazor.MudButton Variant="MudBlazor.Variant.Outlined"
+                                         ButtonType="MudBlazor.ButtonType.Submit"
+                                         data-settings-disconnect>
+                        Disconnect
+                    </MudBlazor.MudButton>
+                </form>
+            </div>
+        </SettingsSection>
+
+        <ChannelSettings />
+        <ConnectionStatusPanel />
+    </Authorized>
+    <NotAuthorized>
+        <MudBlazor.MudPaper Elevation="0" Outlined="true" Class="sk-panel sk-settings-signin">
+            <section aria-labelledby="sk-settings-signin" data-settings-signed-out>
+                @if (Session.Expired)
+                {
+                    <StatusChip Status="StatusChipKind.Error" Label="Twitch session expired" />
+                }
+                <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2" id="sk-settings-signin">Connect Twitch to manage channels</MudBlazor.MudText>
+                <a class="sk-twitch" href="@AuthLinks.LoginHref(Navigation.Uri)" data-enhance-nav="false" data-twitch-connect>
+                    <span class="sk-icon" aria-hidden="true">link</span>
+                    <span class="lbl">@(Session.Expired ? "Reconnect Twitch" : "Connect with Twitch")</span>
+                </a>
+            </section>
+        </MudBlazor.MudPaper>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    // Plain HTTP outside localhost cannot complete Twitch sign-in (twitch-auth contract §6).
+    private bool HttpsRequired
+    {
+        get
+        {
+            var uri = new Uri(Navigation.Uri);
+            return uri.Scheme == Uri.UriSchemeHttp
+                && !AdminAuth.IsLocalHost(new HostString(uri.Authority));
+        }
+    }
+
+    protected override void OnInitialized() => Session.Changed += OnSessionChanged;
+
+    private void OnSessionChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Session.Changed -= OnSessionChanged;
+}

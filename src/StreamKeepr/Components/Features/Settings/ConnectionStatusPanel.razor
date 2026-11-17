@@ -8,65 +8,81 @@
    when signed out, and the panel then renders nothing. *@
 @if (_status is { } status)
 {
-    <section class="sk-panel sk-settings-section" aria-labelledby="sk-settings-connection" data-connection-status>
-        <h2 id="sk-settings-connection">Connection status</h2>
-        <dl class="sk-connection-status">
-            <dt>Service health</dt>
-            <dd data-health="@status.Health">
-                <StatusChip Status="@HealthChip(status.Health)" Label="@status.Health.ToString()" />
-                @if (!string.IsNullOrWhiteSpace(status.HealthDescription))
+    <SettingsSection HeadingId="sk-settings-connection"
+                     Title="Connection status"
+                     Icon="@MudBlazor.Icons.Material.Rounded.Wifi"
+                     data-connection-status>
+        <MudBlazor.MudSimpleTable Dense="true" Elevation="0" Class="sk-connection-status">
+            <tbody>
+                <tr>
+                    <th scope="row">Service health</th>
+                    <td data-health="@status.Health">
+                        <StatusChip Status="@HealthChip(status.Health)" Label="@status.Health.ToString()" />
+                        @if (!string.IsNullOrWhiteSpace(status.HealthDescription))
+                        {
+                            <span class="detail">@status.HealthDescription</span>
+                        }
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Transport</th>
+                    <td data-transport>@status.Transport</td>
+                </tr>
+                <tr>
+                    <th scope="row">Connection</th>
+                    <td>
+                        @{ (StatusChipKind chip, string label, string? icon) = ConnectionChip(status.Connection); }
+                        <StatusChip Status="@chip" Label="@label" Icon="@icon" data-connection="@status.Connection" />
+                    </td>
+                </tr>
+                @if (status.Connection == EventSubConnection.Connected)
                 {
-                    <span class="detail">@status.HealthDescription</span>
+                    bool full = FullyCovered(status);
+                    <tr>
+                        <th scope="row">Coverage</th>
+                        <td>
+                            <StatusChip Status="@(full ? StatusChipKind.Healthy : StatusChipKind.Partial)"
+                                        Label="@($"{status.Covered} of {status.Watched} channels")"
+                                        data-coverage="@(full ? "full" : "partial")" />
+                        </td>
+                    </tr>
                 }
-            </dd>
-
-            <dt>Transport</dt>
-            <dd data-transport>@status.Transport</dd>
-
-            <dt>Connection</dt>
-            <dd>
-                @{ (StatusChipKind chip, string label, string? icon) = ConnectionChip(status.Connection); }
-                <StatusChip Status="@chip" Label="@label" Icon="@icon" data-connection="@status.Connection" />
-            </dd>
-
-            @if (status.Connection == EventSubConnection.Connected)
-            {
-                bool full = FullyCovered(status);
-                <dt>Coverage</dt>
-                <dd>
-                    <StatusChip Status="@(full ? StatusChipKind.Saved : StatusChipKind.Partial)"
-                                Label="@($"{status.Covered} of {status.Watched} channels")"
-                                data-coverage="@(full ? "full" : "partial")" />
-                </dd>
-            }
-
-            <dt>Last message</dt>
-            <dd data-last-message>@Format.Ago(status.LastMessageAt, status.Now)</dd>
-
-            <dt>Last poll</dt>
-            <dd data-last-poll>
-                <span data-poll-attempt>@Format.Ago(status.LastPollAt, status.Now)</span>
-                @if (status.LastSuccessfulPollAt is { } succeeded && succeeded < status.LastPollAt)
-                {
-                    <span class="detail" data-poll-success>last successful @Format.Ago(status.LastSuccessfulPollAt, status.Now)</span>
-                }
-            </dd>
-
-            <dt>Twitch API</dt>
-            <dd data-api-time>@Format.Milliseconds(status.ApiRoundTrip)</dd>
-
-            <dt>Poll interval</dt>
-            <dd data-poll-interval>@Format.Every(status.PollInterval)</dd>
-        </dl>
+                <tr>
+                    <th scope="row">Last message</th>
+                    <td data-last-message>@Format.Ago(status.LastMessageAt, status.Now)</td>
+                </tr>
+                <tr>
+                    <th scope="row">Last poll</th>
+                    <td data-last-poll>
+                        <span data-poll-attempt>@Format.Ago(status.LastPollAt, status.Now)</span>
+                        @if (status.LastSuccessfulPollAt is { } succeeded && succeeded < status.LastPollAt)
+                        {
+                            <span class="detail" data-poll-success>last successful @Format.Ago(status.LastSuccessfulPollAt, status.Now)</span>
+                        }
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Twitch API</th>
+                    <td data-api-time>@Format.Milliseconds(status.ApiRoundTrip)</td>
+                </tr>
+                <tr>
+                    <th scope="row">Poll interval</th>
+                    <td data-poll-interval>@Format.Every(status.PollInterval)</td>
+                </tr>
+            </tbody>
+        </MudBlazor.MudSimpleTable>
 
         @if (status.Connection == EventSubConnection.Connected && !FullyCovered(status))
         {
-            <p class="sk-settings-note" data-coverage-note>
-                <span class="sk-icon" aria-hidden="true">schedule</span>
+            <MudBlazor.MudAlert Severity="MudBlazor.Severity.Info"
+                                Dense="true"
+                                Icon="@MudBlazor.Icons.Material.Rounded.Schedule"
+                                role="note"
+                                data-coverage-note>
                 <span>All channels are polled @Format.Every(status.UncoveredPollInterval).ToLowerInvariant() until every channel is covered.</span>
-            </p>
+            </MudBlazor.MudAlert>
         }
-    </section>
+    </SettingsSection>
 }
 
 @code {
@@ -88,7 +104,7 @@
 
     internal static StatusChipKind HealthChip(HealthStatus health) => health switch
     {
-        HealthStatus.Healthy => StatusChipKind.Saved,
+        HealthStatus.Healthy => StatusChipKind.Healthy,
         HealthStatus.Degraded => StatusChipKind.Partial,
         _ => StatusChipKind.Error,
     };
@@ -97,7 +113,7 @@
     internal static (StatusChipKind Chip, string Label, string? Icon) ConnectionChip(
         EventSubConnection connection) => connection switch
     {
-        EventSubConnection.Connected => (StatusChipKind.Saved, "Connected", null),
+        EventSubConnection.Connected => (StatusChipKind.Healthy, "Connected", null),
         EventSubConnection.Reconnecting => (StatusChipKind.Reconnecting, "Reconnecting", null),
         EventSubConnection.WaitingForAdmin => (StatusChipKind.Partial, "Waiting for admin sign-in", null),
         _ => (StatusChipKind.Saved, "Off", "remove"),

@@ -1,0 +1,27 @@
+@* Design system: SettingsPage. One Settings section: an outlined MudPaper holding a section
+   labelled by its h2 (MudText h6), titled after a meaningful icon. Additional attributes (id,
+   data hooks) apply to the section. *@
+<MudBlazor.MudPaper Elevation="0" Outlined="true" Class="sk-panel sk-settings-section">
+    <section aria-labelledby="@HeadingId" @attributes="AdditionalAttributes">
+        <div class="sk-settings-title">
+            <MudBlazor.MudIcon Icon="@Icon" />
+            <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2" id="@HeadingId">@Title</MudBlazor.MudText>
+        </div>
+        @ChildContent
+    </section>
+</MudBlazor.MudPaper>
+
+@code {
+    /// <summary>The heading's id, unique on the page; the section is labelled by it.</summary>
+    [Parameter, EditorRequired] public string HeadingId { get; set; } = "";
+
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+
+    /// <summary>A MudBlazor icon, e.g. <c>Icons.Material.Rounded.LiveTv</c>.</summary>
+    [Parameter, EditorRequired] public string Icon { get; set; } = "";
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+}

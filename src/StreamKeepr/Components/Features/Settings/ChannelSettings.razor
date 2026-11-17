@@ -1,117 +1,125 @@
+@using StreamKeepr.Components.Features.Library
 @using StreamKeepr.Infrastructure.Runtime
 @implements IDisposable
 @inject IChannelsView Channels
 @inject MudBlazor.ISnackbar Snackbars
 @inject ILogger<ChannelSettings> Logger
 
-@* Rendered only for a signed-in admin. ChannelsView enforces the same rule on every call. *@
-<ConnectionStatusPanel />
+@* Design system: ChannelSettings. Rendered only for a signed-in admin; ChannelsView enforces the
+   same rule on every call. Rows are a plain list rather than MudListItem, which wraps its
+   content in a <p> that cannot hold the avatar or the actions. *@
+<SettingsSection id="channels"
+                 HeadingId="sk-settings-channels"
+                 Title="Channels"
+                 Icon="@MudBlazor.Icons.Material.Rounded.LiveTv">
 
-<section class="sk-panel sk-settings-section" id="channels" aria-labelledby="sk-settings-channels">
-    <h2 id="sk-settings-channels">Channels</h2>
-
-    @if (_channels.Count == 0)
-    {
-        <p class="sk-settings-empty" data-channels-empty>No channels watched.</p>
-    }
-    else
-    {
-        <ul class="sk-channel-list" data-channel-list>
-            @foreach (ChannelView channel in _channels)
-            {
-                bool removing = _removing.Contains(channel.Login);
-                bool busy = removing || IsBusy(channel.Login);
-                <li class="sk-channel-row" @key="channel.Login" data-channel="@channel.Login" aria-busy="@(busy ? "true" : null)">
-                    <Avatar Name="@channel.DisplayName" ImageUrl="@channel.AvatarUrl" aria-hidden="true" />
-                    <span class="who">
-                        <b>@channel.DisplayName</b>
-                        <span class="login">@channel.Login</span>
-                    </span>
-                    <StatusChip Status="@ChipKind(channel.State)" Label="@StateLabel(channel.State)" Icon="@StateIcon(channel.State)" data-channel-state="@channel.State" />
-                    <StatusChip Status="StatusChipKind.Saved"
-                                Label="@(channel.PushConnected ? "Push" : "Polling")"
-                                Icon="@(channel.PushConnected ? null : "schedule")"
-                                title="@channel.PushReason"
-                                data-push="@(channel.PushConnected ? "connected" : "polling")" />
-                    <span class="grow"></span>
-                    @if (busy)
-                    {
-                        <span class="sk-channel-busy" role="status">@BusyLabel(channel.Login)</span>
-                    }
-                    else
-                    {
-                        @if (IsPaused(channel))
+        @if (_channels.Count == 0)
+        {
+            <MudBlazor.MudText Typo="MudBlazor.Typo.body2" Class="sk-settings-empty" data-channels-empty>No channels watched.</MudBlazor.MudText>
+        }
+        else
+        {
+            @* role="list" keeps list semantics where list-style: none would drop them (Safari). *@
+            <ul class="sk-channel-list" role="list" data-channel-list>
+                @foreach (ChannelView channel in _channels)
+                {
+                    bool removing = _removing.Contains(channel.Login);
+                    bool busy = removing || IsBusy(channel.Login);
+                    (StatusChipKind pushChip, string pushLabel, string? pushIcon, string pushHook) = PushChip(channel.PushConnected);
+                    <li class="sk-channel-row" role="listitem" @key="channel.Login" data-channel="@channel.Login" aria-busy="@(busy ? "true" : null)">
+                        <ChannelAvatar Login="@channel.Login"
+                                       Name="@channel.DisplayName"
+                                       ImageUrl="@channel.AvatarUrl"
+                                       Live="@IsLive(channel)"
+                                       Size="MudBlazor.Size.Medium"
+                                       Decorative="true" />
+                        <span class="who">
+                            <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle1" HtmlTag="span">@channel.DisplayName</MudBlazor.MudText>
+                            <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="login">@channel.Login</MudBlazor.MudText>
+                        </span>
+                        <StatusChip Status="@ChipKind(channel.State)" Label="@StateLabel(channel.State)" Icon="@StateIcon(channel.State)" data-channel-state="@channel.State" />
+                        <StatusChip Status="@pushChip" Label="@pushLabel" Icon="@pushIcon" title="@channel.PushReason" data-push="@pushHook" />
+                        <span class="grow"></span>
+                        @if (busy)
                         {
-                            <Button Variant="ButtonVariant.Text"
-                                    OnClick="() => ResumeAsync(channel)"
-                                    aria-label="@($"Resume recording for {channel.DisplayName}")"
-                                    data-channel-resume>
-                                Resume recording
-                            </Button>
+                            @* data-channel-busy names this status: the live avatar's MudBadge is a role="status" too. *@
+                            <span class="sk-channel-busy" role="status" data-channel-busy><MudBlazor.MudProgressCircular Size="MudBlazor.Size.Small" Indeterminate="true" aria-hidden="true" data-spinner />@BusyLabel(channel.Login)</span>
                         }
                         else
                         {
-                            <Button Variant="ButtonVariant.Text"
-                                    OnClick="() => AskStop(channel)"
-                                    aria-label="@($"{StopLabel(channel)} for {channel.DisplayName}")"
-                                    data-channel-stop>
-                                @StopLabel(channel)
-                            </Button>
+                            @if (IsPaused(channel))
+                            {
+                                <MudBlazor.MudButton Variant="MudBlazor.Variant.Text"
+                                                     Color="MudBlazor.Color.Primary"
+                                                     OnClick="() => ResumeAsync(channel)"
+                                                     aria-label="@($"Resume recording for {channel.DisplayName}")"
+                                                     data-channel-resume>
+                                    Resume recording
+                                </MudBlazor.MudButton>
+                            }
+                            else
+                            {
+                                <MudBlazor.MudButton Variant="MudBlazor.Variant.Text"
+                                                     OnClick="() => AskStop(channel)"
+                                                     aria-label="@($"{StopLabel(channel)} for {channel.DisplayName}")"
+                                                     data-channel-stop>
+                                    @StopLabel(channel)
+                                </MudBlazor.MudButton>
+                            }
+                            <MudBlazor.MudButton Variant="MudBlazor.Variant.Text"
+                                                 OnClick="() => AskRemove(channel)"
+                                                 aria-label="@($"Remove {channel.DisplayName}")"
+                                                 data-channel-remove>
+                                Remove
+                            </MudBlazor.MudButton>
                         }
-                        <Button Variant="ButtonVariant.Text"
-                                OnClick="() => AskRemove(channel)"
-                                aria-label="@($"Remove {channel.DisplayName}")"
-                                data-channel-remove>
-                            Remove
-                        </Button>
-                    }
-                    @if (_rowErrors.TryGetValue(channel.Login, out string? rowError))
-                    {
-                        <p class="sk-field-error" role="alert">@rowError</p>
-                    }
-                </li>
-            }
-        </ul>
-    }
+                        @if (_rowErrors.TryGetValue(channel.Login, out string? rowError))
+                        {
+                            <p class="sk-field-error" role="alert">@rowError</p>
+                        }
+                    </li>
+                }
+            </ul>
+        }
 
-    <div class="sk-channel-add">
-        <label for="sk-channel-login">Add channel</label>
-        <div class="row">
-            <input id="sk-channel-login"
-                   type="text"
-                   autocomplete="off"
-                   spellcheck="false"
-                   placeholder="Twitch login"
-                   aria-describedby="@(_addError is null ? null : "sk-channel-add-error")"
-                   aria-invalid="@(_addError is null ? null : "true")"
-                   @bind="_login"
-                   @bind:event="oninput"
-                   @onkeydown="OnKeyDownAsync"
-                   @ref="_input"
-                   data-channel-login />
-            <button type="button"
-                    class="sk-btn filled"
-                    disabled="@(!CanAdd)"
-                    aria-busy="@(_adding ? "true" : null)"
-                    @onclick="AddAsync"
-                    data-channel-add>
+        <div class="sk-channel-add">
+            <MudBlazor.MudTextField T="string"
+                                    @ref="_input"
+                                    @bind-Value="_login"
+                                    Immediate="true"
+                                    Variant="MudBlazor.Variant.Outlined"
+                                    Margin="MudBlazor.Margin.Dense"
+                                    Label="Add channel"
+                                    Placeholder="Twitch login"
+                                    Error="@(_addError is not null)"
+                                    OnKeyDown="OnKeyDownAsync"
+                                    autocomplete="off"
+                                    spellcheck="false"
+                                    aria-describedby="@(_addError is null ? null : "sk-channel-add-error")"
+                                    data-channel-login />
+            <MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
+                                 Color="MudBlazor.Color.Primary"
+                                 StartIcon="@(_adding ? null : MudBlazor.Icons.Material.Rounded.Add)"
+                                 Disabled="@(!CanAdd)"
+                                 OnClick="AddAsync"
+                                 aria-busy="@(_adding ? "true" : null)"
+                                 data-channel-add>
                 @if (_adding)
                 {
-                    <span class="sk-spin" data-spinner aria-hidden="true"></span>
+                    <MudBlazor.MudProgressCircular Size="MudBlazor.Size.Small" Indeterminate="true" aria-hidden="true" data-spinner />
                     <span>Adding…</span>
                 }
                 else
                 {
                     <span>Add</span>
                 }
-            </button>
+            </MudBlazor.MudButton>
         </div>
         @if (_addError is not null)
         {
             <p class="sk-field-error" id="sk-channel-add-error" role="alert" data-channel-add-error>@_addError</p>
         }
-    </div>
-</section>
+</SettingsSection>
 
 @* Both confirmations close as soon as they are confirmed: the row shows the work in
    progress, and a failure is reported on the row. *@
@@ -144,7 +152,7 @@
     private readonly HashSet<string> _resuming = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _rowErrors = new(StringComparer.Ordinal);
     private IReadOnlyList<ChannelView> _channels = [];
-    private ElementReference _input;
+    private MudBlazor.MudTextField<string>? _input;
     private string _login = "";
     private string? _addError;
     private bool _adding;
@@ -196,6 +204,12 @@
         ChannelRuntimeState.CoolingDown => StatusChipKind.Processing,
         _ => StatusChipKind.Saved,
     };
+
+    // Push is the Settings success chip; polling is amber with the schedule icon (StatusChip card).
+    internal static (StatusChipKind Chip, string Label, string? Icon, string Hook) PushChip(bool pushConnected) =>
+        pushConnected
+            ? (StatusChipKind.Healthy, "Push", null, "connected")
+            : (StatusChipKind.Partial, "Polling", "schedule", "polling");
 
     // Neutral states reuse the outlined chip without its "saved" check mark.
     internal static string? StateIcon(ChannelRuntimeState state) => state switch
@@ -261,7 +275,8 @@
             _adding = false;
         }
 
-        await _input.FocusAsync();
+        if (_input is not null)
+            await _input.FocusAsync();
     }
 
     /// <summary>User-safe text for an add failure. The control surface's messages are user-safe.</summary>

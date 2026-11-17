@@ -123,8 +123,8 @@ Primitives use the design-system role tokens (the hand-built ones through `sk-` 
 | `Button` | `Variant` Filled/Tonal/Outlined/Text/Danger; `Type`, `Disabled`, `OnClick`, `ChildContent`; `AdditionalAttributes`; one Filled action per view; Danger requires confirmation |
 | `IconButton` | `Icon`, `Label` (aria-label), `Active`, `Disabled`, `OnClick`; 40px target, 24px glyph |
 | `Icon` | Material Symbols name, size 18/20/24, optional fill; decorative by default, labelled when meaningful |
-| `StatusChip` | A passive `MudChip` (#176): Rec / Reconnecting / Processing / Partial / Saved / Error; overline label in `text-primary`, icon in the kind's colour, REC filled; REC pulse stops under reduced motion |
-| `Avatar` | Image URL or initials; `Name` for alt; recording ring. The library and the account menu use `ChannelAvatar` (channel colour, #176) instead; Settings and Details move to it with their surfaces |
+| `StatusChip` | A passive `MudChip` (#176): Rec / Reconnecting / Processing / Partial / Saved / Error, plus the Settings-only Healthy (`success`, `CheckCircle`; #179); overline label in `text-primary`, icon in the kind's colour, REC filled; REC pulse stops under reduced motion |
+| `Avatar` | Image URL or initials; `Name` for alt; recording ring. The library, the account menu and Settings (#179) use `ChannelAvatar` (channel colour, #176) instead; Details moves to it with its surface |
 | `Collapsible` | `Open`, `Header`, `ChildContent`, `OnToggle`; `aria-expanded`; 300ms; reduced motion |
 | `Switch` | `Checked`, `Label`, `OnChange`; `role="switch"` |
 | `Tooltip` | A `MudTooltip` (#177; top, restyled to `tooltip-background`/`tooltip-text`, `caption`, `radius-sm`) around a wrapper that takes the additional attributes. MudTooltip renders its bubble only while shown, so the wrapper is `aria-describedby` a visually hidden `role="tooltip"` copy that is always present. Hover or focus shows it; no interactive content |

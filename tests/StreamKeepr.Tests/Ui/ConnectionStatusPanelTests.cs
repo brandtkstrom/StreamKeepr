@@ -48,7 +48,10 @@ public sealed class ConnectionStatusPanelTests : IAsyncLifetime
         Assert.Equal("Conduit", cut.Find("[data-transport]").TextContent);
         Assert.Equal("Connected", Chip(cut, "[data-connection]"));
         Assert.Equal("3 of 3 channels", Chip(cut, "[data-coverage]"));
-        Assert.Equal("saved", cut.Find("[data-coverage]").GetAttribute("data-status"));
+        // Settings colours (#179): healthy, connected and full coverage are the success chip.
+        Assert.Equal("healthy", cut.Find("[data-coverage]").GetAttribute("data-status"));
+        Assert.Equal("healthy", cut.Find("[data-health] [data-status]").GetAttribute("data-status"));
+        Assert.Equal("healthy", cut.Find("[data-connection]").GetAttribute("data-status"));
         Assert.Empty(cut.FindAll("[data-coverage-note]"));
         Assert.Equal("8 s ago", cut.Find("[data-last-message]").TextContent);
         Assert.Equal("20 s ago", cut.Find("[data-last-poll]").TextContent.Trim());
@@ -153,6 +156,18 @@ public sealed class ConnectionStatusPanelTests : IAsyncLifetime
 
         Assert.Equal(1, _view.Reads);
         Assert.Equal(0, _view.Subscribers);
+    }
+
+    [Fact]
+    public void The_status_is_a_key_value_table_with_row_headers()
+    {
+        _view.Status = Status();
+
+        IRenderedComponent<ConnectionStatusPanel> cut = _context.Render<ConnectionStatusPanel>();
+
+        Assert.Equal(
+            ["Service health", "Transport", "Connection", "Coverage", "Last message", "Last poll", "Twitch API", "Poll interval"],
+            cut.FindAll("[data-connection-status] table th[scope='row']").Select(header => header.TextContent.Trim()));
     }
 
     [Fact]
