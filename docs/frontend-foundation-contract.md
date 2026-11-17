@@ -103,7 +103,7 @@ public sealed class UiPreferences
 - `prefs.js` sets `sk-tz` from `Intl.DateTimeFormat().resolvedOptions().timeZone` on first load. A `ViewerClockSync` component calls the module after the first render; if the zone differs, it updates the service/cookie and re-renders once. If JS fails, UTC remains.
 - Cookie attributes match `sk-ui`; no secret.
 - `ViewerClock` exposes `TimeZone`, `Now`, `ToLocal`, and `Changed`; use `TimeZoneInfo` for DST. Components dispose subscriptions.
-- `Format.Timecode` (`1:02:13`), `Duration` (`2h 14m`), `DayHeader` (`Today`, `Yesterday`, `Wed, Nov 4`), and `Bytes` (`9.8 GB`) are pure helpers. The player module later gets the JS timecode twin.
+- `Format.Timecode` (`1:02:13`), `Duration` (`2h 14m`), `DayHeader` (`Today`, `Yesterday`, `Wed, Nov 4`), `Bytes` (`9.8 GB`), and `Percent` (a resume strip's CSS width, `33.3%`, clamped to 0–100%, `0%` without a positive whole) are pure helpers. The player module later gets the JS timecode twin.
 
 ## 7. `LibraryView`
 
