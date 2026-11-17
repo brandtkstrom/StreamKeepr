@@ -201,6 +201,9 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
   font: var(--text-overline); letter-spacing: var(--text-overline-letter-spacing); text-transform: uppercase; white-space: nowrap;
   color: var(--text-primary);
   background: color-mix(in srgb, var(--sk-chip-color) calc(var(--tint-opacity) * 100%), transparent);
+  /* A status chip is passive and changes kind live (Watching → Rec). MudChip's 300ms fade would
+     show REC's dark text over a half-faded fill, which fails contrast mid-change. */
+  transition: none;
 }
 .mud-chip.sk-status .mud-chip-icon { margin: 0; font-size: 14px; width: 14px; height: 14px; color: var(--sk-chip-color); }
 .mud-chip.sk-status .mud-chip-content { gap: var(--space-1); padding: 0; }
