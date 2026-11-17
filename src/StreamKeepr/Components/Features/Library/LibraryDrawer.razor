@@ -62,7 +62,7 @@
                       Class="sk-filters"
                       role="group"
                       aria-label="Filter recordings">
-    @foreach ((string key, string label, string icon, _) in Filters)
+    @foreach ((string key, string label, string icon) in Filters)
     {
         bool pressed = (_query.State ?? "all") == key;
         <MudBlazor.MudChip T="string"
@@ -103,18 +103,12 @@
             else
             {
                 @* Design system: EmptyStates, no match. One icon, one headline, one sentence, one way out. *@
+                NoMatchState noMatch = NoMatch;
                 <div class="sk-empty-state" data-library-no-match data-empty-icon="search">
                     <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Search" aria-hidden="true" />
-                    <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle1" HtmlTag="p" data-library-empty>@NoMatchHeadline</MudBlazor.MudText>
-                    <MudBlazor.MudText Typo="MudBlazor.Typo.body2">@NoMatchLine</MudBlazor.MudText>
-                    @if (_query.Search is not null)
-                    {
-                        <MudBlazor.MudButton Variant="MudBlazor.Variant.Text" Color="MudBlazor.Color.Primary" OnClick="ClearSearchAsync">Clear search</MudBlazor.MudButton>
-                    }
-                    else
-                    {
-                        <MudBlazor.MudButton Variant="MudBlazor.Variant.Text" Color="MudBlazor.Color.Primary" OnClick="ShowAllAsync">Show all recordings</MudBlazor.MudButton>
-                    }
+                    <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle1" HtmlTag="p" data-library-empty>@noMatch.Headline</MudBlazor.MudText>
+                    <MudBlazor.MudText Typo="MudBlazor.Typo.body2">@noMatch.Line</MudBlazor.MudText>
+                    <MudBlazor.MudButton Variant="MudBlazor.Variant.Text" Color="MudBlazor.Color.Primary" OnClick="noMatch.OnAction">@noMatch.Action</MudBlazor.MudButton>
                 </div>
             }
         }
@@ -161,13 +155,15 @@
         new("az", "A–Z by streamer", null, null),
     ];
 
-    // Each chip's URL key, label and icon, and the line the drawer shows when it matches nothing.
-    private static readonly (string Key, string Label, string Icon, string NoMatch)[] Filters =
+    private static readonly (string Key, string Label, string Icon)[] Filters =
     [
-        ("all", "All", MudBlazor.Icons.Material.Rounded.ViewList, ""),
-        ("recording", "Recording", MudBlazor.Icons.Material.Rounded.FiberManualRecord, "Nothing is recording right now."),
-        ("saved", "Saved", MudBlazor.Icons.Material.Rounded.Inventory2, "No saved recordings."),
+        ("all", "All", MudBlazor.Icons.Material.Rounded.ViewList),
+        ("recording", "Recording", MudBlazor.Icons.Material.Rounded.FiberManualRecord),
+        ("saved", "Saved", MudBlazor.Icons.Material.Rounded.Inventory2),
     ];
+
+    // What the drawer says when a search or filter matches nothing, and its one way out.
+    private sealed record NoMatchState(string Headline, string Line, string Action, Func<Task> OnAction);
 
     /// <summary>True while the shell shows the desktop rail (set by <c>AppShell</c>).</summary>
     [CascadingParameter(Name = "LibraryRail")] public bool Rail { get; set; }
@@ -318,14 +314,15 @@
     private bool Filtered => _query.Search is not null || _query.State is not null;
 
     // Search wins when both are set: clearing it is the smaller step, and the filter's own
-    // no-match message follows if the filter still matches nothing.
-    private string NoMatchHeadline => _query.Search is { } search
-        ? $"No recordings match “{search}”"
-        : "No recordings match";
-
-    private string NoMatchLine => _query.Search is not null
-        ? "Try another title, streamer or category."
-        : Array.Find(Filters, filter => filter.Key == _query.State).NoMatch;
+    // no-match message follows if the filter still matches nothing. LibraryUrl normalizes
+    // state to recording, saved or null, and null with no search is not a no-match.
+    private NoMatchState NoMatch => _query.Search is { } search
+        ? new($"No recordings match “{search}”", "Try another title, streamer or category.", "Clear search", ClearSearchAsync)
+        : new(
+            "No recordings match",
+            _query.State == "recording" ? "Nothing is recording right now." : "No saved recordings.",
+            "Show all recordings",
+            ShowAllAsync);
 
     // The button that was pressed disappears, so focus moves to the control that now holds the state.
     private async Task ShowAllAsync()

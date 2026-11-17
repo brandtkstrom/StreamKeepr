@@ -146,6 +146,7 @@ public sealed class LibrarySearchTests
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
         Assert.Equal("No recordings match “speed”", cut.Find("[data-library-empty]").TextContent);
+        Assert.Contains("Try another title, streamer or category.", cut.Find("[data-library-no-match]").TextContent);
         Assert.False(cut.Find("[data-drawer-list]").HasNamed("button", "Show all recordings"));
         Button(cut, "Clear search").Click();
 

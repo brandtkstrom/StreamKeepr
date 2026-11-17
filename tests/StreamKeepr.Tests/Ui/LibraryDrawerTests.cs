@@ -481,6 +481,7 @@ public sealed class LibraryDrawerTests
 
         AngleSharp.Dom.IElement state = cut.Find("[data-unknown-recording]");
         Assert.Equal("Recording not found", state.QuerySelector("h1")!.TextContent);
+        Assert.Contains("That recording is not in the library.", state.TextContent);
         Assert.Equal("search", state.GetAttribute("data-empty-icon"));
         Assert.Equal("/", state.Named("a", "Back to library").GetAttribute("href"));
     }
@@ -496,6 +497,7 @@ public sealed class LibraryDrawerTests
         AngleSharp.Dom.IElement state = cut.Find("[data-library-empty-home]");
         Assert.Equal("No recordings yet", state.QuerySelector("h2")!.TextContent);
         Assert.Equal("video_library", state.GetAttribute("data-empty-icon"));
+        Assert.Contains("Stream Keepr records a channel each time it goes live.", state.TextContent);
         AngleSharp.Dom.IElement action = state.Named("a", "Add a channel");
         Assert.Equal("/settings#channels", action.GetAttribute("href"));
         Assert.False(state.HasNamed("a", "Connect with Twitch"));
@@ -512,6 +514,8 @@ public sealed class LibraryDrawerTests
         AngleSharp.Dom.IElement state = cut.Find("[data-library-empty-home]");
         AngleSharp.Dom.IElement action = state.Named("a", "Connect with Twitch");
         Assert.Equal("/api/auth/twitch/login?returnUrl=%2F", action.GetAttribute("href"));
+        // The shared hook gives it the top bar's "Waiting for Twitch…" state on click.
+        Assert.True(action.HasAttribute("data-twitch-connect"));
         Assert.False(state.HasNamed("a", "Add a channel"));
     }
 
