@@ -541,11 +541,9 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   .sk-watch-player > .sk-player {
     max-height: calc(100dvh - var(--appbar-height) - (2 * var(--space-6)) - var(--player-peek));
   }
-}
 
-/* Theater mode (desktop only): no gutters, the player is the view's full width, and chat and
-   details follow below it. The top row dissolves so its children become grid items. */
-@media (min-width: 960px) {
+  /* Theater mode (desktop only): no gutters, the player is the view's full width, and chat
+     and details follow below it. The top row dissolves so its children become grid items. */
   .sk-shell[data-theater-mode] .sk-main { background: var(--background-gray); padding: 0; }
   .sk-shell[data-theater-mode] .sk-watch {
     display: grid; grid-template-columns: minmax(0, 1fr) auto;

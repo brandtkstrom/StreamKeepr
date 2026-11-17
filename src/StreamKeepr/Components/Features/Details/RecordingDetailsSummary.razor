@@ -31,7 +31,7 @@
 
     <div class="sk-details-row">
         <div class="sk-details-meta" data-details-meta="true">
-            @if (LiveChip is { } chip)
+            @if (!Compact && LiveChip is { } chip)
             {
                 <StatusChip Status="@chip" />
             }
@@ -74,7 +74,13 @@
             }
         </div>
 
-        <div class="sk-actions">
+        <div class="sk-actions" data-details-actions="true">
+            @* The live state leads the phone's actions row (PhoneLayout); Md and up it leads
+               the meta line instead. *@
+            @if (Compact && LiveChip is { } phoneChip)
+            {
+                <StatusChip Status="@phoneChip" />
+            }
             @* Stop and Delete sit in the row from Breakpoint.Md up and in More actions
                below it; components.css shows one or the other at 960px. *@
             @if (IsLive)

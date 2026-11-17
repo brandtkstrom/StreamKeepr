@@ -156,9 +156,9 @@ else
 
     protected override void OnParametersSet()
     {
-        // Theater hides the drawer and is desktop-only. On the empty home there is no player,
-        // and below Md theater does not exist, so leaving it on would misstate the layout.
-        if (Preferences.Theater && (RecordingId is null || Compact))
+        // Theater hides the drawer and the empty home has no player, so leaving it
+        // on would show a blank main column. The layout preference is not useful here.
+        if (RecordingId is null && Preferences.Theater)
         {
             Preferences.SetTheater(false);
             _theaterResetPending = true;

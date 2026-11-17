@@ -907,9 +907,7 @@ export function createChatPane(root, {
   on(el["chat-sync-forward1"], "click", () => setSync(syncOffset + 1));
   on(el["chat-sync-forward2"], "click", () => setSync(syncOffset + 2));
   on(document, "sk:playhead", onPlayhead);
-  on(document, "sk:chat-toggle", () => {
-    if (!fixedOpen) toggleAndPersist();
-  });
+  on(document, "sk:chat-toggle", toggleAndPersist);
   on(document, "keydown", (event) => {
     // Holding C must not flap the pane.
     if (fixedOpen || event.repeat || event.key.toLowerCase() !== "c") return;

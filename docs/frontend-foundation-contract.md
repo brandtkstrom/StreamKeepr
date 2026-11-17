@@ -48,7 +48,8 @@ MudBreakpointProvider
       MudMainContent
         ReconnectNotice
         main
-          .sk-main-inner: player slot, details slot, stats slot
+          .sk-main-inner: Home rows/Settings, or the /r/{id} watch view
+                          (player, sidecar, details, stats; below Md: player, summary, tabs)
       BottomNav (compact or breakpoint not yet known; not on watch pages)
 ```
 

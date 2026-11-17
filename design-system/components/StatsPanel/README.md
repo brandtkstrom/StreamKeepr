@@ -28,4 +28,4 @@ StreamKeepr does not record viewer counts today. The chart needs the recorder to
 
 - Video sparklines are `primary`, network sparklines `secondary`, and the viewer series `tertiary`: the colour of the stream itself, shared with chapters. One series per chart, and labels never take the series colour.
 - Each sparkline keeps its visually hidden sample table for screen readers.
-- Below `Breakpoint.Md` the panel is the **Stats** tab under the player (`MudTabPanel Icon="@Icons.Material.Rounded.QueryStats"`), without its own header or toggle. Video and Network stack, then their tiles stack. The Stream tile moves above its chart, and the chart keeps the full width.
+- Below `Breakpoint.Md` the panel is the **Stats** tab under the player (`MudTabPanel Icon="@Icons.Material.Rounded.QueryStats"`), without its own header or toggle. Video and Network stack, then their tiles stack. The Stream tile moves above its chart, and the chart keeps the full width. *As built, the Stream section is still only the empty-state line; the tile and chart wait for viewer-count samples.*

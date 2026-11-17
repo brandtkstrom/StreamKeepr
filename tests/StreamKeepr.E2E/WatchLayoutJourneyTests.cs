@@ -96,8 +96,6 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
         Assert.InRange((double)player.Height, cap - 1, cap + 1);
         Assert.True(player.Width * 9 / 16 > player.Height + 20,
             $"the capped frame letterboxes: {player.Width}×{player.Height}");
-        Assert.True(player.Width * 9 / 16 > player.Height + 20,
-            $"the capped frame letterboxes: {player.Width}×{player.Height}");
 
         LocatorBoundingBoxResult title = (await page.Locator("[data-details-title]").BoundingBoxAsync())!;
         Assert.True(title.Y + title.Height <= shortDesktop.Height,

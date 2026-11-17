@@ -134,21 +134,6 @@ public sealed class HomePlayerTests
     }
 
     [Fact]
-    public async Task Below_md_a_saved_theater_mode_is_cleared_on_the_watch_page()
-    {
-        const string theaterCookie =
-            """{"v":1,"drawer":"expanded","theater":true,"stats":false,"details":true,"collapsed":[]}""";
-        await using BunitContext context = CreateContext(out _, theaterCookie);
-        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
-        Assert.True(preferences.Theater);
-
-        context.Render<CompactHost>(parameters => parameters
-            .Add(component => component.Compact, true));
-
-        Assert.False(preferences.Theater);
-    }
-
-    [Fact]
     public async Task Crossing_the_breakpoint_keeps_the_player_instance_and_swaps_the_tabs()
     {
         await using BunitContext context = CreateContext(out _, out TestLibraryView view);
