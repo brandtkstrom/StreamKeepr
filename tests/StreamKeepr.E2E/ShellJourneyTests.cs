@@ -146,7 +146,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 State = WaitForSelectorState.Visible,
                 Timeout = 30_000,
             });
-        await page.Locator("a[data-recording-id] [data-status=rec]").First.WaitForAsync(
+        await page.Locator($"{LibraryHooks.Row} [data-status=rec]").First.WaitForAsync(
             new LocatorWaitForOptions
             {
                 State = WaitForSelectorState.Visible,
@@ -158,7 +158,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 "Recording now",
                 new LocatorAssertionsToContainTextOptions { Timeout = 30_000 });
 
-        string href = await page.Locator("a[data-recording-id]").First.GetAttributeAsync("href") ?? "";
+        string href = await page.Locator(LibraryHooks.Row).First.GetAttributeAsync("href") ?? "";
         Assert.StartsWith("/r/", href);
 
         ILocator storage = page.Locator("[data-storage]");
@@ -185,7 +185,8 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             app.BaseUrl,
             new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
 
-        ILocator row = page.Locator("a[data-recording-id]", new PageLocatorOptions
+        // The drawer row: Home's cards carry the same hook (#182).
+        ILocator row = page.Locator(LibraryHooks.Row, new PageLocatorOptions
         {
             HasText = "Ranked climb to Diamond",
         });

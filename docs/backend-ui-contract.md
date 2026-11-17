@@ -37,12 +37,14 @@ public interface ILibraryView : IDisposable
     bool IsLoaded { get; }
     IReadOnlyList<StreamerView> Streamers(LibraryQuery query);
     IReadOnlyList<RecordingView> Recordings(string streamerLogin, LibraryQuery query);
+    IReadOnlyList<RecordingView> AllRecordings(LibraryQuery query);
     RecordingView? Find(string id);
     StorageView Storage { get; }
 }
 ```
 
 - Scoped: one per circuit; subscribes to `RecordingLibrary.Changed`, `ChannelStore.Changed`, `DvrStatus.Changed`, `StorageMonitor.Changed`, and `ProgressStore.Changed`; throttles `Changed` to at most every 500 ms; unsubscribes on dispose.
+- `AllRecordings` merges every streamer's recordings that match the query, in the query's recording order (ties by `Id`); the Home rows read the Recording and Saved sets from it (#182, `docs/library-contract.md` §10). This is additive.
 - `ILibraryView` also exposes `bool IsLoaded` so the drawer can gate its skeleton rows without reading `RecordingLibrary` directly. This is additive to the view-model contract.
 - `Streamers` includes streamers with at least one recording. A watched channel with zero recordings appears in `ChannelsView`, not the library. `LastRecordedAt` is nullable for safety.
 - `RecordingView.DurationSec`: complete sessions use the manifest/index duration; recording/reconnecting sessions use elapsed time since `StartedAt` (non-negative).

@@ -14,10 +14,12 @@
 @if (RecordingId is null)
 {
     <h1 class="sk-visually-hidden">Stream Keepr library</h1>
+    @* HomeRows renders nothing for a loaded, empty library; the empty state covers it. *@
     @if (Library.IsLoaded && Library.Streamers(new LibraryQuery()).Count == 0)
     {
         <LibraryEmptyState />
     }
+    <HomeRows />
 }
 else if (!Library.IsLoaded)
 {

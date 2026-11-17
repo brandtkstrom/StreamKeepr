@@ -663,6 +663,22 @@ internal sealed class TestLibraryView : ILibraryView
     public IReadOnlyList<RecordingView> Recordings(string streamerLogin, LibraryQuery query) =>
         RecordingsByLogin.GetValueOrDefault(streamerLogin) ?? [];
 
+    // A stand-in for the real merge: only the two state sets Home reads, newest first.
+    // LibraryViewTests pin the real filter and order.
+    public IReadOnlyList<RecordingView> AllRecordings(LibraryQuery query) =>
+    [
+        .. RecordingsByLogin.Values
+            .SelectMany(recordings => recordings)
+            .Where(recording => query.State switch
+            {
+                "recording" => recording.State.IsOpen(),
+                "saved" => recording.State is RecordingState.Saved or RecordingState.Partial,
+                _ => true,
+            })
+            .OrderByDescending(recording => recording.StartedAt)
+            .ThenBy(recording => recording.Id, StringComparer.Ordinal),
+    ];
+
     public RecordingView? Find(string id) => FindById.GetValueOrDefault(id);
 
     public void RaiseChanged() => Changed?.Invoke();

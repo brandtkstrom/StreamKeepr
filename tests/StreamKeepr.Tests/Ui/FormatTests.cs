@@ -27,6 +27,18 @@ public sealed class FormatTests
         Assert.Equal(expected, Format.Duration(seconds));
 
     [Theory]
+    [InlineData(0, 3600, "0%")]
+    [InlineData(900, 3600, "25%")]
+    [InlineData(1200, 3600, "33.3%")]
+    [InlineData(3600, 3600, "100%")]
+    [InlineData(4000, 3600, "100%")]
+    [InlineData(-5, 3600, "0%")]
+    [InlineData(10, 0, "0%")]
+    [InlineData(10, -1, "0%")]
+    public void Percent_is_a_css_width_clamped_to_the_whole(double part, double whole, string expected) =>
+        Assert.Equal(expected, Format.Percent(part, whole));
+
+    [Theory]
     [InlineData(null, "—")]
     [InlineData(-1L, "—")]
     [InlineData(0L, "0 B")]

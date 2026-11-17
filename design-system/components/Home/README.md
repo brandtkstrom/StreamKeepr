@@ -52,6 +52,15 @@ The default view at `/` when no recording is open: active recordings in one row,
 - **Below `Breakpoint.Md`:** rows become swipe rows with `pa-4` gutters, active cards at 85% and recent cards at 60% of the screen width, and the chevrons hide. The bottom bar (`BottomNav`) shows Home as current, and the library opens from it.
 - The drawer stays where it is. Picking a recording in either the drawer or a row opens the same player view.
 
+## As built (#182)
+
+Where StreamKeepr differs from this card, `docs/library-contract.md` §10 and §12 are binding:
+
+- The headers are `h2` elements in `h6` type (as in the preview), under the page's hidden `h1`.
+- Only Recent recordings has chevrons, as in the preview. They never disable at the ends of the row.
+- "Show all" on wide screens also saves the drawer as expanded, as the menu does.
+- With no recordings at all the rows render nothing; the "No recordings yet" state arrives with #185.
+
 ## Intentional additions
 
 This view is new. Today `/` shows an empty player column. "Show all" is new too.

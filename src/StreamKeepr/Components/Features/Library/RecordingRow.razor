@@ -9,7 +9,7 @@
    data-tree-key="@($"r:{Recording.Id}")"
    aria-current="@(Selected ? "true" : null)"
    data-recording-id="@Recording.Id"
-   data-state="@StateName">
+   data-state="@Recording.State.Hook()">
     <span class="sk-thumb @(IsRecording ? "live" : null)">
         @if (Recording.ThumbnailUrl is string thumbnail)
         {
@@ -24,7 +24,7 @@
         <span class="dur">@Format.Timecode(Recording.DurationSec)</span>
         @if (Recording.ResumeSec is double resume)
         {
-            <span class="prog" data-progress aria-hidden="true"><i style="width:@Progress(resume)"></i></span>
+            <span class="prog" data-progress aria-hidden="true"><i style="width:@Format.Percent(resume, Recording.DurationSec)"></i></span>
         }
         else if (IsRecording)
         {
@@ -68,14 +68,6 @@
 
     private StatusChipKind? Status => RecordingStatusChip.For(Recording.State);
 
-    private string StateName => Recording.State switch
-    {
-        RecordingState.Recording => "rec",
-        RecordingState.Reconnecting => "reconnecting",
-        RecordingState.Partial => "partial",
-        _ => "saved",
-    };
-
     private string Meta
     {
         get
@@ -91,15 +83,6 @@
                 _ => $"{time} · {duration}",
             };
         }
-    }
-
-    private string Progress(double resumeSec)
-    {
-        double percent = Recording.DurationSec > 0
-            ? Math.Clamp(resumeSec / Recording.DurationSec * 100, 0, 100)
-            : 0;
-
-        return percent.ToString("0.#", CultureInfo.InvariantCulture) + "%";
     }
 
     protected override bool ShouldRender()

@@ -25,3 +25,9 @@ A real link, `<a class="sk-card" href="/r/{id}">`, so it works without the circu
 - Hover lays `text-primary` at `hover-opacity` over the card, with `radius-lg` and `space-2` of padding around the thumbnail. Focus shows the `primary` ring around that same shape.
 - One chip at most on the thumbnail, and one under the meta. The thumbnail carries no other text.
 - The accessible name is the title, then the streamer, then the state ("Late-night speedrun practice, nightjar_tv, recording").
+
+## As built (#182)
+
+- The name comes from the link's content (the title, then a visually hidden ", streamer, state"), not an `aria-label`, so it contains the visible title. The thumbnail is `aria-hidden`, and the meta line is the link's description.
+- The meta line uses the streamer's display name and the drawer's 12-hour time ("Started 9:04 PM", "Yesterday, 8:30 PM").
+- `data-state` uses the drawer row's words: `rec`, `reconnecting`, `partial`, `saved`.

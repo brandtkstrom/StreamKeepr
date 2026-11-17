@@ -1,0 +1,111 @@
+@using System.Globalization
+
+@* One recording as a card in the Home rows (design system: RecordingCard). A real link, so it
+   works before the circuit connects and opens in a new tab. Its name comes from its content: the
+   title, then a hidden ", streamer, state" (an aria-label would hide the visible title from voice
+   control). The thumbnail is decoration, and the meta line is the link's description. *@
+<a class="sk-card"
+   href="@Href"
+   aria-describedby="@MetaId"
+   data-recording-id="@Recording.Id"
+   data-state="@Recording.State.Hook()"
+   data-card-size="@(Size == RecordingCardSize.Large ? "large" : "default")">
+    <span class="sk-thumb @(IsOpen ? "live" : null)" data-thumb aria-hidden="true">
+        @if (Recording.ThumbnailUrl is string thumbnail)
+        {
+            <img src="@thumbnail" alt="" loading="lazy" decoding="async" />
+        }
+        else
+        {
+            <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Movie" />
+        }
+        @if (ThumbStatus is StatusChipKind status)
+        {
+            <span class="sk-card-chip" data-thumb-state><StatusChip Status="status" /></span>
+        }
+        <span class="dur" data-duration>@Format.Timecode(Recording.DurationSec)</span>
+        @if (IsOpen)
+        {
+            <span class="prog" data-progress aria-hidden="true"><i style="width:100%"></i></span>
+        }
+        else if (Recording.ResumeSec is double resume)
+        {
+            <span class="prog" data-progress aria-hidden="true"><i style="width:@Format.Percent(resume, Recording.DurationSec)"></i></span>
+        }
+    </span>
+    <span class="sk-card-body">
+        <ChannelAvatar Login="@Recording.StreamerLogin"
+                       Name="@StreamerName"
+                       ImageUrl="@AvatarUrl"
+                       Size="MudBlazor.Size.Small"
+                       Class="sk-card-avatar"
+                       Decorative="true" />
+        <span class="sk-card-text">
+            <MudBlazor.MudText Typo="@(Size == RecordingCardSize.Large ? MudBlazor.Typo.subtitle1 : MudBlazor.Typo.subtitle2)"
+                               HtmlTag="span"
+                               Class="sk-card-title">@Recording.Title<span class="sk-visually-hidden">, @StreamerName, @StateWord</span></MudBlazor.MudText>
+            <span class="sk-card-meta" id="@MetaId" aria-hidden="true" data-card-meta>@Meta</span>
+            @if (Recording.State == RecordingState.Partial)
+            {
+                <span class="sk-card-state" aria-hidden="true" data-meta-state><StatusChip Status="StatusChipKind.Partial" /></span>
+            }
+        </span>
+    </span>
+</a>
+
+@code {
+    [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
+
+    /// <summary>The streamer's display name: the meta line, the avatar's initial, and part of the link's name.</summary>
+    [Parameter, EditorRequired] public string StreamerName { get; set; } = "";
+
+    [Parameter] public string? AvatarUrl { get; set; }
+
+    [Parameter] public RecordingCardSize Size { get; set; }
+
+    [Parameter] public TimeZoneInfo TimeZone { get; set; } = TimeZoneInfo.Utc;
+
+    /// <summary>The viewer's current time, for "Today" and "Yesterday".</summary>
+    [Parameter] public DateTimeOffset Now { get; set; }
+
+    private string Href => $"/r/{Uri.EscapeDataString(Recording.Id)}";
+
+    private bool IsOpen => Recording.State.IsOpen();
+
+    private StatusChipKind? ThumbStatus => Recording.State switch
+    {
+        RecordingState.Recording => StatusChipKind.Rec,
+        RecordingState.Reconnecting => StatusChipKind.Reconnecting,
+        _ => null,
+    };
+
+    // The state as the link's name says it, which is plain words rather than the data-state hook.
+    private string StateWord => Recording.State switch
+    {
+        RecordingState.Recording => "recording",
+        RecordingState.Reconnecting => "reconnecting",
+        RecordingState.Partial => "partial",
+        _ => "saved",
+    };
+
+    // Recording ids are not valid element ids in general (and one recording could appear twice), so each card owns one.
+    private readonly string MetaId = $"sk-card-meta-{Guid.NewGuid():N}";
+
+    private string Meta
+    {
+        get
+        {
+            string time = TimeZoneInfo.ConvertTime(Recording.StartedAt, TimeZone)
+                .ToString("h:mm tt", CultureInfo.InvariantCulture);
+
+            if (IsOpen)
+            {
+                return Recording.Category is { Length: > 0 } category
+                    ? $"{StreamerName} · {category} · Started {time}"
+                    : $"{StreamerName} · Started {time}";
+            }
+
+            return $"{StreamerName} · {Format.DayHeader(Recording.StartedAt, Now, TimeZone)}, {time}";
+        }
+    }
+}

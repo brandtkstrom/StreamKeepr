@@ -150,7 +150,10 @@
                                  ModalVisible="@_reconnectModalVisible" />
                 <main class="sk-main">
                     <div class="sk-main-inner">
-                        @ChildContent
+                        @* Pages reach the shell for actions that need its drawer, such as Home's "Show all". *@
+                        <CascadingValue Value="this" IsFixed="true">
+                            @ChildContent
+                        </CascadingValue>
                     </div>
                 </main>
             </MudBlazor.MudMainContent>
@@ -183,6 +186,7 @@
     private bool _breakpointKnown;
     private bool _modalOpen;
     private bool _modalRendered;
+    private string? _openModalOnArrivalAt;
     private bool _searchOpen;
     private bool _updatesPaused;
     private bool _reconnectModalVisible;
@@ -331,6 +335,42 @@
 
     private void ToggleSearch() => _searchOpen = !_searchOpen;
 
+    /// <summary>
+    /// Navigates to a library view (such as <c>/?state=saved</c>) and shows the library: the
+    /// full drawer Md and up, saved like the menu's choice, or the temporary drawer below Md.
+    /// </summary>
+    public async Task ShowLibraryAsync(string url)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        if (_compact)
+        {
+            // Navigating closes the temporary drawer, so open it once this navigation lands, and
+            // only there: any other location change clears the request. An unchanged URL raises
+            // no location change, so open it now instead.
+            Uri target = Navigation.ToAbsoluteUri(url);
+            if (target == new Uri(Navigation.Uri))
+            {
+                _modalOpen = true;
+                StateHasChanged();
+                return;
+            }
+
+            _openModalOnArrivalAt = target.AbsoluteUri;
+            Navigation.NavigateTo(url);
+            return;
+        }
+
+        bool watching = LibraryUrl.RecordingId(Navigation.ToAbsoluteUri(url).ToString()) is not null;
+        if (Preferences.DrawerFor(watching) != DrawerMode.Expanded)
+        {
+            Preferences.SetDrawer(DrawerMode.Expanded, watching);
+            await Preferences.PersistAsync();
+        }
+
+        Navigation.NavigateTo(url);
+    }
+
     /// <summary>Closes the temporary drawer; the module calls it on Escape.</summary>
     [JSInvokable]
     public Task CloseModalDrawer()
@@ -384,9 +424,12 @@
     private void OnPreferencesChanged() => _ = InvokeAsync(StateHasChanged);
 
     // Picking a recording closes the temporary drawer, and the page kind decides the drawer.
+    // ShowLibraryAsync's own navigation opens it instead.
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _ = InvokeAsync(() =>
     {
-        _modalOpen = false;
+        _modalOpen = _compact && string.Equals(
+            new Uri(e.Location).AbsoluteUri, _openModalOnArrivalAt, StringComparison.Ordinal);
+        _openModalOnArrivalAt = null;
         StateHasChanged();
     });
 
