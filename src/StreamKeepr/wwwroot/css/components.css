@@ -112,21 +112,21 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 .sk-icon.xs { font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20; }
 
 /* ---------- focus + state layers ---------- */
-.sk-btn, .sk-icon-btn, .sk-toggle-bar, .sk-collapse-head {
+.sk-btn, .sk-icon-btn, .sk-collapse-head {
   position: relative; isolation: isolate; cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-.sk-btn::before, .sk-icon-btn::before, .sk-toggle-bar::before, .sk-collapse-head::before {
+.sk-btn::before, .sk-icon-btn::before, .sk-collapse-head::before {
   content: ""; position: absolute; inset: 0; border-radius: inherit; background: currentColor;
   opacity: 0; transition: opacity 150ms cubic-bezier(0.2, 0, 0, 1); z-index: -1; pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .sk-btn::before, .sk-icon-btn::before, .sk-toggle-bar::before, .sk-collapse-head::before { transition: none; }
+  .sk-btn::before, .sk-icon-btn::before, .sk-collapse-head::before { transition: none; }
 }
-.sk-btn:hover::before, .sk-icon-btn:hover::before, .sk-toggle-bar:hover::before, .sk-collapse-head:hover::before { opacity: var(--sk-state-hover); }
-.sk-btn:active::before, .sk-icon-btn:active::before, .sk-toggle-bar:active::before, .sk-collapse-head:active::before { opacity: var(--sk-state-pressed); }
+.sk-btn:hover::before, .sk-icon-btn:hover::before, .sk-collapse-head:hover::before { opacity: var(--sk-state-hover); }
+.sk-btn:active::before, .sk-icon-btn:active::before, .sk-collapse-head:active::before { opacity: var(--sk-state-pressed); }
 /* MudBlazor's buttons and chips only tint on focus; the Keyboard card sets the ring once for all of them. */
 .mud-button-root:focus-visible, .mud-chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-:where(.sk-btn, .sk-icon-btn, .sk-toggle-bar, .sk-collapse-head, .sk-seek, .sk-switch, .sk-tooltip-wrap[tabindex]):focus-visible {
+:where(.sk-btn, .sk-icon-btn, .sk-collapse-head, .sk-switch, .sk-tooltip-wrap[tabindex]):focus-visible {
   outline: 2px solid var(--sk-primary); outline-offset: 2px;
 }
 
@@ -350,202 +350,373 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 /* The open streamer's avatar is ringed in primary. */
 .sk-drawer.rail .sk-group:has(.sk-row[aria-current="true"]) .sk-group-head .mud-avatar { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
 
-/* ---------- player ---------- */
+/* ---------- player (design system: VideoPlayer, Keyboard; JS island, #180) ----------
+   VideoPlayer.razor.js owns this DOM, so it holds no MudBlazor components: plain markup on the
+   player-* tokens, never the page theme, with inline Material Rounded SVG. Flat scrims only. */
 .sk-player {
-  container-type: inline-size; position: relative; width: 100%; aspect-ratio: 16 / 9; background: var(--sk-player-bg); color: var(--sk-on-player);
-  border-radius: var(--sk-radius-md); overflow: hidden; user-select: none;
+  container-type: inline-size; position: relative; width: 100%; aspect-ratio: 16 / 9;
+  background: var(--player-background); color: var(--player-text);
+  border-radius: var(--radius-lg); overflow: hidden; user-select: none;
 }
-.sk-player video, .sk-player .sk-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: var(--sk-player-bg); }
+.sk-player svg[data-icon] { display: block; width: 24px; height: 24px; fill: currentColor; flex: none; }
+.sk-player video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: var(--player-background); }
+.sk-player [hidden] { display: none !important; }
+/* Inside the player every focus ring is player-accent (Keyboard card). */
+.sk-player:focus-visible,
+.sk-player :focus-visible { outline: 2px solid var(--player-accent); outline-offset: 2px; }
+.sk-player:fullscreen { border-radius: 0; width: 100%; height: 100%; aspect-ratio: auto; }
+
 .sk-player-top {
-  position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: var(--sk-space-3); padding: var(--sk-space-3) var(--sk-space-4);
-  background: var(--sk-player-scrim); transition: opacity 200ms;
+  position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-2) var(--space-4); background: var(--player-scrim); transition: opacity 200ms;
 }
 .sk-player-top .t { flex: 1; min-width: 0; }
-.sk-player-top .t b { display: block; font: var(--sk-text-label-large); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sk-player-top .t span { display: block; font: var(--sk-text-body-small); opacity: 0.85; }
-.sk-player-center {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 72px; height: 72px; border-radius: var(--sk-radius-full);
-  display: grid; place-items: center; border: 0; background: var(--sk-player-scrim); color: var(--sk-on-player); cursor: pointer;
+.sk-player-top .t b {
+  display: block; font: var(--text-subtitle1); font-weight: 500; letter-spacing: var(--text-subtitle1-letter-spacing);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.sk-player-center .sk-icon { font-size: 44px; font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 48; }
-.sk-player-center:focus-visible { outline: 2px solid var(--sk-primary); outline-offset: 2px; }
-.sk-player-bottom { position: absolute; left: 0; right: 0; bottom: 0; background: var(--sk-player-scrim); padding-top: 6px; transition: opacity 200ms; }
+.sk-player-top .t span { display: block; font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
+
+/* The player's own StatusChip (the module writes it): overline type, the label in player-text,
+   only the icon in the kind's colour; REC is the one filled chip. */
+.sk-player-chip {
+  display: inline-flex; align-items: center; gap: var(--space-1); flex: none; height: 20px; padding: 0 6px;
+  border-radius: var(--radius-sm); background: color-mix(in srgb, var(--player-text) calc(var(--tint-opacity) * 100%), transparent);
+  color: var(--player-text); font: var(--text-overline); letter-spacing: var(--text-overline-letter-spacing);
+  text-transform: uppercase; white-space: nowrap;
+}
+.sk-player-chip svg[data-icon] { width: 14px; height: 14px; color: var(--warning); }
+.sk-player-chip.rec { background: var(--rec); color: var(--rec-contrast-text); }
+.sk-player-chip.rec .dot { width: 6px; height: 6px; border-radius: var(--radius-full); background: var(--rec-contrast-text); animation: sk-pulse 1.6s ease-in-out infinite; }
+
+.sk-player-center {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 72px; height: 72px;
+  display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-full);
+  background: var(--player-scrim); color: var(--player-text); cursor: pointer;
+}
+.sk-player .sk-player-center svg[data-icon] { width: 44px; height: 44px; }
+
+.sk-player-bottom { position: absolute; left: 0; right: 0; bottom: 0; background: var(--player-scrim); padding-top: 6px; transition: opacity 200ms; }
 .sk-player.idle .sk-player-top, .sk-player.idle .sk-player-bottom { opacity: 0; }
 .sk-player.idle { cursor: none; }
-.sk-player:focus-visible { outline: 2px solid var(--sk-primary); outline-offset: 2px; }
-.sk-player:fullscreen { border-radius: 0; width: 100%; height: 100%; aspect-ratio: auto; }
-@media (prefers-reduced-motion: reduce) { .sk-player-top, .sk-player-bottom { transition: none; } }
 
-/* ---------- chat replay sidecar ---------- */
+/* Loading, waiting and error states. */
+.sk-player-spinner { position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; gap: var(--space-3); pointer-events: none; }
+.sk-player-spinner .sk-spin {
+  width: 48px; height: 48px; border-radius: 50%; border: 4px solid var(--player-accent); border-right-color: transparent;
+  animation: sk-spin 800ms linear infinite;
+}
+.sk-player-waiting { margin: 0; color: var(--player-text); font: var(--text-body1); letter-spacing: var(--text-body1-letter-spacing); text-align: center; }
+.sk-player-overlay {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3);
+  padding: var(--space-6); background: var(--player-background); color: var(--player-text); text-align: center;
+}
+.sk-player .sk-player-overlay > svg[data-icon] { width: 40px; height: 40px; color: var(--error); }
+.sk-player-overlay p { margin: 0; max-width: 40ch; font: var(--text-body1); letter-spacing: var(--text-body1-letter-spacing); }
+.sk-player-overlay .actions { display: flex; gap: var(--space-2); }
+/* A MudButton's shape (filled Retry, text "Back to library") drawn on the player tokens. */
+.sk-player-action {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 6px 16px;
+  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--player-text);
+  font: var(--text-button); letter-spacing: var(--text-button-letter-spacing); text-transform: uppercase;
+  text-decoration: none; cursor: pointer;
+}
+/* The filled label is player-background, black on player-accent (9.0:1), so the player reads no page token. */
+.sk-player-action.filled { background: var(--player-accent); color: var(--player-background); box-shadow: var(--elevation-4); }
+.sk-player-action.text:hover { background: color-mix(in srgb, var(--player-text) calc(var(--hover-opacity) * 100%), transparent); }
+
+/* Seek: a 4px track at 24% player-text, buffered in player-buffered, played and the 14px knob in
+   player-accent, chapter ticks in tertiary (the stream's colour), the live-edge tick in rec. */
+.sk-seek { position: relative; height: 20px; margin: 0 var(--space-4); cursor: pointer; touch-action: none; }
+.sk-seek .track {
+  position: absolute; left: 0; right: 0; top: 8px; height: 4px; border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--player-text) 24%, transparent); transition: height 120ms, top 120ms;
+}
+.sk-seek .buf { position: absolute; left: 0; top: 0; bottom: 0; border-radius: inherit; background: var(--player-buffered); }
+.sk-seek .played { position: absolute; left: 0; top: 0; bottom: 0; border-radius: inherit; background: var(--player-accent); }
+.sk-seek .knob {
+  position: absolute; top: 3px; width: 14px; height: 14px; margin-left: -7px; border-radius: var(--radius-full);
+  background: var(--player-accent); transform: scale(0); transition: transform 120ms;
+}
+.sk-seek:hover .track, .sk-seek:focus-visible .track { height: 6px; top: 7px; }
+.sk-seek:hover .knob, .sk-seek:focus-visible .knob, .sk-seek.drag .knob { transform: scale(1); }
+.sk-seek .ticks { position: absolute; left: 0; right: 0; top: 7px; height: 6px; pointer-events: none; }
+.sk-seek .tick { position: absolute; top: 0; width: 2px; height: 100%; margin-left: -1px; border-radius: 1px; background: var(--tertiary); }
+.sk-seek .edge { position: absolute; top: 3px; width: 4px; height: 14px; margin-left: -2px; border-radius: var(--radius-full); background: var(--rec); }
+.sk-seek .hover-time {
+  position: absolute; bottom: 22px; transform: translateX(-50%); padding: 2px 6px; border-radius: var(--radius-sm);
+  background: var(--player-surface); color: var(--player-text); box-shadow: var(--elevation-8);
+  font: var(--text-timecode); font-variant-numeric: var(--text-timecode-numeric); letter-spacing: var(--text-timecode-letter-spacing);
+  white-space: nowrap; pointer-events: none; opacity: 0;
+}
+.sk-seek:hover .hover-time { opacity: 1; }
+.sk-seek[aria-disabled="true"] { cursor: default; }
+
+/* Control bar: 40px round buttons. Pressed toggles (stats, chat, theater) take player-accent. */
+.sk-controls { display: flex; align-items: center; gap: 2px; height: var(--control-bar-height); padding: 0 var(--space-2); }
+.sk-controls .grow { flex: 1; }
+.sk-player-btn {
+  position: relative; display: inline-grid; place-items: center; flex: none; width: var(--player-button); height: var(--player-button);
+  padding: 0; border: 0; border-radius: var(--radius-full); background: transparent; color: var(--player-text); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sk-player-btn:hover { background: color-mix(in srgb, var(--player-text) calc(var(--hover-opacity) * 100%), transparent); }
+.sk-player-btn:active { background: color-mix(in srgb, var(--player-text) calc(var(--ripple-opacity) * 100%), transparent); }
+.sk-player-btn[aria-pressed="true"] { color: var(--player-accent); }
+.sk-player-btn:disabled { opacity: var(--disabled-opacity); cursor: default; }
+.sk-time {
+  margin: 0 var(--space-2); white-space: nowrap;
+  font: var(--text-timecode); font-variant-numeric: var(--text-timecode-numeric); letter-spacing: var(--text-timecode-letter-spacing);
+}
+.sk-time .dim { color: color-mix(in srgb, var(--player-text) 75%, transparent); }
+.sk-vol { display: flex; align-items: center; }
+.sk-vol .bar {
+  width: 0; height: 4px; border-radius: var(--radius-full); background: color-mix(in srgb, var(--player-text) 24%, transparent);
+  overflow: hidden; transition: width 200ms cubic-bezier(0.2, 0, 0, 1), margin 200ms;
+}
+.sk-vol .bar i { display: block; height: 100%; background: var(--player-text); }
+.sk-vol:hover .bar, .sk-vol:focus-within .bar { width: 64px; margin-right: var(--space-2); }
+/* Speed and quality pills; "Live edge" is an outlined pill with a rec dot. */
+.sk-pill {
+  display: inline-flex; align-items: center; height: 28px; margin: 0 var(--space-1); padding: 0 10px; border: 0; border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--player-text) 12%, transparent); color: var(--player-text);
+  font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); white-space: nowrap; cursor: pointer;
+}
+.sk-pill:hover { background: color-mix(in srgb, var(--player-text) 20%, transparent); }
+.sk-quality { cursor: default; }
+.sk-quality:hover { background: color-mix(in srgb, var(--player-text) 12%, transparent); }
+.sk-golive {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; margin: 0 var(--space-1); padding: 0 10px; border: 0;
+  border-radius: var(--radius-full); background: transparent; color: var(--player-text); white-space: nowrap; cursor: pointer;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--player-text) 40%, transparent);
+  font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); text-transform: uppercase;
+}
+.sk-golive .dot { width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--rec); }
+.sk-golive.at-edge { box-shadow: none; background: color-mix(in srgb, var(--player-text) 12%, transparent); }
+@container (max-width: 720px) { .sk-controls [data-skip], .sk-controls [data-pip], .sk-controls [data-menu^="m-s"] { display: none; } }
+@container (max-width: 520px) { .sk-controls [data-theater], .sk-vol, .sk-quality, .sk-golive .lbl-long { display: none; } }
+
+/* The speed menu: a MudMenu's shape (radius-md, elevation-8) on player-surface. The checked
+   item shows Check in player-accent; every item carries the glyph so labels stay aligned. */
+.sk-player-menu-anchor { position: relative; display: inline-flex; }
+.sk-player-menu {
+  position: absolute; right: 0; bottom: calc(100% + var(--space-2)); z-index: 5; min-width: 160px; padding: var(--space-2) 0;
+  border-radius: var(--radius-md); background: var(--player-surface); color: var(--player-text); box-shadow: var(--elevation-8);
+  font: var(--text-body2); letter-spacing: var(--text-body2-letter-spacing);
+}
+.sk-player-menu button {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; height: 40px; padding: 0 var(--space-4) 0 var(--space-3);
+  border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-align: left; cursor: pointer;
+}
+.sk-player-menu button:hover, .sk-player-menu button:focus-visible {
+  background: color-mix(in srgb, var(--player-text) calc(var(--hover-opacity) * 100%), transparent);
+}
+.sk-player-menu button:focus-visible { outline-offset: -2px; }
+.sk-player .sk-player-menu svg[data-icon] { width: 20px; height: 20px; color: var(--player-accent); }
+.sk-player-menu [aria-checked="false"] svg[data-icon] { visibility: hidden; }
+.sk-player-menu .sp { flex: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sk-player-top, .sk-player-bottom, .sk-seek .track, .sk-seek .knob, .sk-vol .bar { transition: none; }
+  .sk-player-chip.rec .dot { animation: none; }
+  .sk-player-spinner .sk-spin { animation-duration: 2400ms; }
+}
+
+/* ---------- chat replay sidecar (design system: ChatPane; JS island, #180) ----------
+   ChatPane.razor.js owns this DOM: an outlined MudPaper drawn with plain markup. */
 .sk-main-inner:has(.sk-player-row[data-chat-open="true"]) { max-width: 1280px; }
-.sk-player-row { display: flex; align-items: stretch; gap: var(--sk-space-3); min-width: 0; }
+.sk-player-row { display: flex; align-items: stretch; gap: var(--space-3); min-width: 0; }
 .sk-player-row > [data-slot="player"] { flex: 1; min-width: 0; }
 .sk-player-row > [data-slot="player"] > .sk-player { width: 100%; }
 /* `contain: size` keeps the log's rows out of the row's height, so the stretched pane takes
    the player's height and the log scrolls; without it every new message grows the pane and
    pushes the sync footer down the page. */
 .sk-chat {
-  width: 44px; flex: none; display: flex; flex-direction: column; min-height: 0; overflow: hidden;
-  contain: size;
-  background: var(--sk-surface-container-low); border: 1px solid var(--sk-outline-variant);
-  border-radius: var(--sk-radius-md); color: var(--sk-on-surface);
+  width: 44px; flex: none; display: flex; flex-direction: column; min-height: 0; overflow: hidden; contain: size;
+  background: var(--surface); border: 1px solid var(--lines-default); border-radius: var(--radius-lg); color: var(--text-primary);
 }
-/* A narrow desktop player can be short; keep room for a few rows. */
-.sk-chat[data-open="true"] { width: 320px; min-height: 240px; }
-.sk-chat-head { display: flex; align-items: center; gap: var(--sk-space-2); padding: var(--sk-space-2); border-bottom: 1px solid var(--sk-outline-variant); }
+/* Open, it is chat-width wide. The card's `flex: 0 1 400px` assumes a height-capped player that
+   leaves spare width; this player is not height-capped yet, so a wider pane would only shrink it
+   past its 520px control breakpoint. A narrow desktop player can be short, so keep a few rows. */
+.sk-chat[data-open="true"] { width: var(--chat-width); min-height: 240px; }
+.sk-chat svg[data-icon] { display: block; width: 24px; height: 24px; fill: currentColor; flex: none; }
+.sk-chat [hidden] { display: none !important; }
+.sk-chat :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.sk-chat-head { display: flex; align-items: center; gap: var(--space-2); min-height: 48px; padding: 0 var(--space-3) 0 var(--space-1); border-bottom: 1px solid var(--divider); }
 .sk-chat-toggle {
-  display: flex; align-items: center; gap: var(--sk-space-2); min-width: 0; width: 100%;
-  border: 0; background: transparent; color: inherit; cursor: pointer; padding: var(--sk-space-1);
-  border-radius: var(--sk-radius-sm); font: var(--sk-text-label-medium);
+  display: flex; align-items: center; gap: var(--space-2); flex: 1; min-width: 0; height: 40px; padding: 0 var(--space-2);
+  justify-content: flex-start; border: 0; border-radius: var(--radius-full); background: transparent; color: var(--text-primary);
+  cursor: pointer; font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing); text-align: left;
 }
-.sk-chat-toggle:focus-visible { outline: 2px solid var(--sk-primary); outline-offset: 2px; }
+.sk-chat-toggle svg[data-icon] { color: var(--action-default); }
+.sk-chat-toggle:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
 .sk-chat-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sk-chat-state { flex: none; color: var(--sk-on-surface-variant); font: var(--sk-text-body-small); white-space: nowrap; }
-.sk-chat-state[data-state="live"] { color: var(--sk-primary); }
-.sk-chat-state[data-state="unavailable"] { color: var(--sk-error); }
+.sk-chat-state { flex: none; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; }
+.sk-chat-state[data-state="live"] { color: var(--primary); }
+.sk-chat-state[data-state="unavailable"] { color: var(--error); }
+/* Collapsed: a 44px strip with only the chat icon. */
 .sk-chat[data-open="false"] .sk-chat-title,
 .sk-chat[data-open="false"] .sk-chat-state { display: none; }
-.sk-chat[data-open="false"] .sk-chat-head { justify-content: center; border-bottom: 0; }
+.sk-chat[data-open="false"] .sk-chat-head { justify-content: center; padding: var(--space-1) 0; border-bottom: 0; }
+.sk-chat[data-open="false"] .sk-chat-toggle { flex: none; width: 40px; padding: 0; justify-content: center; }
 .sk-chat-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .sk-chat[data-open="false"] .sk-chat-body { display: none; }
 .sk-chat-log {
-  flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; padding: var(--sk-space-2);
-  display: flex; flex-direction: column; gap: 2px; font: var(--sk-text-body-small);
-  overscroll-behavior: contain; scrollbar-width: thin;
+  flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; padding: var(--space-2) var(--space-3);
+  display: flex; flex-direction: column; gap: var(--space-1);
+  color: var(--text-primary); font: var(--text-body2); letter-spacing: var(--text-body2-letter-spacing);
+  overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--surface-raised) transparent;
 }
 /* Anchor short chat to the bottom so it grows upward. An auto margin, unlike
    `justify-content: flex-end`, collapses to zero once the log overflows, so it stays scrollable. */
 .sk-chat-log > :first-child { margin-top: auto; }
-.sk-chat-log:focus-visible { outline: 2px solid var(--sk-primary); outline-offset: -2px; }
-.sk-chat-row { line-height: 1.35; }
+.sk-chat .sk-chat-log:focus-visible { outline-offset: -2px; }
 .sk-chat-row.action .sk-chat-text { font-style: italic; }
+/* The name's colour is the chatter's Twitch colour, or the channel colour (channel-*) on the
+   streamer's own messages; the module sets it inline. */
 .sk-chat-name { font-weight: 700; }
-.sk-chat-colon { color: var(--sk-on-surface-variant); }
+.sk-chat-colon { color: var(--text-secondary); }
 .sk-chat-badge {
-  display: inline-block; margin-right: 3px; padding: 0 3px; border-radius: 3px;
-  background: var(--sk-surface-container-highest); color: var(--sk-on-surface-variant);
-  font: var(--sk-text-label-small); vertical-align: 1px;
+  display: inline-block; margin-right: var(--space-1); padding: 0 var(--space-1); border-radius: var(--radius-sm);
+  background: var(--surface-raised); color: var(--text-secondary); vertical-align: 1px;
+  font: var(--text-label); letter-spacing: var(--text-label-letter-spacing);
 }
-.sk-chat-reply { display: block; margin: 0 0 1px var(--sk-space-2); padding-left: var(--sk-space-2); border-left: 2px solid var(--sk-outline-variant); color: var(--sk-on-surface-variant); font-size: 0.9em; }
-.sk-chat-gap { margin: var(--sk-space-2) 0; padding: var(--sk-space-1) 0; border-top: 1px dashed var(--sk-outline-variant); color: var(--sk-on-surface-variant); text-align: center; font: var(--sk-text-body-small); }
+.sk-chat-reply {
+  display: block; margin: 0 0 2px; padding-left: var(--space-2); border-left: 2px solid var(--divider);
+  color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
+}
+.sk-chat-gap {
+  margin: var(--space-2) 0; padding: var(--space-1) 0; border-top: 1px dashed var(--divider); text-align: center;
+  color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
+}
 .sk-chat-text img { height: 28px; width: auto; vertical-align: middle; }
-.sk-chat-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sk-space-2); padding: var(--sk-space-2); border-top: 1px solid var(--sk-outline-variant); }
-.sk-chat-sync { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
-.sk-chat-sync-label { color: var(--sk-on-surface-variant); font: var(--sk-text-label-small); }
-.sk-chat-sync-btn { border: 1px solid var(--sk-outline-variant); background: transparent; color: inherit; border-radius: var(--sk-radius-sm); padding: 1px 4px; cursor: pointer; font: var(--sk-text-label-small); }
-.sk-chat-sync-btn:hover { background: var(--sk-surface-container-highest); }
-.sk-chat-sync-btn:focus-visible { outline: 2px solid var(--sk-primary); outline-offset: 1px; }
-.sk-chat-sync-value { min-width: 36px; color: var(--sk-on-surface-variant); font: var(--sk-text-label-small); text-align: right; }
-.sk-chat-jump { border: 1px solid var(--sk-primary); background: var(--sk-primary-container); color: var(--sk-on-primary-container); border-radius: var(--sk-radius-full); padding: 2px 8px; cursor: pointer; font: var(--sk-text-label-small); }
-.sk-chat-jump:focus-visible { outline: 2px solid var(--sk-primary); outline-offset: 2px; }
-.sk-chat-notice { flex: 1; min-width: 0; color: var(--sk-on-surface-variant); font: var(--sk-text-body-small); }
-.sk-chat [hidden] { display: none !important; }
+.sk-chat-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--divider); }
+/* The sync nudges stay until the chat sync slider (#184). */
+.sk-chat-sync { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
+.sk-chat-sync-label, .sk-chat-sync-value { color: var(--text-secondary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
+.sk-chat-sync-value { min-width: 36px; text-align: right; font-variant-numeric: var(--text-timecode-numeric); }
+.sk-chat-sync-btn {
+  height: 24px; padding: 0 6px; border: 1px solid var(--lines-inputs); border-radius: var(--radius-sm); background: transparent;
+  color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); cursor: pointer;
+}
+.sk-chat-sync-btn:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
+.sk-chat-jump {
+  height: 24px; padding: 0 var(--space-3); border: 1px solid var(--primary); border-radius: var(--radius-full); background: transparent;
+  color: var(--primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); cursor: pointer;
+}
+.sk-chat-jump:hover { background: color-mix(in srgb, var(--primary) calc(var(--hover-opacity) * 100%), transparent); }
+.sk-chat-notice { flex: 1; min-width: 0; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
 
 @media (max-width: 959.98px) {
   .sk-player-row { flex-direction: column; }
   /* Stacked under the player, the pane sizes to its content up to half the viewport. */
   .sk-chat, .sk-chat[data-open="true"] { width: 100%; max-height: 50vh; min-height: 0; contain: none; }
-  .sk-chat[data-open="false"] { max-height: 44px; }
+  .sk-chat[data-open="false"] { max-height: 50px; }
+  .sk-chat[data-open="false"] .sk-chat-head { justify-content: flex-start; padding: var(--space-1); }
+}
+
+/* ---------- stats for nerds (design system: StatsPanel; JS island, #180) ----------
+   StatsPanel.razor.js owns this DOM: a MudExpansionPanel's shape drawn with plain markup.
+   Series colours: video primary, network secondary, the stream tertiary; labels never take them. */
+.sk-stats-panel { background: var(--surface); border-radius: var(--radius-lg); overflow: hidden; color: var(--text-primary); }
+.sk-stats-panel svg[data-icon] { display: block; width: 24px; height: 24px; fill: currentColor; flex: none; }
+.sk-stats-panel :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.sk-stats-head {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 48px; padding: 0 var(--space-3) 0 var(--space-4);
+  border: 0; border-radius: var(--radius-lg); background: transparent; color: var(--text-primary); text-align: left; cursor: pointer;
+}
+.sk-stats-panel .sk-stats-head:focus-visible { outline-offset: -2px; }
+.sk-stats-head:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
+.sk-stats-head > svg[data-icon] { color: var(--action-default); }
+/* The hint gives way first on a narrow panel; the title keeps its words. */
+.sk-stats-head .title { flex: 1 0 auto; font: var(--text-h6); letter-spacing: var(--text-h6-letter-spacing); white-space: nowrap; }
+.sk-stats-head .hint {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary);
+  font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
+}
+/* A MudSwitch Color.Primary: a 14px track and a 20px thumb that slides and fills primary. */
+.sk-stats-switch { position: relative; flex: none; width: 34px; height: 20px; margin: 0 var(--space-2); }
+.sk-stats-switch::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 3px; height: 14px; border-radius: 7px;
+  background: var(--text-primary); opacity: 0.38; transition: background 150ms, opacity 150ms;
+}
+.sk-stats-switch::after {
+  content: ""; position: absolute; left: 0; top: 0; width: 20px; height: 20px; border-radius: var(--radius-full);
+  background: var(--text-secondary); box-shadow: var(--elevation-4); transition: transform 150ms cubic-bezier(0.2, 0, 0, 1), background 150ms;
+}
+[aria-checked="true"] > .sk-stats-switch::before { background: var(--primary); opacity: 0.5; }
+[aria-checked="true"] > .sk-stats-switch::after { background: var(--primary); transform: translateX(14px); }
+.sk-stats-collapse { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 300ms cubic-bezier(0.2, 0, 0, 1); }
+.sk-stats-collapse > div { min-height: 0; overflow: hidden; }
+/* The switch carries the disclosure state (aria-checked); the section's data-open drives motion. */
+.sk-stats-panel[data-open="false"] > .sk-stats-collapse { grid-template-rows: 0fr; }
+
+.sk-stats { padding: var(--space-2) var(--space-4) var(--space-4); display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4) var(--space-6); }
+.sk-stats-heading {
+  display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-2);
+  color: var(--text-primary); font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing);
+}
+.sk-stats-heading.video svg[data-icon] { color: var(--primary); }
+.sk-stats-heading.network svg[data-icon] { color: var(--secondary); }
+.sk-stats-heading.stream svg[data-icon] { color: var(--tertiary); }
+.sk-stats-section.stream { grid-column: 1 / -1; padding-top: var(--space-4); border-top: 1px solid var(--divider); }
+.sk-stats-empty { margin: 0; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
+.sk-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-bottom: var(--space-3); }
+.sk-tile { position: relative; min-width: 0; padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface-raised); }
+.sk-tile .lbl {
+  color: var(--text-secondary); font: var(--text-overline); letter-spacing: var(--text-overline-letter-spacing);
+  text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sk-tile .val { font: var(--text-stat-hero); font-variant-numeric: var(--text-stat-hero-numeric); letter-spacing: var(--text-stat-hero-letter-spacing); white-space: nowrap; }
+.sk-tile .val small { color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
+.sk-tile svg { display: block; width: 100%; height: 32px; margin-top: var(--space-1); overflow: visible; }
+.sk-tile .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.sk-tile .base { stroke: var(--divider); stroke-width: 1; }
+.sk-tile .xh { stroke: var(--text-secondary); stroke-width: 1; }
+.sk-tile .pt { stroke: var(--surface-raised); stroke-width: 2; }
+.sk-tile .tip {
+  position: absolute; top: var(--space-2); right: var(--space-2); padding: 2px 6px; border-radius: var(--radius-sm);
+  background: var(--tooltip-background); color: var(--tooltip-text); box-shadow: var(--elevation-8); pointer-events: none; opacity: 0;
+  font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); transition: opacity 120ms;
+}
+.sk-tile:hover .tip { opacity: 1; }
+.sk-kv { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px var(--space-4); align-items: baseline; }
+.sk-kv dt { color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; }
+.sk-kv dd {
+  margin: 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font: var(--text-stat-value); font-variant-numeric: var(--text-stat-value-numeric); letter-spacing: var(--text-stat-value-letter-spacing);
+}
+/* The module puts the warning glyph in the text, so a problem is never colour alone. */
+.sk-kv dd.warn { color: var(--error); }
+.sk-stats-actions { display: flex; justify-content: flex-end; padding: 0 var(--space-2) var(--space-2); }
+/* A MudButton Variant.Text in primary. */
+.sk-stats-copy {
+  min-height: 36px; padding: 6px var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--primary);
+  font: var(--text-button); letter-spacing: var(--text-button-letter-spacing); text-transform: uppercase; cursor: pointer;
+}
+.sk-stats-copy:hover { background: color-mix(in srgb, var(--primary) calc(var(--hover-opacity) * 100%), transparent); }
+@media (max-width: 599.98px) {
+  .sk-stats { grid-template-columns: 1fr; }
+  /* The panel stacks, but each section keeps its two tiles (player contract §10). */
+  .sk-stats .sk-tiles { grid-template-columns: 1fr 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sk-chat, .sk-chat-body { transition: none; }
+  .sk-stats-collapse, .sk-stats-switch::before, .sk-stats-switch::after, .sk-tile .tip { transition: none; }
 }
 
-.sk-seek { position: relative; height: 20px; margin: 0 var(--sk-space-4); cursor: pointer; touch-action: none; }
-.sk-seek .track { position: absolute; left: 0; right: 0; top: 8px; height: 4px; border-radius: var(--sk-radius-full); background: rgba(255, 255, 255, 0.24); transition: height 120ms, top 120ms; }
-.sk-seek .buf { position: absolute; left: 0; top: 0; bottom: 0; border-radius: inherit; background: var(--sk-secondary); opacity: 0.55; }
-.sk-seek .played { position: absolute; left: 0; top: 0; bottom: 0; border-radius: inherit; background: var(--sk-primary); }
-.sk-seek .knob { position: absolute; top: 4px; width: 12px; height: 12px; margin-left: -6px; border-radius: var(--sk-radius-full); background: var(--sk-primary); transform: scale(0); transition: transform 120ms; }
-.sk-seek:hover .track, .sk-seek:focus-visible .track { height: 6px; top: 7px; }
-.sk-seek:hover .knob, .sk-seek:focus-visible .knob, .sk-seek.drag .knob { transform: scale(1); }
-.sk-seek .edge { position: absolute; top: 3px; width: 4px; height: 14px; margin-left: -2px; border-radius: var(--sk-radius-full); background: var(--sk-rec); }
-.sk-seek .hover-time {
-  position: absolute; bottom: 22px; transform: translateX(-50%); padding: 2px 6px; border-radius: var(--sk-radius-xs);
-  background: var(--sk-surface-bright); color: var(--sk-on-surface); font: 500 12px/16px var(--sk-font-sans); white-space: nowrap; pointer-events: none; opacity: 0; box-shadow: var(--sk-elevation-2);
-}
-.sk-seek:hover .hover-time { opacity: 1; }
-.sk-seek[aria-disabled="true"] { cursor: default; }
-.sk-seek .ticks { position: absolute; left: 0; right: 0; top: 8px; height: 4px; pointer-events: none; }
-.sk-seek .tick { position: absolute; top: 0; width: 2px; height: 100%; margin-left: -1px; background: var(--sk-on-player); opacity: 0.7; }
-
-.sk-player [hidden] { display: none !important; }
-.sk-player-spinner { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
-.sk-player-spinner { grid-template-rows: auto; align-content: center; gap: var(--sk-space-3); }
-.sk-player-waiting { margin: 0; color: var(--sk-on-player); font: var(--sk-text-body-large); text-align: center; }
-.sk-player-spinner .sk-spin { width: 48px; height: 48px; border-radius: 50%; border: 4px solid var(--sk-on-player); border-right-color: transparent; animation: sk-spin 800ms linear infinite; }
-.sk-player-overlay {
-  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sk-space-3);
-  padding: var(--sk-space-6); background: var(--sk-player-bg); color: var(--sk-on-player); text-align: center;
-}
-.sk-player-overlay p { margin: 0; max-width: 40ch; font: var(--sk-text-body-large); }
-.sk-player-overlay .actions { display: flex; gap: var(--sk-space-2); }
-.sk-player-overlay .sk-btn.text { color: var(--sk-on-player); }
-.sk-player-menu { top: auto; bottom: calc(100% + var(--sk-space-2)); right: 0; min-width: 160px; }
-/* The player's speed menu is still a hand-built menu (VideoPlayer.razor); these are the deleted Menu
-   primitive's rules it relies on, after .sk-player-menu as before so the 180px width still wins. Remove when the player island moves to MudMenu. */
-.sk-menu-anchor { position: relative; display: inline-flex; }
-.sk-menu {
-  position: absolute; min-width: 180px; padding: var(--sk-space-2) 0; border-radius: var(--sk-radius-sm); background: var(--sk-surface-container); color: var(--sk-on-surface);
-  box-shadow: var(--sk-elevation-2); font: var(--sk-text-body-medium); z-index: 5;
-}
-.sk-menu.align-end { top: calc(100% + var(--sk-space-1)); right: 0; }
-.sk-menu.align-start { top: calc(100% + var(--sk-space-1)); left: 0; }
-.sk-menu .hd { padding: 4px var(--sk-space-3) 8px; color: var(--sk-on-surface-variant); font: var(--sk-text-label-medium); }
-.sk-menu button { display: flex; align-items: center; gap: var(--sk-space-3); width: 100%; height: 40px; padding: 0 var(--sk-space-3); border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.sk-menu button:hover { background: var(--sk-surface-container-high); }
-.sk-menu button:disabled { opacity: var(--sk-state-disabled); cursor: default; }
-.sk-menu button:disabled:hover { background: transparent; }
-.sk-menu button .sk-icon { font-size: 20px; color: var(--sk-primary); width: 20px; }
-.sk-menu button .sp { flex: 1; }
-.sk-menu button small { color: var(--sk-on-surface-variant); font: 500 12px/16px var(--sk-font-sans); }
-@media (prefers-reduced-motion: reduce) { .sk-player-spinner .sk-spin { animation-duration: 2400ms; } }
-
-.sk-controls { display: flex; align-items: center; gap: 2px; height: var(--sk-control-bar-height); padding: 0 var(--sk-space-2); }
-.sk-controls .sk-icon-btn { color: var(--sk-on-player); }
-.sk-controls .sk-icon-btn.on { color: var(--sk-primary); }
-.sk-controls .grow { flex: 1; }
-.sk-time { margin: 0 var(--sk-space-2); font: var(--sk-text-timecode); font-variant-numeric: var(--sk-text-timecode-numeric); white-space: nowrap; }
-.sk-time .dim { opacity: 0.75; }
-.sk-vol { display: flex; align-items: center; }
-.sk-vol .bar { width: 0; height: 4px; border-radius: var(--sk-radius-full); background: rgba(255, 255, 255, 0.24); overflow: hidden; transition: width 200ms cubic-bezier(0.2, 0, 0, 1), margin 200ms; }
-.sk-vol .bar i { display: block; height: 100%; background: var(--sk-on-player); }
-.sk-vol:hover .bar, .sk-vol:focus-within .bar { width: 64px; margin-right: var(--sk-space-2); }
-.sk-pill {
-  height: 28px; padding: 0 10px; border: 0; border-radius: var(--sk-radius-full); background: rgba(255, 255, 255, 0.12); color: var(--sk-on-player);
-  font: var(--sk-text-label-medium); cursor: pointer; margin: 0 4px; white-space: nowrap;
-}
-.sk-pill:hover { background: rgba(255, 255, 255, 0.2); }
-.sk-pill:focus-visible { outline: 2px solid var(--sk-primary); outline-offset: 2px; }
-.sk-golive {
-  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; margin: 0 4px; border: 0; border-radius: var(--sk-radius-full);
-  background: transparent; color: var(--sk-on-player); font: var(--sk-text-label-small); letter-spacing: 0.6px; text-transform: uppercase; cursor: pointer;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
-}
-.sk-golive .dot { width: 8px; height: 8px; border-radius: var(--sk-radius-full); background: var(--sk-rec); }
-.sk-golive { white-space: nowrap; }
-@container (max-width: 720px) { .sk-controls [data-skip], .sk-controls [data-pip], .sk-controls [data-menu^="m-s"] { display: none; } }
-@container (max-width: 520px) { .sk-controls [data-theater], .sk-vol, .sk-quality, .sk-golive .lbl-long { display: none; } }
-.sk-quality { display: inline-flex; align-items: center; cursor: default; }
-.sk-quality:hover { background: rgba(255, 255, 255, 0.12); }
-.sk-golive.at-edge { box-shadow: none; background: rgba(255, 255, 255, 0.12); }
-
-
-/* ---------- collapsible panel (details + stats) ---------- */
+/* ---------- collapsible panel and switch (Collapsible, Switch primitives) ---------- */
 .sk-panel { background: var(--sk-surface-container); border-radius: var(--sk-radius-md); overflow: hidden; }
-.sk-collapse-head, .sk-toggle-bar {
+.sk-collapse-head {
   display: flex; align-items: center; gap: var(--sk-space-3); width: 100%; min-height: 48px; padding: 0 var(--sk-space-2) 0 var(--sk-space-4);
   border: 0; background: transparent; color: var(--sk-on-surface); text-align: left; border-radius: var(--sk-radius-md);
 }
-.sk-collapse-head :is(h2, h3), .sk-toggle-bar :is(h2, h3), .sk-toggle-bar .sk-toggle-title { margin: 0; flex: 1; font: var(--sk-text-title-medium); }
-.sk-collapse-head .hint, .sk-toggle-bar .hint { color: var(--sk-on-surface-variant); font: 500 12px/16px var(--sk-font-sans); white-space: nowrap; }
+.sk-collapse-head :is(h2, h3) { margin: 0; flex: 1; font: var(--sk-text-title-medium); }
+.sk-collapse-head .hint { color: var(--sk-on-surface-variant); font: 500 12px/16px var(--sk-font-sans); white-space: nowrap; }
 .sk-collapse-head .chev { color: var(--sk-on-surface-variant); transition: transform 300ms cubic-bezier(0.2, 0, 0, 1); }
 .sk-collapse[data-expanded="false"] > .sk-collapse-head .chev { transform: rotate(-90deg); }
 .sk-collapse-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 300ms cubic-bezier(0.2, 0, 0, 1); }
 .sk-collapse-body > div { min-height: 0; overflow: hidden; }
 .sk-collapse[aria-expanded="false"] > .sk-collapse-body,
-/* The stats panel exposes its disclosure state on the switch (aria-checked); the section
-   carries data-open so the same collapse motion applies without an invalid aria-expanded. */
-.sk-collapse[data-open="false"] > .sk-collapse-body,
 .sk-collapse[data-expanded="false"] > .sk-collapse-body { grid-template-rows: 0fr; }
 
 .sk-switch-field { display: flex; align-items: center; gap: var(--sk-space-4); width: 100%; }
@@ -554,40 +725,6 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-switch::after { content: ""; position: absolute; top: 8px; left: 8px; width: 16px; height: 16px; border-radius: var(--sk-radius-full); background: var(--sk-outline); transition: all 200ms cubic-bezier(0.2, 0, 0, 1); }
 [aria-checked="true"] > .sk-switch, .sk-switch[aria-checked="true"] { background: var(--sk-primary); box-shadow: none; }
 [aria-checked="true"] > .sk-switch::after, .sk-switch[aria-checked="true"]::after { top: 4px; left: 24px; width: 24px; height: 24px; background: var(--sk-on-primary); }
-
-/* ---------- stats ---------- */
-.sk-stats { padding: 0 var(--sk-space-4) var(--sk-space-4); display: grid; grid-template-columns: 1fr 1fr; gap: var(--sk-space-4); }
-.sk-stats-section h3, .sk-stats-section h4 { display: flex; align-items: center; gap: var(--sk-space-2); margin: 0 0 var(--sk-space-2); color: var(--sk-on-surface-variant); font: var(--sk-text-label-medium); letter-spacing: 0.5px; text-transform: uppercase; }
-.sk-stats-section h3 .sw, .sk-stats-section h4 .sw { width: 10px; height: 10px; border-radius: 2px; }
-.sk-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sk-space-2); margin-bottom: var(--sk-space-2); }
-.sk-tile { position: relative; padding: var(--sk-space-3); border-radius: var(--sk-radius-sm); background: var(--sk-surface-container-high); min-width: 0; }
-.sk-tile .lbl { color: var(--sk-on-surface-variant); font: var(--sk-text-label-medium); }
-.sk-tile .val { margin-top: 2px; font: var(--sk-text-stat-hero); font-variant-numeric: var(--sk-text-stat-hero-numeric); white-space: nowrap; }
-.sk-tile .val small { font-size: 13px; color: var(--sk-on-surface-variant); }
-.sk-tile svg { display: block; width: 100%; height: 36px; margin-top: var(--sk-space-1); overflow: visible; }
-.sk-tile .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.sk-tile .base { stroke: var(--sk-outline-variant); stroke-width: 1; }
-.sk-tile .xh { stroke: var(--sk-on-surface-variant); stroke-width: 1; }
-.sk-tile .pt { stroke: var(--sk-surface-container-high); stroke-width: 2; }
-.sk-tile .tip {
-  position: absolute; top: 8px; right: 8px; padding: 2px 6px; border-radius: var(--sk-radius-xs); background: var(--sk-surface-bright); color: var(--sk-on-surface);
-  font: 500 12px/16px var(--sk-font-sans); box-shadow: var(--sk-elevation-2); pointer-events: none; opacity: 0; transition: opacity 120ms;
-}
-.sk-tile:hover .tip { opacity: 1; }
-/* After the seek, volume, and stats-tip rules so it wins on source order. */
-@media (prefers-reduced-motion: reduce) {
-  .sk-seek .track, .sk-seek .knob, .sk-vol .bar, .sk-tile .tip { transition: none; }
-}
-.sk-kv { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px var(--sk-space-4); align-items: baseline; }
-.sk-kv dt { color: var(--sk-on-surface-variant); font: 400 13px/18px var(--sk-font-sans); white-space: nowrap; }
-.sk-kv dd { margin: 0; min-width: 0; font: var(--sk-text-stat-value); font-variant-numeric: var(--sk-text-stat-value-numeric); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sk-kv dd.warn { color: var(--sk-error); }
-.sk-kv dd.warn::before { content: "⚠ "; }
-/* The stats panel puts the warning glyph in its text so it is not colour-only. */
-.sk-kv dd.sk-kv-errors.warn::before { content: none; }
-
-/* ---------- stats actions ---------- */
-.sk-stats-actions { display: flex; justify-content: flex-end; padding: 0 var(--sk-space-4) var(--sk-space-4); }
 
 /* ---------- details (design system: RecordingDetails, #178) ---------- */
 .sk-details { background: var(--surface); border-radius: var(--radius-lg); overflow: hidden; }
@@ -695,12 +832,6 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
   .sk-shell[data-layout="wide"] .sk-drawer-frame { display: none; }
   .sk-shell[data-layout="wide"] .sk-main-frame { margin-left: 0; }
   .sk-main { padding-right: var(--space-4); }
-}
-
-@media (max-width: 599.98px) {
-  .sk-stats { grid-template-columns: 1fr; }
-  /* The panel stacks, but each section keeps its two tiles (player contract §10). */
-  .sk-stats .sk-tiles { grid-template-columns: 1fr 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

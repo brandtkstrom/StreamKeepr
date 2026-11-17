@@ -252,7 +252,8 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.Equal(
             "var(--primary)",
             await page.Locator("[data-sk='spark-bitrate'] polyline").GetAttributeAsync("stroke"));
-        Assert.Equal("var(--tertiary)", await line.GetAttributeAsync("stroke"));
+        // Network series are secondary (StatsPanel card; tertiary is the stream, #180).
+        Assert.Equal("var(--secondary)", await line.GetAttributeAsync("stroke"));
 
         // The stats panel sits below the details card; hover scrolls it into view first.
         await bufferSpark.HoverAsync();
@@ -272,6 +273,8 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             "visible",
             await bufferSpark.Locator("[data-crosshair]").GetAttributeAsync("visibility"));
 
+        // The Stream section waits for viewer-count samples, which no recording has yet.
+        await page.Locator("[data-sk-stats]").GetByText("No viewer data for this recording.").WaitForAsync();
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-stats");
 
         await page.Locator("[data-sk='copy-stats']").ClickAsync();

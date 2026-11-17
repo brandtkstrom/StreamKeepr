@@ -122,6 +122,40 @@ public sealed class ChatPaneTests
         Assert.Equal(enabled, payload.GetProperty("emotesEnabled").GetBoolean());
     }
 
+    [Fact]
+    public async Task Tells_the_module_the_channel_and_its_channel_colour()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(
+            out BunitJSModuleInterop module, out TestLibraryView _);
+        module = context.JSInterop.SetupModule(Module);
+        module.Mode = JSRuntimeMode.Loose;
+
+        context.Render<ChatPane>(p => p
+            .Add(c => c.Recording, WithChat() with { StreamerLogin = "mock_nova" })
+            .Add(c => c.Open, true));
+
+        JSRuntimeInvocation init = Assert.Single(module.Invocations, call => call.Identifier == "init");
+        JsonElement payload = JsonSerializer.SerializeToElement(
+            init.Arguments[2], new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal("mock_nova", payload.GetProperty("channelLogin").GetString());
+        // The drawer's colour for mock_nova (ChannelColorTests): chat and drawer agree.
+        Assert.Equal(3, payload.GetProperty("channelColor").GetInt32());
+    }
+
+    [Fact]
+    public async Task The_header_toggle_draws_the_chat_glyph()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(
+            out BunitJSModuleInterop module, out TestLibraryView _);
+        context.JSInterop.SetupModule(Module).Mode = JSRuntimeMode.Loose;
+
+        IRenderedComponent<ChatPane> cut = context.Render<ChatPane>(p => p
+            .Add(c => c.Recording, WithChat())
+            .Add(c => c.Open, true));
+
+        Assert.Equal("Chat", cut.Find("[data-sk='chat-toggle'] > svg").GetAttribute("data-icon"));
+    }
+
     private static RecordingView WithChat() =>
         VideoPlayerTests.Recording("r1", "First") with { HasChat = true };
 

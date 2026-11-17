@@ -8,7 +8,8 @@
 @using StreamKeepr.Infrastructure.Storage
 
 @* Rendered once. ChatPane.razor.js owns the log, polling, sync controls, and auto-scroll;
-   Blazor never re-renders the pane after init. The toggle is JS-owned for the same reason. *@
+   Blazor never re-renders the pane after init. The toggle is JS-owned for the same reason.
+   No MudBlazor components: it is drawn like an outlined MudPaper with plain markup. *@
 <aside class="sk-chat"
        data-sk-chat
        data-open="@(Open ? "true" : "false")"
@@ -22,7 +23,7 @@
                 aria-keyshortcuts="C"
                 aria-controls="@_bodyId"
                 aria-label="@(Open ? "Collapse chat" : "Open chat")">
-            <span class="sk-icon" aria-hidden="true">chat</span>
+            @IslandIcon.Svg("Chat")
             <span class="sk-chat-title" aria-hidden="true">Chat</span>
         </button>
         <span class="sk-chat-state" data-sk="chat-state" role="status" aria-live="polite">Loading chat…</span>
@@ -37,13 +38,15 @@
              tabindex="0"></div>
 
         <div class="sk-chat-footer" data-sk="chat-footer">
+            @* The nudges stay until the sync slider (#184). Each name starts with its visible text
+               (WCAG 2.5.3 label in name). *@
             <div class="sk-chat-sync" data-sk="chat-sync" hidden>
                 <span class="sk-chat-sync-label">Sync</span>
-                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-back2" aria-label="Shift chat 2 seconds earlier">−2 s</button>
-                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-back1" aria-label="Shift chat 1 second earlier">−1 s</button>
+                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-back2" aria-label="−2 s: shift chat 2 seconds earlier">−2 s</button>
+                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-back1" aria-label="−1 s: shift chat 1 second earlier">−1 s</button>
                 <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-reset" aria-label="Reset chat sync">Reset</button>
-                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-forward1" aria-label="Shift chat 1 second later">+1 s</button>
-                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-forward2" aria-label="Shift chat 2 seconds later">+2 s</button>
+                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-forward1" aria-label="+1 s: shift chat 1 second later">+1 s</button>
+                <button type="button" class="sk-chat-sync-btn" data-sk="chat-sync-forward2" aria-label="+2 s: shift chat 2 seconds later">+2 s</button>
                 <span class="sk-chat-sync-value" data-sk="chat-sync-value">0.0 s</span>
             </div>
             <button type="button" class="sk-chat-jump" data-sk="chat-jump" hidden>Jump to current time</button>
@@ -147,6 +150,10 @@
             _ => ChatStates.Complete,
         },
         hasChat = recording.HasChat,
+        // The streamer's own messages take the channel colour the drawer shows; .NET owns the
+        // hash (ChannelColor), so the module never computes a second copy.
+        channelLogin = recording.StreamerLogin,
+        channelColor = ChannelColor.For(recording.StreamerLogin),
         // The endpoint's limits are the source of truth; the module only applies them.
         limit = ChatEndpoint.DefaultLimit,
         maxSyncOffsetSec = ChatReader.MaxSyncOffsetSeconds,

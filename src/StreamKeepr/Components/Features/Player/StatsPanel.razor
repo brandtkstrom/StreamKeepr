@@ -6,34 +6,36 @@
 
 @* Rendered once. StatsPanel.razor.js owns the open state, sampled values, sparklines, and
    the copy action; Blazor never re-renders this markup, so it cannot overwrite JS-owned
-   text, attributes, or SVG children. The player's stats button is wired by the same module. *@
-<section class="sk-panel sk-collapse"
+   text, attributes, or SVG children. The player's stats button is wired by the same module.
+   No MudBlazor components: it is drawn like a MudExpansionPanel with plain markup, the
+   series colours and inline Material Rounded SVG (IslandIcon). *@
+<section class="sk-stats-panel"
          data-sk-stats
          data-open="@(_open ? "true" : "false")"
          aria-labelledby="@_titleId"
          @ref="_root">
     <h2 id="@_titleId" class="sk-visually-hidden" data-sr-only>Stats for nerds</h2>
     <button type="button"
-            class="sk-toggle-bar"
+            class="sk-stats-head"
             data-sk="stats-toggle"
             role="switch"
             aria-label="Stats for nerds"
             aria-checked="@(_open ? "true" : "false")"
             aria-controls="@_bodyId">
-        <span class="sk-icon" aria-hidden="true">query_stats</span>
-        <span class="sk-toggle-title" aria-hidden="true">Stats for nerds</span>
+        @IslandIcon.Svg("QueryStats")
+        <span class="title" aria-hidden="true">Stats for nerds</span>
         <span class="hint" data-sk="stats-hint">—</span>
-        <span class="sk-switch" aria-hidden="true"></span>
+        <span class="sk-stats-switch" aria-hidden="true"></span>
     </button>
 
-    <div class="sk-collapse-body"
+    <div class="sk-stats-collapse"
          id="@_bodyId"
          data-sk="stats-body"
          inert="@(_open ? null : "inert")">
         <div>
             <div class="sk-stats">
                 <div class="sk-stats-section">
-                    <h3><span class="sw" style="background:var(--primary)"></span>Video</h3>
+                    <h3 class="sk-stats-heading video">@IslandIcon.Svg("Videocam")Video</h3>
                     <div class="sk-tiles">
                         <div class="sk-tile">
                             <div class="lbl">Bitrate</div>
@@ -83,14 +85,14 @@
                 </div>
 
                 <div class="sk-stats-section">
-                    <h3><span class="sw" style="background:var(--tertiary)"></span>Network</h3>
+                    <h3 class="sk-stats-heading network">@IslandIcon.Svg("NetworkCheck")Network</h3>
                     <div class="sk-tiles">
                         <div class="sk-tile">
                             <div class="lbl">Bandwidth estimate</div>
                             <div class="val"><span data-sk="value-bandwidth">—</span> <small>Mb/s</small></div>
                             <svg data-sk="spark-bandwidth"
                                  data-spark-unit="Mb/s"
-                                 data-spark-color="var(--tertiary)"
+                                 data-spark-color="var(--secondary)"
                                  aria-hidden="true"
                                  focusable="false"></svg>
                             <span class="tip" data-sk="tip-bandwidth" aria-hidden="true"></span>
@@ -107,7 +109,7 @@
                             <div class="val"><span data-sk="value-buffer">—</span> <small>s</small></div>
                             <svg data-sk="spark-buffer"
                                  data-spark-unit="s"
-                                 data-spark-color="var(--tertiary)"
+                                 data-spark-color="var(--secondary)"
                                  aria-hidden="true"
                                  focusable="false"></svg>
                             <span class="tip" data-sk="tip-buffer" aria-hidden="true"></span>
@@ -132,10 +134,16 @@
                             title="@Recording.PlaylistUrl">@Recording.PlaylistUrl</dd>
                     </dl>
                 </div>
+
+                @* Ready for viewer-count samples (StatsPanel card); none are recorded yet. *@
+                <div class="sk-stats-section stream" data-sk="stats-stream">
+                    <h3 class="sk-stats-heading stream">@IslandIcon.Svg("Groups")Stream</h3>
+                    <p class="sk-stats-empty" data-sk="stream-empty">No viewer data for this recording.</p>
+                </div>
             </div>
 
             <div class="sk-stats-actions">
-                <Button Variant="ButtonVariant.Text" data-sk="copy-stats">Copy stats</Button>
+                <button type="button" class="sk-stats-copy" data-sk="copy-stats">Copy stats</button>
             </div>
         </div>
     </div>

@@ -64,6 +64,63 @@ public sealed class StatsPanelTests
         }
     }
 
+    [Theory]
+    [InlineData("Video", "Videocam")]
+    [InlineData("Network", "NetworkCheck")]
+    [InlineData("Stream", "Groups")]
+    public void Each_section_is_headed_by_its_series_icon(string section, string glyph)
+    {
+        using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<StatsPanel> cut = context.Render<StatsPanel>(p =>
+            p.Add(c => c.Recording, Recording("r1")));
+
+        var heading = Assert.Single(cut.FindAll("[data-sk='stats-body'] h3"), h => h.TextContent.Trim() == section);
+        Assert.Equal(glyph, heading.QuerySelector("svg")?.GetAttribute("data-icon"));
+        Assert.Equal("QueryStats", cut.Find("[data-sk='stats-toggle'] > svg").GetAttribute("data-icon"));
+    }
+
+    [Fact]
+    public void Video_sparklines_are_primary_and_network_sparklines_secondary()
+    {
+        using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<StatsPanel> cut = context.Render<StatsPanel>(p =>
+            p.Add(c => c.Recording, Recording("r1")));
+
+        Assert.Equal("var(--primary)", cut.Find("[data-sk='spark-bitrate']").GetAttribute("data-spark-color"));
+        Assert.Equal("var(--primary)", cut.Find("[data-sk='spark-frame']").GetAttribute("data-spark-color"));
+        Assert.Equal("var(--secondary)", cut.Find("[data-sk='spark-bandwidth']").GetAttribute("data-spark-color"));
+        Assert.Equal("var(--secondary)", cut.Find("[data-sk='spark-buffer']").GetAttribute("data-spark-color"));
+    }
+
+    [Fact]
+    public void The_stream_section_says_there_is_no_viewer_data_yet()
+    {
+        using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<StatsPanel> cut = context.Render<StatsPanel>(p =>
+            p.Add(c => c.Recording, Recording("r1")));
+
+        Assert.Equal(
+            "No viewer data for this recording.",
+            cut.Find("[data-sk='stats-stream'] [data-sk='stream-empty']").TextContent.Trim());
+    }
+
+    [Fact]
+    public void Copy_stats_is_a_plain_button_the_module_owns()
+    {
+        using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<StatsPanel> cut = context.Render<StatsPanel>(p =>
+            p.Add(c => c.Recording, Recording("r1")));
+
+        var copy = cut.Find("[data-sk='copy-stats']");
+        Assert.Equal("BUTTON", copy.TagName);
+        Assert.Equal("button", copy.GetAttribute("type"));
+        Assert.Equal("Copy stats", copy.TextContent.Trim());
+    }
+
     [Fact]
     public void Collapsed_body_is_inert_and_open_state_comes_from_sk_ui()
     {

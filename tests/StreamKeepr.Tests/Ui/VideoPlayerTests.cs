@@ -19,7 +19,7 @@ public sealed class VideoPlayerTests
         "video", "title", "streamer", "chip", "center", "spinner", "overlay", "overlay-message",
         "retry", "seek", "buffered", "played", "ticks", "knob", "hover-time", "play", "back",
         "forward", "mute", "volume", "volume-level", "current", "duration", "speed", "speed-menu",
-        "stats", "edge", "live", "waiting", "pip", "theater", "fullscreen",
+        "stats", "chat", "edge", "live", "waiting", "pip", "theater", "fullscreen",
     ];
 
     [Fact]
@@ -49,6 +49,61 @@ public sealed class VideoPlayerTests
         Assert.Equal(
             ["0.5", "1", "1.5", "2"],
             cut.FindAll("[data-sk='speed-menu'] [role='menuitemradio']").Select(i => i.GetAttribute("data-rate")));
+    }
+
+    [Theory]
+    [InlineData("center", "PlayArrow")]
+    [InlineData("play", "PlayArrow")]
+    [InlineData("back", "Replay10")]
+    [InlineData("forward", "Forward10")]
+    [InlineData("mute", "VolumeUp")]
+    [InlineData("stats", "QueryStats")]
+    [InlineData("chat", "Chat")]
+    [InlineData("pip", "PictureInPictureAlt")]
+    [InlineData("theater", "WidthWide")]
+    [InlineData("fullscreen", "Fullscreen")]
+    public void Controls_draw_the_Material_Rounded_glyph_as_inline_svg(string control, string glyph)
+    {
+        using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(p =>
+            p.Add(c => c.Recording, Recording("r1", "First")));
+
+        var svg = cut.Find($"[data-sk='{control}'] > svg");
+        Assert.Equal(glyph, svg.GetAttribute("data-icon"));
+        Assert.Equal("true", svg.GetAttribute("aria-hidden"));
+        Assert.Equal("", cut.Find($"[data-sk='{control}']").TextContent.Trim());
+    }
+
+    [Fact]
+    public void The_chat_toggle_waits_for_a_chat_pane_and_names_the_C_shortcut()
+    {
+        using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(p =>
+            p.Add(c => c.Recording, Recording("r1", "First")));
+
+        var chat = cut.Find("[data-sk='chat']");
+        Assert.Equal("Chat", chat.GetAttribute("aria-label"));
+        Assert.Equal("C", chat.GetAttribute("aria-keyshortcuts"));
+        Assert.Equal("false", chat.GetAttribute("aria-pressed"));
+        Assert.True(chat.HasAttribute("hidden"));
+        // It sits beside the stats toggle.
+        Assert.Equal("stats", chat.PreviousElementSibling?.GetAttribute("data-sk"));
+    }
+
+    [Fact]
+    public void Every_speed_item_carries_the_check_glyph_and_the_error_overlay_its_icon()
+    {
+        using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(p =>
+            p.Add(c => c.Recording, Recording("r1", "First")));
+
+        Assert.All(
+            cut.FindAll("[data-sk='speed-menu'] [role='menuitemradio']"),
+            item => Assert.Equal("Check", item.QuerySelector("svg")?.GetAttribute("data-icon")));
+        Assert.Equal("Error", cut.Find("[data-sk='overlay'] > svg").GetAttribute("data-icon"));
     }
 
     [Fact]

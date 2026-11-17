@@ -47,6 +47,38 @@ function validColor(value) {
   return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : null;
 }
 
+// WCAG relative luminance of an [r, g, b] colour in 0–255.
+function luminance([r, g, b]) {
+  const linear = (channel) => {
+    const value = channel / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+}
+
+function hexChannels(hex) {
+  return [1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16));
+}
+
+/** The pane's ground as [r, g, b], or null when it is not an opaque rgb() colour. */
+function opaqueGround(element) {
+  const match = /^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)$/
+    .exec(element ? getComputedStyle(element).backgroundColor : "");
+  if (!match || (match[4] !== undefined && Number(match[4]) < 1)) return null;
+  return match.slice(1, 4).map(Number);
+}
+
+/**
+ * A chatter's Twitch colour where it reaches 4.5:1 on the pane's ground (ChatPane card);
+ * otherwise null, so the name keeps text-primary. An unreadable ground keeps the colour.
+ */
+export function readableNameColor(value, ground) {
+  const color = validColor(value);
+  if (!color || !ground) return color;
+  const [light, dark] = [luminance(hexChannels(color)), luminance(ground)].sort((a, b) => b - a);
+  return (light + 0.05) / (dark + 0.05) >= 4.5 ? color : null;
+}
+
 function readOffsets(storage) {
   try {
     const parsed = JSON.parse(storage?.getItem("sk-chat") || "null");
@@ -232,6 +264,8 @@ export function createChatPane(root, {
   let emoteController = null;
   // A catalog that arrives after the log is visible must rebuild it exactly once.
   let emoteVersion = 0;
+  // The pane's background, read once per render for the name-contrast check.
+  let ground = null;
 
   function status(text, state = "") {
     if (el["chat-state"]) {
@@ -250,12 +284,27 @@ export function createChatPane(root, {
     el["chat-toggle"]?.setAttribute("aria-expanded", open ? "true" : "false");
     el["chat-toggle"]?.setAttribute("aria-label", open ? "Collapse chat" : "Open chat");
     if (el["chat-body"]) el["chat-body"].inert = !open;
+    announce();
     if (open) {
       startPolling();
       maybeFetchEmotes();
     } else {
       stopPolling();
     }
+  }
+
+  // The player's Chat button mirrors this pane (player contract §5): it shows while a pane
+  // exists and its pressed state follows `open`.
+  function announce(available = true) {
+    document.dispatchEvent(new CustomEvent("sk:chat", {
+      detail: { available, open: available && open },
+    }));
+  }
+
+  function isChannelOwn(message) {
+    const channel = view?.channelLogin;
+    return typeof channel === "string" && channel !== "" &&
+      typeof message.login === "string" && message.login.toLowerCase() === channel.toLowerCase();
   }
 
   function maybeFetchEmotes() {
@@ -626,6 +675,7 @@ export function createChatPane(root, {
     lastRenderKey = key;
 
     const log = el["chat-log"];
+    ground = opaqueGround(root);
     log.replaceChildren();
     if (visible.length === 0) {
       if (view?.state === "starting" || (liveState() && view?.hasChat === false)) {
@@ -689,9 +739,17 @@ export function createChatPane(root, {
 
     const name = document.createElement("span");
     name.className = "sk-chat-name";
+    name.dataset.chatName = "";
     name.textContent = message.display || message.login || "unknown";
-    const color = validColor(message.color);
-    if (color) name.style.color = color;
+    const channelColor = Number(view?.channelColor);
+    if (isChannelOwn(message) && Number.isInteger(channelColor) && channelColor > 0) {
+      // The streamer's own messages take the channel colour the drawer shows (ChannelColor).
+      name.dataset.channelColor = String(channelColor);
+      name.style.color = `var(--channel-${channelColor})`;
+    } else {
+      const color = readableNameColor(message.color, ground);
+      if (color) name.style.color = color;
+    }
     row.append(name);
 
     const colon = document.createElement("span");
@@ -836,6 +894,7 @@ export function createChatPane(root, {
   on(el["chat-sync-forward1"], "click", () => setSync(syncOffset + 1));
   on(el["chat-sync-forward2"], "click", () => setSync(syncOffset + 2));
   on(document, "sk:playhead", onPlayhead);
+  on(document, "sk:chat-toggle", toggleAndPersist);
   on(document, "keydown", (event) => {
     // Holding C must not flap the pane.
     if (event.repeat || event.key.toLowerCase() !== "c") return;
@@ -860,6 +919,7 @@ export function createChatPane(root, {
       stopBackfill();
       stopPolling();
       listeners.abort();
+      announce(false);
       if (el["chat-log"]) el["chat-log"].replaceChildren();
     },
   };
