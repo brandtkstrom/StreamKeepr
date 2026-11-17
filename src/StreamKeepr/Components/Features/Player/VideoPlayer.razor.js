@@ -10,6 +10,7 @@ import {
 import { createProgress } from "/js/player-progress.js";
 import { readPlayerPrefs, writePlayerPrefs } from "/js/player-prefs.js";
 import { playerAction } from "/js/player-keys.js";
+import { formatTimecode } from "/js/timecode.js";
 
 // Defaults plus the contract's overrides. The stitched playlist targets 12 s segments, so one
 // target duration behind the end is the live edge.
@@ -61,14 +62,8 @@ export const HOOKS = [
   "stats", "edge", "live", "waiting", "pip", "theater", "fullscreen",
 ];
 
-// JS twin of Ui/Format.Timecode (the source of truth); keep the two in step.
-export function formatTimecode(seconds) {
-  const total = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const secs = String(total % 60).padStart(2, "0");
-  return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${secs}` : `${minutes}:${secs}`;
-}
+// Re-exported for the player's own callers and tests; /js/timecode.js holds it.
+export { formatTimecode };
 
 export async function defaultLoadHls() {
   const url = new URL("lib/hls.js/hls.mjs", document.baseURI).href;

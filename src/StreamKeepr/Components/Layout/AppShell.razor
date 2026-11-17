@@ -1,5 +1,6 @@
 @using Microsoft.Extensions.Options
 @using StreamKeepr.Configuration
+@using StreamKeepr.Components.Features.Settings
 @implements IAsyncDisposable
 @inject UiPreferences Preferences
 @inject IJSRuntime JS
@@ -95,10 +96,15 @@
                                                  aria-label="Twitch (opens in a new tab)" />
                     </MudBlazor.MudTooltip>
 
+                    @* A real link to the page, so it works before the circuit connects. With the
+                       circuit, AppShell.razor.js turns the click into the sheet's toggle. *@
                     <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Settings"
-                                             Class="sk-appbar-settings"
-                                             Href="/settings"
-                                             aria-label="Settings" />
+                                             Class="@(SettingsOpen ? "sk-appbar-settings sk-pressed" : "sk-appbar-settings")"
+                                             Href="@SettingsSheetUrl.PagePath"
+                                             aria-label="Settings"
+                                             aria-controls="@(SettingsOpen ? SettingsSheet.Id : null)"
+                                             aria-expanded="@Aria.Bool(SettingsExpanded)"
+                                             data-settings-toggle />
 
                     @if (AuthSlot is null)
                     {
@@ -161,6 +167,13 @@
                 </main>
             </MudBlazor.MudMainContent>
 
+            <SettingsSheet Open="@SettingsOpen"
+                           Compact="@_compact"
+                           NowPlaying="@NowPlaying"
+                           OnClose="CloseSettingsAsync">
+                @SettingsContent
+            </SettingsSheet>
+
             @* Not MudHidden: it renders nothing until its breakpoint is known, which would leave a
                phone without these links before the circuit connects. The bar renders until the
                provider reports a wide breakpoint, and components.css hides it at 960px and up. *@
@@ -168,6 +181,7 @@
             {
                 <BottomNav Current="@BottomNavCurrent"
                            LibraryOpen="@_modalOpen"
+                           SettingsExpanded="@SettingsExpanded"
                            RecordingActive="@RecordingActive"
                            DrawerId="@DrawerId"
                            OnLibrary="ToggleModalDrawer" />
@@ -195,6 +209,8 @@
     private bool _updatesPaused;
     private bool _reconnectModalVisible;
     private bool _disposed;
+    private string? _pushedSettingsUri;
+    private bool _closingSettings;
 
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
@@ -208,6 +224,19 @@
 
     /// <summary>The open recording's title, shown in the dense top bar of a phone's watch page.</summary>
     [Parameter] public string? WatchTitle { get; set; }
+
+    /// <summary>The settings sheet's sections (design system: SettingsSheet).</summary>
+    [Parameter] public RenderFragment? SettingsContent { get; set; }
+
+    /// <summary>The recording on this page, for the phone sheet's now-playing strip.</summary>
+    [Parameter] public RecordingView? NowPlaying { get; set; }
+
+    private bool SettingsOpen => SettingsSheetUrl.IsOpen(Navigation.Uri);
+
+    private bool OnSettingsPage => SettingsSheetUrl.IsSettingsPage(Navigation.Uri);
+
+    // The Settings controls toggle the sheet everywhere but the page itself, where they are links.
+    private bool? SettingsExpanded => OnSettingsPage ? null : SettingsOpen;
 
     private bool Watching => LibraryUrl.RecordingId(Navigation.Uri) is not null;
 
@@ -246,12 +275,14 @@
         {
             if (_modalOpen)
                 return BottomNavItem.Library;
+            if (SettingsOpen)
+                return BottomNavItem.Settings;
 
             string path = Navigation.ToAbsoluteUri(Navigation.Uri).AbsolutePath;
             return path switch
             {
                 "/" => BottomNavItem.Home,
-                "/settings" => BottomNavItem.Settings,
+                SettingsSheetUrl.PagePath => BottomNavItem.Settings,
                 _ => null,
             };
         }
@@ -376,6 +407,53 @@
         Navigation.NavigateTo(url);
     }
 
+    /// <summary>
+    /// Opens the settings sheet over this page, or closes it when open (design system:
+    /// SettingsSheet). Opening writes <c>?settings=open</c> as a new history entry on the same
+    /// page, so Back closes it and the page and its player stay. The module calls it for a clicked
+    /// link to the plain <c>/settings</c> page (the app bar, the bottom bar, the account menu).
+    /// </summary>
+    [JSInvokable]
+    public Task ToggleSettingsAsync()
+    {
+        if (SettingsOpen)
+            return CloseSettingsAsync();
+
+        if (OnSettingsPage)
+            return Task.CompletedTask;
+
+        string target = SettingsSheetUrl.Open(Navigation.Uri);
+        _pushedSettingsUri = Navigation.ToAbsoluteUri(target).AbsoluteUri;
+        Navigation.NavigateTo(target);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Closes the sheet once. An entry this circuit pushed is undone with a step back through
+    /// history, so Back never reopens it; a shared or reloaded <c>?settings=open</c> is replaced.
+    /// </summary>
+    private async Task CloseSettingsAsync()
+    {
+        if (!SettingsOpen || _closingSettings)
+            return;
+
+        _closingSettings = true;
+        if (string.Equals(new Uri(Navigation.Uri).AbsoluteUri, _pushedSettingsUri, StringComparison.Ordinal))
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("history.back");
+                return;
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException)
+            {
+                Logger.LogDebug(ex, "Could not go back to close the settings sheet.");
+            }
+        }
+
+        Navigation.NavigateTo(SettingsSheetUrl.Close(Navigation.Uri), replace: true);
+    }
+
     /// <summary>Closes the temporary drawer; the module calls it on Escape.</summary>
     [JSInvokable]
     public Task CloseModalDrawer()
@@ -433,6 +511,7 @@
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _ = InvokeAsync(() =>
     {
         _history.Visit(e.Location);
+        _closingSettings = false;
         _modalOpen = _compact && string.Equals(
             new Uri(e.Location).AbsoluteUri, _openModalOnArrivalAt, StringComparison.Ordinal);
         _openModalOnArrivalAt = null;

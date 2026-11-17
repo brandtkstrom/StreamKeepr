@@ -14,7 +14,7 @@ The `MudAppBar` across the top: 64px on desktop with the drawer toggle, wordmark
     <MudTooltip Text="Twitch">
         <MudIconButton Icon="@TwitchGlitch" Href="@Links.Twitch" Target="_blank" Rel="noopener" aria-label="Twitch (opens in a new tab)" />
     </MudTooltip>
-    <MudToggleIconButton Icon="@Icons.Material.Rounded.Settings" @bind-Toggled="_settingsOpen" ToggledColor="Color.Primary" aria-label="Settings" aria-controls="sk-settings" />   @* opens the sheet; never navigates *@
+    <MudIconButton Icon="@Icons.Material.Rounded.Settings" Href="/settings" aria-label="Settings" aria-controls="@(open ? "sk-settings" : null)" aria-expanded="@expanded" />   @* toggles the sheet; never leaves the page *@
     <TwitchAccount />   @* avatar only; signed out, the Connect with Twitch button *@
 </MudAppBar>
 ```
@@ -27,7 +27,7 @@ The `MudAppBar` across the top: 64px on desktop with the drawer toggle, wordmark
 - Search placeholder: "Search recordings, streamers, categories". It filters the drawer live (`Immediate`, `DebounceInterval="150"`).
 - **Links:** GitHub opens the project's repository, and Twitch opens twitch.tv. Both open in a new tab (`Target="_blank"`, `Rel="noopener"`), are 40px icon buttons in `action-default` with a tooltip, and read their URLs from configuration (`Links:GitHub`, `Links:Twitch`), not from code.
 - **The GitHub icon** is MudBlazor's own `Icons.Custom.Brands.GitHub`. **The Twitch icon** must be Twitch's official Glitch mark, taken unmodified from Twitch's brand assets and kept single-colour in `action-default`. MudBlazor has no Twitch icon, and the mark is never redrawn. Until the asset is added, the previews show `Icons.Material.Rounded.LiveTv` as a stand-in.
-- **Settings opens the side sheet** (`SettingsSheet`) over the current page. It is a toggle, not a link, so a playing recording keeps playing.
+- **Settings toggles the side sheet** (`SettingsSheet`) over the current page, so a playing recording keeps playing. It is a real link to `/settings`, so it works before the circuit connects; with the circuit the shell turns the click into the toggle (`aria-expanded`, `aria-controls="sk-settings"` while open, a `primary` tint while open). On the `/settings` page it is a plain link.
 - **The account is an avatar only** (see `TwitchAccount`). The name appears in its menu and on the Settings page, never in the bar.
 - Disk usage lives at the bottom of the library drawer, not here (see `LibraryDrawer`). There is no capture schedule control.
 - **Below `Breakpoint.Md`** it is `Dense` (48px): the wordmark, a `Search` icon button that expands into a full-width search row, the GitHub and Twitch links (except on a watch page, where the title needs the room; see `PhoneLayout`), and the account avatar. Settings moves to the bottom bar (`BottomNav`). On a watch page, an `ArrowBack` button to Home and the recording title (`subtitle1` at Medium, ellipsised) replace the wordmark.

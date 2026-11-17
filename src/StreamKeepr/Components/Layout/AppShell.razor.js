@@ -1,5 +1,5 @@
 // Collocated shell module: app-bar scroll state, focus handling for the temporary library
-// drawer below 960px, and the non-modal paused-updates/retry bridge. AppShell.razor owns the
+// drawer below 960px, the settings links, and the non-modal paused-updates/retry bridge. AppShell.razor owns the
 // drawer's open state; this module only moves focus and reports Escape. The selectors below
 // mirror AppShell.razor: [data-shell], its <main> and <header>, and AppShell.DrawerId.
 let dotNetRef = null;
@@ -77,6 +77,41 @@ function onKeyDown(event) {
   }
 }
 
+// Mirrors SettingsSheetUrl.PagePath.
+const SETTINGS_PATH = "/settings";
+
+/**
+ * Whether a click follows a plain link to the Settings page from another page, which opens the
+ * settings sheet instead (design system: SettingsSheet). Deep links into a section (a query or
+ * fragment), new tabs, modified clicks and the page's own links stay links. Claiming the click
+ * here, rather than in a .NET location-changing handler, leaves browser Back alone: Blazor
+ * replays every Back through .NET while such a handler is registered.
+ */
+export function claimsSettingsLink(event, location = window.location) {
+  if (event.defaultPrevented || event.button !== 0) return false;
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
+
+  const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+  if (!link || (link.target && link.target !== "_self") || link.hasAttribute("download")) return false;
+
+  const url = new URL(link.href, location.href);
+  return url.origin === location.origin
+    && url.pathname.toLowerCase() === SETTINGS_PATH
+    && url.search === ""
+    && url.hash === ""
+    && location.pathname.toLowerCase() !== SETTINGS_PATH;
+}
+
+// Capture phase, so it runs before Blazor's link interception, which skips prevented clicks.
+// Only the default is prevented: the click still reaches other handlers (a menu item closes its menu).
+function onClick(event) {
+  if (!dotNetRef || !claimsSettingsLink(event)) return;
+  event.preventDefault();
+  void dotNetRef
+    .invokeMethodAsync("ToggleSettingsAsync")
+    .catch((error) => console.warn("StreamKeepr: could not open the settings sheet.", error));
+}
+
 function onReconnectState(event) {
   const state = event.detail?.state;
   // Mirrors HARD_LOSS in reconnect.js: only a hard circuit loss opens the reconnect modal.
@@ -103,6 +138,7 @@ export function init(reference) {
   main?.addEventListener("scroll", onScroll, { passive: true });
   onScroll();
   document.addEventListener("keydown", onKeyDown);
+  document.addEventListener("click", onClick, true);
 
   document
     .getElementById("components-reconnect-modal")
@@ -115,6 +151,7 @@ export function init(reference) {
 export function dispose() {
   main?.removeEventListener("scroll", onScroll);
   document.removeEventListener("keydown", onKeyDown);
+  document.removeEventListener("click", onClick, true);
   document
     .getElementById("components-reconnect-modal")
     ?.removeEventListener("components-reconnect-state-changed", onReconnectState);

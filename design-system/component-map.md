@@ -33,7 +33,7 @@ StreamKeepr's hand-built primitives (`Components/Primitives/`) give way to MudBl
 | `Home` (new; the default view) | Two `<section>`s with `MudText Typo.h6` headers, each a horizontal `<ul>` of `RecordingCard`s; `MudButton` "Show all"; `MudIconButton` chevrons; `MudSkeleton` while loading |
 | `RecordingCard` (new) | A real `<a>` with the thumbnail, `MudAvatar` on a channel colour (`channel-*`), `MudText` title and meta, and one `StatusChip` |
 | `RecordingDetails` | `MudPaper` + `MudCollapse`, `MudTooltip`, `MudButton`, `MudIconButton`, `MudMenu` (below Md), `MudProgressLinear`, button chapters |
-| `SettingsSheet` (new) | `MudDrawer Anchor.End Temporary Overlay="false" Width="440px"` on Md and up; `MudDialog` with `FullScreen` below; shared `SettingsSections` |
+| `SettingsSheet` (#183) | `MudDrawer Anchor.End Temporary Overlay="false" Width="440px"` on Md and up; an inline `MudDialog` with `FullScreen` below; shared `SettingsSections`; `?settings=open` in `Ui/SettingsSheetUrl` |
 | `Settings` page | Header: `SettingsExit` (`MudTooltip` + `MudIconButton`), `MudText Typo.h5`; then `SettingsSections` (`SettingsSection`: outlined `MudPaper` + icon + `MudText Typo.h6`; `MudAlert` for the HTTPS note) |
 | `ChannelSettings` | `MudPaper` + `<ul role="list">` rows (not `MudList`: `MudListItem` wraps its content in a `<p>`), `ChannelAvatar`, `StatusChip`, `MudTextField`, `MudButton` |
 | `ConnectionStatusPanel` | `MudPaper` + `MudSimpleTable` (key/value) + `StatusChip`, `MudAlert` for the coverage note |

@@ -137,7 +137,10 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
         await row.ClickAsync();
         await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == $"/r/{id}");
-        await page.GetByRole(AriaRole.Link, new() { Name = "Settings", Exact = true }).ClickAsync();
+        // The app's Settings controls open the sheet (#183); the account menu's deep link still
+        // reaches the page.
+        await page.GetByRole(AriaRole.Button, new() { Name = "Twitch account: Mock Admin" }).ClickAsync();
+        await page.GetByRole(AriaRole.Menuitem, new() { Name = "Manage Twitch connection" }).ClickAsync();
         await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/settings");
         await page.Locator("[data-channel]").First.WaitForAsync();
         await page.GetByRole(AriaRole.Button, new() { Name = "Exit settings" }).ClickAsync();

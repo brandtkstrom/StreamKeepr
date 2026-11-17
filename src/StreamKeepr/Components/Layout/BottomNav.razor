@@ -1,3 +1,4 @@
+@using StreamKeepr.Components.Features.Settings
 @* The bottom app bar below Breakpoint.Md (design system: BottomNav). Home and Settings are real
    links, so they work before the circuit connects; Library opens the temporary drawer. *@
 <MudBlazor.MudAppBar Bottom="true" Fixed="true" Elevation="0" Class="sk-bottombar" data-bottom-nav>
@@ -21,7 +22,14 @@
             </span>
             <span class="lbl">Library</span>
         </button>
-        <a class="sk-bottomnav-item" href="/settings" aria-current="@(Current == BottomNavItem.Settings ? "page" : null)">
+        @* A link to the page; with the circuit the shell turns the click into the sheet's toggle.
+           data-settings-toggle: where the sheet returns focus when the app bar's is hidden. *@
+        <a class="sk-bottomnav-item"
+           href="@SettingsSheetUrl.PagePath"
+           aria-controls="@(SettingsExpanded == true ? SettingsSheet.Id : null)"
+           aria-expanded="@Aria.Bool(SettingsExpanded)"
+           data-settings-toggle
+           aria-current="@(Current == BottomNavItem.Settings ? "page" : null)">
             <span class="pill" aria-hidden="true"><MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Settings" /></span>
             <span class="lbl">Settings</span>
         </a>
@@ -34,6 +42,11 @@
 
     /// <summary>Whether the temporary library drawer is open.</summary>
     [Parameter] public bool LibraryOpen { get; set; }
+
+    /// <summary>
+    /// Whether the settings sheet is open, while Settings toggles it; null on the page itself.
+    /// </summary>
+    [Parameter] public bool? SettingsExpanded { get; set; }
 
     /// <summary>Shows the <c>rec</c> dot on Library while anything is recording.</summary>
     [Parameter] public bool RecordingActive { get; set; }

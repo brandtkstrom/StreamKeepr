@@ -105,7 +105,7 @@ The details card subscribes to `IExportService.Changed`, calls `FindByRecording`
 - **Connecting:** `aria-busy="true"`, spinner, “Waiting for Twitch…”, Twitch hover fill. No circuit call is required.
 - **Connected** (amended for the MudBlazor shell, #174): the avatar only, at every width. A `MudMenu` (`[data-auth-state=connected]`, anchored bottom-right) whose activator is a 32px `ChannelAvatar` (the account's initial on its login's channel colour, #176) and a `success` `MudBadge` dot; its accessible name is “Twitch account: {display name}”, from visually hidden text. The menu opens with a header that is not a menu item (avatar, display name, the login when it differs, and “Connected to Twitch” beside a success dot), a divider, then:
   - “Manage Twitch connection” → link to `/settings#twitch`;
-  - “Settings” → link to `/settings` (the settings sheet, F2, replaces it);
+  - “Settings” → link to `/settings`; with the circuit, the shell opens the settings sheet over the current page instead (§8a, #183);
   - “Disconnect” → submits a real `POST /api/auth/logout` form containing `<AntiforgeryToken />` and a hidden local `returnUrl` (`TwitchAccount.razor.js` `submitForm`, because a `MudMenuItem` cannot be a submit button); the form post signs out, clears the admin token, and redirects to the current local path (or `/`).
 - **Expired:** the account avatar is replaced by an `error-container` chip “Twitch session expired” and a text Reconnect link to the login endpoint with the current return URL. The current page and playback continue; admin actions are inert because the revalidating provider signs the circuit out. No dismiss action.
 
@@ -134,7 +134,7 @@ The details card subscribes to `IExportService.Changed`, calls `FindByRecording`
 
 Amended for the MudBlazor settings page (#179; design-system cards SettingsPage, ChannelSettings, ConnectionStatus, StatusChip).
 
-- `/settings` is a public route rendered in the app shell. The top bar settings icon links to it.
+- `/settings` is a public route rendered in the app shell, for bookmarks and direct visits. The top bar's, the bottom bar's and the account menu's Settings links reach it before the circuit connects; with the circuit they open the settings sheet (§8a) on every other page.
 - **Layout:** a column capped at `form-max-width` (760px), `gap-4`. A header row holds `SettingsExit`, an “Exit settings” `MudIconButton` (`ArrowBack`, `aria-keyshortcuts="Escape"`, `[data-settings-exit]`, tooltip “Exit settings (Esc)”), and then the `h1` “Settings” (`MudText` `h5`). Below it the page renders `SettingsSections`, the shared component the settings sheet (F2) reuses, so the two never drift: the HTTPS note, then the account section, `ChannelSettings` and `ConnectionStatusPanel` as separate components, or the signed-out panel. Each section is a `SettingsSection`: an outlined `MudPaper` (`Elevation="0"`) holding a `section` labelled by its `h2` (`MudText` `h6`), titled after an icon: Twitch account `ManageAccounts`, Channels `LiveTv`, Connection status `Wifi`.
 - **Exit:** the button and Esc both go back through browser history (`history.back()`) when this circuit has shown an earlier StreamKeepr page, and otherwise navigate to Home (`/`), as after a direct visit, a bookmark or a full-page load (sign-in, Disconnect). The shell's `NavigationHistory` decides: only a change of path counts as a page, so a replaced query (`authError`) or an in-page anchor does not. One exit at a time: a second call while one is under way (a double click, Esc with the button) is ignored until the location changes. Esc comes from `SettingsExit.razor.js`, which also owns the `back()` call; it never fires while typing in a field, with a modifier held, on a key repeat, or while a dialog, menu, overlay or other popover is open (an open tooltip does not block it). The exit button carries `data-sk-ready` once Esc is wired, and leaving the page removes the listener.
 - Signed out: a centered panel “Connect Twitch to manage channels” (`[data-settings-signed-out]`) with the sign-in link (return URL `/settings`), the expired chip when the session lapsed, and the HTTPS note; no channel data, no `ChannelsView` calls, no redirect.
@@ -158,6 +158,17 @@ Amended for the MudBlazor settings page (#179; design-system cards SettingsPage,
 - Authorization is enforced by `ChannelsView` and the services as well as `RequiresTwitch`; a disabled control is never the only guard.
 - Not in this page yet (card items outside #179): pressing the app bar's Settings button again does not exit, the app bar's Settings button is not marked current, and below `Breakpoint.Md` the page has no dense top bar back arrow; the bottom bar marks Settings current as before.
 
+
+## 8a. Settings sheet
+
+Added for #183 (design-system card SettingsSheet). Settings opens over the current page, so a playing recording never stops.
+
+- **Where:** `SettingsSheet` (`Components/Features/Settings`) in `AppShell`'s `MudLayout`, with `SettingsSections` passed in by `MainLayout`. Md and up it is an end `MudDrawer` (`Temporary`, `ClipMode.Always`, `Overlay="false"`, 440px, `elevation-24`): an `aside#sk-settings` labelled by its `h2` “Settings”, with a “Close settings” button (tooltip “Close (Esc)” on hover only, since opening focuses it). Clicking outside never closes it, and the player beside it stays usable. Below Md it is an inline full-screen `MudDialog` (`NoHeader`, Esc and backdrop handled by the component, not MudDialog) named “Settings”, with an `ArrowBack` “Close settings” button. Inside the sheet `SettingsSection` (via the `SettingsSheet` cascade) uses an `h3` in `subtitle1` and `divider` rules instead of outlined paper; the channel rows are the page's rows.
+- **Now-playing strip (phone, watch pages):** `[data-now-playing]`, a `group` named “Now playing”: the thumbnail with a `primary` progress bar, the title, “streamer · m:ss · playing|paused”, a Pause/Play button (`[data-now-playing-toggle]`) and “Back to the video” (closes the sheet). `SettingsSheet.razor.js` follows the player's `sk:playhead` events, formats time with `/js/timecode.js` (never the player module, which loads only on recording pages) and toggles playback by clicking the player's own Play button.
+- **URL:** `?settings=open` (`Ui/SettingsSheetUrl`) on any page but `/settings` shows the sheet; other query keys are kept and a fragment is dropped (as `LibraryUrl` drops it). Opening is a new history entry on the same page (`NavigateTo`, no `replace`), so only the query changes and the page and player stay; Back closes it. Closing an entry this circuit pushed calls `history.back()`; otherwise (a shared or reloaded link) it replaces the URL without the key. A navigation to another page closes it.
+- **Opening:** the Settings links stay `<a href="/settings">`. `AppShell.razor.js` claims a plain primary click on a same-origin link to the plain `/settings` (no query, no fragment) from another page in the capture phase: it prevents the default, so Blazor's link interception skips it, and calls `AppShell.ToggleSettingsAsync`. Other click handlers still run (a menu item closes its menu). It is not a .NET location-changing handler, because while one is registered Blazor replays every browser Back through .NET. New tabs, modified clicks, programmatic navigation, browser history and deep links (`/settings#twitch`, `/settings#channels`) still reach the page. The app bar's and bottom bar's Settings carry `aria-expanded` everywhere but `/settings`, and `aria-controls="sk-settings"` while the sheet exists (it is mounted only while open). The app bar's shows a `primary` tint while open; it is a link, so there is no `aria-pressed`. The bottom bar marks Settings `aria-current="page"` while the sheet is open, as it marks Library while the library drawer is open.
+- **Focus and keys:** opening moves focus to “Close settings”, also after a breakpoint change swaps the drawer for the dialog while open (a phone reloading `?settings=open`); closing returns it to the opener, else the first visible `[data-settings-toggle]` (the app bar's Settings, or the bottom bar's below Md), else the player (a phone's watch page), when focus was lost with the sheet (focus the viewer moved elsewhere stays). Esc closes the sheet while focus is inside it, except in an editable field, on a repeat, with a modifier, or while another dialog, an open menu or a popover other than a tooltip is open. Player shortcuts are ignored while focus is inside `[data-settings-sheet]` (`docs/player-contract.md` §7).
+- **Not in #183:** compact channel rows with a `MoreVert` menu, and “Manage Twitch connection” opening the sheet (it still navigates to `/settings#twitch`).
 ## 9. Stop and resume surfaces
 
 This contract supersedes the plan's F11-T2 surfaces (E-23):
@@ -210,6 +221,7 @@ bUnit:
 - `TwitchAuthButton` disconnected/connecting/connected/expired, menu focus, logout form/token, return URL.
 - Settings signed-out prompt; account; push summary/reasons; channel rows/state labels; add success/errors; remove busy/kept-recordings; stop/resume confirms; empty state; `ChannelsView.Changed`.
 - Copy playlist absolute URL/clipboard failure.
+- Settings sheet (#183): `SettingsSheetUrl` open/close rules; the shell opens it on the same page, closes by history back or replace, never on `/settings`; drawer Md and up, dialog with the now-playing strip below; toggle `aria-expanded`. Vitest: which link clicks open the sheet, Esc rules, focus in and back, the strip's playhead and toggle, player keys paused inside the sheet.
 
 Integration:
 
@@ -223,12 +235,13 @@ Playwright (Chrome channel, Mock profile):
 - Sign in and out with the fake admin; expired/not-allowed are fake-state tests.
 - Details: chapters seek, copy playlist, export start/progress/download, incompatible failure (fixture), cancel/retry, delete and next-item navigation, lease refusal.
 - Settings: add known/unknown, remove with finalize, stop/resume, push summary, empty state, signed-out prompt.
+- Settings sheet: at 1280 a playing recording's same `<video>` keeps playing and advancing while the sheet opens, takes K, and closes by Esc and Back; at 375 the dialog opens over a playing recording from the account menu and its strip pauses it; axe on both.
 - Auth error snackbar/query removal; HTTPS caveat where testable; axe and keyboard-only.
 - No automatic retries; flaky tests are fixed or quarantined per the testing contract.
 
 ## 13. Binding versus implementation freedom
 
-Binding: details fields/chapters/collapse, absolute copy, `FindByRecording` and the export row states/rules, always-one-MP4/incompatible handling, delete dialog and failure paths, auth states/redirects/return URLs/antiforgery/expiry, settings structure/auth gating/push summary/channel actions, stop/resume surfaces (E-23), library Paused meta, Mock auth behavior, and the test matrix.
+Binding: details fields/chapters/collapse, absolute copy, `FindByRecording` and the export row states/rules, always-one-MP4/incompatible handling, delete dialog and failure paths, auth states/redirects/return URLs/antiforgery/expiry, settings structure/auth gating/push summary/channel actions, the settings sheet (§8a: URL key, toggle, focus, Esc, never interrupting playback), stop/resume surfaces (E-23), library Paused meta, Mock auth behavior, and the test matrix.
 
 Freedom: exact panel markup beyond the `sk-` classes, wording of non-binding messages, dialog animation, channel row layout, push reason copy, add-form validation wording, and test implementation.
 
