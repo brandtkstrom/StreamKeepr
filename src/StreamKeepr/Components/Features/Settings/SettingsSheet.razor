@@ -27,7 +27,9 @@
             <div class="sk-settings-sheet-header">
                 <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Settings" />
                 <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2" id="@TitleId">Settings</MudBlazor.MudText>
-                <MudBlazor.MudTooltip Text="Close (Esc)" RootClass="sk-settings-sheet-close">
+                @* Hover only: opening moves focus here, and a focus tooltip would pop on every open,
+                   in the popover layer outside any landmark (axe region). aria-keyshortcuts names Esc. *@
+                <MudBlazor.MudTooltip Text="Close (Esc)" ShowOnFocus="false">
                     <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Close"
                                              OnClick="OnClose"
                                              aria-label="Close settings"

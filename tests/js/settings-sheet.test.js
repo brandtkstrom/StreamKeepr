@@ -88,6 +88,24 @@ describe("SettingsSheet.razor.js", () => {
     expect(document.activeElement.id).toBe("player");
   });
 
+  it("falls back to the visible bottom-bar Settings when the app bar's is hidden, as on a phone's Home", async () => {
+    document.body.innerHTML = `
+      <a href="/settings" id="appbar-toggle" data-settings-toggle>Settings</a>
+      <aside id="sk-settings"><div data-settings-sheet><button data-settings-close>Close settings</button></div></aside>
+      <nav aria-label="Main"><a href="/settings" id="bottom-toggle" data-settings-toggle>Settings</a></nav>
+      <div role="menu"><a id="menu-item" href="/settings">Settings</a></div>`;
+    // jsdom has no layout; mark the app bar's toggle hidden as components.css does below 960px.
+    document.getElementById("appbar-toggle").checkVisibility = () => false;
+    document.getElementById("menu-item").focus();
+    await opened(component(), "#sk-settings");
+    document.querySelector("[role='menu']").remove();
+    document.querySelector("[data-settings-sheet]").remove();
+
+    closed();
+
+    expect(document.activeElement.id).toBe("bottom-toggle");
+  });
+
   it("closes on Escape from inside the sheet", async () => {
     document.body.innerHTML = sheetMarkup();
     const sheet = component();

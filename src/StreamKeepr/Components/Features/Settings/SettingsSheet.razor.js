@@ -6,7 +6,9 @@
 // player's own Play button ([data-sk-player] [data-sk=play]), so the player stays the only code
 // that drives the <video>.
 import { isEditable } from "/js/shortcuts.js";
-import { formatTimecode } from "../Player/VideoPlayer.razor.js";
+// Not the player module: Settings opens on every page, and the player loads only on recording
+// pages (testing contract §9).
+import { formatTimecode } from "/js/timecode.js";
 
 // Overlays that own Escape. The phone sheet is a dialog itself, so its own container counts as
 // the sheet; anything else open (a confirmation, a menu, a popover) is someone else's. It follows

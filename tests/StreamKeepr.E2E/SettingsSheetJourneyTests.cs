@@ -33,14 +33,20 @@ public sealed class SettingsSheetJourneyTests(MockAppFixture app)
         await Assertions.Expect(toggle).ToHaveAttributeAsync("aria-expanded", "true");
         await Assertions.Expect(sheet.GetByRole(AriaRole.Button, new() { Name = "Close settings" })).ToBeFocusedAsync();
         await AssertStillPlayingAsync(page, "with the sheet open");
+        // Axe in the state the sheet opens in: focus on Close.
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "settings-sheet-1280");
+
+        // Clicking outside never closes it: the page beside the sheet stays usable.
+        // An empty spot in the app bar, between the search field and the links: inert, outside the sheet.
+        await page.Mouse.ClickAsync(950, 32);
+        await page.WaitForTimeoutAsync(300);
+        Assert.True(await sheet.IsVisibleAsync(), "a click outside the sheet must not close it");
+        Assert.Contains("settings=open", page.Url, StringComparison.Ordinal);
+        await sheet.GetByRole(AriaRole.Button, new() { Name = "Close settings" }).FocusAsync();
 
         // Single-letter player shortcuts pause while focus is inside the sheet.
         await page.Keyboard.PressAsync("k");
         Assert.False(await VideoAsync<bool>(page, "v => v.paused"), "K inside the sheet must not pause the player");
-        // Tab past Close first: its focus tooltip is an open popover outside any landmark.
-        await page.Keyboard.PressAsync("Tab");
-        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "settings-sheet-1280");
-        await sheet.GetByRole(AriaRole.Button, new() { Name = "Close settings" }).FocusAsync();
 
         // Esc closes it, focus returns to the toggle, and playback carried on throughout.
         await page.Keyboard.PressAsync("Escape");
@@ -84,6 +90,10 @@ public sealed class SettingsSheetJourneyTests(MockAppFixture app)
         ILocator dialog = Feedback.Dialog(page, "Settings");
         await dialog.Locator("[data-channel]").First.WaitForAsync();
         Assert.Equal(path, new Uri(page.Url).AbsolutePath);
+        // Full screen: once MudDialog's opening animation settles, it covers the 375×812 viewport.
+        await page.EvaluateAsync("() => Promise.all(document.getAnimations().filter(a => a.effect?.getComputedTiming().endTime !== Infinity).map(a => a.finished.catch(() => {})))");
+        LocatorBoundingBoxResult box = (await dialog.BoundingBoxAsync())!;
+        Assert.True(box.X <= 0 && box.Y <= 0 && box.Width >= 375 && box.Height >= 812, $"the dialog is {box.Width}×{box.Height} at {box.X},{box.Y}");
         await AssertStillPlayingAsync(page, "with the dialog open");
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "settings-sheet-375");
 
@@ -94,6 +104,11 @@ public sealed class SettingsSheetJourneyTests(MockAppFixture app)
         Assert.True(await VideoAsync<bool>(page, "v => v === window.__skVideo"), "the strip paused the page's own video");
         await Assertions.Expect(strip.GetByRole(AriaRole.Button, new() { Name = "Play" })).ToBeVisibleAsync();
         await Assertions.Expect(strip.Locator("[data-now-playing-status]")).ToContainTextAsync("paused");
+
+        // And Play resumes the same video.
+        await strip.GetByRole(AriaRole.Button, new() { Name = "Play" }).TapAsync();
+        await page.WaitForFunctionAsync("() => !window.__skVideo.paused");
+        await Assertions.Expect(strip.GetByRole(AriaRole.Button, new() { Name = "Pause" })).ToBeVisibleAsync();
 
         await strip.GetByRole(AriaRole.Button, new() { Name = "Back to the video" }).TapAsync();
         await dialog.WaitForAsync(new() { State = WaitForSelectorState.Detached });

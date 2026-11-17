@@ -103,7 +103,7 @@
                                              Href="@SettingsSheetUrl.PagePath"
                                              aria-label="Settings"
                                              aria-controls="@(SettingsOpen ? SettingsSheet.Id : null)"
-                                             aria-expanded="@Aria(SettingsExpanded)"
+                                             aria-expanded="@Aria.Bool(SettingsExpanded)"
                                              data-settings-toggle />
 
                     @if (AuthSlot is null)
@@ -237,13 +237,6 @@
 
     // The Settings controls toggle the sheet everywhere but the page itself, where they are links.
     private bool? SettingsExpanded => OnSettingsPage ? null : SettingsOpen;
-
-    private static string? Aria(bool? value) => value switch
-    {
-        true => "true",
-        false => "false",
-        null => null,
-    };
 
     private bool Watching => LibraryUrl.RecordingId(Navigation.Uri) is not null;
 

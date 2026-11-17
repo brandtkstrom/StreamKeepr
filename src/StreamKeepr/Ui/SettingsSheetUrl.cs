@@ -23,7 +23,7 @@ public static class SettingsSheetUrl
         if (IsPage(absolute))
             return false;
 
-        return Pairs(absolute.Query).Any(pair =>
+        return QueryPairs.Pairs(absolute.Query).Any(pair =>
             pair.Key == Key && string.Equals(pair.Value, OpenValue, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -42,35 +42,10 @@ public static class SettingsSheetUrl
     private static string With(string uri, bool open)
     {
         Uri absolute = new(uri, UriKind.Absolute);
-        var builder = new StringBuilder();
-        foreach (string raw in absolute.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (Decode(raw.Split('=', 2)[0]) == Key)
-                continue;
-            Append(builder, raw);
-        }
-
+        StringBuilder builder = QueryPairs.Without(absolute.Query, key => key == Key);
         if (open)
-            Append(builder, $"{Key}={OpenValue}");
+            QueryPairs.Append(builder, $"{Key}={OpenValue}");
 
         return builder.Length == 0 ? absolute.AbsolutePath : $"{absolute.AbsolutePath}?{builder}";
     }
-
-    private static void Append(StringBuilder builder, string pair)
-    {
-        if (builder.Length > 0)
-            builder.Append('&');
-        builder.Append(pair);
-    }
-
-    private static IEnumerable<(string Key, string Value)> Pairs(string query)
-    {
-        foreach (string raw in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
-        {
-            string[] parts = raw.Split('=', 2);
-            yield return (Decode(parts[0]), parts.Length > 1 ? Decode(parts[1]) : "");
-        }
-    }
-
-    private static string Decode(string value) => Uri.UnescapeDataString(value.Replace('+', ' '));
 }

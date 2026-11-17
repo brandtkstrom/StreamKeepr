@@ -20,7 +20,7 @@ public sealed class SettingsSectionTests
     }
 
     [Fact]
-    public async Task Inside_the_settings_sheet_a_section_is_an_h3_under_the_sheets_own_title()
+    public async Task Under_the_settings_sheet_cascade_a_section_heading_is_an_h3()
     {
         await using var context = CreateContext();
 

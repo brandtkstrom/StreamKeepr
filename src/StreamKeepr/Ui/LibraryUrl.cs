@@ -21,7 +21,7 @@ public static class LibraryUrl
         string? state = null;
         string sort = "newest";
 
-        foreach ((string key, string value) in Pairs(QueryOf(uri)))
+        foreach ((string key, string value) in QueryPairs.Pairs(QueryOf(uri)))
         {
             switch (key)
             {
@@ -79,24 +79,16 @@ public static class LibraryUrl
         ArgumentNullException.ThrowIfNull(query);
 
         string path = PathOf(uri);
-        var builder = new StringBuilder();
-
-        foreach (string raw in QueryOf(uri).Split('&', StringSplitOptions.RemoveEmptyEntries))
-        {
-            string key = Decode(raw.Split('=', 2)[0]);
-            if (key is SearchKey or StateKey or SortKey)
-                continue;
-
-            Append(builder, raw);
-        }
+        StringBuilder builder = QueryPairs.Without(
+            QueryOf(uri), key => key is SearchKey or StateKey or SortKey);
 
         LibraryQuery normalized = Parse("?" + Encode(query));
         if (normalized.Search is { } search)
-            Append(builder, $"{SearchKey}={Uri.EscapeDataString(search)}");
+            QueryPairs.Append(builder, $"{SearchKey}={Uri.EscapeDataString(search)}");
         if (normalized.State is { } state)
-            Append(builder, $"{StateKey}={state}");
+            QueryPairs.Append(builder, $"{StateKey}={state}");
         if (normalized.Sort != "newest")
-            Append(builder, $"{SortKey}={normalized.Sort}");
+            QueryPairs.Append(builder, $"{SortKey}={normalized.Sort}");
 
         return builder.Length == 0 ? path : $"{path}?{builder}";
     }
@@ -105,24 +97,6 @@ public static class LibraryUrl
         $"{SearchKey}={Uri.EscapeDataString(query.Search ?? "")}" +
         $"&{StateKey}={Uri.EscapeDataString(query.State ?? "")}" +
         $"&{SortKey}={Uri.EscapeDataString(query.Sort ?? "")}";
-
-    private static void Append(StringBuilder builder, string pair)
-    {
-        if (builder.Length > 0)
-            builder.Append('&');
-        builder.Append(pair);
-    }
-
-    private static IEnumerable<(string Key, string Value)> Pairs(string query)
-    {
-        foreach (string raw in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
-        {
-            string[] parts = raw.Split('=', 2);
-            yield return (Decode(parts[0]), parts.Length > 1 ? Decode(parts[1]) : "");
-        }
-    }
-
-    private static string Decode(string value) => Uri.UnescapeDataString(value.Replace('+', ' '));
 
     private static string StripFragment(string uri)
     {

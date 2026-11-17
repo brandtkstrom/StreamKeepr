@@ -22,11 +22,13 @@
             </span>
             <span class="lbl">Library</span>
         </button>
-        @* A link to the page; with the circuit the shell turns the click into the sheet's toggle. *@
+        @* A link to the page; with the circuit the shell turns the click into the sheet's toggle.
+           data-settings-toggle: where the sheet returns focus when the app bar's is hidden. *@
         <a class="sk-bottomnav-item"
            href="@SettingsSheetUrl.PagePath"
            aria-controls="@(SettingsExpanded == true ? SettingsSheet.Id : null)"
-           aria-expanded="@(SettingsExpanded switch { true => "true", false => "false", null => null })"
+           aria-expanded="@Aria.Bool(SettingsExpanded)"
+           data-settings-toggle
            aria-current="@(Current == BottomNavItem.Settings ? "page" : null)">
             <span class="pill" aria-hidden="true"><MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Settings" /></span>
             <span class="lbl">Settings</span>

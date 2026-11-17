@@ -485,6 +485,8 @@ public sealed class AppShellTests
 
         var settings = cut.Find("nav[aria-label='Main'] a[href='/settings']");
         Assert.Equal("false", settings.GetAttribute("aria-expanded"));
+        // The sheet's module returns focus here when the app bar's Settings is hidden (phones).
+        Assert.True(settings.HasAttribute("data-settings-toggle"));
         Assert.Null(settings.GetAttribute("aria-controls"));
 
         await cut.InvokeAsync(cut.Instance.ToggleSettingsAsync);
