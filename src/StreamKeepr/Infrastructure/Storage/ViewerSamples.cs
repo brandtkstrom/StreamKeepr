@@ -7,7 +7,7 @@ namespace StreamKeepr.Infrastructure.Storage;
 public sealed record ViewerSample(double At, int Count);
 
 /// <summary>
-/// The append-only <c>viewers.jsonl</c> in a session folder (session-store contract §7.3): one
+/// The append-only <c>viewers.jsonl</c> in a session folder (session-store contract §7.2): one
 /// <c>{"v":1,"at":…,"count":…}</c> object per line. This type owns the line format; the
 /// coordinator decides when to sample and <see cref="SessionStore"/> serializes the appends.
 /// </summary>

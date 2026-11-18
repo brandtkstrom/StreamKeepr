@@ -6,7 +6,7 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 
 ## 1. Scope and boundary
 
-The session store owns the on-disk session manifest, part stitching, startup recovery, the in-memory recording library, and disk-space checks. The recorder owns part files; the store owns `session.json`, `index.m3u8`, `thumb.jpg`, and library summaries. The store never runs Streamlink/FFmpeg and never changes domain state. `ThumbnailService` grabs thumbnail frames with FFmpeg and hands each image to the store (§7). A session folder may also contain a `chat/` sidecar owned by `ChatLogStore`; the session store only derives `HasChat` and deletes the folder with the session.
+The session store owns the on-disk session manifest, part stitching, startup recovery, the in-memory recording library, and disk-space checks. The recorder owns part files; the store owns `session.json`, `index.m3u8`, `thumb.jpg`, and library summaries. The store never runs Streamlink/FFmpeg and never changes domain state. `ThumbnailService` grabs thumbnail frames with FFmpeg and hands each image to the store (§7). A session folder may also contain a `chat/` sidecar owned by `ChatLogStore`; the session store only derives `HasChat` and deletes the folder with the session. It may also contain `viewers.jsonl` (§7.2), which the store appends but never folds into `session.json`.
 
 ## 2. Manifest
 
@@ -151,7 +151,7 @@ The supervisor maps `Unfinished` to `Idle.Resume` and `Finished` to `Idle.Finish
 - `ReopenAsync(session)`: under the lock, set `Status = Recording`, clear `EndedAt`/`DurationSeconds`/`SizeBytes`, delete `index.m3u8`, write the manifest, upsert the library, invalidate the live cache.
 - `AppendMetadataAsync(session, live)`: under the lock, read the manifest; if the latest title and game are unchanged, return. Otherwise append a metadata change, write the manifest, upsert the library with live counts and chapters.
 - `FinalizeAsync(session)`: under the lock, collect non-empty part playlists in numeric order. If none, delete the session directory and remove the library entry. Otherwise stitch final, write `index.m3u8` atomically, set `Status = Complete`, `EndedAt`, `DurationSeconds`, `SizeBytes`, write the manifest, upsert the library with counts/chapters, and remove the live cache.
-- `DeleteAsync(session)`: remove the library entry first, take the lock, delete the directory, remove the live cache and lock entry. Export leases are checked by the caller. The session directory includes `chat/`, so chat is deleted with the recording. `FinalizeAsync` does not rewrite chat; the chat writer closes and optionally purges deleted text on its own finalize path.
+- `DeleteAsync(session)`: remove the library entry first, take the lock, delete the directory, remove the live cache and lock entry. Export leases are checked by the caller. The session directory includes `chat/` and `viewers.jsonl`, so chat and viewer samples are deleted with the recording. `FinalizeAsync` does not rewrite chat; the chat writer closes and optionally purges deleted text on its own finalize path.
 - `StitchLiveAsync(dir)`: cache hit or lock + rebuild as above.
 - `SaveThumbnailAsync(dir, image)`: under the lock, if `session.json` is missing (deleted) or `thumb.jpg` exists, delete the image and return false; otherwise rename it to `thumb.jpg` and upsert the library.
 
@@ -162,6 +162,16 @@ The supervisor maps `Unfinished` to `Idle.Resume` and `Finished` to `Idle.Finish
 - The position is mapped onto the stitched playlist (`StitchLiveAsync`) with `PlaylistStitcher.SegmentAt`, which returns that segment's `#EXT-X-MAP` init file and media file as plain names in the session folder.
 - FFmpeg decodes the first video frame of `concat:init_NNN.mp4|pNNN_XXXXX.m4s` (no HLS demuxing or seeking), scales it to at most 640 px wide without upscaling, and writes a JPEG. Recorded segments are independent, so the first frame is a keyframe. One grab is capped at 30 s.
 - A grab failure is logged and retried on the next sweep, up to 3 attempts per recording per process lifetime.
+
+### 7.2 Viewer samples (#186)
+
+- `viewers.jsonl` in the session root is append-only, one camelCase object per line: `{"v":1,"at":123.4,"count":1658}`. `at` is seconds from `session.StartedAt`, rounded to 0.1 s and clamped to `>= 0`; `count` is the Helix `viewer_count`. `ViewerSamples` owns the format.
+- `AppendViewerSampleAsync(session, at, count)` appends one line under the session lock. It never creates the session folder, so a sample after a delete fails instead of recreating it. If the file does not end in a newline (a torn write), it writes one first, so a partial line costs only itself.
+- `ChannelCoordinator` samples after each `StreamStatusObserved` whose observation is `Live` with a non-null count, while the channel has an open session: `Recording`, or `WaitingToRetry` (reconnecting). The first such observation after the session opens samples at once; later ones wait until 60 s of observation time (`StreamStatusObserved.At`, not a timer) after the previous sample. `Unknown`, `Offline`, uncounted (EventSub-only) observations, and `CoolingDown` add nothing: a gap is a missing point, never a synthetic or flat sample. The cadence is in memory, so a restart samples at the next observation.
+- Sampling never blocks or fails recording: a write failure logs one warning and is otherwise ignored. No per-sample `Information` log.
+- The file survives finalize, is not counted in `SizeBytes`, is never served by `/media` (`.jsonl` is not allowlisted), and is deleted with the session folder. There is no backfill; a session without the file has no samples.
+- Reads (`ViewerSamples.Read`) are tolerant: a malformed, partial, wrong-version, or negative line is skipped with one warning per read, and at most 50,000 samples are returned.
+- The Mock seeder writes deterministic samples every 10 s across each finished recording; the Mock poller gives each live observation a deterministic count, so the growing capture samples through the real coordinator path.
 
 ## 8. Recording library
 
@@ -208,6 +218,8 @@ public sealed record RecordingSummary(
 | Delete races stitch | Library entry removed first; in-flight requests return 404/410. |
 | Delete races export | Export lease refuses deletion (F10). |
 | Thumbnail fails | Log; no thumbnail; retried up to 3 times per process lifetime; recording unaffected. |
+| Viewer sample write fails | One warning; the sample is lost; recording and status unaffected. |
+| Torn `viewers.jsonl` line | Next append starts a new line; reads skip the partial line with a warning. |
 | Delete races a thumbnail grab | The delete holds the session lock; `SaveThumbnailAsync` finds no manifest and discards the image. |
 | Disk full | `DiskGuard` stops the part; retry/cooldown; finalize may fail and be retried by recovery. |
 | Part number reaches 1000 | Hard error; the session finalizes with the existing parts. |
@@ -227,6 +239,11 @@ Writes and locks:
 - Concurrent open/append/finalize/stitch/delete: no deadlock, no torn manifest.
 - `StitchLive` cache hit is lock-free; cache miss locks; finalize/reopen/delete invalidate.
 - Delete removes the library entry before files; lock entry removed.
+
+Viewer samples:
+
+- Line schema, offset rounding and clamp; survives finalize, stays out of `session.json`; append after delete fails without recreating the folder; torn last line terminated.
+- Tolerant capped read; coordinator cadence (≤ 1 per 60 s of observation time), gaps for Unknown/Offline/uncounted, reconnecting sessions sample, write failure is one warning.
 
 Stitching:
 
