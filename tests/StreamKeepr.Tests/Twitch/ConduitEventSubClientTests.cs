@@ -469,25 +469,25 @@ public sealed class ConduitEventSubClientTests : IDisposable
             (LogLevel.Information,
                 "EventSub Conduit connected to wss://eventsub.wss.twitch.tv/ws; waiting for session_welcome."
                 + $" Conduit {conduit}."),
-            logs.Entries);
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
         Assert.Contains(
             (LogLevel.Information,
                 "EventSub Conduit reconnecting to wss://reconnect.example/ws; the old connection stays open"
                 + $" until session_welcome. Conduit {conduit}."),
-            logs.Entries);
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
         Assert.Contains(
             (LogLevel.Information,
                 $"EventSub Conduit reconnect handoff complete; closed the old connection. Conduit {conduit}."),
-            logs.Entries);
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
         Assert.Contains(
             (LogLevel.Information,
                 $"EventSub Conduit session closed: connection closed by Twitch. Conduit {conduit}."),
-            logs.Entries);
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
         Assert.Contains(
             (LogLevel.Information,
                 "EventSub Conduit reconnecting in 00:00:05 (attempt 1): connection closed by Twitch."
                 + $" Conduit {conduit}."),
-            logs.Entries);
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
         Assert.DoesNotContain("app-token", string.Join('\n', logs.Messages), StringComparison.Ordinal);
         Assert.DoesNotContain("\"metadata\"", string.Join('\n', logs.Messages), StringComparison.Ordinal);
     }

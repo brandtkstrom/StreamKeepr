@@ -37,7 +37,43 @@ public sealed class ListLoggerProviderTests
 
         Assert.Equal(
             [(LogLevel.Information, "early line"), (LogLevel.Warning, "a late line")],
-            provider.Entries);
+            provider.Entries.Select(entry => (entry.Level, entry.Message)));
+    }
+
+    [Fact]
+    public void Entries_capture_level_template_properties_and_exception()
+    {
+        using var provider = new ListLoggerProvider();
+        var failure = new InvalidOperationException("boom");
+
+        provider.CreateLogger("test").LogWarning(
+            failure, "Refresh failed for {ProviderId}: {HttpStatus} {ChannelId}", "bttv", 503, null);
+
+        CapturedLogEntry entry = Assert.Single(provider.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Equal("Refresh failed for bttv: 503 (null)", entry.Message);
+        Assert.Equal("Refresh failed for {ProviderId}: {HttpStatus} {ChannelId}", entry.Template);
+        Assert.Equal("bttv", entry.Properties["ProviderId"]);
+        Assert.Equal(503, entry.Properties["HttpStatus"]);
+        Assert.True(entry.Properties.ContainsKey("ChannelId"));
+        Assert.Null(entry.Properties["ChannelId"]);
+        Assert.False(entry.Properties.ContainsKey("{OriginalFormat}"));
+        Assert.Same(failure, entry.Exception);
+    }
+
+    [Fact]
+    public void Entries_without_a_template_have_no_template_or_properties()
+    {
+        using var provider = new ListLoggerProvider();
+
+        provider.CreateLogger("test").Log(
+            LogLevel.Information, default, "raw state", null, (state, _) => state);
+
+        CapturedLogEntry entry = Assert.Single(provider.Entries);
+        Assert.Equal("raw state", entry.Message);
+        Assert.Null(entry.Template);
+        Assert.Empty(entry.Properties);
+        Assert.Null(entry.Exception);
     }
 
     [Fact]
@@ -54,5 +90,12 @@ public sealed class ListLoggerProviderTests
             "ffmpeg", "9.0.2", 1.25, new[] { "nova", "echo" }, null);
 
         Assert.Equal(["ffmpeg: 9.0.2 took 1.3s for nova, echo (missing (null))"], provider.Messages);
+        CapturedLogEntry entry = Assert.Single(provider.Entries);
+        Assert.Equal(
+            "{Tool}: {Version} took {Seconds:0.0}s for {Channels} (missing {Missing})", entry.Template);
+        Assert.Equal("ffmpeg", entry.Properties["Tool"]);
+        Assert.Equal(1.25, entry.Properties["Seconds"]);
+        Assert.Equal(["nova", "echo"], Assert.IsType<object?[]>(entry.Properties["Channels"]));
+        Assert.Null(entry.Properties["Missing"]);
     }
 }

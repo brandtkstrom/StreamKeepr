@@ -8,12 +8,25 @@ using Serilog.Parsing;
 
 namespace StreamKeepr.Tests.Hosting;
 
+/// <summary>
+/// One captured log call. <see cref="Message"/> is rendered the way Microsoft.Extensions.Logging
+/// renders it; <see cref="Template"/> is the <c>{OriginalFormat}</c> template, or null when the
+/// state has none. <see cref="Properties"/> holds the template's values with Serilog's
+/// <see cref="ScalarValue"/> and <see cref="SequenceValue"/> wrappers unwrapped to CLR values.
+/// </summary>
+internal sealed record CapturedLogEntry(
+    LogLevel Level,
+    string Message,
+    string? Template,
+    IReadOnlyDictionary<string, object?> Properties,
+    Exception? Exception);
+
 internal sealed class ListLoggerProvider : ILoggerProvider
 {
     private const string OriginalFormatKey = "{OriginalFormat}";
     private static readonly MessageTemplateParser TemplateParser = new();
 
-    private readonly ConcurrentQueue<(LogLevel Level, string Message)> _entries = new();
+    private readonly ConcurrentQueue<CapturedLogEntry> _entries = new();
     private readonly List<(string Fragment, TaskCompletionSource Logged)> _waiters = [];
 
     /// <summary>
@@ -22,8 +35,8 @@ internal sealed class ListLoggerProvider : ILoggerProvider
     /// </summary>
     public IReadOnlyList<string> Messages => _entries.Select(entry => entry.Message).ToArray();
 
-    /// <summary>A snapshot of the rendered messages with their levels.</summary>
-    public IReadOnlyList<(LogLevel Level, string Message)> Entries => _entries.ToArray();
+    /// <summary>A snapshot of every captured call; see <see cref="Messages"/> on snapshots.</summary>
+    public IReadOnlyList<CapturedLogEntry> Entries => _entries.ToArray();
 
     public ILogger CreateLogger(string categoryName) => new ListLogger(this);
 
@@ -48,14 +61,14 @@ internal sealed class ListLoggerProvider : ILoggerProvider
     {
     }
 
-    private void Add(LogLevel level, string message)
+    private void Add(CapturedLogEntry entry)
     {
         lock (_waiters)
         {
-            _entries.Enqueue((level, message));
+            _entries.Enqueue(entry);
             _waiters.RemoveAll(waiter =>
             {
-                if (!message.Contains(waiter.Fragment, StringComparison.Ordinal))
+                if (!entry.Message.Contains(waiter.Fragment, StringComparison.Ordinal))
                     return false;
                 waiter.Logged.TrySetResult();
                 return true;
@@ -90,6 +103,33 @@ internal sealed class ListLoggerProvider : ILoggerProvider
         return message.ToString();
     }
 
+    private static CapturedLogEntry Capture<TState>(
+        LogLevel level, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+    {
+        string? template = null;
+        var properties = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (state is IEnumerable<KeyValuePair<string, object?>> values)
+        {
+            foreach ((string key, object? value) in values)
+            {
+                if (key == OriginalFormatKey)
+                    template = value as string;
+                else
+                    properties[key] = Unwrap(value);
+            }
+        }
+
+        return new CapturedLogEntry(
+            level, Render(state, exception, formatter), template, properties, exception);
+    }
+
+    private static object? Unwrap(object? value) => value switch
+    {
+        ScalarValue scalar => scalar.Value,
+        SequenceValue sequence => sequence.Elements.Select(Unwrap).ToArray(),
+        _ => value,
+    };
+
     // Mirrors Microsoft.Extensions.Logging's LogValuesFormatter: invariant culture,
     // "(null)" for nulls, and comma-joined sequences. Serilog forwards scalars as CLR
     // values but keeps sequences as SequenceValue. ListLoggerProviderTests pins this.
@@ -113,6 +153,6 @@ internal sealed class ListLoggerProvider : ILoggerProvider
         public void Log<TState>(
             LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter) =>
-            owner.Add(logLevel, Render(state, exception, formatter));
+            owner.Add(Capture(logLevel, state, exception, formatter));
     }
 }

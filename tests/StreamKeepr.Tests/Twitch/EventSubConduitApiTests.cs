@@ -237,7 +237,7 @@ public sealed class EventSubConduitApiTests : IDisposable
             (LogLevel.Warning,
                 $"Twitch refused EventSub Conduit stream.online for broadcaster 2 on conduit {conduit}"
                 + " with HTTP 400: invalid broadcaster"),
-            _logs.Entries);
+            _logs.Entries.Select(entry => (entry.Level, entry.Message)));
         Assert.DoesNotContain(_twitch.CurrentToken, string.Join('\n', _logs.Messages), StringComparison.Ordinal);
         Assert.DoesNotContain("secret", string.Join('\n', _logs.Messages), StringComparison.Ordinal);
     }

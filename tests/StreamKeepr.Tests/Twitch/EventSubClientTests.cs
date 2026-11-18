@@ -302,7 +302,7 @@ public sealed class EventSubClientTests : IDisposable
             (LogLevel.Warning,
                 "EventSub WebSocket subscription stream.online for streamer was refused with HTTP 400:"
                 + " invalid condition"),
-            bindingLogs.Entries);
+            bindingLogs.Entries.Select(entry => (entry.Level, entry.Message)));
         Assert.DoesNotContain("admin-token", string.Join('\n', bindingLogs.Messages), StringComparison.Ordinal);
     }
 
@@ -581,20 +581,20 @@ public sealed class EventSubClientTests : IDisposable
         Assert.Contains(
             (LogLevel.Information,
                 "EventSub WebSocket connected to wss://eventsub.wss.twitch.tv/ws; waiting for session_welcome."),
-            logs.Entries);
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
         Assert.Contains(
             (LogLevel.Information,
                 "EventSub WebSocket session closed: connection closed by Twitch (4003 connection unused)."),
-            logs.Entries);
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
         Assert.Contains(
             (LogLevel.Information,
                 "EventSub WebSocket reconnecting in 00:00:05 (attempt 1):"
                 + " connection closed by Twitch (4003 connection unused)."),
-            logs.Entries);
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
         Assert.Contains(
             (LogLevel.Information,
                 "EventSub WebSocket reconnecting in 00:00:10 (attempt 2): connection closed by Twitch."),
-            logs.Entries);
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
         Assert.DoesNotContain(
             "conduit", string.Join('\n', logs.Messages), StringComparison.OrdinalIgnoreCase);
     }
@@ -618,9 +618,9 @@ public sealed class EventSubClientTests : IDisposable
 
         Assert.Contains(
             (LogLevel.Information, "EventSub WebSocket session closed: watched channels changed."),
-            logs.Entries);
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
         Assert.Contains(
-            (LogLevel.Debug, "EventSub WebSocket reconnecting immediately."), logs.Entries);
+            (LogLevel.Debug, "EventSub WebSocket reconnecting immediately."), logs.Entries.Select(entry => (entry.Level, entry.Message)));
         Assert.DoesNotContain("(attempt", string.Join('\n', logs.Messages), StringComparison.Ordinal);
     }
 
@@ -645,11 +645,11 @@ public sealed class EventSubClientTests : IDisposable
         await run.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Contains(
-            (LogLevel.Warning, "EventSub WebSocket restart: subscription revoked."), logs.Entries);
+            (LogLevel.Warning, "EventSub WebSocket restart: subscription revoked."), logs.Entries.Select(entry => (entry.Level, entry.Message)));
         Assert.Contains(
             (LogLevel.Information,
                 "EventSub WebSocket reconnecting in 00:00:05 (attempt 1): subscription revoked."),
-            logs.Entries);
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
         Assert.DoesNotContain("session closed", string.Join('\n', logs.Messages), StringComparison.Ordinal);
         Assert.DoesNotContain("admin-token", string.Join('\n', logs.Messages), StringComparison.Ordinal);
         Assert.DoesNotContain("\"metadata\"", string.Join('\n', logs.Messages), StringComparison.Ordinal);
