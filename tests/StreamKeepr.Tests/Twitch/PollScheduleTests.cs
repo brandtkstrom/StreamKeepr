@@ -1,5 +1,7 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Infrastructure.Twitch;
+using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Twitch;
 
@@ -7,6 +9,47 @@ public sealed class PollScheduleTests
 {
     private static readonly TimeSpan Normal = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan WithPush = TimeSpan.FromSeconds(300);
+
+    [Fact]
+    public void A_coverage_state_change_logs_information_with_counts_only()
+    {
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory factory = TestLogging.Factory(logs);
+        var schedule = new PollSchedule(NewClock(), factory.CreateLogger<PollSchedule>());
+
+        schedule.SetPushStatus(PushStatus.FromCoverage(["alpha_streamer"], watched: 2));
+
+        CapturedLogEntry changed = Assert.Single(logs.Entries);
+        Assert.Equal(LogLevel.Information, changed.Level);
+        Assert.Equal(PushState.PollingOnly, changed.Properties["Previous"]);
+        Assert.Equal(PushState.PartialCoverage, changed.Properties["State"]);
+        Assert.Equal(1, changed.Properties["Covered"]);
+        Assert.Equal(2, changed.Properties["Total"]);
+        Assert.Equal("Partial coverage", changed.Properties["Reason"]);
+        Assert.DoesNotContain("alpha_streamer", changed.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Only_coverage_state_changes_are_logged()
+    {
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory factory = TestLogging.Factory(logs);
+        var schedule = new PollSchedule(NewClock(), factory.CreateLogger<PollSchedule>());
+
+        schedule.SetPushStatus(PushStatus.Reconnecting);
+        schedule.SetPushStatus(PushStatus.Reconnecting);
+        schedule.SetPushStatus(PushStatus.FromCoverage(["ann"], watched: 1));
+        schedule.SetPushStatus(PushStatus.FromCoverage(["ann", "bob"], watched: 2));
+
+        Assert.Equal(
+            [
+                (PushState.PollingOnly, PushState.EventSubReconnecting),
+                (PushState.EventSubReconnecting, PushState.Connected),
+            ],
+            logs.Entries.Select(entry =>
+                ((PushState)entry.Properties["Previous"]!, (PushState)entry.Properties["State"]!)));
+        Assert.All(logs.Entries, entry => Assert.Equal(LogLevel.Information, entry.Level));
+    }
 
     [Fact]
     public async Task Uses_the_normal_interval_without_full_push_coverage()

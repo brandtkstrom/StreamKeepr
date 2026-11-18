@@ -47,7 +47,8 @@ public sealed class ConduitEventSubClientTests : IDisposable
         _channels.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
         AddChannel("streamer", "123");
         _state = new ConduitStateStore(storage, NullLogger<ConduitStateStore>.Instance);
-        _tokens = new TwitchTokenProvider(new StubHttpClientFactory(_twitch), _options, _clock);
+        _tokens = new TwitchTokenProvider(
+            new StubHttpClientFactory(_twitch), _options, _clock, NullLogger<TwitchTokenProvider>.Instance);
     }
 
     public void Dispose()

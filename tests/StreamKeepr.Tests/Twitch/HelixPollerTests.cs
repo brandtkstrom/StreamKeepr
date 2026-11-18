@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -7,6 +8,7 @@ using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Twitch;
+using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Twitch;
 
@@ -87,6 +89,63 @@ public sealed class HelixPollerTests
             await poller.ObserveAsync(["streamer"], CancellationToken.None);
 
         Assert.IsType<StreamObservation.Offline>(observations["streamer"]);
+    }
+
+    [Fact]
+    public async Task Observe_logs_a_debug_summary_of_counts_without_channel_names()
+    {
+        var handler = new StubHandler(request => Task.FromResult(
+            request.RequestUri!.Host == "id.twitch.tv"
+                ? Token()
+                : Streams("""
+                    {"data":[
+                      {"id":"123","user_login":"alpha_streamer","type":"live","title":"Title",
+                       "game_name":"Game","started_at":"2026-11-10T16:30:00Z"}
+                    ]}
+                    """)));
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory factory = TestLogging.Factory(logs);
+        TwitchStreamPoller poller = CreatePoller(handler, factory);
+
+        await poller.ObserveAsync(["alpha_streamer", "bravo_streamer"], CancellationToken.None);
+
+        CapturedLogEntry summary = Assert.Single(
+            logs.Entries, entry => entry.Properties.ContainsKey("ChannelCount"));
+        Assert.Equal(LogLevel.Debug, summary.Level);
+        Assert.Equal(2, summary.Properties["ChannelCount"]);
+        Assert.Equal(1, summary.Properties["LiveCount"]);
+        Assert.Equal(1, summary.Properties["OfflineCount"]);
+        Assert.Equal(0, summary.Properties["UnknownCount"]);
+        Assert.Equal(1, summary.Properties["BatchCount"]);
+        Assert.DoesNotContain(logs.Entries, entry =>
+            entry.Message.Contains("_streamer", StringComparison.Ordinal));
+        Assert.DoesNotContain(logs.Entries, entry => entry.Level >= LogLevel.Information
+            && entry.Properties.ContainsKey("ChannelCount"));
+    }
+
+    [Fact]
+    public async Task A_failed_batch_is_counted_unknown_and_still_warns()
+    {
+        var handler = new StubHandler(request => Task.FromResult(
+            request.RequestUri!.Host == "id.twitch.tv"
+                ? Token()
+                : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)));
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory factory = TestLogging.Factory(logs);
+        TwitchStreamPoller poller = CreatePoller(handler, factory);
+
+        await poller.ObserveAsync(["one", "two"], CancellationToken.None);
+
+        CapturedLogEntry failure = Assert.Single(
+            logs.Entries, entry => entry.Level == LogLevel.Warning);
+        Assert.IsType<TwitchApiException>(failure.Exception);
+        CapturedLogEntry summary = Assert.Single(
+            logs.Entries, entry => entry.Properties.ContainsKey("ChannelCount"));
+        Assert.Equal(LogLevel.Debug, summary.Level);
+        Assert.Equal(2, summary.Properties["UnknownCount"]);
+        Assert.Equal(0, summary.Properties["LiveCount"]);
+        Assert.DoesNotContain(logs.Entries, entry => entry.Level == LogLevel.Information
+            && entry.Message.Contains("poll", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -316,7 +375,8 @@ public sealed class HelixPollerTests
         });
         var poller = new TwitchStreamPoller(
             factory,
-            new TwitchTokenProvider(factory, options, clock),
+            new TwitchTokenProvider(
+                factory, options, clock, NullLogger<TwitchTokenProvider>.Instance),
             schedule,
             status,
             options,
@@ -429,16 +489,21 @@ public sealed class HelixPollerTests
         }
     }
 
-    private static TwitchStreamPoller CreatePoller(StubHandler handler)
+    private static TwitchStreamPoller CreatePoller(
+        StubHandler handler, ILoggerFactory? logs = null)
     {
         var clock = new FakeTimeProvider(
             new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
-        return CreatePoller(handler, clock, new PollSchedule(clock));
+        return CreatePoller(handler, clock, new PollSchedule(clock), logs);
     }
 
     private static TwitchStreamPoller CreatePoller(
-        StubHandler handler, FakeTimeProvider clock, PollSchedule schedule)
+        StubHandler handler,
+        FakeTimeProvider clock,
+        PollSchedule schedule,
+        ILoggerFactory? logs = null)
     {
+        logs ??= NullLoggerFactory.Instance;
         var factory = new StubHttpClientFactory(handler);
         var options = Options.Create(new TwitchOptions
         {
@@ -448,12 +513,13 @@ public sealed class HelixPollerTests
         });
         return new TwitchStreamPoller(
             factory,
-            new TwitchTokenProvider(factory, options, clock),
+            new TwitchTokenProvider(
+                factory, options, clock, logs.CreateLogger<TwitchTokenProvider>()),
             schedule,
             new DvrStatus(),
             options,
             clock,
-            NullLogger<TwitchStreamPoller>.Instance);
+            logs.CreateLogger<TwitchStreamPoller>());
     }
 
     private static HttpResponseMessage Token() =>

@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
@@ -21,7 +22,8 @@ public sealed class EventSubConduitApiTests : IDisposable
         var options = Options.Create(new TwitchOptions { ClientId = "client-id", ClientSecret = "secret" });
         var factory = new StubHttpClientFactory(_twitch);
         _tokens = new TwitchTokenProvider(
-            factory, options, new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero)));
+            factory, options, new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero)),
+            NullLogger<TwitchTokenProvider>.Instance);
         _loggerFactory = TestLogging.Factory(_logs);
         _api = new EventSubConduitApi(
             factory, _tokens, options, _loggerFactory.CreateLogger<EventSubConduitApi>());

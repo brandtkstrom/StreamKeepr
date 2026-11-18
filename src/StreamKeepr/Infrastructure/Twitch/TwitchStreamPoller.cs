@@ -73,14 +73,20 @@ public sealed class TwitchStreamPoller(
         }
     }
 
-    /// <summary>One /streams request per 100 logins; a batch failure is Unknown for that batch.</summary>
+    /// <summary>
+    /// One /streams request per 100 logins; a batch failure is Unknown for that batch. Ends with
+    /// a <c>Debug</c> summary of counts only: channel names never reach the summary.
+    /// </summary>
     public async Task<IReadOnlyDictionary<string, StreamObservation>> ObserveAsync(
         IReadOnlyList<string> logins, CancellationToken ct)
     {
         var result = new Dictionary<string, StreamObservation>(StringComparer.Ordinal);
+        long started = clock.GetTimestamp();
+        int batches = 0;
 
         foreach (string[] batch in logins.Chunk(100))
         {
+            batches++;
             Dictionary<string, LiveStream>? live;
             try
             {
@@ -106,7 +112,42 @@ public sealed class TwitchStreamPoller(
             }
         }
 
+        LogPollSummary(result.Values, batches, clock.GetElapsedTime(started));
         return result;
+    }
+
+    private void LogPollSummary(
+        IEnumerable<StreamObservation> observations, int batches, TimeSpan elapsed)
+    {
+        if (!logger.IsEnabled(LogLevel.Debug))
+            return;
+
+        int live = 0, offline = 0, unknown = 0;
+        foreach (StreamObservation observation in observations)
+        {
+            switch (observation)
+            {
+                case StreamObservation.Live:
+                    live++;
+                    break;
+                case StreamObservation.Offline:
+                    offline++;
+                    break;
+                case StreamObservation.Unknown:
+                    unknown++;
+                    break;
+            }
+        }
+
+        logger.LogDebug(
+            "Polled {ChannelCount} channels in {BatchCount} Helix batches after {ElapsedMs:F0} ms: "
+            + "{LiveCount} live, {OfflineCount} offline, {UnknownCount} unknown.",
+            live + offline + unknown,
+            batches,
+            elapsed.TotalMilliseconds,
+            live,
+            offline,
+            unknown);
     }
 
     public async Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct)

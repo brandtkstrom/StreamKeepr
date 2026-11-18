@@ -33,6 +33,7 @@ public sealed class TwitchTokenProvider(
 - No failure cache; a Twitch auth outage surfaces as `Unknown` through the poller.
 - `TimeProvider` everywhere; tests use `FakeTimeProvider`.
 - Never log the client secret or access token.
+- Logs (#204): each acquisition is `Information` with `Reason` (`initial`, `refresh due`, `invalidated`), `ExpiresInSeconds`, and `RefreshAt`; a matching `Invalidate` is `Information`, a stale one `Debug`. A failed token request is not logged here: it surfaces through the caller's Helix `Warning`.
 
 ### 2.1 Optional chat token
 
@@ -66,6 +67,7 @@ public sealed class TwitchTokenProvider(
 - Any channel recording or waiting to retry forces the short interval.
 - Partial coverage is not “push connected”: if any watched channel lacks a subscription, poll every 30 s.
 - `LastPollAt` updates after each tick; health uses it. `Polled(succeeded, roundTrip)` also stamps `LastSuccessfulPollAt` with the same instant when every `/streams` batch succeeded (or there was nothing to poll), and records `LastApiRoundTrip` when Helix was called. `EventSubMessageReceived()` records `LastEventSubMessageAt` for every EventSub message, keepalives included. `CurrentInterval` is the interval the last wait chose. None of these raise `Changed`.
+- Logs (#204): each `ObserveAsync` ends with one `Debug` summary of counts (`ChannelCount`, `BatchCount`, `ElapsedMs`, `LiveCount`, `OfflineCount`, `UnknownCount`), never channel names; a failed `/streams` batch stays `Warning`. `SetPushStatus` logs `Information` only when the `PushState` changes (`Previous`, `State`, `Reason`, `Covered`, `Total`); recomputing the same state is silent. There is no per-poll `Information`.
 - `SetPushStatus(PushStatus)` updates coverage and carries the reason: `EventSub connected`, `No admin token`, `Partial coverage`, `EventSub reconnecting`, or `Polling only`. A status from `PushStatus.FromCoverage(coveredLogins, watched)` also carries `CoveredLogins` and `Watched`, so the UI can show per-channel push and “N of M”. Statuses compare by state, watched count, and covered set.
 
 ## 5. EventSub
