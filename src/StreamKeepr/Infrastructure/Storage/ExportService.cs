@@ -259,6 +259,7 @@ public sealed class ExportService : BackgroundService, IExportService
         if (Find(id) is not { State: ExportState.Queued } job)
             return false;
 
+        using IDisposable? scope = BeginJobScope(job);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         timeout.CancelAfter(ProbeTimeout);
         try
@@ -352,6 +353,9 @@ public sealed class ExportService : BackgroundService, IExportService
             hevc = _needsHvc1Tag.Remove(id);
         }
 
+        using IDisposable? scope = BeginJobScope(job);
+        long started = _clock.GetTimestamp();
+        _logger.LogInformation("Starting export {ExportId} of {RecordingId}.", id, job.RecordingId);
         RaiseChanged(immediate: true);
         string temp = Path.Combine(ExportsDirectory, $"{id}.mp4.tmp");
         try
@@ -386,9 +390,13 @@ public sealed class ExportService : BackgroundService, IExportService
                 .WithStandardErrorPipe(PipeTarget.ToStringBuilder(stderr))
                 .ExecuteAsync(cancel.Token);
 
-            File.Move(temp, FinalPath(id), overwrite: true);
+            string final = FinalPath(id);
+            File.Move(temp, final, overwrite: true);
+            long bytes = new FileInfo(final).Length;
             Finish(id, current => current with { State = ExportState.Succeeded, Progress = 1, FileName = DownloadName(summary) });
-            _logger.LogInformation("Export {ExportId} finished.", id);
+            _logger.LogInformation(
+                "Export {ExportId} of {RecordingId} finished in {ElapsedMs:0} ms ({Bytes} bytes).",
+                id, job.RecordingId, _clock.GetElapsedTime(started).TotalMilliseconds, bytes);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -416,6 +424,17 @@ public sealed class ExportService : BackgroundService, IExportService
             ReleaseLease(id);
         }
     }
+
+    /// <summary>
+    /// Adds the job's ids to every log written while it is probed or run, including FFmpeg and
+    /// probe warnings. Dictionary state maps to plain properties in Serilog's property bag.
+    /// </summary>
+    private IDisposable? BeginJobScope(ExportJob job) =>
+        _logger.BeginScope(new Dictionary<string, object>
+        {
+            ["ExportId"] = job.Id,
+            ["RecordingId"] = job.RecordingId,
+        });
 
     /// <summary>
     /// Publishes a finished state only after the lease is gone, so anyone reacting to the change
