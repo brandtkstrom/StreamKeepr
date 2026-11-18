@@ -415,6 +415,134 @@ public sealed class ChannelCoordinatorTests
     }
 
 
+    [Fact]
+    public async Task A_recording_session_samples_counted_live_observations_at_most_once_a_minute()
+    {
+        using var context = new Context();
+        context.Recorder.OnRun = RecordUntilStopped(context);
+        DateTimeOffset first = Context.StartedAt.AddSeconds(60);
+
+        await context.ObserveLiveAsync(first, viewers: 100);
+        _ = await context.Recorder.Started.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        await context.ObserveLiveAsync(first.AddSeconds(30), viewers: 110);
+        await context.ObserveLiveAsync(first.AddSeconds(59.9), viewers: 115);
+        await context.ObserveLiveAsync(first.AddSeconds(60), viewers: 120);
+        await context.ObserveLiveAsync(first.AddSeconds(90), viewers: 125);
+        await context.ObserveLiveAsync(first.AddSeconds(150), viewers: 130);
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StopRequested());
+        await context.StopAsync();
+
+        Assert.Equal(
+            [
+                """{"v":1,"at":60,"count":100}""",
+                """{"v":1,"at":120,"count":120}""",
+                """{"v":1,"at":210,"count":130}""",
+            ],
+            await context.ReadViewerLinesAsync());
+    }
+
+    [Fact]
+    public async Task Unknown_offline_and_uncounted_observations_leave_a_gap_without_samples()
+    {
+        using var context = new Context();
+        context.Recorder.OnRun = RecordUntilStopped(context);
+        DateTimeOffset first = Context.StartedAt.AddSeconds(60);
+
+        await context.ObserveLiveAsync(first, viewers: 100);
+        _ = await context.Recorder.Started.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Unknown("helix down"), first.AddSeconds(120)));
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Offline(), first.AddSeconds(180)));
+        await context.ObserveLiveAsync(first.AddSeconds(240), viewers: null);
+        await context.ObserveLiveAsync(first.AddSeconds(300), viewers: 140);
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StopRequested());
+        await context.StopAsync();
+
+        Assert.Equal(
+            [
+                """{"v":1,"at":60,"count":100}""",
+                """{"v":1,"at":360,"count":140}""",
+            ],
+            await context.ReadViewerLinesAsync());
+    }
+
+    [Fact]
+    public async Task A_reconnecting_session_keeps_sampling_live_observations()
+    {
+        using var context = new Context();
+        context.Recorder.OnRun = async (call, _) =>
+        {
+            WritePart(call.Session, 1);
+            await call.PublishAsync(new DvrEvent.PartProducingMedia(
+                call.Job, context.Clock.GetUtcNow()));
+            await call.PublishAsync(new DvrEvent.RecorderExited(
+                call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Exited, "stream ended"));
+        };
+        DateTimeOffset first = Context.StartedAt.AddSeconds(60);
+
+        await context.ObserveLiveAsync(first, viewers: 100);
+        _ = await context.Recorder.Started.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        await RuntimeTestWait.ForStatusAsync(
+            context.Status, Channel, status => status.State is DvrState.WaitingToRetry);
+        await context.ObserveLiveAsync(first.AddSeconds(60), viewers: 90);
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StopRequested());
+        await context.StopAsync();
+
+        Assert.Equal(
+            [
+                """{"v":1,"at":60,"count":100}""",
+                """{"v":1,"at":120,"count":90}""",
+            ],
+            await context.ReadViewerLinesAsync());
+    }
+
+    [Fact]
+    public async Task A_viewer_sample_write_failure_logs_a_warning_and_keeps_recording()
+    {
+        using var context = new Context();
+        context.Recorder.OnRun = RecordUntilStopped(context);
+        DateTimeOffset first = Context.StartedAt.AddSeconds(60);
+
+        // A directory where the log should be makes every append fail.
+        Directory.CreateDirectory(Path.Combine(context.SessionDirectory, ViewerSamples.FileName));
+        await context.ObserveLiveAsync(first, viewers: 100);
+        _ = await context.Recorder.Started.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+
+        DvrSnapshot snapshot = await RuntimeTestWait.ForStatusAsync(
+            context.Status, Channel, status => status.State is DvrState.Recording { HasMedia: true });
+        await context.Coordinator.PublishAsync(new DvrEvent.StopRequested());
+        await context.StopAsync();
+
+        Assert.Null(snapshot.LastError);
+        Assert.Single(
+            context.Logs.Messages,
+            message => message.Contains("viewer sample", StringComparison.Ordinal));
+    }
+
+    private static Func<RecorderCall, CancellationToken, Task> RecordUntilStopped(Context context) =>
+        async (call, stopRequested) =>
+        {
+            WritePart(call.Session, 1);
+            await call.PublishAsync(new DvrEvent.PartProducingMedia(
+                call.Job, context.Clock.GetUtcNow()));
+
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, stopRequested);
+            }
+            catch (OperationCanceledException) when (stopRequested.IsCancellationRequested)
+            {
+            }
+
+            await call.PublishAsync(new DvrEvent.RecorderExited(
+                call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Stopped, "stopped"));
+        };
+
+
     private static void WritePart(Session session, int part)
     {
         Directory.CreateDirectory(session.Directory);
@@ -507,6 +635,16 @@ public sealed class ChannelCoordinatorTests
 
         public string SessionDirectory =>
             Path.Combine(Root, Channel, $"20261110T163000Z_{Live.StreamId}");
+
+        public ValueTask ObserveLiveAsync(DateTimeOffset at, int? viewers) =>
+            Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+                new StreamObservation.Live(Live with { ViewerCount = viewers }), at));
+
+        public async Task<string[]> ReadViewerLinesAsync()
+        {
+            string path = Path.Combine(SessionDirectory, ViewerSamples.FileName);
+            return File.Exists(path) ? await File.ReadAllLinesAsync(path) : [];
+        }
 
         public async Task StopAsync()
         {
