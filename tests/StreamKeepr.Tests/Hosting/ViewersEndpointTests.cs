@@ -13,10 +13,10 @@ public sealed class ViewersEndpointTests
         new(2026, 11, 15, 9, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task A_finished_recording_returns_its_samples_and_final_duration_without_caching()
+    public async Task A_finished_recording_returns_its_samples_and_whole_second_final_duration_without_caching()
     {
         using StreamKeeprAppFactory factory = CreateFactory();
-        RecordingSummary summary = Upsert(factory, Finished(durationSeconds: 8047));
+        RecordingSummary summary = Upsert(factory, Finished(durationSeconds: 8047.4));
         WriteViewers(factory, summary,
             """{"v":1,"at":0,"count":1658}""",
             """{"v":1,"at":60.5,"count":1700}""");
@@ -32,9 +32,9 @@ public sealed class ViewersEndpointTests
     }
 
     [Fact]
-    public async Task A_live_recording_reports_its_current_duration()
+    public async Task A_live_recording_reports_its_current_duration_in_whole_seconds()
     {
-        var clock = new FakeTimeProvider(StartedAt.AddSeconds(90.25));
+        var clock = new FakeTimeProvider(StartedAt.AddSeconds(90.6));
         using StreamKeeprAppFactory factory = CreateFactory(clock);
         RecordingSummary summary = Upsert(factory, Finished(durationSeconds: 0) with
         {
@@ -47,7 +47,7 @@ public sealed class ViewersEndpointTests
 
         using JsonDocument json = await GetJsonAsync(client, summary.Id);
 
-        Assert.Equal(90.3, json.RootElement.GetProperty("durationSec").GetDouble());
+        Assert.Equal("91", json.RootElement.GetProperty("durationSec").GetRawText());
         Assert.Equal(1, json.RootElement.GetProperty("samples").GetArrayLength());
     }
 

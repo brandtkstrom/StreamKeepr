@@ -27,7 +27,7 @@ public static class ViewerSamples
         Math.Max(0, RoundSeconds((at - startedAt).TotalSeconds));
 
     /// <summary>Rounds to the 0.1 s precision of the viewer timeline.</summary>
-    public static double RoundSeconds(double seconds) =>
+    private static double RoundSeconds(double seconds) =>
         Math.Round(seconds, 1, MidpointRounding.AwayFromZero);
 
     /// <summary>One serialized line, without its terminating newline.</summary>

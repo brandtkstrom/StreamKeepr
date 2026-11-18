@@ -33,11 +33,13 @@ public static class ViewersEndpoint
 
         IReadOnlyList<ViewerSample> samples = await ViewerSamples.ReadAsync(
             directory, loggers.CreateLogger(typeof(ViewersEndpoint).FullName!), ct);
-        double duration = ViewerSamples.RoundSeconds(summary.DurationAt(clock.GetUtcNow()));
+        // Whole seconds, as in the issue's schema; sample offsets keep their 0.1 s precision.
+        long duration = (long)Math.Round(
+            summary.DurationAt(clock.GetUtcNow()), MidpointRounding.AwayFromZero);
         return Results.Json(new ViewersResponse(ViewerSamples.Version, summary.Id, duration, samples));
     }
 }
 
 /// <summary>The <c>GET /api/recordings/{id}/viewers</c> body.</summary>
 public sealed record ViewersResponse(
-    int V, string RecordingId, double DurationSec, IReadOnlyList<ViewerSample> Samples);
+    int V, string RecordingId, long DurationSec, IReadOnlyList<ViewerSample> Samples);
