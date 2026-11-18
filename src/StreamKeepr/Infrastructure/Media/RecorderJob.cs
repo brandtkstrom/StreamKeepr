@@ -282,10 +282,10 @@ public sealed class RecorderJob(
         if (stderr.Length > 0)
             detail = $"{detail}; {stderr}";
 
-        // Diagnostic text can include a tool exception message; redact and escape once more at
-        // the boundary so the subscriber token or a forged line can never leak through the
-        // detail or the log.
-        detail = ForLog(detail);
+        // Diagnostic text can include a tool exception message; redact once more at the boundary
+        // so the subscriber token can never leak through the detail or the log. Only the log
+        // copy is escaped: the published detail is display text, and a newline in it is harmless.
+        detail = ProcessOutput.Redact(detail, recorder.TwitchUserOAuthToken);
 
         // Bytes are what the part left on disk: zero when an empty part was removed.
         double elapsedMs = clock.GetElapsedTime(startedAt).TotalMilliseconds;
@@ -296,7 +296,7 @@ public sealed class RecorderJob(
             kind,
             elapsedMs,
             bytes,
-            detail);
+            ProcessOutput.Sanitize(detail));
         await publish(
             new DvrEvent.RecorderExited(
                 job,

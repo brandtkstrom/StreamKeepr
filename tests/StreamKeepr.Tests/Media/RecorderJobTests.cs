@@ -280,8 +280,9 @@ public sealed class RecorderJobTests : IDisposable
         long bytes = Assert.IsType<long>(finished.Properties["Bytes"]);
         Assert.True(bytes > 0, "a part with media must report its bytes");
         Assert.Equal(PartFiles.TotalBytes(session.Directory, 1), bytes);
+        var order = entries.ToList();
         Assert.True(
-            entries.ToList().IndexOf(started) < entries.ToList().IndexOf(finished),
+            order.IndexOf(started) < order.IndexOf(finished),
             "the start log must precede the finish log");
     }
 

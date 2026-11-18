@@ -12,6 +12,7 @@ public sealed class ProcessOutputTests
         const string line = "[cli][info] Opening stream: 1080p60 (hls) — ünïcode ok";
 
         Assert.Equal(line, ProcessOutput.ForLog(line, Token));
+        Assert.Same(line, ProcessOutput.Sanitize(line));
     }
 
     [Fact]
