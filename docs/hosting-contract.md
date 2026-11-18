@@ -150,6 +150,7 @@ Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6
 - The app cancels channel loops; each recorder stops gracefully within the 35 s job budget; the host timeout is 40 s; Compose grace is 50 s.
 - If the host timeout fires, the container kills the children and recovery repairs the parts on the next start.
 - `stop_grace_period` must remain above the host timeout.
+- Lifecycle breadcrumbs (#198, `HostLifecycleLog`): once the host has started it logs one `Information` summary (environment, watched-channel count, recordings root, EventSub transport, chat capture on/off); when shutdown begins (SIGTERM, `docker compose stop`) it logs one `Information` stopping line. The summary names safe values only and never an options object, so the Twitch client secret and chat token cannot appear. The Critical supervisor/fatal-host logs and the Data Protection key-ring logs keep their own levels.
 
 ## 10. Failure modes
 
@@ -200,6 +201,7 @@ Container:
 - `/recordings` volume; secrets not in image; `.dockerignore` excludes secrets/tests/recordings/tooling.
 - Healthcheck passes after startup; deep links `/r/{id}` render after restart.
 - `docker stop` finalizes within the grace period; restart recovers.
+- One startup summary and one stopping breadcrumb, with no secrets (`HostLifecycleLogHostTests`).
 
 Integration:
 
