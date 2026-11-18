@@ -390,9 +390,9 @@ public sealed class ExportService : BackgroundService, IExportService
                 .WithStandardErrorPipe(PipeTarget.ToStringBuilder(stderr))
                 .ExecuteAsync(cancel.Token);
 
-            string final = FinalPath(id);
-            File.Move(temp, final, overwrite: true);
-            long bytes = new FileInfo(final).Length;
+            // Sized before the move: once the MP4 is in place, nothing may fail the job.
+            long bytes = new FileInfo(temp).Length;
+            File.Move(temp, FinalPath(id), overwrite: true);
             Finish(id, current => current with { State = ExportState.Succeeded, Progress = 1, FileName = DownloadName(summary) });
             _logger.LogInformation(
                 "Export {ExportId} of {RecordingId} finished in {ElapsedMs:0} ms ({Bytes} bytes).",
@@ -428,6 +428,9 @@ public sealed class ExportService : BackgroundService, IExportService
     /// <summary>
     /// Adds the job's ids to every log written while it is probed or run, including FFmpeg and
     /// probe warnings. Dictionary state maps to plain properties in Serilog's property bag.
+    /// The context also flows into <see cref="Changed"/> handlers and the progress throttle
+    /// timer; both are about this job, and <see cref="Finish"/> disposes the timer before the
+    /// scope ends.
     /// </summary>
     private IDisposable? BeginJobScope(ExportJob job) =>
         _logger.BeginScope(new Dictionary<string, object>

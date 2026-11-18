@@ -27,6 +27,7 @@ public sealed class ExportServiceTests : IAsyncLifetime
     private readonly RecordingLibrary _library = new(NullLogger<RecordingLibrary>.Instance);
     private readonly ExportLeaseRegistry _leases = new();
     private readonly List<ExportService> _started = [];
+    private readonly List<SerilogCapture> _captures = [];
     private ExportService _service = null!;
     private string _ffmpeg = null!;
     private string _ffprobe = null!;
@@ -50,18 +51,23 @@ public sealed class ExportServiceTests : IAsyncLifetime
             service.Dispose();
         }
 
+        // After the services, so their shutdown never logs into a disposed pipeline.
+        foreach (SerilogCapture capture in _captures)
+            capture.Dispose();
+
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
     }
 
     private async Task<ExportService> StartServiceAsync(
-        TimeProvider? clock = null, string? ffmpeg = null, ILogger<ExportService>? logger = null)
+        TimeProvider? clock = null, string? ffmpeg = null, ILogger<ExportService>? logger = null,
+        string? ffprobe = null)
     {
         var service = new ExportService(
             _library,
             _leases,
             Options.Create(new StorageOptions { RecordingsRoot = _root }),
-            Options.Create(new RecorderOptions { FfmpegPath = ffmpeg ?? _ffmpeg, FfprobePath = _ffprobe }),
+            Options.Create(new RecorderOptions { FfmpegPath = ffmpeg ?? _ffmpeg, FfprobePath = ffprobe ?? _ffprobe }),
             clock ?? TimeProvider.System,
             logger ?? NullLogger<ExportService>.Instance);
         _started.Add(service);
@@ -347,7 +353,7 @@ public sealed class ExportServiceTests : IAsyncLifetime
     [Fact]
     public async Task A_finished_export_logs_its_start_and_finish_with_ids_elapsed_time_and_size()
     {
-        using var capture = new SerilogCapture();
+        SerilogCapture capture = Capture();
         _service = await StartServiceAsync(logger: capture.Logger);
         await SeedAsync("r1", "Title");
 
@@ -370,7 +376,7 @@ public sealed class ExportServiceTests : IAsyncLifetime
     [Fact]
     public async Task A_failed_export_still_warns_and_its_scope_adds_the_recording_id()
     {
-        using var capture = new SerilogCapture();
+        SerilogCapture capture = Capture();
         _service = await StartServiceAsync(logger: capture.Logger);
         _library.Upsert(Summary("gone"));
 
@@ -382,6 +388,30 @@ public sealed class ExportServiceTests : IAsyncLifetime
         Assert.IsType<FileNotFoundException>(failed.Exception);
         Assert.Equal(job.Id, capture.Scalar(failed, "ExportId"));
         Assert.Equal("gone", capture.Scalar(failed, "RecordingId"));
+    }
+
+    [Fact]
+    public async Task A_probe_warning_carries_the_recording_id_from_the_job_scope()
+    {
+        SerilogCapture capture = Capture();
+        _service = await StartServiceAsync(
+            logger: capture.Logger, ffprobe: Path.Combine(_root, "missing-ffprobe"));
+        await SeedAsync("r1", "Title");
+
+        ExportJob job = await WaitForAsync(_service.Start("r1", Admin, CancellationToken.None).Id, ExportState.Succeeded);
+
+        // The template names only ExportId; the probe failure leaves the decision to FFmpeg.
+        LogEvent warning = capture.Single("Could not probe the parts for export {ExportId}; FFmpeg will decide.");
+        Assert.Equal(LogEventLevel.Warning, warning.Level);
+        Assert.Equal(job.Id, capture.Scalar(warning, "ExportId"));
+        Assert.Equal("r1", capture.Scalar(warning, "RecordingId"));
+    }
+
+    private SerilogCapture Capture()
+    {
+        var capture = new SerilogCapture();
+        _captures.Add(capture);
+        return capture;
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)
