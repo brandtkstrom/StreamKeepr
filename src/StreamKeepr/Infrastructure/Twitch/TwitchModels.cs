@@ -1,3 +1,5 @@
+using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace StreamKeepr.Infrastructure.Twitch;
@@ -93,4 +95,24 @@ internal sealed record ConduitShardError(
     [property: JsonPropertyName("code")] string? Code);
 
 internal sealed record HelixErrorResponse(
-    [property: JsonPropertyName("message")] string? Message);
+    [property: JsonPropertyName("message")] string? Message)
+{
+    /// <summary>
+    /// Twitch's error message from a Helix error body, or "" when it has none. The message never
+    /// contains credentials, so it is safe to log.
+    /// </summary>
+    public static async Task<string> ReadMessageAsync(
+        HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            HelixErrorResponse? error = await response.Content.ReadFromJsonAsync(
+                TwitchJsonContext.Default.HelixErrorResponse, ct);
+            return error?.Message ?? "";
+        }
+        catch (JsonException)
+        {
+            return "";
+        }
+    }
+}

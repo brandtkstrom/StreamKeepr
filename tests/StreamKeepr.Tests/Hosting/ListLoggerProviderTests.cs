@@ -21,6 +21,26 @@ public sealed class ListLoggerProviderTests
     }
 
     [Fact]
+    public async Task Wait_completes_for_a_matching_line_logged_before_or_after_the_wait()
+    {
+        using var provider = new ListLoggerProvider();
+        var logger = provider.CreateLogger("test");
+        logger.LogInformation("early line");
+
+        Task early = provider.WaitForAsync("early");
+        Task late = provider.WaitForAsync("late");
+        Assert.True(early.IsCompletedSuccessfully);
+        Assert.False(late.IsCompleted);
+
+        logger.LogWarning("a late line");
+        await late;
+
+        Assert.Equal(
+            [(LogLevel.Information, "early line"), (LogLevel.Warning, "a late line")],
+            provider.Entries);
+    }
+
+    [Fact]
     public void Serilog_forwarded_messages_render_like_microsoft_extensions_logging()
     {
         using var provider = new ListLoggerProvider();

@@ -1,9 +1,10 @@
 using System.Net;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Twitch;
+using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Twitch;
 
@@ -11,6 +12,8 @@ public sealed class EventSubConduitApiTests : IDisposable
 {
     private readonly FakeConduitTwitch _twitch = new();
     private readonly TwitchTokenProvider _tokens;
+    private readonly ListLoggerProvider _logs = new();
+    private readonly ILoggerFactory _loggerFactory;
     private readonly EventSubConduitApi _api;
 
     public EventSubConduitApiTests()
@@ -19,10 +22,16 @@ public sealed class EventSubConduitApiTests : IDisposable
         var factory = new StubHttpClientFactory(_twitch);
         _tokens = new TwitchTokenProvider(
             factory, options, new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero)));
-        _api = new EventSubConduitApi(factory, _tokens, options, NullLogger<EventSubConduitApi>.Instance);
+        _loggerFactory = TestLogging.Factory(_logs);
+        _api = new EventSubConduitApi(
+            factory, _tokens, options, _loggerFactory.CreateLogger<EventSubConduitApi>());
     }
 
-    public void Dispose() => _tokens.Dispose();
+    public void Dispose()
+    {
+        _loggerFactory.Dispose();
+        _tokens.Dispose();
+    }
 
     [Fact]
     public async Task Create_conduit_requests_one_shard_with_the_app_token()
@@ -214,6 +223,23 @@ public sealed class EventSubConduitApiTests : IDisposable
         Assert.Equal(
             ConduitSubscribeOutcome.Refused,
             await _api.CreateSubscriptionAsync(conduit, new("stream.online", "2"), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Refusal_warning_names_the_transport_conduit_and_reason_but_not_the_token()
+    {
+        string conduit = _twitch.AddConduit();
+        _twitch.RefusedUserIds.Add("2");
+
+        await _api.CreateSubscriptionAsync(conduit, new("stream.online", "2"), CancellationToken.None);
+
+        Assert.Contains(
+            (LogLevel.Warning,
+                $"Twitch refused EventSub Conduit stream.online for broadcaster 2 on conduit {conduit}"
+                + " with HTTP 400: invalid broadcaster"),
+            _logs.Entries);
+        Assert.DoesNotContain(_twitch.CurrentToken, string.Join('\n', _logs.Messages), StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", string.Join('\n', _logs.Messages), StringComparison.Ordinal);
     }
 
     [Fact]

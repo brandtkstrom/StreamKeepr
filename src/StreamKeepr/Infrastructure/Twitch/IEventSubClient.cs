@@ -21,4 +21,10 @@ public interface IEventSubSocket : IAsyncDisposable
 
     /// <summary>Returns null when Twitch closes the socket.</summary>
     Task<string?> ReceiveTextAsync(CancellationToken ct);
+
+    /// <summary>
+    /// Twitch's close code and description once <see cref="ReceiveTextAsync"/> returned null,
+    /// for example "4003 connection unused"; null when the socket did not report one.
+    /// </summary>
+    string? CloseReason { get; }
 }

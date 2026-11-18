@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -7,6 +8,7 @@ using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
+using StreamKeepr.Tests.Hosting;
 using static StreamKeepr.Tests.Twitch.EventSubMessages;
 
 namespace StreamKeepr.Tests.Twitch;
@@ -443,6 +445,54 @@ public sealed class ConduitEventSubClientTests : IDisposable
     }
 
     [Fact]
+    public async Task Session_logs_carry_the_transport_and_conduit_id_and_never_the_token()
+    {
+        using var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        await using Running run = Start(
+            jitter: new PassThroughJitter(), logger: loggerFactory.CreateLogger<EventSubClient>());
+
+        await WelcomeAsync("session-1");
+        await WaitForPushAsync(PushState.Connected);
+        string conduit = Assert.Single(_twitch.Conduits);
+
+        FakeEventSubSocket first = await _sockets.SocketAsync(1).WaitAsync(Wait);
+        first.Push(Reconnect("wss://reconnect.example/ws"));
+        await WelcomeAsync("session-2", socketNumber: 2);
+        await logs.WaitForAsync("reconnect handoff complete");
+
+        FakeEventSubSocket second = await _sockets.SocketAsync(2).WaitAsync(Wait);
+        second.Close();
+        await logs.WaitForAsync("(attempt 1)");
+
+        Assert.Contains(
+            (LogLevel.Information,
+                "EventSub Conduit connected to wss://eventsub.wss.twitch.tv/ws; waiting for session_welcome."
+                + $" Conduit {conduit}."),
+            logs.Entries);
+        Assert.Contains(
+            (LogLevel.Information,
+                "EventSub Conduit reconnecting to wss://reconnect.example/ws; the old connection stays open"
+                + $" until session_welcome. Conduit {conduit}."),
+            logs.Entries);
+        Assert.Contains(
+            (LogLevel.Information,
+                $"EventSub Conduit reconnect handoff complete; closed the old connection. Conduit {conduit}."),
+            logs.Entries);
+        Assert.Contains(
+            (LogLevel.Information,
+                $"EventSub Conduit session closed: connection closed by Twitch. Conduit {conduit}."),
+            logs.Entries);
+        Assert.Contains(
+            (LogLevel.Information,
+                "EventSub Conduit reconnecting in 00:00:05 (attempt 1): connection closed by Twitch."
+                + $" Conduit {conduit}."),
+            logs.Entries);
+        Assert.DoesNotContain("app-token", string.Join('\n', logs.Messages), StringComparison.Ordinal);
+        Assert.DoesNotContain("\"metadata\"", string.Join('\n', logs.Messages), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Binding_never_restarts_for_admin_sign_in_or_logout()
     {
         ConduitEventSubBinding binding = CreateBinding();
@@ -509,7 +559,10 @@ public sealed class ConduitEventSubClientTests : IDisposable
             _options,
             NullLogger<ConduitEventSubBinding>.Instance);
 
-    private Running Start(StreamObservationRoute? route = null, IRetryJitter? jitter = null)
+    private Running Start(
+        StreamObservationRoute? route = null,
+        IRetryJitter? jitter = null,
+        ILogger<EventSubClient>? logger = null)
     {
         var client = new EventSubClient(
             _sockets,
@@ -519,7 +572,7 @@ public sealed class ConduitEventSubClientTests : IDisposable
             _schedule,
             jitter ?? new NoJitter(),
             _clock,
-            NullLogger<EventSubClient>.Instance);
+            logger ?? NullLogger<EventSubClient>.Instance);
         var stop = new CancellationTokenSource();
         Task task = client.RunAsync(route ?? ((_, _, _) => ValueTask.CompletedTask), stop.Token);
         return new Running(task, stop);
@@ -532,18 +585,6 @@ public sealed class ConduitEventSubClientTests : IDisposable
             await stop.CancelAsync();
             await task.WaitAsync(Wait);
             stop.Dispose();
-        }
-    }
-
-    private sealed class PassThroughJitter : IRetryJitter
-    {
-        public TaskCompletionSource<TimeSpan> FirstBase { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public TimeSpan Apply(TimeSpan baseDelay)
-        {
-            FirstBase.TrySetResult(baseDelay);
-            return baseDelay;
         }
     }
 }

@@ -13,21 +13,55 @@ internal sealed class ListLoggerProvider : ILoggerProvider
     private const string OriginalFormatKey = "{OriginalFormat}";
     private static readonly MessageTemplateParser TemplateParser = new();
 
-    private readonly ConcurrentQueue<string> _messages = new();
+    private readonly ConcurrentQueue<(LogLevel Level, string Message)> _entries = new();
+    private readonly List<(string Fragment, TaskCompletionSource Logged)> _waiters = [];
 
     /// <summary>
     /// A snapshot. Host logging can run on another thread while a test enumerates, so callers
     /// must never observe the live collection.
     /// </summary>
-    public IReadOnlyList<string> Messages => _messages.ToArray();
+    public IReadOnlyList<string> Messages => _entries.Select(entry => entry.Message).ToArray();
+
+    /// <summary>A snapshot of the rendered messages with their levels.</summary>
+    public IReadOnlyList<(LogLevel Level, string Message)> Entries => _entries.ToArray();
 
     public ILogger CreateLogger(string categoryName) => new ListLogger(this);
+
+    /// <summary>
+    /// Completes once a message containing <paramref name="fragment"/> has been logged, so a
+    /// test can wait for a log line instead of polling for it. Faults after five seconds.
+    /// </summary>
+    public Task WaitForAsync(string fragment)
+    {
+        lock (_waiters)
+        {
+            if (_entries.Any(entry => entry.Message.Contains(fragment, StringComparison.Ordinal)))
+                return Task.CompletedTask;
+
+            var logged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _waiters.Add((fragment, logged));
+            return logged.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
 
     public void Dispose()
     {
     }
 
-    private void Add(string message) => _messages.Enqueue(message);
+    private void Add(LogLevel level, string message)
+    {
+        lock (_waiters)
+        {
+            _entries.Enqueue((level, message));
+            _waiters.RemoveAll(waiter =>
+            {
+                if (!message.Contains(waiter.Fragment, StringComparison.Ordinal))
+                    return false;
+                waiter.Logged.TrySetResult();
+                return true;
+            });
+        }
+    }
 
     /// <summary>
     /// The host forwards Serilog events here, and Serilog's own formatter quotes string
@@ -79,6 +113,6 @@ internal sealed class ListLoggerProvider : ILoggerProvider
         public void Log<TState>(
             LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter) =>
-            owner.Add(Render(state, exception, formatter));
+            owner.Add(logLevel, Render(state, exception, formatter));
     }
 }

@@ -1,7 +1,9 @@
 using System.Threading.Channels;
+using Microsoft.Extensions.Logging;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Twitch;
+using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Twitch;
 
@@ -37,6 +39,26 @@ internal static class EventSubMessages
 internal sealed class NoJitter : IRetryJitter
 {
     public TimeSpan Apply(TimeSpan baseDelay) => TimeSpan.Zero;
+}
+
+/// <summary>Applies no jitter, so a backoff delay equals its base; records the first base.</summary>
+internal sealed class PassThroughJitter : IRetryJitter
+{
+    public TaskCompletionSource<TimeSpan> FirstBase { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public TimeSpan Apply(TimeSpan baseDelay)
+    {
+        FirstBase.TrySetResult(baseDelay);
+        return baseDelay;
+    }
+}
+
+/// <summary>Loggers that write to a <see cref="ListLoggerProvider"/>, Debug and above.</summary>
+internal static class TestLogging
+{
+    public static ILoggerFactory Factory(ListLoggerProvider logs) =>
+        LoggerFactory.Create(builder => builder.AddProvider(logs).SetMinimumLevel(LogLevel.Debug));
 }
 
 internal sealed class FakeChannelInfoPoller : IStreamPoller
@@ -164,10 +186,19 @@ internal sealed class FakeEventSubSocket : IEventSubSocket
         return message;
     }
 
+    public string? CloseReason { get; private set; }
+
     public void Push(string message) => _messages.Writer.TryWrite(message);
 
-    /// <summary>Simulates Twitch closing the socket: pending and later receives return null.</summary>
-    public void Close() => _messages.Writer.TryComplete();
+    /// <summary>
+    /// Simulates Twitch closing the socket: pending and later receives return null, and
+    /// <see cref="CloseReason"/> reports <paramref name="reason"/>.
+    /// </summary>
+    public void Close(string? reason = null)
+    {
+        CloseReason = reason;
+        _messages.Writer.TryComplete();
+    }
 
     public ValueTask DisposeAsync()
     {

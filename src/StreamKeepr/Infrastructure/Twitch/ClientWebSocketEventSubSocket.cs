@@ -20,6 +20,8 @@ public sealed class ClientWebSocketEventSubSocket(
 
     private readonly ClientWebSocket _socket = new();
 
+    public string? CloseReason { get; private set; }
+
     public Task ConnectAsync(Uri uri, CancellationToken ct) =>
         _socket.ConnectAsync(uri, ct);
 
@@ -34,6 +36,9 @@ public sealed class ClientWebSocketEventSubSocket(
 
             if (result.MessageType == WebSocketMessageType.Close)
             {
+                CloseReason = result.CloseStatus is { } status
+                    ? $"{(int)status} {result.CloseStatusDescription}".TrimEnd()
+                    : null;
                 logger.LogWarning(
                     "EventSub socket closed with status {Status}: {Description}",
                     result.CloseStatus,
