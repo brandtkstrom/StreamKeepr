@@ -23,4 +23,12 @@ public sealed record RecordingSummary(
     public string PlaylistUrl => $"/media/{Channel}/{Id}/index.m3u8";
 
     public string? ThumbnailUrl => HasThumbnail ? $"/media/{Channel}/{Id}/thumb.jpg" : null;
+
+    /// <summary>
+    /// The duration at <paramref name="now"/>: time since the start while recording (a live
+    /// summary has no stored duration), otherwise the final duration, or 0 when unknown.
+    /// </summary>
+    public double DurationAt(DateTimeOffset now) => IsRecording
+        ? Math.Max(0, (now - StartedAt).TotalSeconds)
+        : DurationSeconds ?? 0;
 }
