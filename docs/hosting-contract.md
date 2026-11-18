@@ -14,6 +14,7 @@ The hosting layer owns the ASP.NET Core pipeline, media serving, health checks, 
 
 ```text
 UseForwardedHeaders          // only when a trusted reverse proxy is configured
+UseSerilogRequestLogging     // one completion event per request (UseStreamKeeprRequestLogging)
 UseExceptionHandler          // non-Development
 UseAuthentication
 UseAuthorization
@@ -30,6 +31,8 @@ MapHealthChecks
 - No `UseHttpsRedirection`: TLS terminates at the reverse proxy. Localhost HTTP remains usable.
 - `UseRecordingsMedia` runs before static assets so `/media` is governed by its allowlist.
 - The exception handler uses the `/Error` page outside Development.
+- Request logging (#199) sits after forwarded headers, so the request carries the public scheme and client, and before the exception handler and authentication, so handled 500s log at `Error` and 401/403 stay visible. It is outside media and static assets, so their 404s are logged. New middleware that should be covered by the request event (and its elapsed time) goes after it; middleware whose effect the request event must reflect, but which should not be timed, goes between forwarded headers and request logging.
+- Request events log method, path without the query string, status, elapsed time, and `RequestId` (`TraceIdentifier`). Never log the query: `/signin-twitch` carries the OAuth `code` and `state`. Levels: 5xx or an unhandled exception `Error`; 4xx `Warning`; any status below 400 (including 3xx) on `/health`, `/media`, `/_blazor`, `/_framework`, `/_content`, `/api/recordings`, and static-asset extensions `Verbose` (dropped at the shipped minimum); everything else `Information`.
 - `AddRazorComponents().AddInteractiveServerComponents()` and `MapStaticAssets()` are registered as in the plan.
 
 ## 3. Endpoint map

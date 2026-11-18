@@ -294,6 +294,11 @@ try
     // the public origin. No trusted proxy configured means no forwarded headers.
     app.UseStreamKeeprForwardedHeaders();
 
+    // After forwarded headers (public scheme/client) and before the exception handler (its
+    // 500 logs at Error) and authentication (401/403 stay visible). Everything below it,
+    // media and static assets included, gets exactly one completion event.
+    app.UseStreamKeeprRequestLogging();
+
     if (!app.Environment.IsDevelopment())
         app.UseExceptionHandler("/Error", createScopeForErrors: true);
 
