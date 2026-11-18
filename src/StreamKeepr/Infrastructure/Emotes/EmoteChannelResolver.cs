@@ -70,10 +70,14 @@ internal sealed class EmoteChannelResolver(
             catch (Exception exception) when (!ct.IsCancellationRequested)
             {
                 // A transient failure is not cached; replay still serves global emotes.
+                (int? httpStatus, string reason) = EmoteFailure.Describe(exception);
                 logger.LogWarning(
                     exception,
-                    "Twitch user ID resolution failed; serving global emotes only: login={Login}",
-                    login);
+                    "Twitch user ID resolution failed for {Login}; serving global emotes only " +
+                    "(HTTP {HttpStatus}): {Reason}",
+                    login,
+                    httpStatus,
+                    reason);
                 return null;
             }
 

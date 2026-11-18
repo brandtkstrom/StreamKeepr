@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Globalization;
 
 namespace StreamKeepr.Infrastructure.Emotes;
 
@@ -131,11 +130,12 @@ internal sealed class EmoteCatalogService(
         {
             return await resolver.ResolveAsync(login, work);
         }
-        catch (OperationCanceledException) when (!callerCt.IsCancellationRequested)
+        catch (OperationCanceledException exception) when (!callerCt.IsCancellationRequested)
         {
             logger.LogWarning(
-                "Emote channel ID resolution timed out; serving global emotes only: login={Login}",
-                login);
+                "Emote channel ID resolution timed out for {Login}; serving global emotes only: {Reason}",
+                login,
+                EmoteFailure.Describe(exception).Reason);
             return null;
         }
     }
@@ -278,32 +278,20 @@ internal sealed class EmoteCatalogService(
     private void LogRefreshFailure(
         IEmoteProvider provider, string scope, string? channelId, Exception exception)
     {
-        (int? httpStatus, string reason) = DescribeFailure(exception);
-        string status = httpStatus?.ToString(CultureInfo.InvariantCulture) ?? "none";
+        (int? httpStatus, string reason) = EmoteFailure.Describe(exception);
 
+        // ChannelId and HttpStatus stay null rather than "global"/"none" so sinks can filter
+        // on real IDs and numeric statuses; Scope already says which catalog failed.
         logger.LogWarning(
             exception,
-            "Emote catalog refresh failed: provider={ProviderId}, scope={Scope}, " +
-            "channel={ChannelId}, status={HttpStatus}, reason={Reason}",
+            "Emote catalog refresh failed for {ProviderId} {Scope} emotes " +
+            "(channel {ChannelId}, HTTP {HttpStatus}): {Reason}",
             provider.Id,
             scope,
-            channelId ?? "global",
-            status,
+            channelId,
+            httpStatus,
             reason);
     }
-
-    private static (int? HttpStatus, string Reason) DescribeFailure(Exception exception) =>
-        exception switch
-        {
-            EmoteProviderException { Kind: EmoteProviderFailureKind.InvalidPayload } =>
-                (null, "invalid-payload"),
-            EmoteProviderException { Kind: EmoteProviderFailureKind.TooLarge } =>
-                (null, "too-large"),
-            EmoteProviderException providerError => (providerError.HttpStatus, "http"),
-            OperationCanceledException => (null, "timeout"),
-            HttpRequestException requestError => ((int?)requestError.StatusCode, "transport"),
-            _ => (null, "error"),
-        };
 
     private static IReadOnlyList<EmoteCatalogEntry> Normalize(
         IEnumerable<EmoteCatalogEntry> entries) =>
