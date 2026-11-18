@@ -41,7 +41,6 @@ public sealed class HelixPollerTests
         Assert.IsType<StreamObservation.Offline>(observations["offline"]);
     }
 
-
     [Fact]
     public async Task Observe_reads_the_helix_viewer_count_and_leaves_it_null_when_absent()
     {

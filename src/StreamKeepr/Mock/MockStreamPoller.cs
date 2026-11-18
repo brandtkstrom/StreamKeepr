@@ -44,7 +44,6 @@ public sealed class MockStreamPoller(
         }
     }
 
-
     /// <summary>
     /// Helix reports a viewer count with every live stream; the mock does the same unless a test
     /// control already set one.

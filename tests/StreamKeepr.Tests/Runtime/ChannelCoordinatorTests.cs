@@ -414,7 +414,6 @@ public sealed class ChannelCoordinatorTests
             async () => await context.Loop.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
-
     [Fact]
     public async Task A_recording_session_samples_counted_live_observations_at_most_once_a_minute()
     {
@@ -541,7 +540,6 @@ public sealed class ChannelCoordinatorTests
             await call.PublishAsync(new DvrEvent.RecorderExited(
                 call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Stopped, "stopped"));
         };
-
 
     private static void WritePart(Session session, int part)
     {

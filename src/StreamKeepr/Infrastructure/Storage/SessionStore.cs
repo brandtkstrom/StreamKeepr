@@ -139,7 +139,6 @@ public sealed class SessionStore(
         }
     }
 
-
     /// <summary>
     /// Appends one viewer sample to the session's <c>viewers.jsonl</c> under the session lock.
     /// Never creates the session folder, so a sample cannot resurrect a deleted session. A

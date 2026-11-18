@@ -226,7 +226,6 @@ public sealed class ChannelCoordinator
         }
     }
 
-
     /// <summary>
     /// Samples the viewer count of a counted <c>Live</c> observation for the open session, at most
     /// once per <see cref="ViewerSampleInterval"/> of observation time. Unknown, offline, and

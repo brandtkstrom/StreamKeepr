@@ -113,7 +113,6 @@ public static class MockCatalog
         Recordings.Single(recording => recording.Channel == "mock_rain"
             && recording.StreamId == "9100008");
 
-
     /// <summary>Spacing of seeded viewer samples; denser than live capture so 60 s parts chart.</summary>
     public static readonly TimeSpan SeededViewerSpacing = TimeSpan.FromSeconds(10);
 

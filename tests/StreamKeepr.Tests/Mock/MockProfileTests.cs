@@ -205,7 +205,6 @@ public sealed class MockEventSubClientTests
     }
 }
 
-
 public sealed class MockStreamPollerTests
 {
     [Fact]
@@ -553,7 +552,6 @@ public sealed class MockSeederTests : IDisposable
             SessionStore.ManifestFileName);
         Assert.True(File.Exists(growingManifest));
     }
-
 
     [Fact]
     public async Task Seeds_viewer_samples_for_finished_recordings_only()

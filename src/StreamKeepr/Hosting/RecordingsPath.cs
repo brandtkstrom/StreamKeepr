@@ -36,7 +36,6 @@ internal static class RecordingsPath
         }
     }
 
-
     /// <summary>
     /// Resolves a session folder from a public channel and session id, rejecting any segment
     /// that is not a valid Twitch login or session id before touching the file system.

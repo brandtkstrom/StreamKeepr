@@ -207,7 +207,6 @@ public sealed class MockSeeder(
             library.Upsert((await sessions.SummarizeAsync(session.Directory, ct))!);
     }
 
-
     /// <summary>
     /// Writes deterministic viewer samples across a finished recording so the Stats viewer chart
     /// has data. Live capture fills the growing session at its own cadence.
