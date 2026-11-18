@@ -174,7 +174,8 @@ public sealed class TwitchStreamPoller(
                     stream.Title,
                     stream.GameName,
                     stream.StartedAt,
-                    stream.ThumbnailUrl),
+                    stream.ThumbnailUrl,
+                    stream.ViewerCount),
                 StringComparer.Ordinal);
     }
 
