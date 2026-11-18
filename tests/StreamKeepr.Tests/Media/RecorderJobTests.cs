@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Pipelines;
 using CliWrap;
@@ -8,6 +7,7 @@ using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Media;
+using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Media;
 
@@ -229,7 +229,9 @@ public sealed class RecorderJobTests : IDisposable
         const string token = "test-oauth-token-27-do-not-log";
         string ffmpeg = RequireFfmpeg();
         Session session = NewSession();
-        var logger = new RecorderLogger();
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        ILogger<RecorderJob> logger = loggerFactory.CreateLogger<RecorderJob>();
         RecorderOptions options = NewOptions(ffmpeg);
         options.StreamlinkPath = FixturePath("fake-streamlink-token-echo");
         options.TwitchUserOAuthToken = token;
@@ -243,7 +245,7 @@ public sealed class RecorderJobTests : IDisposable
         // token itself was replaced in the diagnostic detail.
         Assert.Contains("Authorization=OAuth ***", exited.Detail, StringComparison.Ordinal);
         Assert.DoesNotContain(token, exited.Detail, StringComparison.Ordinal);
-        Assert.DoesNotContain(token, string.Join("\n", logger.Messages), StringComparison.Ordinal);
+        Assert.DoesNotContain(token, string.Join("\n", logs.Messages), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -251,28 +253,30 @@ public sealed class RecorderJobTests : IDisposable
     {
         string ffmpeg = RequireFfmpeg();
         Session session = NewSession();
-        var logger = new RecorderLogger();
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        ILogger<RecorderJob> logger = loggerFactory.CreateLogger<RecorderJob>();
         RecorderOptions options = NewOptions(ffmpeg);
 
         IReadOnlyList<DvrEvent> events = await RunAsync(session, options, logger: logger);
 
         Assert.Single(events.OfType<DvrEvent.PartProducingMedia>());
-        IReadOnlyList<LogEntry> entries = logger.Entries;
+        IReadOnlyList<CapturedLogEntry> entries = logs.Entries;
         Assert.NotEmpty(entries);
         Assert.All(entries, entry =>
         {
-            Assert.Equal("streamer", entry.Scope["Channel"]);
-            Assert.Equal(session.Id, entry.Scope["SessionId"]);
-            Assert.Equal($"{session.Id}/p001", entry.Scope["Job"]);
+            Assert.Equal("streamer", entry.Scopes["Channel"]);
+            Assert.Equal(session.Id, entry.Scopes["SessionId"]);
+            Assert.Equal($"{session.Id}/p001", entry.Scopes["Job"]);
         });
 
-        LogEntry started = Assert.Single(entries, entry => entry.Message.Contains("started", StringComparison.Ordinal));
+        CapturedLogEntry started = Assert.Single(entries, entry => entry.Message.Contains("started", StringComparison.Ordinal));
         Assert.Equal(LogLevel.Information, started.Level);
         Assert.Equal("streamer", started.Properties["Channel"]);
         Assert.Equal($"{session.Id}/p001", started.Properties["Job"]?.ToString());
         Assert.Equal(1, started.Properties["Part"]);
 
-        LogEntry finished = Assert.Single(entries, entry => entry.Message.Contains("finished", StringComparison.Ordinal));
+        CapturedLogEntry finished = Assert.Single(entries, entry => entry.Message.Contains("finished", StringComparison.Ordinal));
         Assert.Equal(LogLevel.Information, finished.Level);
         Assert.Equal(RecorderExitKind.Exited, finished.Properties["Kind"]);
         double elapsedMs = Assert.IsType<double>(finished.Properties["ElapsedMs"]);
@@ -292,7 +296,9 @@ public sealed class RecorderJobTests : IDisposable
         const string token = "test-oauth-token-27-do-not-log";
         string ffmpeg = RequireFfmpeg();
         Session session = NewSession();
-        var logger = new RecorderLogger();
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        ILogger<RecorderJob> logger = loggerFactory.CreateLogger<RecorderJob>();
         RecorderOptions options = NewOptions(ffmpeg);
         options.StreamlinkPath = FixturePath("fake-streamlink-hostile-output");
         options.TwitchUserOAuthToken = token;
@@ -300,8 +306,8 @@ public sealed class RecorderJobTests : IDisposable
         IReadOnlyList<DvrEvent> events = await RunAsync(session, options, logger: logger);
 
         Assert.Single(events.OfType<DvrEvent.RecorderExited>());
-        IReadOnlyList<LogEntry> entries = logger.Entries;
-        LogEntry raw = Assert.Single(entries, entry => entry.Message.Contains("hostile:", StringComparison.Ordinal)
+        IReadOnlyList<CapturedLogEntry> entries = logs.Entries;
+        CapturedLogEntry raw = Assert.Single(entries, entry => entry.Message.Contains("hostile:", StringComparison.Ordinal)
             && entry.Message.StartsWith("[streamlink", StringComparison.Ordinal));
         Assert.Equal(LogLevel.Debug, raw.Level);
         Assert.Equal(
@@ -358,7 +364,9 @@ public sealed class RecorderJobTests : IDisposable
         string ffmpeg = RequireFfmpeg();
         Session session = NewSession();
         var clock = new ManualTimeProvider(StartedAt);
-        var logger = new RecorderLogger();
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        ILogger<RecorderJob> logger = loggerFactory.CreateLogger<RecorderJob>();
         RecorderOptions options = NewOptions(ffmpeg);
         options.StreamlinkPath = FixturePath("fake-streamlink-adbreak");
         options.StallTimeoutSeconds = 15;
@@ -367,7 +375,7 @@ public sealed class RecorderJobTests : IDisposable
         (Task run, List<DvrEvent> events) = StartJob(
             session, options, clock, logger, safetyStop.Token);
 
-        await logger.AdBreakSeen.WaitAsync(TimeSpan.FromSeconds(30));
+        await logs.WaitForAsync("Detected advertisement break");
 
         // The same jump kills the run without an ad announcement. Here the announced break plus
         // its safety margin pushes the watchdog deadline past this point.
@@ -845,78 +853,4 @@ public sealed class RecorderJobTests : IDisposable
             }
         }
     }
-
-    /// <summary>
-    /// Captures recorder logs with their level, structured properties, and the properties of
-    /// every scope active when they were written, and signals when Streamlink's ad-break line
-    /// was handled.
-    /// </summary>
-    private sealed class RecorderLogger : ILogger<RecorderJob>
-    {
-        private readonly ConcurrentQueue<LogEntry> _entries = new();
-        private readonly AsyncLocal<ScopeFrame?> _scope = new();
-        private readonly TaskCompletionSource _adBreakSeen =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public Task AdBreakSeen => _adBreakSeen.Task;
-
-        public IReadOnlyList<LogEntry> Entries => _entries.ToArray();
-
-        public IReadOnlyList<string> Messages => Entries.Select(entry => entry.Message).ToArray();
-
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
-        {
-            var frame = new ScopeFrame(this, _scope.Value, Properties(state));
-            _scope.Value = frame;
-            return frame;
-        }
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TState state,
-            Exception? exception,
-            Func<TState, Exception?, string> formatter)
-        {
-            string message = formatter(state, exception);
-            var scope = new Dictionary<string, object?>(StringComparer.Ordinal);
-            for (ScopeFrame? frame = _scope.Value; frame is not null; frame = frame.Parent)
-            {
-                foreach ((string key, object? value) in frame.Properties)
-                    scope.TryAdd(key, value);
-            }
-
-            _entries.Enqueue(new LogEntry(logLevel, message, Properties(state), scope));
-
-            if (message.Contains("advertisement break", StringComparison.OrdinalIgnoreCase))
-                _adBreakSeen.TrySetResult();
-        }
-
-        private static IReadOnlyDictionary<string, object?> Properties<TState>(TState state) =>
-            state is IEnumerable<KeyValuePair<string, object?>> pairs
-                ? pairs.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)
-                : state is IEnumerable<KeyValuePair<string, object>> objects
-                    ? objects.ToDictionary(pair => pair.Key, pair => (object?)pair.Value, StringComparer.Ordinal)
-                    : new Dictionary<string, object?>(StringComparer.Ordinal);
-
-        private sealed class ScopeFrame(
-            RecorderLogger owner,
-            ScopeFrame? parent,
-            IReadOnlyDictionary<string, object?> properties) : IDisposable
-        {
-            public ScopeFrame? Parent => parent;
-
-            public IReadOnlyDictionary<string, object?> Properties => properties;
-
-            public void Dispose() => owner._scope.Value = parent;
-        }
-    }
-
-    private sealed record LogEntry(
-        LogLevel Level,
-        string Message,
-        IReadOnlyDictionary<string, object?> Properties,
-        IReadOnlyDictionary<string, object?> Scope);
 }
