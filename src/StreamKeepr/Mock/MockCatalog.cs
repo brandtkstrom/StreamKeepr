@@ -125,10 +125,14 @@ public static class MockCatalog
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(streamId);
 
-        int seed = streamId.Aggregate(17, (hash, c) => unchecked((hash * 31) + c)) & 0x7fffffff;
-        int baseline = 200 + (seed % 1800);
-        int step = (int)Math.Max(0, seconds) / 10 % 12;
-        int wave = step < 6 ? step : 12 - step;
+        // string.GetHashCode is randomized per process; this stable hash keeps runs identical.
+        int stableHash = streamId.Aggregate(17, (hash, c) => unchecked((hash * 31) + c)) & int.MaxValue;
+        int baseline = 200 + (stableHash % 1800);
+
+        // One wave step per seeded sample, rising for six steps and falling for six.
+        const int StepsPerWave = 12;
+        int step = (int)(Math.Max(0, seconds) / SeededViewerSpacing.TotalSeconds) % StepsPerWave;
+        int wave = step < StepsPerWave / 2 ? step : StepsPerWave - step;
         return baseline + (wave * (baseline / 20));
     }
 
