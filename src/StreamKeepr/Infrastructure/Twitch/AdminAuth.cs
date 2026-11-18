@@ -141,9 +141,20 @@ public static class AdminAuth
             ? (await context.Request.ReadFormAsync(context.RequestAborted))["returnUrl"].ToString()
             : null;
 
+        // Read before SignOutAsync; the audit names who signed out, never the cookie itself.
+        var login = TwitchLogin.Normalize(context.User.Identity?.Name);
+
         // Signing out must not depend on the browser keeping the connection open.
         await tokenStore.ClearAsync(CancellationToken.None);
         await context.SignOutAsync(CookieScheme);
+
+        // An anonymous post (no admin cookie) ended no session, so there is nothing to audit.
+        if (login.Length > 0)
+        {
+            context.RequestServices.GetRequiredService<ILoggerFactory>()
+                .CreateLogger(typeof(AdminAuth))
+                .LogInformation("Admin signed out: {Login}", login);
+        }
 
         return Results.LocalRedirect(ResolveReturnUrl(returnUrl));
     }
@@ -320,7 +331,13 @@ public static class AdminAuth
                 FailedAuthError,
                 "The Twitch admin token could not be saved.",
                 ex);
+            return;
         }
+
+        // Only the login is logged; the tokens, cookie, and OAuth code/state never are.
+        services.GetRequiredService<ILoggerFactory>()
+            .CreateLogger(typeof(AdminAuth))
+            .LogInformation("Admin signed in: {Login}", token.Login);
     }
 
     private static void Reject(

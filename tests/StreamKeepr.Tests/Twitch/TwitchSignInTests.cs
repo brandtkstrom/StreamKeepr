@@ -5,8 +5,10 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Infrastructure.Twitch;
+using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Twitch;
 
@@ -93,6 +95,42 @@ public sealed class TwitchSignInTests
             message => message.Contains(TwitchOAuthStub.AccessToken, StringComparison.Ordinal)
                 || message.Contains(TwitchOAuthStub.RefreshToken, StringComparison.Ordinal));
         Assert.Equal(2, harness.Stub.Requests.Count);
+    }
+
+    [Fact]
+    public async Task Successful_sign_in_logs_an_information_audit_with_the_login()
+    {
+        using var harness = new AdminAuthHarness(
+            login: "Allowed_Login",
+            overrides: AdminAuthTestSettings.Allowlist("allowed_login"));
+
+        var result = await harness.SignInAsync();
+
+        Assert.NotNull(result.AuthCookie);
+        CapturedLogEntry audit = Assert.Single(
+            harness.Factory.Logs.Entries,
+            entry => entry.Message.Contains("Admin signed in", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Information, audit.Level);
+        Assert.Equal("allowed_login", audit.Properties["Login"]);
+    }
+
+    [Fact]
+    public async Task Rejected_sign_in_keeps_its_warning_and_logs_no_sign_in_audit()
+    {
+        using var harness = new AdminAuthHarness(
+            login: "intruder",
+            overrides: AdminAuthTestSettings.Allowlist("allowed_login"));
+
+        var result = await harness.SignInAsync();
+
+        Assert.Null(result.AuthCookie);
+        CapturedLogEntry rejection = Assert.Single(
+            harness.Factory.Logs.Entries,
+            entry => entry.Message.Contains("Rejected a Twitch admin sign-in", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Warning, rejection.Level);
+        Assert.DoesNotContain(
+            harness.Factory.Logs.Entries,
+            entry => entry.Message.Contains("Admin signed in", StringComparison.Ordinal));
     }
 
     [Theory]

@@ -119,9 +119,10 @@ public sealed class TwitchTokenProvider(
 - `AspNet.Security.OAuth.Twitch` (pinned 10.1.0), same Twitch app as the recorder.
 - `CallbackPath = "/signin-twitch"`; the Twitch app redirect URI must match the public origin exactly.
 - No additional scopes; `SaveTokens = false`.
-- `OnCreatingTicket` resolves the Twitch login, applies the allowlist, and saves access/refresh tokens through `IAdminTokenStore`. A rejected login saves nothing.
+- `OnCreatingTicket` resolves the Twitch login, applies the allowlist, and saves access/refresh tokens through `IAdminTokenStore`. A rejected login saves nothing. A successful sign-in logs `Information` with the normalized `Login`; a rejection keeps its `Warning` with the `Reason`.
 - Login: `GET /api/auth/twitch/login?returnUrl=`; accept only local URLs; otherwise `/`. Challenge with the local return URL.
-- Logout: `POST /api/auth/logout`, antiforgery-protected form post; sign out, clear the admin token, redirect to a local URL.
+- Logout: `POST /api/auth/logout`, antiforgery-protected form post; sign out, clear the admin token, redirect to a local URL. Logging out a signed-in admin logs `Information` with the `Login`.
+- Sign-in and logout logs never include tokens, cookies, the OAuth `code` or `state`, or authorization headers.
 - Non-HTTPS requests (except `localhost`) cannot start sign-in; return a clear configuration message. Admin actions remain unavailable until HTTPS is configured.
 - `UseForwardedHeaders` must be configured for a reverse proxy so the callback and cookie use the public HTTPS origin.
 
