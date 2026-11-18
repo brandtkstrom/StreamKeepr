@@ -14,7 +14,8 @@ internal static class RequestLogPolicy
 {
     // Sources of truth: MapHealthChecks in Program.cs, RecordingsMedia and LiveIndexEndpoint
     // (/media), and the ProgressEndpoint/ChatEndpoint/EmoteEndpoint routes (/api/recordings).
-    // RequestLogPolicyTests pins the endpoint routes to these prefixes.
+    // RequestLogPolicyTests pins the endpoint route constants to these prefixes. The health
+    // routes are literals in Program.cs; RequestLoggingHostTests probes /health/live through the host.
     private static readonly PathString[] QuietPrefixes =
     [
         "/health",
