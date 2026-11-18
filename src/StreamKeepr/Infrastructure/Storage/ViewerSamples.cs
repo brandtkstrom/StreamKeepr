@@ -23,7 +23,11 @@ public static class ViewerSamples
 
     /// <summary>Seconds from <paramref name="startedAt"/> to <paramref name="at"/>, to 0.1 s and never negative.</summary>
     public static double OffsetSeconds(DateTimeOffset startedAt, DateTimeOffset at) =>
-        Math.Max(0, Math.Round((at - startedAt).TotalSeconds, 1, MidpointRounding.AwayFromZero));
+        Math.Max(0, RoundSeconds((at - startedAt).TotalSeconds));
+
+    /// <summary>Rounds to the 0.1 s precision of the viewer timeline.</summary>
+    public static double RoundSeconds(double seconds) =>
+        Math.Round(seconds, 1, MidpointRounding.AwayFromZero);
 
     /// <summary>One serialized line, without its terminating newline.</summary>
     public static string FormatLine(double at, int count) =>
