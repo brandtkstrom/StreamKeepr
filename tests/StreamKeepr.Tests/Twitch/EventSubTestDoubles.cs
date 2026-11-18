@@ -39,6 +39,19 @@ internal sealed class NoJitter : IRetryJitter
     public TimeSpan Apply(TimeSpan baseDelay) => TimeSpan.Zero;
 }
 
+/// <summary>Applies no jitter, so a backoff delay equals its base; records the first base.</summary>
+internal sealed class PassThroughJitter : IRetryJitter
+{
+    public TaskCompletionSource<TimeSpan> FirstBase { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public TimeSpan Apply(TimeSpan baseDelay)
+    {
+        FirstBase.TrySetResult(baseDelay);
+        return baseDelay;
+    }
+}
+
 internal sealed class FakeChannelInfoPoller : IStreamPoller
 {
     public ChannelInfo? Info { get; set; }
@@ -164,10 +177,19 @@ internal sealed class FakeEventSubSocket : IEventSubSocket
         return message;
     }
 
+    public string? CloseReason { get; private set; }
+
     public void Push(string message) => _messages.Writer.TryWrite(message);
 
-    /// <summary>Simulates Twitch closing the socket: pending and later receives return null.</summary>
-    public void Close() => _messages.Writer.TryComplete();
+    /// <summary>
+    /// Simulates Twitch closing the socket: pending and later receives return null, and
+    /// <see cref="CloseReason"/> reports <paramref name="reason"/>.
+    /// </summary>
+    public void Close(string? reason = null)
+    {
+        CloseReason = reason;
+        _messages.Writer.TryComplete();
+    }
 
     public ValueTask DisposeAsync()
     {

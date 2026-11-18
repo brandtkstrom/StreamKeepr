@@ -25,6 +25,8 @@ public sealed class ConduitEventSubBinding(
 
     public string Transport => nameof(EventSubTransportMode.Conduit);
 
+    public string? ConduitId => _conduitId;
+
     /// <summary>Never raised: the app token does not depend on admin sign-in.</summary>
     public event Action? RestartRequested
     {

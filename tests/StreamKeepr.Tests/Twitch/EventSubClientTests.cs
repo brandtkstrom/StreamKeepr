@@ -273,6 +273,40 @@ public sealed class EventSubClientTests : IDisposable
     }
 
     [Fact]
+    public async Task Refused_subscription_warning_names_the_transport_and_reason_but_not_the_token()
+    {
+        using var bindingLogs = new ListLoggerProvider();
+        using ILoggerFactory bindingLoggerFactory = TestLogging.Factory(bindingLogs);
+        _httpHandler.Handler = request => Task.FromResult(new HttpResponseMessage(
+            HttpStatusCode.BadRequest)
+        {
+            Content = new StringContent(
+                "{\"error\":\"Bad Request\",\"status\":400,\"message\":\"invalid condition\"}",
+                Encoding.UTF8,
+                "application/json"),
+        });
+
+        EventSubClient client = CreateClient(
+            bindingLogger: bindingLoggerFactory.CreateLogger<WebSocketEventSubBinding>());
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1"));
+        await bindingLogs.WaitForAsync("was refused");
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Contains(
+            (LogLevel.Warning,
+                "EventSub WebSocket subscription stream.online for streamer was refused with HTTP 400:"
+                + " invalid condition"),
+            bindingLogs.Entries.Select(entry => (entry.Level, entry.Message)));
+        Assert.DoesNotContain("admin-token", string.Join('\n', bindingLogs.Messages), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Notification_routes_online_and_offline_and_bursts_the_poller()
     {
         _poller.Info = new ChannelInfo("Title", "Game");
@@ -515,6 +549,110 @@ public sealed class EventSubClientTests : IDisposable
 
         stop.Cancel();
         await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Connect_close_and_backoff_log_the_transport_reason_delay_and_attempt()
+    {
+        using var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        EventSubClient client = CreateClient(
+            jitter: new PassThroughJitter(), logger: loggerFactory.CreateLogger<EventSubClient>());
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        FakeEventSubSocket first = await _socketFactory.SocketAsync(1)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await first.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        first.Close("4003 connection unused");
+        await logs.WaitForAsync("(attempt 1)");
+
+        // The backoff timer starts before its log line, so one step fires it.
+        _clock.Advance(TimeSpan.FromSeconds(5));
+        FakeEventSubSocket second = await _socketFactory.SocketAsync(2)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        await second.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        second.Close();
+        await logs.WaitForAsync("(attempt 2)");
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Contains(
+            (LogLevel.Information,
+                "EventSub WebSocket connected to wss://eventsub.wss.twitch.tv/ws; waiting for session_welcome."),
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
+        Assert.Contains(
+            (LogLevel.Information,
+                "EventSub WebSocket session closed: connection closed by Twitch (4003 connection unused)."),
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
+        Assert.Contains(
+            (LogLevel.Information,
+                "EventSub WebSocket reconnecting in 00:00:05 (attempt 1):"
+                + " connection closed by Twitch (4003 connection unused)."),
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
+        Assert.Contains(
+            (LogLevel.Information,
+                "EventSub WebSocket reconnecting in 00:00:10 (attempt 2): connection closed by Twitch."),
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
+        Assert.DoesNotContain(
+            "conduit", string.Join('\n', logs.Messages), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Channel_change_logs_the_close_reason_and_an_immediate_reconnect()
+    {
+        using var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        EventSubClient client = CreateClient(logger: loggerFactory.CreateLogger<EventSubClient>());
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await _channels.AddAsync(
+            new ChannelEntry("other", UserId: "456", DisplayName: "Other"), CancellationToken.None);
+        await logs.WaitForAsync("reconnecting immediately");
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Contains(
+            (LogLevel.Information, "EventSub WebSocket session closed: watched channels changed."),
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
+        Assert.Contains(
+            (LogLevel.Debug, "EventSub WebSocket reconnecting immediately."), logs.Entries.Select(entry => (entry.Level, entry.Message)));
+        Assert.DoesNotContain("(attempt", string.Join('\n', logs.Messages), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Revocation_backoff_logs_the_reason_without_the_token_or_payload()
+    {
+        using var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        EventSubClient client = CreateClient(
+            jitter: new PassThroughJitter(), logger: loggerFactory.CreateLogger<EventSubClient>());
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+        Task coverageChanged = NextCoverageAsync();
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1"));
+        await coverageChanged.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Revoked());
+        await logs.WaitForAsync("(attempt 1)");
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Contains(
+            (LogLevel.Warning, "EventSub WebSocket restart: subscription revoked."), logs.Entries.Select(entry => (entry.Level, entry.Message)));
+        Assert.Contains(
+            (LogLevel.Information,
+                "EventSub WebSocket reconnecting in 00:00:05 (attempt 1): subscription revoked."),
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
+        Assert.DoesNotContain("session closed", string.Join('\n', logs.Messages), StringComparison.Ordinal);
+        Assert.DoesNotContain("admin-token", string.Join('\n', logs.Messages), StringComparison.Ordinal);
+        Assert.DoesNotContain("\"metadata\"", string.Join('\n', logs.Messages), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1483,7 +1621,8 @@ public sealed class EventSubClientTests : IDisposable
         IEventSubSocketFactory? socketFactory = null,
         IAdminTokenStore? tokens = null,
         IHttpClientFactory? httpFactory = null,
-        ILogger<EventSubClient>? logger = null) =>
+        ILogger<EventSubClient>? logger = null,
+        ILogger<WebSocketEventSubBinding>? bindingLogger = null) =>
         new(
             socketFactory ?? _socketFactory,
             new WebSocketEventSubBinding(
@@ -1493,7 +1632,7 @@ public sealed class EventSubClientTests : IDisposable
                 _schedule,
                 Options.Create(new TwitchOptions { ClientId = "client-id" }),
                 _clock,
-                NullLogger<WebSocketEventSubBinding>.Instance),
+                bindingLogger ?? NullLogger<WebSocketEventSubBinding>.Instance),
             _channels,
             _poller,
             _schedule,
@@ -1555,6 +1694,8 @@ public sealed class EventSubClientTests : IDisposable
 
         public Task<string?> ReceiveTextAsync(CancellationToken ct) =>
             Task.FromResult<string?>(null);
+
+        public string? CloseReason => null;
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

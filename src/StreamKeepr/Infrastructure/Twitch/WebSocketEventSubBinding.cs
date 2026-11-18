@@ -27,6 +27,8 @@ public sealed class WebSocketEventSubBinding(
 
     public string Transport => nameof(EventSubTransportMode.WebSocket);
 
+    public string? ConduitId => null;
+
     public event Action? RestartRequested
     {
         add => adminTokens.Changed += value;
@@ -413,11 +415,14 @@ public sealed class WebSocketEventSubBinding(
                 return new SubscriptionAttempt(SubscriptionResult.Failed, token);
             }
 
+            string message = await HelixErrorResponse.ReadMessageAsync(response, ct);
             logger.LogWarning(
-                "EventSub subscription {Type} for {Login} was refused with HTTP {Status}.",
+                "EventSub {Transport} subscription {Type} for {Login} was refused with HTTP {Status}: {Message}",
+                Transport,
                 type,
                 channel.Login,
-                (int)response.StatusCode);
+                (int)response.StatusCode,
+                message.Length > 0 ? message : response.ReasonPhrase ?? "no reason given");
             return new SubscriptionAttempt(SubscriptionResult.Refused, token);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

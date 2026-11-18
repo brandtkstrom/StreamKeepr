@@ -12,6 +12,12 @@ public interface IEventSubBinding
     /// <summary>The transport name for display, for example "WebSocket" or "Conduit".</summary>
     string Transport { get; }
 
+    /// <summary>
+    /// The conduit this binding delivers through, for logs; null for a transport without one or
+    /// before the conduit is known.
+    /// </summary>
+    string? ConduitId { get; }
+
     /// <summary>Raised when the running session must restart for a binding-specific reason.</summary>
     event Action? RestartRequested;
 

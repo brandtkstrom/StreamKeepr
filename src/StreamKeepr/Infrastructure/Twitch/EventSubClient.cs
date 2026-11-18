@@ -45,7 +45,7 @@ public sealed class EventSubClient(
 
     public async Task RunAsync(StreamObservationRoute route, CancellationToken ct)
     {
-        TimeSpan backoff = InitialBackoff;
+        var backoff = new Backoff(jitter);
 
         while (!ct.IsCancellationRequested)
         {
@@ -60,10 +60,10 @@ public sealed class EventSubClient(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "EventSub could not start a session; polling continues.");
+                LogEventSub(
+                    LogLevel.Warning, ex, "could not start a session; polling continues.");
                 schedule.SetPushStatus(PushStatus.Reconnecting);
-                session = null;
-                if (!await DelayAsync(NextBackoff(ref backoff), ct))
+                if (!await BackoffAsync(backoff, $"session setup failed: {ex.GetType().Name}", ct))
                     break;
                 continue;
             }
@@ -71,7 +71,7 @@ public sealed class EventSubClient(
             if (session is null)
             {
                 // The binding already waited (for an admin token or a resolved channel).
-                backoff = InitialBackoff;
+                backoff.Reset();
                 continue;
             }
 
@@ -79,12 +79,23 @@ public sealed class EventSubClient(
             schedule.SetPushStatus(PushStatus.Reconnecting);
 
             using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            void Restart() => sessionCts.Cancel();
+            string? restartReason = null;
+            void Restart(string reason)
+            {
+                restartReason ??= reason;
+                sessionCts.Cancel();
+            }
 
-            channels.SubscriptionsChanged += Restart;
-            binding.RestartRequested += Restart;
+            void ChannelsChanged() => Restart("watched channels changed");
+            void BindingRestart() => Restart("binding requested a restart");
+
+            channels.SubscriptionsChanged += ChannelsChanged;
+            binding.RestartRequested += BindingRestart;
 
             var state = new SessionState();
+
+            // Set when the session ended with a Warning, which already names the cause.
+            string? failure = null;
             try
             {
                 await RunSessionAsync(session, route, BaseUri, state, sessionCts.Token);
@@ -99,21 +110,23 @@ public sealed class EventSubClient(
             }
             catch (EventSubRestartException ex)
             {
-                logger.LogWarning("EventSub restart: {Reason}", ex.Message);
+                failure = ex.Message;
+                LogEventSub(LogLevel.Warning, "restart: {Reason}.", ex.Message);
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "EventSub session failed.");
+                failure = $"session failed: {ex.GetType().Name}";
+                LogEventSub(LogLevel.Warning, ex, "session failed.");
             }
             finally
             {
-                channels.SubscriptionsChanged -= Restart;
-                binding.RestartRequested -= Restart;
+                channels.SubscriptionsChanged -= ChannelsChanged;
+                binding.RestartRequested -= BindingRestart;
                 schedule.SetPushStatus(PushStatus.Reconnecting);
             }
 
             if (state.HadSubscriptions)
-                backoff = InitialBackoff;
+                backoff.Reset();
 
             if (ct.IsCancellationRequested)
                 break;
@@ -121,29 +134,67 @@ public sealed class EventSubClient(
             // A voluntary restart (channel or binding change) reconnects without backoff.
             if (sessionCts.IsCancellationRequested)
             {
-                backoff = InitialBackoff;
+                LogEventSub(
+                    LogLevel.Information,
+                    "session closed: {Reason}.",
+                    restartReason ?? "restart requested");
+                LogEventSub(LogLevel.Debug, "reconnecting immediately.");
+                backoff.Reset();
                 continue;
             }
 
-            if (!await DelayAsync(NextBackoff(ref backoff), ct))
+            if (failure is null)
+            {
+                failure = state.CloseReason is { } closeReason
+                    ? $"connection closed by Twitch ({closeReason})"
+                    : "connection closed by Twitch";
+                LogEventSub(LogLevel.Information, "session closed: {Reason}.", failure);
+            }
+
+            if (!await BackoffAsync(backoff, failure, ct))
                 break;
         }
     }
 
-    /// <summary>Returns the jittered delay for this attempt and doubles the base for the next.</summary>
-    private TimeSpan NextBackoff(ref TimeSpan backoff)
+    private void LogEventSub(LogLevel level, string message, params object?[] args) =>
+        LogEventSub(level, exception: null, message, args);
+
+    /// <summary>
+    /// Logs with the transport first and, when the binding uses a conduit, its ID last.
+    /// <paramref name="message"/> is a template fragment that follows "EventSub {Transport} ".
+    /// </summary>
+    private void LogEventSub(
+        LogLevel level, Exception? exception, string message, params object?[] args)
     {
-        TimeSpan delay = jitter.Apply(backoff);
-        backoff = TimeSpan.FromTicks(Math.Min(backoff.Ticks * 2, MaxBackoff.Ticks));
-        return delay;
+        if (binding.ConduitId is { } conduitId)
+        {
+            logger.Log(
+                level,
+                exception,
+                "EventSub {Transport} " + message + " Conduit {ConduitId}.",
+                [binding.Transport, .. args, conduitId]);
+            return;
+        }
+
+        logger.Log(level, exception, "EventSub {Transport} " + message, [binding.Transport, .. args]);
     }
 
     /// <returns>False when <paramref name="ct"/> was cancelled during the delay.</returns>
-    private async Task<bool> DelayAsync(TimeSpan delay, CancellationToken ct)
+    private async Task<bool> BackoffAsync(Backoff backoff, string reason, CancellationToken ct)
     {
+        TimeSpan delay = backoff.Next();
+
+        // Start the timer before logging, so the line is never ahead of the wait it announces.
+        Task wait = Task.Delay(delay, clock, ct);
+        LogEventSub(
+            LogLevel.Information,
+            "reconnecting in {Delay} (attempt {RetryAttempt}): {Reason}.",
+            delay,
+            backoff.Attempt,
+            reason);
         try
         {
-            await Task.Delay(delay, clock, ct);
+            await wait;
             return true;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -168,8 +219,9 @@ public sealed class EventSubClient(
             using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(
                 ct, connectTimeout.Token);
             await socket.ConnectAsync(uri, connectCts.Token);
-            logger.LogInformation(
-                "EventSub connected to {Uri}; waiting for session_welcome.",
+            LogEventSub(
+                LogLevel.Information,
+                "connected to {Uri}; waiting for session_welcome.",
                 uri.GetLeftPart(UriPartial.Path));
 
             while (!ct.IsCancellationRequested)
@@ -237,8 +289,9 @@ public sealed class EventSubClient(
                         await handoff.DisposeAsync();
                         handoff = null;
                         await old.DisposeAsync();
-                        logger.LogInformation(
-                            "EventSub reconnect handoff complete; closed the old connection.");
+                        LogEventSub(
+                            LogLevel.Information,
+                            "reconnect handoff complete; closed the old connection.");
                         continue;
                     }
                 }
@@ -249,7 +302,10 @@ public sealed class EventSubClient(
                 if (message is null)
                 {
                     if (handoff is null)
+                    {
+                        state.CloseReason = socket.CloseReason;
                         return;
+                    }
 
                     // Twitch closed the old socket first; keep waiting for the new welcome.
                     socketOpen = false;
@@ -268,8 +324,9 @@ public sealed class EventSubClient(
                 }
 
                 handoff = StartHandoff(reconnectUrl, ct);
-                logger.LogInformation(
-                    "EventSub reconnecting to {Uri}; the old connection stays open until session_welcome.",
+                LogEventSub(
+                    LogLevel.Information,
+                    "reconnecting to {Uri}; the old connection stays open until session_welcome.",
                     reconnectUrl.GetLeftPart(UriPartial.Path));
             }
         }
@@ -671,10 +728,39 @@ public sealed class EventSubClient(
         }
     }
 
+    /// <summary>
+    /// Exponential reconnect backoff: 5 s doubling to 5 minutes, jittered. <see cref="Attempt"/>
+    /// counts the delays since the last reset, so the first retry is attempt 1.
+    /// </summary>
+    private sealed class Backoff(IRetryJitter jitter)
+    {
+        private TimeSpan _base = InitialBackoff;
+
+        public int Attempt { get; private set; }
+
+        /// <summary>Returns the jittered delay for this attempt and doubles the base for the next.</summary>
+        public TimeSpan Next()
+        {
+            Attempt++;
+            TimeSpan delay = jitter.Apply(_base);
+            _base = TimeSpan.FromTicks(Math.Min(_base.Ticks * 2, MaxBackoff.Ticks));
+            return delay;
+        }
+
+        public void Reset()
+        {
+            _base = InitialBackoff;
+            Attempt = 0;
+        }
+    }
+
     private sealed class SessionState
     {
         public TimeSpan Keepalive { get; set; } = DefaultKeepalive;
         public bool HadSubscriptions { get; set; }
+
+        /// <summary>Twitch's close code and description when it closed the socket.</summary>
+        public string? CloseReason { get; set; }
     }
 
     /// <summary>

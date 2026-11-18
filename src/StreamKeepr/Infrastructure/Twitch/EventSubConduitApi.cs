@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text.Json;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 
@@ -68,7 +67,7 @@ public sealed class EventSubConduitApi(
             throw new TwitchApiException(
                 "EventSub conduit limit reached: this client ID already has the maximum number of "
                 + "conduits. Unused conduits expire 72 hours after their last shard disconnects. "
-                + await ReadMessageAsync(response, ct));
+                + await HelixErrorResponse.ReadMessageAsync(response, ct));
         }
 
         await EnsureSuccessAsync(response, "create an EventSub conduit", ct);
@@ -178,11 +177,14 @@ public sealed class EventSubConduitApi(
             // Includes 429: the cost budget, the per-condition cap, or the rate bucket. Polling
             // covers the channel until the next session reconciles again.
             logger.LogWarning(
-                "Twitch refused EventSub {Type} for broadcaster {BroadcasterId} with HTTP {Status}: {Message}",
+                "Twitch refused EventSub {Transport} {Type} for broadcaster {BroadcasterId} "
+                + "on conduit {ConduitId} with HTTP {Status}: {Message}",
+                nameof(EventSubTransportMode.Conduit),
                 key.Type,
                 key.BroadcasterUserId,
+                conduitId,
                 status,
-                await ReadMessageAsync(response, ct));
+                await HelixErrorResponse.ReadMessageAsync(response, ct));
             return ConduitSubscribeOutcome.Refused;
         }
 
@@ -228,22 +230,7 @@ public sealed class EventSubConduitApi(
             return;
 
         throw new TwitchApiException(
-            $"Could not {action}: HTTP {(int)response.StatusCode}. {await ReadMessageAsync(response, ct)}"
+            $"Could not {action}: HTTP {(int)response.StatusCode}. {await HelixErrorResponse.ReadMessageAsync(response, ct)}"
                 .TrimEnd());
-    }
-
-    /// <summary>Twitch's error message, if the body has one. It never contains credentials.</summary>
-    private static async Task<string> ReadMessageAsync(HttpResponseMessage response, CancellationToken ct)
-    {
-        try
-        {
-            HelixErrorResponse? error = await response.Content.ReadFromJsonAsync(
-                TwitchJsonContext.Default.HelixErrorResponse, ct);
-            return error?.Message ?? "";
-        }
-        catch (JsonException)
-        {
-            return "";
-        }
     }
 }
