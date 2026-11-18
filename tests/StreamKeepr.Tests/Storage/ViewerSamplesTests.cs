@@ -37,7 +37,7 @@ public sealed class ViewerSamplesTests
 
         Assert.Equal(
             [new ViewerSample(60, 42)],
-            ViewerSamples.Read(context.Directory, NullLogger.Instance));
+            await ViewerSamples.ReadAsync(context.Directory, NullLogger.Instance, Ct));
         string manifest = await File.ReadAllTextAsync(context.ManifestPath);
         Assert.DoesNotContain("viewer", manifest, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("\"count\"", manifest, StringComparison.Ordinal);
@@ -69,7 +69,7 @@ public sealed class ViewerSamplesTests
 
         Assert.Equal(
             [new ViewerSample(0, 5), new ViewerSample(120, 7)],
-            ViewerSamples.Read(context.Directory, NullLogger.Instance));
+            await ViewerSamples.ReadAsync(context.Directory, NullLogger.Instance, Ct));
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public sealed class ViewerSamplesTests
         ]);
         var logs = new ListLoggerProvider();
 
-        IReadOnlyList<ViewerSample> samples = ViewerSamples.Read(context.Directory, logs.CreateLogger("test"));
+        IReadOnlyList<ViewerSample> samples = await ViewerSamples.ReadAsync(context.Directory, logs.CreateLogger("test"), Ct);
 
         Assert.Equal([new ViewerSample(0, 10), new ViewerSample(120, 13)], samples);
         string warning = Assert.Single(logs.Messages);
@@ -99,11 +99,11 @@ public sealed class ViewerSamplesTests
     }
 
     [Fact]
-    public void Read_without_a_viewer_log_returns_no_samples()
+    public async Task Read_without_a_viewer_log_returns_no_samples()
     {
         using var context = new SessionStoreTestContext();
 
-        Assert.Empty(ViewerSamples.Read(context.Directory, NullLogger.Instance));
+        Assert.Empty(await ViewerSamples.ReadAsync(context.Directory, NullLogger.Instance, Ct));
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public sealed class ViewerSamplesTests
             Enumerable.Range(0, ViewerSamples.MaxSamples + 5)
                 .Select(i => $$"""{"v":1,"at":{{i * 60}},"count":{{i}}}"""));
 
-        IReadOnlyList<ViewerSample> samples = ViewerSamples.Read(context.Directory, NullLogger.Instance);
+        IReadOnlyList<ViewerSample> samples = await ViewerSamples.ReadAsync(context.Directory, NullLogger.Instance, Ct);
 
         Assert.Equal(50_000, samples.Count);
         Assert.Equal(new ViewerSample(49_999 * 60, 49_999), samples[^1]);

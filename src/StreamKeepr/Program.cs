@@ -329,7 +329,7 @@ try
 
     app.MapPut(ProgressEndpoint.Route, ProgressEndpoint.HandleAsync);
     app.MapGet(ChatEndpoint.Route, ChatEndpoint.Handle);
-    app.MapGet(ViewersEndpoint.Route, ViewersEndpoint.Handle);
+    app.MapGet(ViewersEndpoint.Route, ViewersEndpoint.HandleAsync);
     app.MapGet(EmoteEndpoint.Route, EmoteEndpoint.HandleAsync);
 
     // The cookie scheme answers an API challenge with 401; the default challenge is Twitch OAuth.

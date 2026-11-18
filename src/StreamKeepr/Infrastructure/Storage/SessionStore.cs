@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
@@ -172,7 +173,7 @@ public sealed class SessionStore(
             }
 
             stream.Seek(0, SeekOrigin.End);
-            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(
+            byte[] bytes = Encoding.UTF8.GetBytes(
                 (needsSeparator ? "\n" : "") + line + "\n");
             await stream.WriteAsync(bytes, ct);
         }

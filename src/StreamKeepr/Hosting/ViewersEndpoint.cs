@@ -12,13 +12,14 @@ public static class ViewersEndpoint
 {
     public const string Route = "/api/recordings/{id}/viewers";
 
-    public static IResult Handle(
+    public static async Task<IResult> HandleAsync(
         string id,
         HttpContext context,
         RecordingLibrary library,
         IOptions<StorageOptions> storage,
         TimeProvider clock,
-        ILoggerFactory loggers)
+        ILoggerFactory loggers,
+        CancellationToken ct)
     {
         // Samples grow while live; this applies to 404s as well.
         context.Response.Headers.CacheControl = "no-store";
@@ -30,8 +31,8 @@ public static class ViewersEndpoint
             return Results.NotFound();
         }
 
-        IReadOnlyList<ViewerSample> samples = ViewerSamples.Read(
-            directory, loggers.CreateLogger(typeof(ViewersEndpoint).FullName!));
+        IReadOnlyList<ViewerSample> samples = await ViewerSamples.ReadAsync(
+            directory, loggers.CreateLogger(typeof(ViewersEndpoint).FullName!), ct);
         double duration = ViewerSamples.RoundSeconds(summary.DurationAt(clock.GetUtcNow()));
         return Results.Json(new ViewersResponse(ViewerSamples.Version, summary.Id, duration, samples));
     }

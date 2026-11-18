@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 
@@ -37,7 +38,8 @@ public static class ViewerSamples
     /// Reads the samples in <paramref name="sessionDirectory"/>, oldest first. A missing file is no
     /// samples. A malformed or partial line is skipped with one warning per read, never thrown.
     /// </summary>
-    public static IReadOnlyList<ViewerSample> Read(string sessionDirectory, ILogger logger)
+    public static async Task<IReadOnlyList<ViewerSample>> ReadAsync(
+        string sessionDirectory, ILogger logger, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionDirectory);
         ArgumentNullException.ThrowIfNull(logger);
@@ -49,10 +51,16 @@ public static class ViewerSamples
         try
         {
             using var reader = new StreamReader(
-                new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete),
+                new FileStream(
+                    path,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete,
+                    bufferSize: 4096,
+                    useAsync: true),
                 Encoding.UTF8);
 
-            while (samples.Count < MaxSamples && reader.ReadLine() is { } text)
+            while (samples.Count < MaxSamples && await reader.ReadLineAsync(ct) is { } text)
             {
                 if (string.IsNullOrWhiteSpace(text))
                     continue;
@@ -77,7 +85,7 @@ public static class ViewerSamples
         return samples;
     }
 
-    private static bool TryParse(string text, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ViewerSample? sample)
+    private static bool TryParse(string text, [NotNullWhen(true)] out ViewerSample? sample)
     {
         sample = null;
         Line? line;

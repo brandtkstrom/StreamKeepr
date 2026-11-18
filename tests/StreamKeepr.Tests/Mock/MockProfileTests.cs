@@ -563,9 +563,9 @@ public sealed class MockSeederTests : IDisposable
 
         foreach (RecordingSummary summary in library.All)
         {
-            IReadOnlyList<ViewerSample> samples = ViewerSamples.Read(
+            IReadOnlyList<ViewerSample> samples = await ViewerSamples.ReadAsync(
                 Path.Combine(_root, summary.Channel, summary.Id),
-                Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+                Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, CancellationToken.None);
 
             if (summary.IsRecording)
             {
