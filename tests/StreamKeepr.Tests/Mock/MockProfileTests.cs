@@ -205,6 +205,54 @@ public sealed class MockEventSubClientTests
     }
 }
 
+public sealed class MockStreamPollerTests
+{
+    [Fact]
+    public async Task Live_polls_carry_a_deterministic_viewer_count_and_offline_polls_none()
+    {
+        MockRecording growing = MockCatalog.Growing;
+        var clock = new FakeTimeProvider(growing.StartedAt.AddMinutes(5));
+
+        IReadOnlyDictionary<string, StreamObservation> first = await PollOnceAsync(clock);
+        IReadOnlyDictionary<string, StreamObservation> second = await PollOnceAsync(clock);
+
+        int? count = Assert.IsType<StreamObservation.Live>(first[growing.Channel]).Stream.ViewerCount;
+        Assert.NotNull(count);
+        Assert.InRange(count.Value, 1, 100_000);
+        Assert.Equal(count, Assert.IsType<StreamObservation.Live>(second[growing.Channel]).Stream.ViewerCount);
+        Assert.IsType<StreamObservation.Offline>(first["mock_nova"]);
+    }
+
+    private static async Task<IReadOnlyDictionary<string, StreamObservation>> PollOnceAsync(TimeProvider clock)
+    {
+        var poller = new MockStreamPoller(
+            new MockTwitch(),
+            new PollSchedule(clock),
+            clock,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<MockStreamPoller>.Instance);
+        var observed = new Dictionary<string, StreamObservation>(StringComparer.Ordinal);
+        var polled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource();
+        string[] logins = [MockCatalog.Growing.Channel, "mock_nova"];
+
+        Task run = poller.RunAsync(
+            () => logins,
+            (login, observation, _) =>
+            {
+                observed[login] = observation;
+                if (observed.Count == logins.Length)
+                    polled.TrySetResult();
+                return ValueTask.CompletedTask;
+            },
+            cts.Token);
+
+        await polled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await cts.CancelAsync();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+        return observed;
+    }
+}
+
 public sealed class MockLiveFeedTests : IDisposable
 {
     private readonly string _root = Path.Combine(
@@ -503,6 +551,36 @@ public sealed class MockSeederTests : IDisposable
             MockCatalog.SessionFor(MockCatalog.Growing, _root).Directory,
             SessionStore.ManifestFileName);
         Assert.True(File.Exists(growingManifest));
+    }
+
+    [Fact]
+    public async Task Seeds_viewer_samples_for_finished_recordings_only()
+    {
+        (MockSeeder seeder, _, RecordingLibrary library) = CreateSeeder(
+            new MockSeedOptions { ScaleRecordings = 2 });
+
+        await seeder.StartAsync(CancellationToken.None);
+
+        foreach (RecordingSummary summary in library.All)
+        {
+            IReadOnlyList<ViewerSample> samples = await ViewerSamples.ReadAsync(
+                Path.Combine(_root, summary.Channel, summary.Id),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, CancellationToken.None);
+
+            if (summary.IsRecording)
+            {
+                Assert.Empty(samples);
+                continue;
+            }
+
+            // A 60 s part every 10 s: 0, 10, …, 60 → seven samples per part.
+            double duration = summary.DurationSeconds!.Value;
+            Assert.Equal((int)(duration / 10) + 1, samples.Count);
+            Assert.Equal(0, samples[0].At);
+            Assert.InRange(samples[^1].At, duration - 10, duration);
+            Assert.All(samples, sample => Assert.InRange(sample.Count, 1, 100_000));
+            Assert.True(samples.Select(sample => sample.Count).Distinct().Count() > 1, "the chart has a shape");
+        }
     }
 
     [Fact]

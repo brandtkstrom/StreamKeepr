@@ -344,6 +344,7 @@ public sealed class EventSubClientTests : IDisposable
         Assert.Equal("987", live.Stream.StreamId);
         Assert.Equal("Title", live.Stream.Title);
         Assert.Equal("Game", live.Stream.Game);
+        Assert.Null(live.Stream.ViewerCount);
 
         _socketFactory.LastSocket!.Push(Notification("stream.offline"));
         (login, observation) = await observations.Reader.ReadAsync()

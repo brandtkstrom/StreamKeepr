@@ -1,3 +1,6 @@
+using StreamKeepr.Configuration;
+using StreamKeepr.Domain;
+
 namespace StreamKeepr.Hosting;
 
 /// <summary>
@@ -31,5 +34,18 @@ internal static class RecordingsPath
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Resolves a session folder from a public channel and session id, rejecting any segment
+    /// that is not a valid Twitch login or session id before touching the file system.
+    /// </summary>
+    public static bool TryResolveSession(
+        string recordingsRoot, string channel, string id, out string directory)
+    {
+        directory = "";
+        return AuthOptions.IsValidLogin(channel)
+            && Session.IsValidId(id)
+            && TryResolve(recordingsRoot, [channel, id], out directory);
     }
 }

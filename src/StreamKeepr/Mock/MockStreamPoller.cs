@@ -12,6 +12,7 @@ namespace StreamKeepr.Mock;
 public sealed class MockStreamPoller(
     MockTwitch twitch,
     PollSchedule schedule,
+    TimeProvider clock,
     ILogger<MockStreamPoller> logger) : IStreamPoller
 {
     internal static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
@@ -30,7 +31,7 @@ public sealed class MockStreamPoller(
                              .Where(TwitchLogin.IsValid)
                              .Distinct(StringComparer.Ordinal))
                 {
-                    await route(login, twitch.Observe(login), ct);
+                    await route(login, WithViewerCount(twitch.Observe(login)), ct);
                 }
 
                 schedule.Polled();
@@ -42,6 +43,19 @@ public sealed class MockStreamPoller(
             // Host shutdown.
         }
     }
+
+    /// <summary>
+    /// Helix reports a viewer count with every live stream; the mock does the same unless a test
+    /// control already set one.
+    /// </summary>
+    private StreamObservation WithViewerCount(StreamObservation observation) =>
+        observation is StreamObservation.Live { Stream: { ViewerCount: null } stream }
+            ? new StreamObservation.Live(stream with
+            {
+                ViewerCount = MockCatalog.ViewerCount(
+                    stream.StreamId, (clock.GetUtcNow() - stream.StartedAt).TotalSeconds),
+            })
+            : observation;
 
     public Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct) =>
         Task.FromResult(twitch.FindProfile(login));

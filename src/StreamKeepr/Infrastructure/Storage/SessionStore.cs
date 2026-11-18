@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
@@ -132,6 +133,49 @@ public sealed class SessionStore(
             };
             await WriteManifestAsync(directory, updated, ct);
             await UpsertLibraryAsync(directory, ct);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Appends one viewer sample to the session's <c>viewers.jsonl</c> under the session lock.
+    /// Never creates the session folder, so a sample cannot resurrect a deleted session. A
+    /// previous partial line is terminated first, so it costs only itself.
+    /// </summary>
+    public async Task AppendViewerSampleAsync(
+        Session session, DateTimeOffset at, int count, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+
+        string directory = Normalize(session.Directory);
+        string line = ViewerSamples.FormatLine(ViewerSamples.OffsetSeconds(session.StartedAt, at), count);
+        var gate = LockFor(directory);
+        await gate.WaitAsync(ct);
+        try
+        {
+            // OpenOrCreate creates the file but never its folder: a removed session throws
+            // DirectoryNotFoundException instead of being recreated.
+            await using var stream = new FileStream(
+                Path.Combine(directory, ViewerSamples.FileName),
+                FileMode.OpenOrCreate,
+                FileAccess.ReadWrite,
+                FileShare.Read);
+
+            bool needsSeparator = false;
+            if (stream.Length > 0)
+            {
+                stream.Seek(-1, SeekOrigin.End);
+                needsSeparator = stream.ReadByte() != '\n';
+            }
+
+            stream.Seek(0, SeekOrigin.End);
+            byte[] bytes = Encoding.UTF8.GetBytes(
+                (needsSeparator ? "\n" : "") + line + "\n");
+            await stream.WriteAsync(bytes, ct);
         }
         finally
         {

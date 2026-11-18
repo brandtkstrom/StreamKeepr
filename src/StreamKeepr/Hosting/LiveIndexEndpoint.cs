@@ -37,7 +37,7 @@ public static class LiveIndexEndpoint
             return Results.NotFound();
         }
 
-        if (!TrySessionDirectory(storage.Value.RecordingsRoot, channel, id, out string directory))
+        if (!RecordingsPath.TryResolveSession(storage.Value.RecordingsRoot, channel, id, out string directory))
             return Results.NotFound();
 
         var manifest = await store.TryLoadAsync(directory, ct);
@@ -65,14 +65,5 @@ public static class LiveIndexEndpoint
         }
 
         return Results.Text(playlist, RecordingsMedia.PlaylistContentType);
-    }
-
-    private static bool TrySessionDirectory(
-        string recordingsRoot, string channel, string id, out string directory)
-    {
-        directory = "";
-        return AuthOptions.IsValidLogin(channel)
-            && Session.IsValidId(id)
-            && RecordingsPath.TryResolve(recordingsRoot, [channel, id], out directory);
     }
 }

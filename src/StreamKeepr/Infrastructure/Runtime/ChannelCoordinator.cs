@@ -16,6 +16,9 @@ public sealed class ChannelCoordinator
     /// <summary>Worst-case recorder shutdown (20 s) plus the finalize cap (15 s).</summary>
     public static readonly TimeSpan JobStopBudget = TimeSpan.FromSeconds(35);
 
+    /// <summary>The shortest gap between two viewer samples of one session, by observation time.</summary>
+    public static readonly TimeSpan ViewerSampleInterval = TimeSpan.FromSeconds(60);
+
     private static readonly TimeSpan MaxTimerDelay =
         TimeSpan.FromMilliseconds(uint.MaxValue - 1);
 
@@ -33,6 +36,7 @@ public sealed class ChannelCoordinator
     private readonly ILogger _logger;
 
     private DvrState _state;
+    private ViewerSampleMark? _lastViewerSample;
     private ActiveJob? _job;
     private RetryTimer? _retry;
     private int _queueDepth;
@@ -130,6 +134,7 @@ public sealed class ChannelCoordinator
                 }
 
                 await ExecuteCommandsAsync(step.Commands, ct);
+                await SampleViewersAsync(@event, ct);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -218,6 +223,51 @@ public sealed class ChannelCoordinator
             _logger.LogError(ex, "{Channel}: {Command} failed", _channel, name);
             _status.Failed(_channel, ex.Message);
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Samples the viewer count of a counted <c>Live</c> observation for the open session, at most
+    /// once per <see cref="ViewerSampleInterval"/> of observation time. Unknown, offline, and
+    /// uncounted observations add nothing, so a gap stays a gap. Sampling never fails recording:
+    /// a write failure logs one warning and is otherwise ignored.
+    /// </summary>
+    private async Task SampleViewersAsync(DvrEvent @event, CancellationToken ct)
+    {
+        if (@event is not DvrEvent.StreamStatusObserved
+            {
+                Observation: StreamObservation.Live { Stream: { ViewerCount: int count } live },
+            } observed)
+        {
+            return;
+        }
+
+        // WaitingToRetry is a reconnecting session: still open, so it keeps sampling.
+        Session? session = _state switch
+        {
+            DvrState.Recording recording => recording.Session,
+            DvrState.WaitingToRetry waiting => waiting.Session,
+            _ => null,
+        };
+        if (session is null || session.StreamId != live.StreamId)
+            return;
+
+        if (_lastViewerSample is { } last
+            && last.SessionId == session.Id
+            && observed.At - last.At < ViewerSampleInterval)
+        {
+            return;
+        }
+
+        _lastViewerSample = new ViewerSampleMark(session.Id, observed.At);
+        try
+        {
+            await _store.AppendViewerSampleAsync(session, observed.At, count, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex, "{Channel}: viewer sample for {Session} was not written.", _channel, session.Id);
         }
     }
 
@@ -369,6 +419,8 @@ public sealed class ChannelCoordinator
     private sealed record ActiveJob(JobId Id, CancellationTokenSource Cts, Task Completion);
 
     private sealed record RetryTimer(JobId Job, CancellationTokenSource Cts, Task Completion);
+
+    private sealed record ViewerSampleMark(string SessionId, DateTimeOffset At);
 }
 
 /// <summary>A channel loop fault that must stop the host rather than risk a second writer.</summary>

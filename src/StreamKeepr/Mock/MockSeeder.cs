@@ -199,8 +199,27 @@ public sealed class MockSeeder(
             ct);
 
         if (recording.Complete)
+        {
             await sessions.FinalizeAsync(session, ct);
+            await SeedViewerSamplesAsync(session, ct);
+        }
         else
             library.Upsert((await sessions.SummarizeAsync(session.Directory, ct))!);
+    }
+
+    /// <summary>
+    /// Writes deterministic viewer samples across a finished recording so the Stats viewer chart
+    /// has data. Live capture fills the growing session at its own cadence.
+    /// </summary>
+    private async Task SeedViewerSamplesAsync(Session session, CancellationToken ct)
+    {
+        double duration = library.Find(session.Id)?.DurationSeconds ?? 0;
+        double spacing = MockCatalog.SeededViewerSpacing.TotalSeconds;
+        IEnumerable<string> lines = Enumerable.Range(0, (int)(duration / spacing) + 1)
+            .Select(i => i * spacing)
+            .Select(at => ViewerSamples.FormatLine(at, MockCatalog.ViewerCount(session.StreamId, at)));
+
+        await File.WriteAllLinesAsync(
+            Path.Combine(session.Directory, ViewerSamples.FileName), lines, ct);
     }
 }

@@ -113,6 +113,29 @@ public static class MockCatalog
         Recordings.Single(recording => recording.Channel == "mock_rain"
             && recording.StreamId == "9100008");
 
+    /// <summary>Spacing of seeded viewer samples; denser than live capture so 60 s parts chart.</summary>
+    public static readonly TimeSpan SeededViewerSpacing = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// A deterministic viewer count for a mock stream <paramref name="seconds"/> into it: a
+    /// per-stream base plus a slow triangle wave, so the Stats chart has a shape. The Mock poller
+    /// and the seeder share it.
+    /// </summary>
+    public static int ViewerCount(string streamId, double seconds)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamId);
+
+        // string.GetHashCode is randomized per process; this stable hash keeps runs identical.
+        int stableHash = streamId.Aggregate(17, (hash, c) => unchecked((hash * 31) + c)) & int.MaxValue;
+        int baseline = 200 + (stableHash % 1800);
+
+        // One wave step per seeded sample, rising for six steps and falling for six.
+        const int StepsPerWave = 12;
+        int step = (int)(Math.Max(0, seconds) / SeededViewerSpacing.TotalSeconds) % StepsPerWave;
+        int wave = step < StepsPerWave / 2 ? step : StepsPerWave - step;
+        return baseline + (wave * (baseline / 20));
+    }
+
     private static readonly string[] ArchiveGames = ["Just Chatting", "Celeste", "Elden Ring", "Music"];
 
     /// <summary>

@@ -50,6 +50,26 @@ public sealed class RecordingAdminTests
     }
 
     [Fact]
+    public async Task Delete_removes_the_viewer_samples_with_the_session()
+    {
+        using var context = new SessionStoreTestContext();
+        RecordingAdmin admin = CreateAdmin(context, out _, out _, out _);
+        await SeedCompleteAsync(context);
+        await context.Store.AppendViewerSampleAsync(
+            context.Session, SessionStoreTestContext.StartedAt.AddSeconds(30), 9, Ct);
+        string viewers = Path.Combine(context.Directory, ViewerSamples.FileName);
+        Assert.True(File.Exists(viewers));
+
+        await admin.DeleteAsync(context.Session.Id, Admin, Ct);
+
+        Assert.False(File.Exists(viewers));
+        await Assert.ThrowsAsync<DirectoryNotFoundException>(() =>
+            context.Store.AppendViewerSampleAsync(
+                context.Session, SessionStoreTestContext.StartedAt.AddSeconds(90), 9, Ct));
+        Assert.False(Directory.Exists(context.Directory));
+    }
+
+    [Fact]
     public async Task Delete_refuses_a_recording_that_is_still_being_captured()
     {
         using var context = new SessionStoreTestContext();

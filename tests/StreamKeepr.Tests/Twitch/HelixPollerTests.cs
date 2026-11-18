@@ -41,6 +41,30 @@ public sealed class HelixPollerTests
         Assert.IsType<StreamObservation.Offline>(observations["offline"]);
     }
 
+    [Fact]
+    public async Task Observe_reads_the_helix_viewer_count_and_leaves_it_null_when_absent()
+    {
+        var handler = new StubHandler(request => Task.FromResult(
+            request.RequestUri!.Host == "id.twitch.tv"
+                ? Token()
+                : Streams("""
+                    {"data":[
+                      {"id":"123","user_login":"counted","type":"live","title":"Title",
+                       "game_name":"Game","started_at":"2026-11-10T16:30:00Z",
+                       "viewer_count":1658},
+                      {"id":"456","user_login":"uncounted","type":"live","title":"Title",
+                       "game_name":"Game","started_at":"2026-11-10T16:30:00Z"}
+                    ]}
+                    """)));
+        TwitchStreamPoller poller = CreatePoller(handler);
+
+        IReadOnlyDictionary<string, StreamObservation> observations =
+            await poller.ObserveAsync(["counted", "uncounted"], CancellationToken.None);
+
+        Assert.Equal(1658, Assert.IsType<StreamObservation.Live>(observations["counted"]).Stream.ViewerCount);
+        Assert.Null(Assert.IsType<StreamObservation.Live>(observations["uncounted"]).Stream.ViewerCount);
+    }
+
     [Theory]
     [InlineData("abc", "live")]
     [InlineData("456", "rerun")]

@@ -299,9 +299,7 @@ public sealed class LibraryView : ILibraryView
             ? hasActiveJob ? RecordingState.Recording : RecordingState.Reconnecting
             : summary.PartCount > 1 ? RecordingState.Partial : RecordingState.Saved;
 
-        double duration = summary.IsRecording
-            ? Math.Max(0, (now - summary.StartedAt).TotalSeconds)
-            : summary.DurationSeconds ?? 0;
+        double duration = summary.DurationAt(now);
 
         return new RecordingView(
             summary.Id,

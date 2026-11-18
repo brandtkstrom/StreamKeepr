@@ -18,7 +18,8 @@ internal sealed record HelixStream(
     [property: JsonPropertyName("title")] string Title,
     [property: JsonPropertyName("game_name")] string GameName,
     [property: JsonPropertyName("started_at")] DateTimeOffset StartedAt,
-    [property: JsonPropertyName("thumbnail_url")] string? ThumbnailUrl);
+    [property: JsonPropertyName("thumbnail_url")] string? ThumbnailUrl,
+    [property: JsonPropertyName("viewer_count")] int? ViewerCount = null);
 
 internal sealed record HelixChannelsResponse(
     [property: JsonPropertyName("data")] List<HelixChannel>? Data);
