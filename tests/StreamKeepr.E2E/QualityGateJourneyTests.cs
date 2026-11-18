@@ -244,14 +244,14 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         await TabToAsync(page, libraryButton, "the Library button");
         await page.Keyboard.PressAsync("Enter");
         await page.Locator("[data-shell][data-drawer-modal-open]").WaitForAsync();
-        Assert.True(await FocusedMatchesAsync(page, "e => e.closest('nav[aria-label=Library]') !== null"), "focus moves into the drawer");
+        await AssertFocusReachesAsync(page, "e => e.closest('nav[aria-label=Library]') !== null", "focus moves into the drawer");
         await AssertFocusStaysInsideAsync(page, LibraryHooks.Drawer, nativeModal: false);
         await AssertNoMotionAsync(page, "phone drawer");
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "phone-drawer");
 
         await page.Keyboard.PressAsync("Escape");
         await page.Locator("[data-shell]:not([data-drawer-modal-open])").WaitForAsync();
-        Assert.True(await FocusedMatchesAsync(page, libraryButton), "Escape returns focus to the Library button");
+        await AssertFocusReachesAsync(page, libraryButton, "Escape returns focus to the Library button");
     }
 
     /// <summary>
@@ -354,6 +354,19 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
 
     private static Task<bool> FocusedMatchesAsync(IPage page, string predicate) =>
         page.EvaluateAsync<bool>($"() => {{ const e = document.activeElement; return !!e && e !== document.body && ({predicate})(e); }}");
+
+    /// <summary>
+    /// The shell renders the drawer's state first and moves focus in a later JS call, so a check
+    /// made right after the state appears can run before focus arrives. Poll until it does.
+    /// </summary>
+    private static async Task AssertFocusReachesAsync(IPage page, string predicate, string what)
+    {
+        DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!await FocusedMatchesAsync(page, predicate) && DateTime.UtcNow < deadline)
+            await Task.Delay(100);
+
+        Assert.True(await FocusedMatchesAsync(page, predicate), what);
+    }
 
     /// <summary>
     /// Under reduced motion no element transitions and nothing animates, except busy spinners,

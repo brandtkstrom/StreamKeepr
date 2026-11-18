@@ -49,7 +49,8 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         await page.GetByRole(AriaRole.Button, new() { Name = "Library options" }).ClickAsync();
         await page.GetByRole(AriaRole.Menuitem, new() { Name = "A–Z by streamer" }).ClickAsync();
         await page.WaitForURLAsync(url => url.Contains("sort=az", StringComparison.Ordinal));
-        Assert.Contains("A–Z by streamer", await page.Locator("[data-sort]").InnerTextAsync());
+        // NavigateTo changes the URL before the circuit renders the new label, so retry the read.
+        await Assertions.Expect(page.Locator("[data-sort]")).ToContainTextAsync("A–Z by streamer");
 
         // Every view change replaced the current entry instead of adding history.
         Assert.Equal(historyLength, await page.EvaluateAsync<int>("history.length"));
