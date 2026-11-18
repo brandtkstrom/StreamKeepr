@@ -13,13 +13,17 @@ namespace StreamKeepr.Tests.Hosting;
 /// renders it; <see cref="Template"/> is the <c>{OriginalFormat}</c> template, or null when the
 /// state has none. <see cref="Properties"/> holds the template's values with Serilog's
 /// <see cref="ScalarValue"/> and <see cref="SequenceValue"/> wrappers unwrapped to CLR values.
+/// <see cref="Scopes"/> holds the properties of every <c>BeginScope</c> active on a direct
+/// <see cref="ILogger"/> call, the innermost value winning. Through a Serilog pipeline with
+/// <c>Enrich.FromLogContext</c>, scope values arrive in <see cref="Properties"/> instead.
 /// </summary>
 internal sealed record CapturedLogEntry(
     LogLevel Level,
     string Message,
     string? Template,
     IReadOnlyDictionary<string, object?> Properties,
-    Exception? Exception);
+    Exception? Exception,
+    IReadOnlyDictionary<string, object?> Scopes);
 
 internal sealed class ListLoggerProvider : ILoggerProvider
 {
@@ -28,6 +32,7 @@ internal sealed class ListLoggerProvider : ILoggerProvider
 
     private readonly ConcurrentQueue<CapturedLogEntry> _entries = new();
     private readonly List<(string Fragment, TaskCompletionSource Logged)> _waiters = [];
+    private readonly AsyncLocal<ScopeFrame?> _scope = new();
 
     /// <summary>
     /// A snapshot. Host logging can run on another thread while a test enumerates, so callers
@@ -103,24 +108,44 @@ internal sealed class ListLoggerProvider : ILoggerProvider
         return message.ToString();
     }
 
-    private static CapturedLogEntry Capture<TState>(
+    private CapturedLogEntry Capture<TState>(
         LogLevel level, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
     {
-        string? template = null;
-        var properties = new Dictionary<string, object?>(StringComparer.Ordinal);
-        if (state is IEnumerable<KeyValuePair<string, object?>> values)
+        var properties = ReadProperties(state, out string? template);
+        var scopes = new Dictionary<string, object?>(StringComparer.Ordinal);
+        for (ScopeFrame? frame = _scope.Value; frame is not null; frame = frame.Parent)
         {
-            foreach ((string key, object? value) in values)
-            {
-                if (key == OriginalFormatKey)
-                    template = value as string;
-                else
-                    properties[key] = Unwrap(value);
-            }
+            foreach ((string key, object? value) in frame.Properties)
+                scopes.TryAdd(key, value);
         }
 
         return new CapturedLogEntry(
-            level, Render(state, exception, formatter), template, properties, exception);
+            level, Render(state, exception, formatter), template, properties, exception, scopes);
+    }
+
+    private IDisposable BeginScope(object state)
+    {
+        var frame = new ScopeFrame(this, _scope.Value, ReadProperties(state, out _));
+        _scope.Value = frame;
+        return frame;
+    }
+
+    private static Dictionary<string, object?> ReadProperties(object? state, out string? template)
+    {
+        template = null;
+        var properties = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (state is not IEnumerable<KeyValuePair<string, object?>> values)
+            return properties;
+
+        foreach ((string key, object? value) in values)
+        {
+            if (key == OriginalFormatKey)
+                template = value as string;
+            else
+                properties[key] = Unwrap(value);
+        }
+
+        return properties;
     }
 
     private static object? Unwrap(object? value) => value switch
@@ -146,13 +171,26 @@ internal sealed class ListLoggerProvider : ILoggerProvider
 
     private sealed class ListLogger(ListLoggerProvider owner) : ILogger
     {
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull =>
+            owner.BeginScope(state);
 
         public bool IsEnabled(LogLevel logLevel) => true;
 
         public void Log<TState>(
             LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter) =>
-            owner.Add(Capture(logLevel, state, exception, formatter));
+            owner.Add(owner.Capture(logLevel, state, exception, formatter));
+    }
+
+    /// <summary>One <c>BeginScope</c>; disposing it restores the enclosing scope on this flow.</summary>
+    private sealed class ScopeFrame(
+        ListLoggerProvider owner, ScopeFrame? parent, IReadOnlyDictionary<string, object?> properties)
+        : IDisposable
+    {
+        public ScopeFrame? Parent => parent;
+
+        public IReadOnlyDictionary<string, object?> Properties => properties;
+
+        public void Dispose() => owner._scope.Value = parent;
     }
 }

@@ -77,6 +77,53 @@ public sealed class ListLoggerProviderTests
     }
 
     [Fact]
+    public async Task Entries_capture_every_active_scope_with_the_innermost_value_winning()
+    {
+        using var provider = new ListLoggerProvider();
+        var logger = provider.CreateLogger("test");
+
+        using (logger.BeginScope(new Dictionary<string, object> { ["Channel"] = "nova", ["Job"] = "outer" }))
+        {
+            using (logger.BeginScope(new Dictionary<string, object> { ["Job"] = "s1/p001" }))
+                await Task.Run(() => logger.LogInformation("inner"));
+
+            logger.LogInformation("outer");
+        }
+
+        logger.LogInformation("none");
+
+        Assert.Collection(
+            provider.Entries,
+            inner =>
+            {
+                Assert.Equal("nova", inner.Scopes["Channel"]);
+                Assert.Equal("s1/p001", inner.Scopes["Job"]);
+            },
+            outer => Assert.Equal("outer", outer.Scopes["Job"]),
+            none => Assert.Empty(none.Scopes));
+        Assert.All(provider.Entries, entry => Assert.False(entry.Properties.ContainsKey("Job")));
+    }
+
+    [Fact]
+    public void Serilog_forwarded_scope_values_arrive_as_properties()
+    {
+        using var provider = new ListLoggerProvider();
+        var providers = new LoggerProviderCollection();
+        providers.AddProvider(provider);
+        using var serilog = new LoggerConfiguration()
+            .Enrich.FromLogContext().WriteTo.Providers(providers).CreateLogger();
+        using var factory = new SerilogLoggerFactory(serilog, providerCollection: providers);
+        var logger = factory.CreateLogger("test");
+
+        using (logger.BeginScope(new Dictionary<string, object> { ["RecordingId"] = "r1" }))
+            logger.LogWarning("Export {ExportId} failed.", "e1");
+
+        CapturedLogEntry entry = Assert.Single(provider.Entries);
+        Assert.Equal("e1", entry.Properties["ExportId"]);
+        Assert.Equal("r1", entry.Properties["RecordingId"]);
+    }
+
+    [Fact]
     public void Serilog_forwarded_messages_render_like_microsoft_extensions_logging()
     {
         using var provider = new ListLoggerProvider();

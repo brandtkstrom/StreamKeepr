@@ -1,9 +1,7 @@
 using System.Threading.Channels;
-using Microsoft.Extensions.Logging;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Twitch;
-using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Twitch;
 
@@ -52,13 +50,6 @@ internal sealed class PassThroughJitter : IRetryJitter
         FirstBase.TrySetResult(baseDelay);
         return baseDelay;
     }
-}
-
-/// <summary>Loggers that write to a <see cref="ListLoggerProvider"/>, Debug and above.</summary>
-internal static class TestLogging
-{
-    public static ILoggerFactory Factory(ListLoggerProvider logs) =>
-        LoggerFactory.Create(builder => builder.AddProvider(logs).SetMinimumLevel(LogLevel.Debug));
 }
 
 internal sealed class FakeChannelInfoPoller : IStreamPoller
