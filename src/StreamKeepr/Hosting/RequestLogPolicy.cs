@@ -12,6 +12,9 @@ namespace StreamKeepr.Hosting;
 /// </summary>
 internal static class RequestLogPolicy
 {
+    // Sources of truth: MapHealthChecks in Program.cs, RecordingsMedia and LiveIndexEndpoint
+    // (/media), and the ProgressEndpoint/ChatEndpoint/EmoteEndpoint routes (/api/recordings).
+    // RequestLogPolicyTests pins the endpoint routes to these prefixes.
     private static readonly PathString[] QuietPrefixes =
     [
         "/health",
@@ -44,7 +47,11 @@ internal static class RequestLogPolicy
     // MapStaticAssets serves wwwroot from the root, so static files are recognized by
     // extension. Media extensions are covered by the /media prefix, not listed here.
     private static bool IsStaticAsset(PathString path) =>
-        Path.GetExtension(path.Value).ToLowerInvariant() is
-            ".js" or ".mjs" or ".css" or ".map" or ".png" or ".jpg" or ".jpeg" or ".gif"
-            or ".svg" or ".ico" or ".webp" or ".webmanifest" or ".woff" or ".woff2" or ".ttf" or ".otf";
+        path.HasValue && StaticAssetExtensions.Contains(Path.GetExtension(path.Value));
+
+    private static readonly HashSet<string> StaticAssetExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".js", ".mjs", ".css", ".map", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp",
+        ".webmanifest", ".woff", ".woff2", ".ttf", ".otf",
+    };
 }

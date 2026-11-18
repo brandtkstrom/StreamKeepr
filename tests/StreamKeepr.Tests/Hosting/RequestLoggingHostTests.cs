@@ -162,6 +162,10 @@ public sealed class RequestLoggingHostTests
             Message + " " + string.Join(" ", Properties.Select(pair => $"{pair.Key}={pair.Value}"));
     }
 
+    /// <summary>
+    /// Keeps level and structured properties for request events only. The shared
+    /// <see cref="ListLoggerProvider"/> records rendered text, which cannot show a level.
+    /// </summary>
     private sealed class CapturingLoggerProvider : ILoggerProvider
     {
         private readonly ConcurrentQueue<RequestEvent> _requests = new();

@@ -11,9 +11,8 @@ internal static class RequestLoggingPipeline
         "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {Elapsed:0.0000} ms [{RequestId}]";
 
     /// <summary>
-    /// Place after forwarded headers, so the request already carries the public scheme and
-    /// client address, and before the exception handler, so a handled exception logs its
-    /// final 500 at Error.
+    /// Adds the request-logging middleware. Its place in the pipeline is fixed by
+    /// <c>docs/hosting-contract.md</c> §2.
     /// </summary>
     public static IApplicationBuilder UseStreamKeeprRequestLogging(this IApplicationBuilder app)
     {

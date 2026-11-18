@@ -93,6 +93,25 @@ public sealed class RequestLogPolicyTests
     }
 
     [Fact]
+    public void An_empty_path_is_information()
+    {
+        Assert.Equal(LogEventLevel.Information, RequestLogPolicy.GetLevel(default(PathString), 200, exception: null));
+    }
+
+    // The quiet prefixes repeat the real routes; these fail if a route moves out from under them.
+    [Theory]
+    [InlineData(ProgressEndpoint.Route)]
+    [InlineData(ChatEndpoint.Route)]
+    [InlineData(EmoteEndpoint.Route)]
+    [InlineData(LiveIndexEndpoint.Route)]
+    public void The_app_s_player_and_media_routes_are_quiet(string route)
+    {
+        string path = route.Replace("{id}", "r1").Replace("{channel}", "ann");
+
+        Assert.Equal(LogEventLevel.Verbose, RequestLogPolicy.GetLevel(path, 200, exception: null));
+    }
+
+    [Fact]
     public void The_middleware_callback_reads_path_and_status_from_the_context()
     {
         var context = new DefaultHttpContext();
