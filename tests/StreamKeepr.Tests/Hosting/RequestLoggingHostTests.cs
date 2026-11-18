@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
-using Serilog.Events;
+using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Storage;
 
 namespace StreamKeepr.Tests.Hosting;
@@ -18,33 +18,31 @@ namespace StreamKeepr.Tests.Hosting;
 /// </summary>
 public sealed class RequestLoggingHostTests
 {
-    private const string RequestLoggingCategory = "Serilog.AspNetCore.RequestLoggingMiddleware";
     private static readonly DateTimeOffset StartedAt = new(2026, 11, 10, 16, 30, 0, TimeSpan.Zero);
 
     [Fact]
     public async Task A_page_request_logs_one_information_event_with_its_request_id()
     {
-        var capture = new CapturingLoggerProvider();
-        using var factory = CreateFactory(capture);
+        using var factory = CreateFactory();
         using HttpClient client = factory.CreateClient();
 
         await GetAsync(client, "/");
 
-        RequestEvent request = Assert.Single(capture.Requests);
+        CapturedLogEntry request = Assert.Single(RequestEvents(factory));
         Assert.Equal(LogLevel.Information, request.Level);
-        Assert.Equal("GET", request.Property("RequestMethod"));
-        Assert.Equal("/", request.Property("RequestPath"));
-        Assert.Equal("200", request.Property("StatusCode"));
-        Assert.NotNull(request.Property("Elapsed"));
-        Assert.False(string.IsNullOrWhiteSpace(request.Property("RequestId")));
-        Assert.Contains(request.Property("RequestId")!, request.Message, StringComparison.Ordinal);
+        Assert.Equal("GET", request.Properties["RequestMethod"]);
+        Assert.Equal("/", request.Properties["RequestPath"]);
+        Assert.Equal(200, request.Properties["StatusCode"]);
+        Assert.NotNull(request.Properties["Elapsed"]);
+        string requestId = Assert.IsType<string>(request.Properties["RequestId"]);
+        Assert.False(string.IsNullOrWhiteSpace(requestId));
+        Assert.Contains(requestId, request.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task A_successful_health_probe_logs_no_request_event()
     {
-        var capture = new CapturingLoggerProvider();
-        using var factory = CreateFactory(capture);
+        using var factory = CreateFactory();
         using HttpClient client = factory.CreateClient();
 
         HttpStatusCode health = await GetAsync(client, "/health/live");
@@ -52,22 +50,21 @@ public sealed class RequestLoggingHostTests
 
         Assert.Equal(HttpStatusCode.OK, health);
         // The page request proves request logging is live; the probe left nothing behind.
-        Assert.Equal(["/"], capture.Requests.Select(request => request.Property("RequestPath")));
+        Assert.Equal(["/"], RequestEvents(factory).Select(request => request.Properties["RequestPath"]));
     }
 
     [Fact]
     public async Task A_missing_media_file_logs_a_warning()
     {
-        var capture = new CapturingLoggerProvider();
-        using var factory = CreateFactory(capture);
+        using var factory = CreateFactory();
         using HttpClient client = factory.CreateClient();
 
         HttpStatusCode status = await GetAsync(client, "/media/nope/nope/index.m3u8");
 
         Assert.Equal(HttpStatusCode.NotFound, status);
-        RequestEvent request = Assert.Single(capture.Requests);
+        CapturedLogEntry request = Assert.Single(RequestEvents(factory));
         Assert.Equal(LogLevel.Warning, request.Level);
-        Assert.Equal("404", request.Property("StatusCode"));
+        Assert.Equal(404, request.Properties["StatusCode"]);
     }
 
     [Theory]
@@ -75,23 +72,21 @@ public sealed class RequestLoggingHostTests
     [InlineData("/")]
     public async Task Query_strings_never_reach_the_request_event(string path)
     {
-        var capture = new CapturingLoggerProvider();
-        using var factory = CreateFactory(capture);
+        using var factory = CreateFactory();
         using HttpClient client = factory.CreateClient(new() { AllowAutoRedirect = false });
 
         await GetAsync(client, $"{path}?code=SECRET-CODE&state=SECRET-STATE&returnUrl=/x");
 
-        RequestEvent request = Assert.Single(capture.Requests);
-        Assert.Equal(path, request.Property("RequestPath"));
-        Assert.DoesNotContain("SECRET", request.Text, StringComparison.Ordinal);
-        Assert.DoesNotContain("returnUrl", request.Text, StringComparison.Ordinal);
+        CapturedLogEntry request = Assert.Single(RequestEvents(factory));
+        Assert.Equal(path, request.Properties["RequestPath"]);
+        Assert.DoesNotContain("SECRET", EventText(request), StringComparison.Ordinal);
+        Assert.DoesNotContain("returnUrl", EventText(request), StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task An_exception_handled_by_the_error_page_logs_one_error_for_the_original_path()
     {
-        var capture = new CapturingLoggerProvider();
-        using var factory = CreateFactory(capture, services =>
+        using var factory = CreateFactory(services =>
         {
             services.RemoveAll<IProgressStore>();
             services.AddSingleton<IProgressStore, ThrowingProgressStore>();
@@ -110,21 +105,32 @@ public sealed class RequestLoggingHostTests
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         Assert.Contains("Something went wrong", body, StringComparison.Ordinal);
         // ...and request logging, outside it, records the original path's 500 once, at Error.
-        RequestEvent request = Assert.Single(capture.Requests);
+        CapturedLogEntry request = Assert.Single(RequestEvents(factory));
         Assert.Equal(LogLevel.Error, request.Level);
-        Assert.Equal("/", request.Property("RequestPath"));
-        Assert.Equal("500", request.Property("StatusCode"));
+        Assert.Equal("/", request.Properties["RequestPath"]);
+        Assert.Equal(500, request.Properties["StatusCode"]);
     }
 
-    private static StreamKeeprAppFactory CreateFactory(
-        CapturingLoggerProvider capture, Action<IServiceCollection>? configure = null) =>
+    private static StreamKeeprAppFactory CreateFactory(Action<IServiceCollection>? configure = null) =>
         new(configureTestServices: services =>
         {
-            // The Testing host forwards Serilog events to every registered provider.
-            services.AddSingleton<ILoggerProvider>(capture);
             services.AddSingleton<IStartupFilter, KestrelRawTargetFilter>();
             configure?.Invoke(services);
         });
+
+    /// <summary>
+    /// The request-completion events, picked out by their template. The Testing host forwards
+    /// Serilog events to the factory's <see cref="ListLoggerProvider"/>.
+    /// </summary>
+    private static IReadOnlyList<CapturedLogEntry> RequestEvents(StreamKeeprAppFactory factory) =>
+        factory.Logs.Entries
+            .Where(entry => entry.Template == RequestLoggingPipeline.MessageTemplate)
+            .ToArray();
+
+    /// <summary>Everything an event would put in a log sink: its message and every property.</summary>
+    private static string EventText(CapturedLogEntry entry) =>
+        entry.Message + " " + string.Join(" ", entry.Properties.Select(pair =>
+            $"{pair.Key}={Convert.ToString(pair.Value, CultureInfo.InvariantCulture)}"));
 
     private static async Task<HttpStatusCode> GetAsync(HttpClient client, string uri)
     {
@@ -151,58 +157,6 @@ public sealed class RequestLoggingHostTests
             });
             next(app);
         };
-    }
-
-    private sealed record RequestEvent(
-        LogLevel Level, string Message, IReadOnlyDictionary<string, string?> Properties)
-    {
-        public string? Property(string name) => Properties.GetValueOrDefault(name);
-
-        public string Text =>
-            Message + " " + string.Join(" ", Properties.Select(pair => $"{pair.Key}={pair.Value}"));
-    }
-
-    /// <summary>
-    /// Keeps level and structured properties for request events only. The shared
-    /// <see cref="ListLoggerProvider"/> records rendered text, which cannot show a level.
-    /// </summary>
-    private sealed class CapturingLoggerProvider : ILoggerProvider
-    {
-        private readonly ConcurrentQueue<RequestEvent> _requests = new();
-
-        public IReadOnlyList<RequestEvent> Requests => _requests.ToArray();
-
-        public ILogger CreateLogger(string categoryName) => new CapturingLogger(this, categoryName);
-
-        public void Dispose()
-        {
-        }
-
-        private sealed class CapturingLogger(CapturingLoggerProvider owner, string category) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => true;
-
-            public void Log<TState>(
-                LogLevel logLevel, EventId eventId, TState state, Exception? exception,
-                Func<TState, Exception?, string> formatter)
-            {
-                if (category != RequestLoggingCategory)
-                    return;
-
-                var properties = (state as IEnumerable<KeyValuePair<string, object?>> ?? [])
-                    .ToDictionary(pair => pair.Key, pair => Render(pair.Value), StringComparer.Ordinal);
-                owner._requests.Enqueue(new RequestEvent(logLevel, formatter(state, exception), properties));
-            }
-
-            private static string? Render(object? value) => value switch
-            {
-                null => null,
-                ScalarValue scalar => Convert.ToString(scalar.Value, System.Globalization.CultureInfo.InvariantCulture),
-                _ => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture),
-            };
-        }
     }
 
     /// <summary>
