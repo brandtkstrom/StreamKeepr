@@ -247,6 +247,76 @@ public sealed class RecorderJobTests : IDisposable
     }
 
     [Fact]
+    public async Task Start_and_finish_logs_carry_the_channel_session_and_job_scope()
+    {
+        string ffmpeg = RequireFfmpeg();
+        Session session = NewSession();
+        var logger = new RecorderLogger();
+        RecorderOptions options = NewOptions(ffmpeg);
+
+        IReadOnlyList<DvrEvent> events = await RunAsync(session, options, logger: logger);
+
+        Assert.Single(events.OfType<DvrEvent.PartProducingMedia>());
+        IReadOnlyList<LogEntry> entries = logger.Entries;
+        Assert.NotEmpty(entries);
+        Assert.All(entries, entry =>
+        {
+            Assert.Equal("streamer", entry.Scope["Channel"]);
+            Assert.Equal(session.Id, entry.Scope["SessionId"]);
+            Assert.Equal($"{session.Id}/p001", entry.Scope["Job"]);
+        });
+
+        LogEntry started = Assert.Single(entries, entry => entry.Message.Contains("started", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Information, started.Level);
+        Assert.Equal("streamer", started.Properties["Channel"]);
+        Assert.Equal($"{session.Id}/p001", started.Properties["Job"]?.ToString());
+        Assert.Equal(1, started.Properties["Part"]);
+
+        LogEntry finished = Assert.Single(entries, entry => entry.Message.Contains("finished", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Information, finished.Level);
+        Assert.Equal(RecorderExitKind.Exited, finished.Properties["Kind"]);
+        double elapsedMs = Assert.IsType<double>(finished.Properties["ElapsedMs"]);
+        Assert.True(elapsedMs > 0, $"ElapsedMs was {elapsedMs}");
+        long bytes = Assert.IsType<long>(finished.Properties["Bytes"]);
+        Assert.True(bytes > 0, "a part with media must report its bytes");
+        Assert.Equal(PartFiles.TotalBytes(session.Directory, 1), bytes);
+        Assert.True(
+            entries.ToList().IndexOf(started) < entries.ToList().IndexOf(finished),
+            "the start log must precede the finish log");
+    }
+
+    [Fact]
+    public async Task Hostile_tool_output_is_logged_only_at_debug_redacted_and_escaped()
+    {
+        const string token = "test-oauth-token-27-do-not-log";
+        string ffmpeg = RequireFfmpeg();
+        Session session = NewSession();
+        var logger = new RecorderLogger();
+        RecorderOptions options = NewOptions(ffmpeg);
+        options.StreamlinkPath = FixturePath("fake-streamlink-hostile-output");
+        options.TwitchUserOAuthToken = token;
+
+        IReadOnlyList<DvrEvent> events = await RunAsync(session, options, logger: logger);
+
+        Assert.Single(events.OfType<DvrEvent.RecorderExited>());
+        IReadOnlyList<LogEntry> entries = logger.Entries;
+        LogEntry raw = Assert.Single(entries, entry => entry.Message.Contains("hostile:", StringComparison.Ordinal)
+            && entry.Message.StartsWith("[streamlink", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Debug, raw.Level);
+        Assert.Equal(
+            "hostile: token=*** \\u001B[31mred\\u001B[0m\\u2028[ERR] forged",
+            raw.Properties["Line"]);
+
+        Assert.All(entries, entry =>
+        {
+            Assert.DoesNotContain(token, entry.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                entry.Message,
+                c => c < (char)0x20 || c == (char)0x7f || c == (char)0x85 || c == (char)0x2028 || c == (char)0x2029);
+        });
+    }
+
+    [Fact]
     public async Task A_stalled_streamlink_is_stopped_by_the_watchdog_and_reported_killed()
     {
         string ffmpeg = RequireFfmpeg();
@@ -775,18 +845,30 @@ public sealed class RecorderJobTests : IDisposable
         }
     }
 
-    /// <summary>Captures recorder logs and signals when Streamlink's ad-break line was handled.</summary>
+    /// <summary>
+    /// Captures recorder logs with their level, structured properties, and the properties of
+    /// every scope active when they were written, and signals when Streamlink's ad-break line
+    /// was handled.
+    /// </summary>
     private sealed class RecorderLogger : ILogger<RecorderJob>
     {
-        private readonly ConcurrentQueue<string> _messages = new();
+        private readonly ConcurrentQueue<LogEntry> _entries = new();
+        private readonly AsyncLocal<ScopeFrame?> _scope = new();
         private readonly TaskCompletionSource _adBreakSeen =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task AdBreakSeen => _adBreakSeen.Task;
 
-        public IReadOnlyList<string> Messages => _messages.ToArray();
+        public IReadOnlyList<LogEntry> Entries => _entries.ToArray();
 
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public IReadOnlyList<string> Messages => Entries.Select(entry => entry.Message).ToArray();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+        {
+            var frame = new ScopeFrame(this, _scope.Value, Properties(state));
+            _scope.Value = frame;
+            return frame;
+        }
 
         public bool IsEnabled(LogLevel logLevel) => true;
 
@@ -798,10 +880,42 @@ public sealed class RecorderJobTests : IDisposable
             Func<TState, Exception?, string> formatter)
         {
             string message = formatter(state, exception);
-            _messages.Enqueue(message);
+            var scope = new Dictionary<string, object?>(StringComparer.Ordinal);
+            for (ScopeFrame? frame = _scope.Value; frame is not null; frame = frame.Parent)
+            {
+                foreach ((string key, object? value) in frame.Properties)
+                    scope.TryAdd(key, value);
+            }
+
+            _entries.Enqueue(new LogEntry(logLevel, message, Properties(state), scope));
 
             if (message.Contains("advertisement break", StringComparison.OrdinalIgnoreCase))
                 _adBreakSeen.TrySetResult();
         }
+
+        private static IReadOnlyDictionary<string, object?> Properties<TState>(TState state) =>
+            state is IEnumerable<KeyValuePair<string, object?>> pairs
+                ? pairs.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)
+                : state is IEnumerable<KeyValuePair<string, object>> objects
+                    ? objects.ToDictionary(pair => pair.Key, pair => (object?)pair.Value, StringComparer.Ordinal)
+                    : new Dictionary<string, object?>(StringComparer.Ordinal);
+
+        private sealed class ScopeFrame(
+            RecorderLogger owner,
+            ScopeFrame? parent,
+            IReadOnlyDictionary<string, object?> properties) : IDisposable
+        {
+            public ScopeFrame? Parent => parent;
+
+            public IReadOnlyDictionary<string, object?> Properties => properties;
+
+            public void Dispose() => owner._scope.Value = parent;
+        }
     }
+
+    private sealed record LogEntry(
+        LogLevel Level,
+        string Message,
+        IReadOnlyDictionary<string, object?> Properties,
+        IReadOnlyDictionary<string, object?> Scope);
 }

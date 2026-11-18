@@ -40,6 +40,16 @@ public sealed class RecorderJob(
         ArgumentNullException.ThrowIfNull(publish);
 
         RecorderOptions recorder = options.Value;
+
+        // One bounded scope per job, so every recorder line (including raw tool output) can be
+        // correlated by channel, session, and job. It ends with the job; never hold it longer.
+        using IDisposable? scope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["Channel"] = session.Channel,
+            ["SessionId"] = session.Id,
+            ["Job"] = job.ToString(),
+        });
+
         Directory.CreateDirectory(session.Directory);
 
         if (PartFiles.Exists(session.Directory, job.Part))
@@ -72,10 +82,16 @@ public sealed class RecorderJob(
         long lastMediaAdvanceTicks = clock.GetUtcNow().UtcTicks;
         long adGraceUntilTicks = 0;
 
-        string Redact(string line) =>
-            string.IsNullOrEmpty(recorder.TwitchUserOAuthToken)
-                ? line
-                : line.Replace(recorder.TwitchUserOAuthToken, "***", StringComparison.Ordinal);
+        // Tool output may echo the subscriber token or carry line breaks and terminal controls;
+        // redact and escape it before it reaches the tail, the detail, or any log.
+        string ForLog(string line) => ProcessOutput.ForLog(line, recorder.TwitchUserOAuthToken);
+
+        long startedAt = clock.GetTimestamp();
+        logger.LogInformation(
+            "Recorder {Job} started part {Part} for {Channel}",
+            job,
+            job.Part,
+            session.Channel);
 
         // The bounded pipe is the backpressure boundary between the two tools: Streamlink
         // pauses at 4 MiB and resumes when FFmpeg has consumed back down to 2 MiB.
@@ -119,7 +135,7 @@ public sealed class RecorderJob(
             }))
             .WithStandardErrorPipe(PipeTarget.ToDelegate(line =>
             {
-                string safe = Redact(line);
+                string safe = ForLog(line);
                 tail.Add("ffmpeg", safe);
                 logger.LogDebug("[ffmpeg {Job}] {Line}", job, safe);
             }));
@@ -131,7 +147,7 @@ public sealed class RecorderJob(
             .WithStandardOutputPipe(PipeTarget.ToStream(pipe.Writer.AsStream()))
             .WithStandardErrorPipe(PipeTarget.ToDelegate(line =>
             {
-                string safe = Redact(line);
+                string safe = ForLog(line);
 
                 // Streamlink announces skipped ads before it starves FFmpeg of media. Extend the
                 // grace window before logging so a later stall check observes the new deadline.
@@ -266,11 +282,21 @@ public sealed class RecorderJob(
         if (stderr.Length > 0)
             detail = $"{detail}; {stderr}";
 
-        // Diagnostic text can include a tool exception message; redact once more at the boundary
-        // so the subscriber token can never leak through the detail or the log.
-        detail = Redact(detail);
+        // Diagnostic text can include a tool exception message; redact and escape once more at
+        // the boundary so the subscriber token or a forged line can never leak through the
+        // detail or the log.
+        detail = ForLog(detail);
 
-        logger.LogInformation("Recorder {Job} finished ({Kind}): {Detail}", job, kind, detail);
+        // Bytes are what the part left on disk: zero when an empty part was removed.
+        double elapsedMs = clock.GetElapsedTime(startedAt).TotalMilliseconds;
+        long bytes = PartFiles.TotalBytes(session.Directory, job.Part);
+        logger.LogInformation(
+            "Recorder {Job} finished ({Kind}) after {ElapsedMs:F0} ms with {Bytes} bytes: {Detail}",
+            job,
+            kind,
+            elapsedMs,
+            bytes,
+            detail);
         await publish(
             new DvrEvent.RecorderExited(
                 job,
