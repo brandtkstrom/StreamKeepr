@@ -124,12 +124,9 @@ public sealed class EmoteCatalogServiceTests
         Assert.False(result.Stale);
         Assert.Null(result.FetchedAt);
         Assert.Empty(result.Entries);
-        string warning = Assert.Single(_logs.Messages);
-        Assert.Contains("provider=bttv", warning, StringComparison.Ordinal);
-        Assert.Contains("scope=global", warning, StringComparison.Ordinal);
-        Assert.Contains("channel=global", warning, StringComparison.Ordinal);
-        Assert.Contains("status=503", warning, StringComparison.Ordinal);
-        Assert.Contains("reason=http", warning, StringComparison.Ordinal);
+        CapturedLogEntry warning = Assert.Single(_logs.Entries);
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        AssertRefreshFailure(warning, scope: "global", channelId: null, httpStatus: 503, reason: "http");
     }
 
     [Fact]
@@ -149,10 +146,9 @@ public sealed class EmoteCatalogServiceTests
         Assert.False(result.Stale);
         Assert.Equal(Now, result.FetchedAt);
         Assert.Equal("KEKW", Assert.Single(result.Entries).Entry.Code);
-        string warning = Assert.Single(_logs.Messages);
-        Assert.Contains("scope=channel", warning, StringComparison.Ordinal);
-        Assert.Contains("channel=42", warning, StringComparison.Ordinal);
-        Assert.Contains("status=500", warning, StringComparison.Ordinal);
+        CapturedLogEntry warning = Assert.Single(_logs.Entries);
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        AssertRefreshFailure(warning, scope: "channel", channelId: "42", httpStatus: 500, reason: "http");
     }
 
     [Fact]
@@ -172,9 +168,8 @@ public sealed class EmoteCatalogServiceTests
         Assert.False(result.Stale);
         Assert.Equal(Now, result.FetchedAt);
         Assert.Equal("CHANNEL", Assert.Single(result.Entries).Entry.Code);
-        string warning = Assert.Single(_logs.Messages);
-        Assert.Contains("scope=global", warning, StringComparison.Ordinal);
-        Assert.Contains("channel=global", warning, StringComparison.Ordinal);
+        AssertRefreshFailure(
+            Assert.Single(_logs.Entries), scope: "global", channelId: null, httpStatus: 500, reason: "http");
     }
 
     [Fact]
@@ -300,9 +295,12 @@ public sealed class EmoteCatalogServiceTests
 
         Assert.False(result.Available);
         Assert.Empty(result.Entries);
-        Assert.Equal(2, _logs.Messages.Count);
-        Assert.All(_logs.Messages, warning => Assert.Contains(
-            "reason=timeout", warning, StringComparison.Ordinal));
+        Assert.Equal(2, _logs.Entries.Count);
+        Assert.All(_logs.Entries, warning =>
+        {
+            Assert.Equal("timeout", warning.Properties["Reason"]);
+            Assert.Null(warning.Properties["HttpStatus"]);
+        });
     }
 
     [Fact]
@@ -599,10 +597,7 @@ public sealed class EmoteCatalogServiceTests
         Assert.Equal("GLOBAL", Assert.Single(result.Entries).Entry.Code);
         Assert.Equal(1, provider.GlobalCalls);
         Assert.Equal(0, provider.ChannelCalls);
-        Assert.Contains(
-            _logs.Messages,
-            message => message.Contains("resolution timed out", StringComparison.Ordinal) &&
-                message.Contains("login=chan", StringComparison.Ordinal));
+        AssertResolutionTimeout(_logs.Entries);
     }
 
     [Fact]
@@ -639,10 +634,7 @@ public sealed class EmoteCatalogServiceTests
         Assert.True(result.Available);
         Assert.Equal("GLOBAL", Assert.Single(result.Entries).Entry.Code);
         Assert.Equal(1, provider.GlobalCalls);
-        Assert.Contains(
-            _logs.Messages,
-            message => message.Contains("resolution timed out", StringComparison.Ordinal) &&
-                message.Contains("login=chan", StringComparison.Ordinal));
+        AssertResolutionTimeout(_logs.Entries);
     }
 
     [Fact]
@@ -682,9 +674,8 @@ public sealed class EmoteCatalogServiceTests
         Assert.Equal(["CHANNEL", "GLOBAL"], result.Entries.Select(item => item.Entry.Code));
         Assert.Equal(2, provider.GlobalCalls);
         Assert.Equal(2, provider.ChannelCalls);
-        string warning = Assert.Single(_logs.Messages);
-        Assert.Contains("scope=channel", warning, StringComparison.Ordinal);
-        Assert.Contains("reason=timeout", warning, StringComparison.Ordinal);
+        AssertRefreshFailure(
+            Assert.Single(_logs.Entries), scope: "channel", channelId: "42", httpStatus: null, reason: "timeout");
     }
 
     [Fact]
@@ -740,10 +731,31 @@ public sealed class EmoteCatalogServiceTests
 
         await service.GetCatalogAsync("chan", CancellationToken.None);
 
-        string warning = Assert.Single(_logs.Messages);
-        Assert.Contains($"reason={reason}", warning, StringComparison.Ordinal);
-        Assert.Contains("status=none", warning, StringComparison.Ordinal);
-        Assert.DoesNotContain("status=200", warning, StringComparison.Ordinal);
+        AssertRefreshFailure(
+            Assert.Single(_logs.Entries), scope: "global", channelId: null, httpStatus: null, reason: reason);
+    }
+
+    private static void AssertResolutionTimeout(IReadOnlyList<CapturedLogEntry> entries)
+    {
+        CapturedLogEntry warning = Assert.Single(
+            entries, entry => entry.Template?.Contains("resolution timed out", StringComparison.Ordinal) == true);
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Equal("chan", warning.Properties["Login"]);
+        Assert.Equal("timeout", warning.Properties["Reason"]);
+        Assert.DoesNotContain("=", warning.Template, StringComparison.Ordinal);
+    }
+
+    private static void AssertRefreshFailure(
+        CapturedLogEntry warning, string scope, string? channelId, int? httpStatus, string reason)
+    {
+        Assert.Equal("bttv", warning.Properties["ProviderId"]);
+        Assert.Equal(scope, warning.Properties["Scope"]);
+        Assert.True(warning.Properties.ContainsKey("ChannelId"));
+        Assert.Equal(channelId, warning.Properties["ChannelId"]);
+        Assert.True(warning.Properties.ContainsKey("HttpStatus"));
+        Assert.Equal(httpStatus, warning.Properties["HttpStatus"]);
+        Assert.Equal(reason, warning.Properties["Reason"]);
+        Assert.DoesNotContain("=", warning.Template, StringComparison.Ordinal);
     }
 
     private static Task<IReadOnlyList<EmoteCatalogEntry>> Succeed(

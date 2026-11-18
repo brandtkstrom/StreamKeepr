@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -6,6 +7,7 @@ using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Emotes;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
 using StreamKeepr.Tests.Runtime;
 
@@ -110,8 +112,45 @@ public sealed class EmoteChannelResolverTests : IDisposable
         Assert.Null(await resolver.ResolveAsync("chan", CancellationToken.None));
         Assert.Equal("42", await resolver.ResolveAsync("chan", CancellationToken.None));
         Assert.Equal(2, _poller.Lookups);
-        string warning = Assert.Single(_logs.Messages);
-        Assert.Contains("login=chan", warning, StringComparison.Ordinal);
+        CapturedLogEntry warning = Assert.Single(_logs.Entries);
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Equal("chan", warning.Properties["Login"]);
+        Assert.Equal("transport", warning.Properties["Reason"]);
+        Assert.True(warning.Properties.ContainsKey("HttpStatus"));
+        Assert.Null(warning.Properties["HttpStatus"]);
+        Assert.DoesNotContain("=", warning.Template, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_poller_http_failure_logs_its_status()
+    {
+        ChannelStore store = await CreateStoreAsync();
+        _poller.Lookup = (_, _) => Task.FromException<ChannelProfile?>(
+            new HttpRequestException("Twitch unavailable.", null, HttpStatusCode.ServiceUnavailable));
+        EmoteChannelResolver resolver = new(store, _poller, _clock, Logger);
+
+        Assert.Null(await resolver.ResolveAsync("Chan", CancellationToken.None));
+
+        CapturedLogEntry warning = Assert.Single(_logs.Entries);
+        Assert.Equal("chan", warning.Properties["Login"]);
+        Assert.Equal(503, warning.Properties["HttpStatus"]);
+        Assert.Equal("transport", warning.Properties["Reason"]);
+    }
+
+    [Fact]
+    public async Task A_twitch_api_failure_logs_a_twitch_api_reason()
+    {
+        ChannelStore store = await CreateStoreAsync();
+        _poller.Lookup = (_, _) => Task.FromException<ChannelProfile?>(
+            new TwitchApiException("Twitch returned HTTP 500."));
+        EmoteChannelResolver resolver = new(store, _poller, _clock, Logger);
+
+        Assert.Null(await resolver.ResolveAsync("chan", CancellationToken.None));
+
+        CapturedLogEntry warning = Assert.Single(_logs.Entries);
+        Assert.Equal("chan", warning.Properties["Login"]);
+        Assert.Equal("twitch-api", warning.Properties["Reason"]);
+        Assert.Null(warning.Properties["HttpStatus"]);
     }
 
     [Fact]
