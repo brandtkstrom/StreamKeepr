@@ -1,8 +1,10 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Tests.Hosting;
 using StreamKeepr.Ui;
 
 namespace StreamKeepr.Tests.Storage;
@@ -122,15 +124,82 @@ public sealed class StorageMonitorTests
         Assert.Equal(0, changed);
     }
 
+    [Fact]
+    public void Crossing_the_free_space_minimum_logs_once_per_transition()
+    {
+        const long Gib = DiskGuard.BytesPerGib;
+        var disk = new MutableDiskSpace(freeBytes: 20 * Gib, totalBytes: 100 * Gib);
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        using StorageMonitor monitor = Create(
+            disk, out FakeTimeProvider clock, out _, minFreeGb: 10,
+            loggerFactory.CreateLogger<StorageMonitor>());
+
+        Assert.Empty(DiskLogs(logs));
+
+        disk.FreeBytes = 9 * Gib + Gib / 2; // 9.5 GiB: below the 10 GiB minimum
+        clock.Advance(StorageMonitor.SampleInterval);
+
+        CapturedLogEntry low = Assert.Single(DiskLogs(logs));
+        Assert.Equal(LogLevel.Warning, low.Level);
+        Assert.Equal(9.5, low.Properties["FreeGb"]);
+        Assert.Equal(10, low.Properties["MinFreeGb"]);
+        Assert.Equal(100.0, low.Properties["TotalGb"]);
+
+        disk.FreeBytes = 5 * Gib; // still low: the sample changes, the state does not
+        clock.Advance(StorageMonitor.SampleInterval);
+        monitor.Refresh();
+
+        Assert.Single(DiskLogs(logs));
+
+        disk.FreeBytes = 10 * Gib; // exactly the minimum has room again, as DiskGuard decides
+        clock.Advance(StorageMonitor.SampleInterval);
+
+        Assert.Equal(2, DiskLogs(logs).Count);
+        CapturedLogEntry recovered = DiskLogs(logs)[1];
+        Assert.Equal(LogLevel.Information, recovered.Level);
+        Assert.Equal(10.0, recovered.Properties["FreeGb"]);
+        Assert.Equal(10, recovered.Properties["MinFreeGb"]);
+        Assert.Equal(100.0, recovered.Properties["TotalGb"]);
+
+        disk.FreeBytes = 50 * Gib;
+        clock.Advance(StorageMonitor.SampleInterval);
+
+        Assert.Equal(2, DiskLogs(logs).Count);
+    }
+
+    [Fact]
+    public void Starting_below_the_free_space_minimum_logs_the_warning_once()
+    {
+        const long Gib = DiskGuard.BytesPerGib;
+        var disk = new MutableDiskSpace(freeBytes: 2 * Gib, totalBytes: 100 * Gib);
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        using StorageMonitor monitor = Create(
+            disk, out FakeTimeProvider clock, out _, minFreeGb: 10,
+            loggerFactory.CreateLogger<StorageMonitor>());
+
+        clock.Advance(StorageMonitor.SampleInterval);
+
+        CapturedLogEntry low = Assert.Single(DiskLogs(logs));
+        Assert.Equal(LogLevel.Warning, low.Level);
+        Assert.Equal(2.0, low.Properties["FreeGb"]);
+    }
+
+    private static List<CapturedLogEntry> DiskLogs(ListLoggerProvider logs) =>
+        logs.Entries.Where(entry => entry.Properties.ContainsKey("MinFreeGb")).ToList();
+
     private static StorageMonitor Create(
         IDiskSpace disk,
         out FakeTimeProvider clock,
-        out RecordingLibrary library)
+        out RecordingLibrary library,
+        int minFreeGb = 1,
+        ILogger<StorageMonitor>? logger = null)
     {
         var options = Options.Create(new StorageOptions
         {
             RecordingsRoot = Path.GetTempPath(),
-            MinFreeGb = 1,
+            MinFreeGb = minFreeGb,
         });
 
         clock = new FakeTimeProvider(T0);
@@ -140,7 +209,7 @@ public sealed class StorageMonitorTests
             new DiskGuard(options, disk),
             library,
             clock,
-            NullLogger<StorageMonitor>.Instance);
+            logger ?? NullLogger<StorageMonitor>.Instance);
     }
 
     private static RecordingSummary Summary(string id) => new(

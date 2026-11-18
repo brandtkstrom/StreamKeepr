@@ -15,7 +15,10 @@ public sealed class DiskGuard(IOptions<StorageOptions> storage, IDiskSpace diskS
 
     public long TotalBytes => diskSpace.TotalSize(storage.Value.RecordingsRoot);
 
-    public bool HasRoomToRecord() => HasRoom(FreeBytes, storage.Value.MinFreeGb);
+    /// <summary>The configured <c>Storage:MinFreeGb</c> below which no new part starts.</summary>
+    public int MinFreeGb => storage.Value.MinFreeGb;
+
+    public bool HasRoomToRecord() => HasRoom(FreeBytes, MinFreeGb);
 
     public static bool HasRoom(long freeBytes, int minFreeGb)
     {
