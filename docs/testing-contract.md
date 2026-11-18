@@ -71,6 +71,7 @@ Commit executable scripts under `tests/fixtures/`:
 - `fake-streamlink-broken` — answers `--version` but exits 1 otherwise, so preflight passes and recording fails.
 - `fake-streamlink-slow` — writes a partial source to exercise backpressure.
 - `fake-streamlink-token-echo` — echoes its arguments to stderr so the token-redaction test can prove the subscriber header reached Streamlink without leaking it.
+- `fake-streamlink-hostile-output` — writes one stderr line with the token, ANSI escapes, and a U+2028 separator so the recorder test can prove raw tool output is logged at Debug only, redacted, and escaped.
 
 Rules:
 

@@ -1,6 +1,8 @@
 using System.Net;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Logging;
 using StreamKeepr.Infrastructure.Twitch;
+using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Twitch;
 
@@ -27,6 +29,69 @@ public sealed class AuthRoutingTests
         Assert.Null(harness.Store.Token);
         Assert.Contains(GetSetCookies(response),
             cookie => cookie.StartsWith($"{AdminAuth.CookieScheme}=;", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Successful_logout_logs_an_information_audit_with_the_normalized_login()
+    {
+        using var harness = new AdminAuthHarness(
+            login: "Allowed_Login",
+            overrides: AdminAuthTestSettings.Allowlist("allowed_login"));
+        var signIn = await harness.SignInAsync();
+        var authCookie = Assert.IsType<string>(signIn.AuthCookieValue);
+        var antiforgery = harness.GetAntiforgeryToken(authCookie);
+
+        using var client = harness.CreateRequestClient();
+        using var response = await PostLogoutAsync(client, authCookie, antiforgery, "/");
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        CapturedLogEntry audit = Assert.Single(
+            harness.Factory.Logs.Entries,
+            entry => entry.Message.Contains("Admin signed out", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Information, audit.Level);
+        Assert.Equal("allowed_login", audit.Properties["Login"]);
+    }
+
+    [Fact]
+    public async Task Sign_in_and_logout_never_log_tokens_cookies_oauth_code_or_state()
+    {
+        using var harness = new AdminAuthHarness(
+            overrides: AdminAuthTestSettings.Allowlist("allowed_login"));
+        var signIn = await harness.SignInAsync();
+        var authCookie = Assert.IsType<string>(signIn.AuthCookieValue);
+        var state = QueryHelpers.ParseQuery(new Uri(signIn.AuthorizeUrl).Query)["state"].ToString();
+        var antiforgery = harness.GetAntiforgeryToken(authCookie);
+
+        using var client = harness.CreateRequestClient();
+        using var response = await PostLogoutAsync(client, authCookie, antiforgery, "/");
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+
+        string[] secrets =
+        [
+            TwitchOAuthStub.AccessToken,
+            TwitchOAuthStub.RefreshToken,
+            "test-code",
+            state,
+            authCookie,
+            antiforgery.RequestToken,
+            antiforgery.Cookie.Split('=', 2)[1],
+        ];
+        Assert.All(secrets, secret => Assert.False(string.IsNullOrEmpty(secret)));
+
+        // Both audits ran, so the scan below covers the sign-in and sign-out log paths.
+        Assert.Contains(harness.Factory.Logs.Messages,
+            message => message.Contains("Admin signed in", StringComparison.Ordinal));
+        Assert.Contains(harness.Factory.Logs.Messages,
+            message => message.Contains("Admin signed out", StringComparison.Ordinal));
+
+        foreach (CapturedLogEntry entry in harness.Factory.Logs.Entries)
+        {
+            string logged = string.Join(
+                '\n',
+                [entry.Message, entry.Exception?.ToString(), .. entry.Properties.Values.Select(value => value?.ToString())]);
+            foreach (string secret in secrets)
+                Assert.DoesNotContain(secret, logged, StringComparison.Ordinal);
+        }
     }
 
     [Fact]

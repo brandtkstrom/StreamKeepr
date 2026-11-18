@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Pipelines;
 using CliWrap;
@@ -8,6 +7,7 @@ using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Media;
+using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Media;
 
@@ -229,7 +229,9 @@ public sealed class RecorderJobTests : IDisposable
         const string token = "test-oauth-token-27-do-not-log";
         string ffmpeg = RequireFfmpeg();
         Session session = NewSession();
-        var logger = new RecorderLogger();
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        ILogger<RecorderJob> logger = loggerFactory.CreateLogger<RecorderJob>();
         RecorderOptions options = NewOptions(ffmpeg);
         options.StreamlinkPath = FixturePath("fake-streamlink-token-echo");
         options.TwitchUserOAuthToken = token;
@@ -243,7 +245,82 @@ public sealed class RecorderJobTests : IDisposable
         // token itself was replaced in the diagnostic detail.
         Assert.Contains("Authorization=OAuth ***", exited.Detail, StringComparison.Ordinal);
         Assert.DoesNotContain(token, exited.Detail, StringComparison.Ordinal);
-        Assert.DoesNotContain(token, string.Join("\n", logger.Messages), StringComparison.Ordinal);
+        Assert.DoesNotContain(token, string.Join("\n", logs.Messages), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Start_and_finish_logs_carry_the_channel_session_and_job_scope()
+    {
+        string ffmpeg = RequireFfmpeg();
+        Session session = NewSession();
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        ILogger<RecorderJob> logger = loggerFactory.CreateLogger<RecorderJob>();
+        RecorderOptions options = NewOptions(ffmpeg);
+
+        IReadOnlyList<DvrEvent> events = await RunAsync(session, options, logger: logger);
+
+        Assert.Single(events.OfType<DvrEvent.PartProducingMedia>());
+        IReadOnlyList<CapturedLogEntry> entries = logs.Entries;
+        Assert.NotEmpty(entries);
+        Assert.All(entries, entry =>
+        {
+            Assert.Equal("streamer", entry.Scopes["Channel"]);
+            Assert.Equal(session.Id, entry.Scopes["SessionId"]);
+            Assert.Equal($"{session.Id}/p001", entry.Scopes["Job"]);
+        });
+
+        CapturedLogEntry started = Assert.Single(entries, entry => entry.Message.Contains("started", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Information, started.Level);
+        Assert.Equal("streamer", started.Properties["Channel"]);
+        Assert.Equal($"{session.Id}/p001", started.Properties["Job"]?.ToString());
+        Assert.Equal(1, started.Properties["Part"]);
+
+        CapturedLogEntry finished = Assert.Single(entries, entry => entry.Message.Contains("finished", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Information, finished.Level);
+        Assert.Equal(RecorderExitKind.Exited, finished.Properties["Kind"]);
+        double elapsedMs = Assert.IsType<double>(finished.Properties["ElapsedMs"]);
+        Assert.True(elapsedMs > 0, $"ElapsedMs was {elapsedMs}");
+        long bytes = Assert.IsType<long>(finished.Properties["Bytes"]);
+        Assert.True(bytes > 0, "a part with media must report its bytes");
+        Assert.Equal(PartFiles.TotalBytes(session.Directory, 1), bytes);
+        var order = entries.ToList();
+        Assert.True(
+            order.IndexOf(started) < order.IndexOf(finished),
+            "the start log must precede the finish log");
+    }
+
+    [Fact]
+    public async Task Hostile_tool_output_is_logged_only_at_debug_redacted_and_escaped()
+    {
+        const string token = "test-oauth-token-27-do-not-log";
+        string ffmpeg = RequireFfmpeg();
+        Session session = NewSession();
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        ILogger<RecorderJob> logger = loggerFactory.CreateLogger<RecorderJob>();
+        RecorderOptions options = NewOptions(ffmpeg);
+        options.StreamlinkPath = FixturePath("fake-streamlink-hostile-output");
+        options.TwitchUserOAuthToken = token;
+
+        IReadOnlyList<DvrEvent> events = await RunAsync(session, options, logger: logger);
+
+        Assert.Single(events.OfType<DvrEvent.RecorderExited>());
+        IReadOnlyList<CapturedLogEntry> entries = logs.Entries;
+        CapturedLogEntry raw = Assert.Single(entries, entry => entry.Message.Contains("hostile:", StringComparison.Ordinal)
+            && entry.Message.StartsWith("[streamlink", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Debug, raw.Level);
+        Assert.Equal(
+            "hostile: token=*** \\u001B[31mred\\u001B[0m\\u2028[ERR] forged",
+            raw.Properties["Line"]);
+
+        Assert.All(entries, entry =>
+        {
+            Assert.DoesNotContain(token, entry.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                entry.Message,
+                c => c < (char)0x20 || c == (char)0x7f || c == (char)0x85 || c == (char)0x2028 || c == (char)0x2029);
+        });
     }
 
     [Fact]
@@ -287,7 +364,9 @@ public sealed class RecorderJobTests : IDisposable
         string ffmpeg = RequireFfmpeg();
         Session session = NewSession();
         var clock = new ManualTimeProvider(StartedAt);
-        var logger = new RecorderLogger();
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        ILogger<RecorderJob> logger = loggerFactory.CreateLogger<RecorderJob>();
         RecorderOptions options = NewOptions(ffmpeg);
         options.StreamlinkPath = FixturePath("fake-streamlink-adbreak");
         options.StallTimeoutSeconds = 15;
@@ -296,7 +375,7 @@ public sealed class RecorderJobTests : IDisposable
         (Task run, List<DvrEvent> events) = StartJob(
             session, options, clock, logger, safetyStop.Token);
 
-        await logger.AdBreakSeen.WaitAsync(TimeSpan.FromSeconds(30));
+        await logs.WaitForAsync("Detected advertisement break");
 
         // The same jump kills the run without an ad announcement. Here the announced break plus
         // its safety margin pushes the watchdog deadline past this point.
@@ -772,36 +851,6 @@ public sealed class RecorderJobTests : IDisposable
 
                 Fire();
             }
-        }
-    }
-
-    /// <summary>Captures recorder logs and signals when Streamlink's ad-break line was handled.</summary>
-    private sealed class RecorderLogger : ILogger<RecorderJob>
-    {
-        private readonly ConcurrentQueue<string> _messages = new();
-        private readonly TaskCompletionSource _adBreakSeen =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public Task AdBreakSeen => _adBreakSeen.Task;
-
-        public IReadOnlyList<string> Messages => _messages.ToArray();
-
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TState state,
-            Exception? exception,
-            Func<TState, Exception?, string> formatter)
-        {
-            string message = formatter(state, exception);
-            _messages.Enqueue(message);
-
-            if (message.Contains("advertisement break", StringComparison.OrdinalIgnoreCase))
-                _adBreakSeen.TrySetResult();
         }
     }
 }
