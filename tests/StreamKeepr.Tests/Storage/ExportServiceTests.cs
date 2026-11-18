@@ -1,12 +1,16 @@
 using System.Security.Claims;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Tests.Hosting;
 using CliWrap;
 using Microsoft.Extensions.Time.Testing;
+using Serilog;
+using Serilog.Extensions.Logging;
 
 namespace StreamKeepr.Tests.Storage;
 
@@ -21,6 +25,7 @@ public sealed class ExportServiceTests : IAsyncLifetime
     private readonly RecordingLibrary _library = new(NullLogger<RecordingLibrary>.Instance);
     private readonly ExportLeaseRegistry _leases = new();
     private readonly List<ExportService> _started = [];
+    private readonly List<SerilogLoggerFactory> _logFactories = [];
     private ExportService _service = null!;
     private string _ffmpeg = null!;
     private string _ffprobe = null!;
@@ -44,19 +49,25 @@ public sealed class ExportServiceTests : IAsyncLifetime
             service.Dispose();
         }
 
+        // After the services, so their shutdown never logs into a disposed pipeline.
+        foreach (SerilogLoggerFactory factory in _logFactories)
+            factory.Dispose();
+
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
     }
 
-    private async Task<ExportService> StartServiceAsync(TimeProvider? clock = null, string? ffmpeg = null)
+    private async Task<ExportService> StartServiceAsync(
+        TimeProvider? clock = null, string? ffmpeg = null, ILogger<ExportService>? logger = null,
+        string? ffprobe = null)
     {
         var service = new ExportService(
             _library,
             _leases,
             Options.Create(new StorageOptions { RecordingsRoot = _root }),
-            Options.Create(new RecorderOptions { FfmpegPath = ffmpeg ?? _ffmpeg, FfprobePath = _ffprobe }),
+            Options.Create(new RecorderOptions { FfmpegPath = ffmpeg ?? _ffmpeg, FfprobePath = ffprobe ?? _ffprobe }),
             clock ?? TimeProvider.System,
-            NullLogger<ExportService>.Instance);
+            logger ?? NullLogger<ExportService>.Instance);
         _started.Add(service);
         await service.StartAsync(CancellationToken.None);
         return service;
@@ -335,6 +346,84 @@ public sealed class ExportServiceTests : IAsyncLifetime
         clock.Advance(ExportService.MaxExportAge + ExportService.CleanupInterval);
 
         await WaitUntilAsync(() => !File.Exists(fresh));
+    }
+
+    [Fact]
+    public async Task A_finished_export_logs_its_start_and_finish_with_ids_elapsed_time_and_size()
+    {
+        var logs = new ListLoggerProvider();
+        _service = await StartServiceAsync(logger: CaptureLogs(logs));
+        await SeedAsync("r1", "Title");
+
+        ExportJob job = await WaitForAsync(_service.Start("r1", Admin, CancellationToken.None).Id, ExportState.Succeeded);
+
+        CapturedLogEntry start = Assert.Single(
+            logs.Entries, entry => entry.Template == "Starting export {ExportId} of {RecordingId}.");
+        Assert.Equal(LogLevel.Information, start.Level);
+        Assert.Equal(job.Id, start.Properties["ExportId"]);
+        Assert.Equal("r1", start.Properties["RecordingId"]);
+
+        CapturedLogEntry finish = Assert.Single(
+            logs.Entries, entry => entry.Template == "Export {ExportId} of {RecordingId} finished in {ElapsedMs:0} ms ({Bytes} bytes).");
+        Assert.Equal(LogLevel.Information, finish.Level);
+        Assert.Equal(job.Id, finish.Properties["ExportId"]);
+        Assert.Equal("r1", finish.Properties["RecordingId"]);
+        Assert.True(finish.Properties["ElapsedMs"] is double elapsed && elapsed > 0);
+        Assert.Equal(new FileInfo(_service.FilePath(job.Id)!).Length, finish.Properties["Bytes"]);
+    }
+
+    [Fact]
+    public async Task A_failed_export_still_warns_and_its_scope_adds_the_recording_id()
+    {
+        var logs = new ListLoggerProvider();
+        _service = await StartServiceAsync(logger: CaptureLogs(logs));
+        _library.Upsert(Summary("gone"));
+
+        ExportJob job = await WaitForAsync(_service.Start("gone", Admin, CancellationToken.None).Id, ExportState.Failed);
+
+        // The template names only ExportId: RecordingId can only come from the job's log scope.
+        CapturedLogEntry failed = Assert.Single(
+            logs.Entries, entry => entry.Template == "Export {ExportId} failed.");
+        Assert.Equal(LogLevel.Warning, failed.Level);
+        Assert.IsType<FileNotFoundException>(failed.Exception);
+        Assert.Equal(job.Id, failed.Properties["ExportId"]);
+        Assert.Equal("gone", failed.Properties["RecordingId"]);
+    }
+
+    [Fact]
+    public async Task A_probe_warning_carries_the_recording_id_from_the_job_scope()
+    {
+        var logs = new ListLoggerProvider();
+        _service = await StartServiceAsync(
+            logger: CaptureLogs(logs), ffprobe: Path.Combine(_root, "missing-ffprobe"));
+        await SeedAsync("r1", "Title");
+
+        ExportJob job = await WaitForAsync(_service.Start("r1", Admin, CancellationToken.None).Id, ExportState.Succeeded);
+
+        // The template names only ExportId; the probe failure leaves the decision to FFmpeg.
+        CapturedLogEntry warning = Assert.Single(
+            logs.Entries, entry => entry.Template == "Could not probe the parts for export {ExportId}; FFmpeg will decide.");
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Equal(job.Id, warning.Properties["ExportId"]);
+        Assert.Equal("r1", warning.Properties["RecordingId"]);
+    }
+
+    /// <summary>
+    /// A Serilog pipeline with <c>FromLogContext</c>, like the host's, forwarding to
+    /// <paramref name="logs"/>: job scope values arrive in each entry's <c>Properties</c>.
+    /// </summary>
+    private ILogger<ExportService> CaptureLogs(ListLoggerProvider logs)
+    {
+        var providers = new LoggerProviderCollection();
+        providers.AddProvider(logs);
+        Serilog.Core.Logger serilog = new LoggerConfiguration()
+            .MinimumLevel.Verbose()
+            .Enrich.FromLogContext()
+            .WriteTo.Providers(providers)
+            .CreateLogger();
+        var factory = new SerilogLoggerFactory(serilog, dispose: true, providerCollection: providers);
+        _logFactories.Add(factory);
+        return factory.CreateLogger<ExportService>();
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)
