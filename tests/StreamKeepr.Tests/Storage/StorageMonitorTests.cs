@@ -203,7 +203,7 @@ public sealed class StorageMonitorTests
         });
 
         clock = new FakeTimeProvider(T0);
-        library = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
+        library = new RecordingLibrary(clock, NullLogger<RecordingLibrary>.Instance);
 
         return new StorageMonitor(
             new DiskGuard(options, disk),

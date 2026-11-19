@@ -15,7 +15,7 @@ public sealed class ProgressStoreTests : IDisposable
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
     private readonly FakeTimeProvider _clock = new(Now);
-    private readonly RecordingLibrary _library = new(NullLogger<RecordingLibrary>.Instance);
+    private readonly RecordingLibrary _library = new(new FakeTimeProvider(), NullLogger<RecordingLibrary>.Instance);
 
     private string FilePath => AppDataPaths.ProgressFile(_root);
 

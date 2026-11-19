@@ -22,7 +22,7 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
     private readonly FakeTimeProvider _clock = new(Start);
-    private readonly RecordingLibrary _library = new(NullLogger<RecordingLibrary>.Instance);
+    private readonly RecordingLibrary _library = new(new FakeTimeProvider(), NullLogger<RecordingLibrary>.Instance);
     private readonly FakeChatSource _source = new();
     private readonly ListLoggerProvider _logs = new();
     private readonly ILoggerFactory _loggers;
@@ -32,15 +32,8 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
 
     public ChatCaptureServiceTests()
     {
-        var chat = Options.Create(new ChatOptions { Enabled = true });
-        _store = new ChatLogStore(
-            Options.Create(new StorageOptions { RecordingsRoot = _root }),
-            chat,
-            _clock,
-            NullLogger<ChatLogStore>.Instance);
-        _loggers = LoggerFactory.Create(builder => builder.AddProvider(_logs));
-        _service = new ChatCaptureService(
-            _source, _library, _store, chat, _clock, _loggers.CreateLogger<ChatCaptureService>());
+        _loggers = TestLogging.Factory(_logs);
+        (_store, _service) = CreateCapture(new ChatOptions { Enabled = true });
         _recording = new RecordingSummary(
             "20261113T180000Z_1", "chan", "Title", "Game", Start, null,
             IsRecording: true, DurationSeconds: null, SizeBytes: 1, PartCount: 1,
@@ -145,15 +138,71 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
         Assert.Equal(stoppedAt, gap.GetProperty("to").GetInt64());
     }
 
+    [Fact]
+    public async Task Chat_text_never_appears_in_any_log()
+    {
+        const string Secret = "zebra-quokka-7731";
+
+        // A small cap so this run also drives the truncation path.
+        (ChatLogStore _, ChatCaptureService service) = CreateCapture(
+            new ChatOptions { Enabled = true, MaxBytesPerSession = 2048 });
+        using var dispose = service;
+        await StartRecordingAsync(service);
+        _source.Events.Write(new ChatSourceEvent.MessageEvent(new ChatMessage(
+            "m1", "chan", ToMs(Start.AddSeconds(5)), AtIsLocal: false, "42", "alice", "Alice", null,
+            [], [], null, new ChatReply("p1", "bob", "Bob", $"quoted {Secret}"), Action: false,
+            $"hello {Secret}")));
+        _source.Events.Write(new ChatSourceEvent.Notice("chan", ToMs(Start.AddSeconds(6)), "msg_slowmode", $"notice {Secret}"));
+        _source.Events.Write(new ChatSourceEvent.Dropped(
+            "chan", ToMs(Start.AddSeconds(7)), ToMs(Start.AddSeconds(6)), ToMs(Start.AddSeconds(7)), Count: 3));
+        _source.Events.Write(new ChatSourceEvent.Disconnected("chan", ToMs(Start.AddSeconds(8))));
+        _source.Events.Write(new ChatSourceEvent.Joined("chan", ToMs(Start.AddSeconds(9))));
+        for (int i = 0; i < 40; i++)
+            _source.Events.Write(Message($"bulk{i}", Start.AddSeconds(10 + i), $"bulk {Secret}"));
+        await _logs.WaitForAsync("capture stopped for this session");
+
+        _library.Upsert(_recording with { IsRecording = false, EndedAt = Start.AddMinutes(2) });
+        await EventuallyAsync(() => _logs.Messages.Any(message =>
+            message.Contains("Chat capture left chan", StringComparison.Ordinal)));
+
+        await service.StopAsync(CancellationToken.None);
+
+        // Every logging path this run took must be present, or the assertion below proves nothing.
+        Assert.Contains(_logs.Messages, message => message.Contains("Chat capture joined chan", StringComparison.Ordinal));
+        Assert.Contains(_logs.Entries, entry => entry.Properties.ContainsKey("DroppedFrom"));
+        Assert.Contains(_logs.Entries, entry => entry.Properties.ContainsKey("MessageCount"));
+        foreach (CapturedLogEntry entry in _logs.Entries)
+        {
+            Assert.DoesNotContain(Secret, entry.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain(Secret, entry.Template ?? string.Empty, StringComparison.Ordinal);
+            Assert.All(entry.Properties.Values.Concat(entry.Scopes.Values), value =>
+                Assert.DoesNotContain(Secret, Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty, StringComparison.Ordinal));
+            Assert.DoesNotContain(Secret, entry.Exception?.ToString() ?? string.Empty, StringComparison.Ordinal);
+        }
+    }
+
     private string ChatDirectory => ChatLogLayout.ChatDirectory(_store.SessionDirectory(_recording));
 
     private string MetaPath => Path.Combine(ChatDirectory, ChatLogLayout.MetaFileName);
 
-    private async Task StartRecordingAsync()
+    private (ChatLogStore, ChatCaptureService) CreateCapture(ChatOptions options)
+    {
+        var chat = Options.Create(options);
+        var store = new ChatLogStore(
+            Options.Create(new StorageOptions { RecordingsRoot = _root }),
+            chat,
+            _clock,
+            _loggers.CreateLogger<ChatLogStore>());
+        var service = new ChatCaptureService(
+            _source, _library, store, chat, _clock, _loggers.CreateLogger<ChatCaptureService>());
+        return (store, service);
+    }
+
+    private async Task StartRecordingAsync(ChatCaptureService? service = null)
     {
         _library.Upsert(_recording);
         _library.MarkLoaded();
-        await _service.StartAsync(CancellationToken.None);
+        await (service ?? _service).StartAsync(CancellationToken.None);
         await EventuallyAsync(() => _source.Joined.Contains("chan"));
     }
 
@@ -194,10 +243,10 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
 
     private static long ToMs(DateTimeOffset at) => at.ToUnixTimeMilliseconds();
 
-    private static ChatSourceEvent.MessageEvent Message(string id, DateTimeOffset at) =>
+    private static ChatSourceEvent.MessageEvent Message(string id, DateTimeOffset at, string text = "hello") =>
         new(new ChatMessage(
             id, "chan", ToMs(at), AtIsLocal: false, "42", "alice", "Alice", null,
-            [], [], null, null, Action: false, "hello"));
+            [], [], null, null, Action: false, text));
 
     private sealed class FakeChatSource : IChatSource
     {

@@ -11,11 +11,13 @@ public sealed record RecoveredChannel(Resumable? Unfinished, Resumable? Finished
 /// Reconstructs runtime state from the recordings volume before any coordinator starts. It
 /// re-finalizes interrupted sessions, removes temp/orphan files, finalizes sessions that cannot
 /// continue, and loads the library. Corrupt folders are logged and skipped, never deleted.
+/// Each run ends with one Information summary whose counts account for every session folder.
 /// </summary>
 public sealed class RecoveryService(
     SessionStore store,
     RecordingLibrary library,
     IOptions<StorageOptions> storage,
+    TimeProvider clock,
     ILogger<RecoveryService> logger)
 {
     private const string MapPrefix = "#EXT-X-MAP:URI=\"";
@@ -25,10 +27,16 @@ public sealed class RecoveryService(
     {
         ArgumentNullException.ThrowIfNull(channels);
 
+        long startedAt = clock.GetTimestamp();
         string root = Path.GetFullPath(storage.Value.RecordingsRoot);
         var unfinished = new List<Resumable>();
         var finished = new List<Resumable>();
         var skipped = new HashSet<string>(StringComparer.Ordinal);
+        int sessionCount = 0;
+        int completeCount = 0;
+        int finalizedCount = 0;
+        int deletedCount = 0;
+        int skippedCount = 0;
 
         if (Directory.Exists(root))
         {
@@ -44,7 +52,19 @@ public sealed class RecoveryService(
                     if (IsHidden(sessionDirectory))
                         continue;
 
-                    await InspectSessionAsync(sessionDirectory, unfinished, finished, skipped, ct);
+                    sessionCount++;
+                    switch (await InspectSessionAsync(sessionDirectory, unfinished, finished, skipped, ct))
+                    {
+                        case Inspection.Complete:
+                            completeCount++;
+                            break;
+                        case Inspection.Refinalized:
+                            finalizedCount++;
+                            break;
+                        case Inspection.Skipped:
+                            skippedCount++;
+                            break;
+                    }
                 }
             }
         }
@@ -75,7 +95,14 @@ public sealed class RecoveryService(
 
             // FinalizeAsync deletes a session that never produced media.
             if (Directory.Exists(candidate.Session.Directory))
+            {
                 finished.Add(candidate with { Complete = true });
+                finalizedCount++;
+            }
+            else
+            {
+                deletedCount++;
+            }
         }
 
         var newestFinished = NewestPerChannel(finished);
@@ -86,6 +113,17 @@ public sealed class RecoveryService(
         // LoadAsync from its parts; never expose an unplayable entry.
         foreach (string skippedId in skipped)
             library.Remove(skippedId);
+
+        // The counts partition SessionCount; DeletedCount is unfinished sessions without media.
+        logger.LogInformation(
+            "Recovered {SessionCount} sessions in {ElapsedMs:0} ms: {CompleteCount} already complete, {ResumableCount} resumable, {FinalizedCount} finalized, {DeletedCount} deleted, {SkippedCount} skipped.",
+            sessionCount,
+            clock.GetElapsedTime(startedAt).TotalMilliseconds,
+            completeCount,
+            resumable.Count,
+            finalizedCount,
+            deletedCount,
+            skippedCount);
 
         return channels
             .Select(channel => channel.Login)
@@ -98,7 +136,16 @@ public sealed class RecoveryService(
                 StringComparer.Ordinal);
     }
 
-    private async Task InspectSessionAsync(
+    /// <summary>What recovery did with one session folder; feeds the startup summary.</summary>
+    private enum Inspection
+    {
+        Skipped,
+        Complete,
+        Refinalized,
+        Unfinished,
+    }
+
+    private async Task<Inspection> InspectSessionAsync(
         string directory,
         List<Resumable> unfinished,
         List<Resumable> finished,
@@ -108,12 +155,12 @@ public sealed class RecoveryService(
         if (!File.Exists(Path.Combine(directory, SessionStore.ManifestFileName)))
         {
             logger.LogWarning("Skipping session without a manifest at {Directory}.", directory);
-            return;
+            return Inspection.Skipped;
         }
 
         // TryLoadAsync logs and returns null for an unreadable manifest.
         if (await store.TryLoadAsync(directory, ct) is not { } manifest)
-            return;
+            return Inspection.Skipped;
 
         var session = new Session(
             manifest.Id, manifest.Channel, manifest.StreamId, manifest.StartedAt, directory);
@@ -123,14 +170,14 @@ public sealed class RecoveryService(
             if (await IndexIsValidAsync(directory, ct))
             {
                 finished.Add(new Resumable(session, LastPart(directory) + 1, Complete: true));
-                return;
+                return Inspection.Complete;
             }
 
             List<ScannedPart>? parts = await ScanPartsAsync(directory, ct);
             if (parts is null)
             {
                 skipped.Add(manifest.Id);
-                return;
+                return Inspection.Skipped;
             }
 
             if (parts.Count == 0 || parts.All(part => part.SegmentCount == 0))
@@ -139,7 +186,7 @@ public sealed class RecoveryService(
                     "Skipping complete session without an index or media parts at {Directory}.",
                     directory);
                 skipped.Add(manifest.Id);
-                return;
+                return Inspection.Skipped;
             }
 
             try
@@ -153,21 +200,22 @@ public sealed class RecoveryService(
                     "Skipping complete session that could not be re-finalized at {Directory}.",
                     directory);
                 skipped.Add(manifest.Id);
-                return;
+                return Inspection.Skipped;
             }
 
             finished.Add(new Resumable(session, LastPart(directory) + 1, Complete: true));
-            return;
+            return Inspection.Refinalized;
         }
 
         int? lastPart = await CleanupRecordingAsync(directory, ct);
         if (lastPart is null)
         {
             skipped.Add(manifest.Id);
-            return;
+            return Inspection.Skipped;
         }
 
         unfinished.Add(new Resumable(session, lastPart.Value + 1));
+        return Inspection.Unfinished;
     }
 
     /// <summary>

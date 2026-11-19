@@ -7,16 +7,21 @@ namespace StreamKeepr.Infrastructure.Twitch;
 /// <summary>
 /// Caches Twitch's app access token and refreshes it five minutes early (never sooner than
 /// one minute from now). A 401 invalidates the token so the caller can retry once.
+/// Acquisition, its scheduled refresh, and invalidation are logged; token values never are.
 /// </summary>
 public sealed class TwitchTokenProvider(
     IHttpClientFactory httpFactory,
     IOptions<TwitchOptions> options,
-    TimeProvider clock) : IDisposable
+    TimeProvider clock,
+    ILogger<TwitchTokenProvider> logger) : IDisposable
 {
     private sealed record CachedToken(string Value, DateTimeOffset RefreshAt);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private volatile CachedToken? _cached;
+
+    // Only names the reason in the next acquisition log; it never changes caching.
+    private volatile bool _invalidated;
 
     public async Task<string> GetAsync(CancellationToken ct)
     {
@@ -28,6 +33,10 @@ public sealed class TwitchTokenProvider(
         {
             if (_cached is { } again && clock.GetUtcNow() < again.RefreshAt)
                 return again.Value;
+
+            string reason = _cached is not null ? "refresh due"
+                : _invalidated ? "invalidated"
+                : "initial";
 
             TwitchOptions twitch = options.Value;
             using var form = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -50,6 +59,13 @@ public sealed class TwitchTokenProvider(
             // Refresh five minutes early, with a one-minute floor.
             var refreshAt = clock.GetUtcNow().AddSeconds(Math.Max(60, body.ExpiresIn - 300));
             _cached = new CachedToken(body.AccessToken, refreshAt);
+            _invalidated = false;
+            logger.LogInformation(
+                "Acquired a Twitch app token ({Reason}); it expires in {ExpiresInSeconds} s "
+                + "and refreshes at {RefreshAt}.",
+                reason,
+                body.ExpiresIn,
+                refreshAt);
             return body.AccessToken;
         }
         finally
@@ -61,8 +77,17 @@ public sealed class TwitchTokenProvider(
     /// <summary>Drops the cached token only if it is still the rejected value.</summary>
     public void Invalidate(string staleToken)
     {
-        if (_cached?.Value == staleToken)
-            _cached = null;
+        if (_cached?.Value != staleToken)
+        {
+            logger.LogDebug(
+                "Ignored invalidating a Twitch app token that was already replaced.");
+            return;
+        }
+
+        _cached = null;
+        _invalidated = true;
+        logger.LogInformation(
+            "Twitch app token invalidated after Twitch rejected it; the next request acquires a new one.");
     }
 
     public void Dispose() => _gate.Dispose();

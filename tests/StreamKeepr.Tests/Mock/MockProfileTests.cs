@@ -416,6 +416,7 @@ public sealed class MockLiveFeedTests : IDisposable
         public MockDiskSpace Disk { get; } = new();
 
         public RecordingLibrary Library { get; } = new(
+            new FakeTimeProvider(MockCatalog.T0),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<RecordingLibrary>.Instance);
 
         public StorageMonitor Storage { get; }
@@ -662,6 +663,7 @@ public sealed class MockSeederTests : IDisposable
             twitch, storage,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<ChannelStore>.Instance);
         var library = new RecordingLibrary(
+            new FakeTimeProvider(MockCatalog.T0),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<RecordingLibrary>.Instance);
         var sessions = new SessionStore(
             recorder, library, new FakeTimeProvider(MockCatalog.T0),

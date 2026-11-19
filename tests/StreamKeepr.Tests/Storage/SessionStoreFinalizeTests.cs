@@ -1,4 +1,6 @@
+using Microsoft.Extensions.Logging;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Storage;
 
@@ -181,5 +183,42 @@ public sealed class SessionStoreFinalizeTests
         var manifest = await context.Store.TryLoadAsync(context.Directory, CancellationToken.None);
         Assert.NotNull(manifest);
         Assert.Equal(SessionStatus.Complete, manifest.Status);
+    }
+
+    [Fact]
+    public async Task Finalize_logs_one_summary_with_elapsed_time_size_and_part_count()
+    {
+        using var logs = new ListLoggerProvider();
+        using var loggers = TestLogging.Factory(logs);
+        using var context = new SessionStoreTestContext(loggers: loggers);
+        context.WritePart(
+            1,
+            PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T16:35:00Z", 1.5));
+        context.WritePart(
+            2,
+            PlaylistTestData.Segment("p002_00001.m4s", "2026-11-10T16:35:03Z", 2.5));
+        context.WriteSegment(1, 1, 10);
+        context.WriteSegment(2, 1, 20);
+
+        await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
+
+        // A header-only part has no media and is not stitched, so it is not counted.
+        await File.WriteAllTextAsync(
+            context.PartPath(3), "#EXTM3U\n#EXT-X-TARGETDURATION:6\n", CancellationToken.None);
+
+        await context.Store.FinalizeAsync(context.Session, CancellationToken.None);
+
+        var manifest = await context.Store.TryLoadAsync(context.Directory, CancellationToken.None);
+        CapturedLogEntry summary = Assert.Single(
+            logs.Entries, entry => entry.Message.StartsWith("Finalized session", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Information, summary.Level);
+        Assert.Equal(context.Session.Id, summary.Properties["SessionId"]);
+        Assert.Equal("streamer", summary.Properties["Channel"]);
+        Assert.Equal(2, summary.Properties["PartCount"]);
+        Assert.Equal(manifest!.SizeBytes, summary.Properties["SizeBytes"]);
+        Assert.Equal(0.0, summary.Properties["ElapsedMs"]);
+        Assert.Equal(
+            ["Channel", "Directory", "ElapsedMs", "PartCount", "SessionId", "SizeBytes"],
+            summary.Properties.Keys.Order(StringComparer.Ordinal));
     }
 }

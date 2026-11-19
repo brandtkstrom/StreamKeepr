@@ -226,6 +226,8 @@ try
     if (!mock)
         builder.Services.AddHostedService<ConduitRetirementService>();
 
+    builder.Services.AddStreamKeeprHostLifecycleLog();
+
     builder.Services.AddHealthChecks()
            .AddCheck<DvrHealthCheck>(DvrHealthCheck.Name, tags: ["live", "ready"])
            .AddCheck<DiskSpaceHealthCheck>("disk", tags: ["ready"])

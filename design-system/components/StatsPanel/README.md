@@ -9,7 +9,7 @@ Keep `StatsPanel.razor` rendering once, and keep `StatsPanel.razor.js` owning va
 - **Stream** (`Groups` in `tertiary`), full width below a `divider`, with two parts:
   - **A tile** (220px): "Viewers at 54:40" in `overline`, the count at the playhead in `stat-hero`, then Now, Peak (with its time) and Average as key/value rows.
   - **The viewer chart** (on `surface-raised`, `radius-md`, about 120px of plot): viewer count across the recording's whole timeline, so x is recording time (0:00 → the duration, or the live edge while recording), not wall-clock time.
-- **Footer**: a text button, "Copy stats". It copies the viewer figures too. *As built in #180 there are no viewer figures to copy; the snapshot stays the player contract's v1 JSON.*
+- **Footer**: a text button, "Copy stats". It copies the viewer figures too. *As built (#211) the v1 snapshot gains `"viewers": {"now", "peak", "peakAt", "average"}` (player contract §10).*
 
 ## The viewer chart
 
@@ -17,15 +17,15 @@ Keep `StatsPanel.razor` rendering once, and keep `StatsPanel.razor.js` owning va
 - The **playhead** is a dashed `primary` line with a knob on the series and a `primary` tag carrying its timecode. It moves with playback, and the tile's "Viewers at …" value follows it.
 - While recording, the series ends at the **live edge** with a `rec` dot, and the chart grows to the right as samples arrive.
 - Hovering shows a tooltip ("38:00 · 1,658 viewers"). Clicking or dragging seeks the player to that time. The chart is `role="img"` with a one-sentence summary as its label, and it keeps a visually hidden sample table like the sparklines.
-- Draw it as SVG in `StatsPanel.razor.js` (or `sparkline.js`), like the sparklines. MudBlazor's `MudChart` would re-render inside the island.
-- With no samples (a recording made before sampling existed, or a broadcast with none), the Stream section shows a single `caption` line instead: "No viewer data for this recording." *As built in #180 the recorder samples nothing yet, so the Stream section is only this line (`data-sk="stats-stream"`, `data-sk="stream-empty"`); the tile and chart come with the data.*
+- Draw it as SVG in `StatsPanel.razor.js` (or `sparkline.js`), like the sparklines. *As built (#211) the pure geometry and drawing live in `wwwroot/js/viewer-chart.js`, wired by `StatsPanel.razor.js`.* MudBlazor's `MudChart` would re-render inside the island.
+- With no samples (a recording made before sampling existed, or a broadcast with none), the Stream section shows a single `caption` line instead: "No viewer data for this recording." *As built (#211) the module fetches the samples from `GET /api/recordings/{id}/viewers` (once, or every 60 s and on reopen while live) and swaps this line for the tile and chart; the hooks are listed in player contract §10.*
 
 ## Data this needs
 
-StreamKeepr does not record viewer counts today. The chart needs the recorder to sample the stream's viewer count (Twitch Get Streams `viewer_count`) during capture, for example once a minute, and to store the samples with the session as (offset from session start, count). Those samples are the whole input: peak, average and "at the playhead" are derived from them.
+*As built (#186) the recorder samples viewer counts and serves them from `GET /api/recordings/{id}/viewers`.* Originally: StreamKeepr did not record viewer counts. The chart needs the recorder to sample the stream's viewer count (Twitch Get Streams `viewer_count`) during capture, for example once a minute, and to store the samples with the session as (offset from session start, count). Those samples are the whole input: peak, average and "at the playhead" are derived from them.
 
 ## Rules
 
 - Video sparklines are `primary`, network sparklines `secondary`, and the viewer series `tertiary`: the colour of the stream itself, shared with chapters. One series per chart, and labels never take the series colour.
 - Each sparkline keeps its visually hidden sample table for screen readers.
-- Below `Breakpoint.Md` the panel is the **Stats** tab under the player (`MudTabPanel Icon="@Icons.Material.Rounded.QueryStats"`), without its own header or toggle. Video and Network stack, then their tiles stack. The Stream tile moves above its chart, and the chart keeps the full width. *As built, the Stream section is still only the empty-state line; the tile and chart wait for viewer-count samples.*
+- Below `Breakpoint.Md` the panel is the **Stats** tab under the player (`MudTabPanel Icon="@Icons.Material.Rounded.QueryStats"`), without its own header or toggle. Video and Network stack, then their tiles stack. The Stream tile moves above its chart, and the chart keeps the full width. *As built (#211), as described.*

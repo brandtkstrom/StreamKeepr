@@ -20,7 +20,7 @@ public sealed class ChatEndpointTests : IDisposable
     private readonly FakeTimeProvider _clock = new(Now);
     private readonly ChatLogStore _store;
     private readonly ChatReader _reader;
-    private readonly RecordingLibrary _library = new(NullLogger<RecordingLibrary>.Instance);
+    private readonly RecordingLibrary _library = new(new FakeTimeProvider(), NullLogger<RecordingLibrary>.Instance);
     private readonly RecordingSummary _summary;
 
     public ChatEndpointTests()
