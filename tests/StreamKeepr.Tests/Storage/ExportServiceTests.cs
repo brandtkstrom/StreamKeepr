@@ -1,4 +1,7 @@
+using System.Diagnostics.Metrics;
 using System.Security.Claims;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -6,6 +9,7 @@ using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Infrastructure.Telemetry;
 using StreamKeepr.Tests.Hosting;
 using CliWrap;
 using Microsoft.Extensions.Time.Testing;
@@ -26,6 +30,9 @@ public sealed class ExportServiceTests : IAsyncLifetime
     private readonly ExportLeaseRegistry _leases = new();
     private readonly List<ExportService> _started = [];
     private readonly List<SerilogLoggerFactory> _logFactories = [];
+    private ServiceProvider _meters = null!;
+    private IMeterFactory _meterFactory = null!;
+    private StreamKeeprTelemetry _telemetry = null!;
     private ExportService _service = null!;
     private string _ffmpeg = null!;
     private string _ffprobe = null!;
@@ -38,6 +45,9 @@ public sealed class ExportServiceTests : IAsyncLifetime
             "ffmpeg", "ffmpeg is required for export tests. Install it and put it on PATH.");
         _ffprobe = TestPaths.RequireExecutable(
             "ffprobe", "ffprobe is required for export tests. Install it and put it on PATH.");
+        _meters = new ServiceCollection().AddMetrics().BuildServiceProvider();
+        _meterFactory = _meters.GetRequiredService<IMeterFactory>();
+        _telemetry = new StreamKeeprTelemetry(_meterFactory);
         _service = await StartServiceAsync();
     }
 
@@ -53,6 +63,9 @@ public sealed class ExportServiceTests : IAsyncLifetime
         foreach (SerilogLoggerFactory factory in _logFactories)
             factory.Dispose();
 
+        _telemetry.Dispose();
+        _meters.Dispose();
+
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
     }
@@ -67,7 +80,8 @@ public sealed class ExportServiceTests : IAsyncLifetime
             Options.Create(new StorageOptions { RecordingsRoot = _root }),
             Options.Create(new RecorderOptions { FfmpegPath = ffmpeg ?? _ffmpeg, FfprobePath = ffprobe ?? _ffprobe }),
             clock ?? TimeProvider.System,
-            logger ?? NullLogger<ExportService>.Instance);
+            logger ?? NullLogger<ExportService>.Instance,
+            _telemetry);
         _started.Add(service);
         await service.StartAsync(CancellationToken.None);
         return service;
@@ -101,6 +115,21 @@ public sealed class ExportServiceTests : IAsyncLifetime
         Assert.True(text.IndexOf("moov", StringComparison.Ordinal) < text.IndexOf("mdat", StringComparison.Ordinal));
         Assert.Equal(1, progress[^1]);
         Assert.Same(_service.Find(done.Id), _service.FindByRecording(summary.Id));
+    }
+
+    [Fact]
+    public async Task A_finished_export_increments_the_job_counter()
+    {
+        using var jobs = new MetricCollector<long>(
+            _meterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.export.jobs");
+        await SeedAsync("r1", "Title");
+
+        ExportJob queued = _service.Start("r1", Admin, CancellationToken.None);
+        await WaitForAsync(queued.Id, ExportState.Succeeded);
+
+        Assert.Contains(
+            jobs.GetMeasurementSnapshot(),
+            measurement => (string)measurement.Tags["streamkeepr.export.outcome"]! == "succeeded");
     }
 
     [Theory]

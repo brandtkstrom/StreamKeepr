@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Media;
+using StreamKeepr.Infrastructure.Telemetry;
 
 namespace StreamKeepr.Infrastructure.Storage;
 
@@ -76,6 +77,7 @@ public sealed class ExportService : BackgroundService, IExportService
     private readonly IOptions<RecorderOptions> _recorder;
     private readonly TimeProvider _clock;
     private readonly ILogger<ExportService> _logger;
+    private readonly StreamKeeprTelemetry? _telemetry;
     // Jobs are probed in start order, then run in that same order: two single-reader stages.
     private readonly Channel<string> _probeQueue = Channel.CreateUnbounded<string>(
         new UnboundedChannelOptions { SingleReader = true });
@@ -98,7 +100,8 @@ public sealed class ExportService : BackgroundService, IExportService
         IOptions<StorageOptions> storage,
         IOptions<RecorderOptions> recorder,
         TimeProvider clock,
-        ILogger<ExportService> logger)
+        ILogger<ExportService> logger,
+        StreamKeeprTelemetry? telemetry = null)
     {
         _library = library;
         _leases = leases;
@@ -106,6 +109,7 @@ public sealed class ExportService : BackgroundService, IExportService
         _recorder = recorder;
         _clock = clock;
         _logger = logger;
+        _telemetry = telemetry;
     }
 
     public event Action? Changed;
@@ -358,6 +362,7 @@ public sealed class ExportService : BackgroundService, IExportService
         _logger.LogInformation("Starting export {ExportId} of {RecordingId}.", id, job.RecordingId);
         RaiseChanged(immediate: true);
         string temp = Path.Combine(ExportsDirectory, $"{id}.mp4.tmp");
+        string? outcome = null;
         try
         {
             RecordingSummary summary = _library.Find(job.RecordingId)
@@ -394,6 +399,7 @@ public sealed class ExportService : BackgroundService, IExportService
             long bytes = new FileInfo(temp).Length;
             File.Move(temp, FinalPath(id), overwrite: true);
             Finish(id, current => current with { State = ExportState.Succeeded, Progress = 1, FileName = DownloadName(summary) });
+            outcome = "succeeded";
             _logger.LogInformation(
                 "Export {ExportId} of {RecordingId} finished in {ElapsedMs:0} ms ({Bytes} bytes).",
                 id, job.RecordingId, _clock.GetElapsedTime(started).TotalMilliseconds, bytes);
@@ -407,6 +413,7 @@ public sealed class ExportService : BackgroundService, IExportService
         {
             TryDelete(temp);
             Finish(id, current => current with { State = ExportState.Cancelled });
+            outcome = "cancelled";
             _logger.LogInformation("Cancelled running export {ExportId}.", id);
         }
         catch (Exception ex)
@@ -415,9 +422,13 @@ public sealed class ExportService : BackgroundService, IExportService
             _logger.LogWarning(ex, "Export {ExportId} failed.", id);
             TryDelete(temp);
             Finish(id, current => current with { State = ExportState.Failed, Error = FailedMessage });
+            outcome = "failed";
         }
         finally
         {
+            if (outcome is not null)
+                _telemetry?.ExportFinished(outcome);
+
             // Idempotent: also covers host shutdown, which publishes no finished state.
             lock (_gate)
                 _running.Remove(id);

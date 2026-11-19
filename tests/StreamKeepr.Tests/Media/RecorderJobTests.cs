@@ -1,5 +1,8 @@
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.IO.Pipelines;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using CliWrap;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -7,6 +10,7 @@ using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Media;
+using StreamKeepr.Infrastructure.Telemetry;
 using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Media;
@@ -333,9 +337,15 @@ public sealed class RecorderJobTests : IDisposable
         options.StreamlinkPath = FixturePath("fake-streamlink-stall");
         options.StallTimeoutSeconds = 15;
 
+        using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
+        var meterFactory = services.GetRequiredService<IMeterFactory>();
+        using var telemetry = new StreamKeeprTelemetry(meterFactory);
+        using var stalls = new MetricCollector<long>(
+            meterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.stalls");
+
         using var safetyStop = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         (Task run, List<DvrEvent> events) = StartJob(
-            session, options, clock, stopRequested: safetyStop.Token);
+            session, options, clock, stopRequested: safetyStop.Token, telemetry: telemetry);
 
         await WaitForPartSegmentAsync(session.Directory, part: 1);
         // Fire the watchdog; subsequent shutdown waits then fall back to short real timers so a
@@ -349,6 +359,7 @@ public sealed class RecorderJobTests : IDisposable
         Assert.Equal(RecorderExitKind.Killed, exited.Kind);
         Assert.Contains("stall", exited.Detail, StringComparison.Ordinal);
         Assert.Contains("no new media", exited.Detail, StringComparison.Ordinal);
+        Assert.Equal(1, Assert.Single(stalls.GetMeasurementSnapshot()).Value);
         Assert.True(
             recorded.ToList().IndexOf(media) < recorded.ToList().IndexOf(exited),
             "PartProducingMedia must be published before RecorderExited");
@@ -485,7 +496,8 @@ public sealed class RecorderJobTests : IDisposable
         RecorderOptions options,
         TimeProvider? clock = null,
         ILogger<RecorderJob>? logger = null,
-        CancellationToken stopRequested = default)
+        CancellationToken stopRequested = default,
+        StreamKeeprTelemetry? telemetry = null)
     {
         var events = new List<DvrEvent>();
         ValueTask Publish(DvrEvent dvrEvent, CancellationToken _)
@@ -498,7 +510,8 @@ public sealed class RecorderJobTests : IDisposable
         var job = new RecorderJob(
             Options.Create(options),
             clock ?? TimeProvider.System,
-            logger ?? NullLogger<RecorderJob>.Instance);
+            logger ?? NullLogger<RecorderJob>.Instance,
+            telemetry);
         Task run = job.RunAsync(session, new JobId(session.Id, 1), Publish, stopRequested);
         return (run, events);
     }

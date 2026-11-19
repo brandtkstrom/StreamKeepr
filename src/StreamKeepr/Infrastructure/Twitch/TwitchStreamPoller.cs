@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -5,6 +6,7 @@ using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
+using StreamKeepr.Infrastructure.Telemetry;
 
 namespace StreamKeepr.Infrastructure.Twitch;
 
@@ -20,7 +22,8 @@ public sealed class TwitchStreamPoller(
     DvrStatus status,
     IOptions<TwitchOptions> options,
     TimeProvider clock,
-    ILogger<TwitchStreamPoller> logger) : IStreamPoller
+    ILogger<TwitchStreamPoller> logger,
+    StreamKeeprTelemetry? telemetry = null) : IStreamPoller
 {
     public async Task RunAsync(
         Func<IReadOnlyList<string>> logins,
@@ -42,20 +45,37 @@ public sealed class TwitchStreamPoller(
 
                 bool succeeded = true;
                 TimeSpan? roundTrip = null;
-                if (channels.Count > 0)
+                string outcome = "ok";
+                int batches = 0;
+
+                using (Activity? activity = telemetry?.ActivitySource.StartActivity(
+                    "streamkeepr.twitch.poll", ActivityKind.Internal, parentContext: default))
                 {
-                    long started = clock.GetTimestamp();
-                    IReadOnlyDictionary<string, StreamObservation> observed =
-                        await ObserveAsync(channels, ct);
+                    activity?.SetTag("channels.count", channels.Count);
 
-                    // Unknown only comes from a failed batch; the round trip is for the UI.
-                    succeeded = observed.Values.All(
-                        observation => observation is not StreamObservation.Unknown);
-                    if (succeeded)
-                        roundTrip = clock.GetElapsedTime(started);
+                    if (channels.Count > 0)
+                    {
+                        batches = (channels.Count + 99) / 100;
+                        long started = clock.GetTimestamp();
+                        IReadOnlyDictionary<string, StreamObservation> observed =
+                            await ObserveAsync(channels, ct);
 
-                    foreach ((string login, StreamObservation observation) in observed)
-                        await route(login, observation, ct);
+                        int unknown = observed.Values.Count(
+                            observation => observation is StreamObservation.Unknown);
+                        succeeded = unknown == 0;
+                        outcome = succeeded ? "ok"
+                            : unknown == observed.Count ? "failed"
+                            : "partial";
+
+                        if (succeeded)
+                            roundTrip = clock.GetElapsedTime(started);
+
+                        foreach ((string login, StreamObservation observation) in observed)
+                            await route(login, observation, ct);
+                    }
+
+                    activity?.SetTag("poll.batch_count", batches);
+                    activity?.SetTag("poll.outcome", outcome);
                 }
 
                 bool recording = status.Current.Values.Any(

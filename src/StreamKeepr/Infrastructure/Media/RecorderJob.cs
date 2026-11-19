@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
+using StreamKeepr.Infrastructure.Telemetry;
 
 namespace StreamKeepr.Infrastructure.Media;
 
@@ -15,7 +16,8 @@ namespace StreamKeepr.Infrastructure.Media;
 public sealed class RecorderJob(
     IOptions<RecorderOptions> options,
     TimeProvider clock,
-    ILogger<RecorderJob> logger) : IRecorder
+    ILogger<RecorderJob> logger,
+    StreamKeeprTelemetry? telemetry = null) : IRecorder
 {
     private const int StderrCapacity = 20;
 
@@ -76,6 +78,7 @@ public sealed class RecorderJob(
             return;
         }
 
+        DateTimeOffset startedAt = clock.GetUtcNow();
         var tail = new StderrTail(StderrCapacity);
         var parser = new FfmpegProgressParser();
         int producing = 0;
@@ -266,6 +269,7 @@ public sealed class RecorderJob(
                 CancellationToken.None);
         }
 
+        long partBytes = PartFiles.TotalBytes(session.Directory, job.Part);
         if (Volatile.Read(ref producing) == 0)
             PartFiles.Delete(session.Directory, job.Part);
 
@@ -276,6 +280,12 @@ public sealed class RecorderJob(
             : stopRequested.IsCancellationRequested
                 ? RecorderExitKind.Stopped
                 : RecorderExitKind.Exited;
+
+        telemetry?.PartExited(kind, clock.GetUtcNow() - startedAt, partBytes);
+        if (stalledEnd)
+            telemetry?.Stall();
+        if (forcedKill || finalizeTimedOut)
+            telemetry?.ForceKill();
 
         string detail = $"{reason}; streamlink {Describe(streamlinkTask)}, ffmpeg {Describe(ffmpegTask)}";
         string stderr = tail.ToString();

@@ -1,12 +1,16 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Infrastructure.Telemetry;
 using StreamKeepr.Infrastructure.Twitch.Chat;
 using StreamKeepr.Tests.Hosting;
 
@@ -27,12 +31,18 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
     private readonly ListLoggerProvider _logs = new();
     private readonly ILoggerFactory _loggers;
     private readonly ChatLogStore _store;
+    private readonly ServiceProvider _meters;
+    private readonly IMeterFactory _meterFactory;
+    private readonly StreamKeeprTelemetry _telemetry;
     private readonly ChatCaptureService _service;
     private readonly RecordingSummary _recording;
 
     public ChatCaptureServiceTests()
     {
         _loggers = TestLogging.Factory(_logs);
+        _meters = new ServiceCollection().AddMetrics().BuildServiceProvider();
+        _meterFactory = _meters.GetRequiredService<IMeterFactory>();
+        _telemetry = new StreamKeeprTelemetry(_meterFactory);
         (_store, _service) = CreateCapture(new ChatOptions { Enabled = true });
         _recording = new RecordingSummary(
             "20261113T180000Z_1", "chan", "Title", "Game", Start, null,
@@ -47,6 +57,8 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
     {
         await _service.StopAsync(CancellationToken.None);
         _service.Dispose();
+        _telemetry.Dispose();
+        _meters.Dispose();
         _loggers.Dispose();
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
@@ -94,6 +106,22 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
 
         Assert.Equal(ToMs(Start.AddSeconds(30)), gap.GetProperty("from").GetInt64());
         Assert.Equal(ToMs(Start.AddSeconds(95)), gap.GetProperty("to").GetInt64());
+    }
+
+    [Fact]
+    public async Task A_dropped_range_increments_the_chat_drop_counter()
+    {
+        using var drops = new MetricCollector<long>(
+            _meterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.chat.dropped");
+        await StartRecordingAsync();
+
+        _source.Events.Write(
+            new ChatSourceEvent.Dropped(
+                "chan", ToMs(Start.AddSeconds(20)), ToMs(Start.AddSeconds(10)),
+                ToMs(Start.AddSeconds(20)), Count: 4));
+        await EventuallyAsync(() => drops.GetMeasurementSnapshot().Count > 0);
+
+        Assert.Equal(4, Assert.Single(drops.GetMeasurementSnapshot()).Value);
     }
 
     [Fact]
@@ -194,7 +222,8 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
             _clock,
             _loggers.CreateLogger<ChatLogStore>());
         var service = new ChatCaptureService(
-            _source, _library, store, chat, _clock, _loggers.CreateLogger<ChatCaptureService>());
+            _source, _library, store, chat, _clock, _loggers.CreateLogger<ChatCaptureService>(),
+            _telemetry);
         return (store, service);
     }
 
