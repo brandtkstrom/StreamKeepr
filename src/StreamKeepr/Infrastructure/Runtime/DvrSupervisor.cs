@@ -38,6 +38,7 @@ public sealed class DvrSupervisor(
         try
         {
             await channelStore.LoadAsync(cancellationToken);
+            await ResolveMissingProfilesAsync(cancellationToken);
             _channels = channelStore.Snapshot;
             _recovered = await recovery.RecoverAsync(_channels, cancellationToken);
         }
@@ -98,6 +99,45 @@ public sealed class DvrSupervisor(
 
             foreach (Running running in _running.Values)
                 running.Cts.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Startup step 2 (runtime contract §7): channels seeded from configuration, or stored before
+    /// their profile was known, get their Helix profile (user ID, display name, avatar). A failed
+    /// or empty lookup is logged and the channel stays polling-only; it never blocks startup.
+    /// </summary>
+    private async Task ResolveMissingProfilesAsync(CancellationToken ct)
+    {
+        ChannelEntry[] missing = channelStore.Snapshot
+            .Where(channel => channel.UserId is null
+                || channel.DisplayName is null
+                || channel.AvatarUrl is null)
+            .ToArray();
+
+        foreach (ChannelEntry channel in missing)
+        {
+            try
+            {
+                ChannelProfile? profile = await poller.GetUserAsync(channel.Login, ct);
+                if (profile is null)
+                {
+                    logger.LogWarning(
+                        "Twitch has no user for watched channel {Channel}; it stays polling-only.",
+                        channel.Login);
+                    continue;
+                }
+
+                await channelStore.SetProfileAsync(
+                    channel.Login, profile.UserId, profile.DisplayName, profile.AvatarUrl, ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Resolving the Twitch profile for {Channel} failed; it stays polling-only.",
+                    channel.Login);
+            }
         }
     }
 

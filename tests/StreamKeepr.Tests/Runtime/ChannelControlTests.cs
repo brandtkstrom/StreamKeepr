@@ -84,6 +84,64 @@ public sealed class ChannelControlTests
     }
 
     [Fact]
+    public async Task Seeded_channel_resolves_its_missing_profile_at_startup()
+    {
+        string ffmpeg = RequireFfmpeg();
+        string root = NewRoot();
+
+        try
+        {
+            var poller = new ScriptedStreamPoller();
+            poller.Profiles[Channel] = new ChannelProfile(
+                "654321", "Seeded Channel", "https://example/seeded.png");
+
+            using var factory = CreateFactory(root, poller, ffmpeg, Channel);
+            using var client = factory.CreateClient();
+            var store = factory.Services.GetRequiredService<ChannelStore>();
+
+            ChannelEntry entry = Assert.Single(store.Snapshot);
+            Assert.Equal(Channel, entry.Login);
+            Assert.Equal("654321", entry.UserId);
+            Assert.Equal("Seeded Channel", entry.DisplayName);
+            Assert.Equal("https://example/seeded.png", entry.AvatarUrl);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task Seeded_channel_whose_profile_lookup_fails_stays_polling_only()
+    {
+        string ffmpeg = RequireFfmpeg();
+        string root = NewRoot();
+
+        try
+        {
+            var poller = new ScriptedStreamPoller
+            {
+                Lookup = (_, _) => throw new HttpRequestException("Helix is down."),
+            };
+
+            using var factory = CreateFactory(root, poller, ffmpeg, Channel);
+            using var client = factory.CreateClient();
+            var store = factory.Services.GetRequiredService<ChannelStore>();
+
+            IReadOnlyList<string> polled = await poller.Started.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal([Channel], polled);
+            Assert.True(poller.Lookups > 0);
+            ChannelEntry entry = Assert.Single(store.Snapshot);
+            Assert.Null(entry.UserId);
+            Assert.Null(entry.AvatarUrl);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
     public async Task Remove_while_recording_finalizes_and_keeps_the_recording()
     {
         string ffmpeg = RequireFfmpeg();
