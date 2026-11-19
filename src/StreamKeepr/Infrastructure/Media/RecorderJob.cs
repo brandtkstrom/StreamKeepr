@@ -78,7 +78,6 @@ public sealed class RecorderJob(
             return;
         }
 
-        DateTimeOffset startedAt = clock.GetUtcNow();
         var tail = new StderrTail(StderrCapacity);
         var parser = new FfmpegProgressParser();
         int producing = 0;
@@ -293,7 +292,7 @@ public sealed class RecorderJob(
                 ? RecorderExitKind.Stopped
                 : RecorderExitKind.Exited;
 
-        telemetry.PartExited(kind, clock.GetUtcNow() - startedAt, partBytes);
+        telemetry.PartExited(kind, clock.GetElapsedTime(startedAt), partBytes);
         if (stalledEnd)
             telemetry.Stall();
         if (forcedKill || finalizeTimedOut)
