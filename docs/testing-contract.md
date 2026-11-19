@@ -130,7 +130,7 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 
 - Triggers: pull requests and pushes to `main`. The `fullstack-refactor` trigger was removed once that migration merged (#112).
 - Required checks for merge; configure branch protection when collaborating.
-- Add a minimal `.editorconfig` so `dotnet format --verify-no-changes` has a stable baseline.
+- Add a minimal `.editorconfig` and a `.gitattributes` (`* text=auto eol=lf`) so `dotnet format --verify-no-changes` has a stable baseline on every platform. An existing Windows checkout that still has CRLF files needs one re-materialisation: `git rm --cached -r . && git reset --hard`.
 - Cache NuGet, npm, and Playwright browsers; cancel superseded runs.
 - Upload Playwright reports and coverage as artifacts.
 - The Docker job does not need Twitch credentials; use dummy values and no channels.
