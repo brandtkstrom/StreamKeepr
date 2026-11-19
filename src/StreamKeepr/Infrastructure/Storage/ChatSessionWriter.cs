@@ -105,8 +105,24 @@ internal sealed class ChatSessionWriter(
 
             if (stored is not null)
                 WriteEvent(stored);
+
+            if (evt is ChatSourceEvent.Dropped drop)
+                LogDropped(drop);
         }
     }
+
+    /// <summary>
+    /// Logged only when the range is stored. A range arriving after the session is closed or
+    /// truncated is discarded with it; the truncation warning already covers that loss.
+    /// </summary>
+    private void LogDropped(ChatSourceEvent.Dropped dropped) =>
+        logger.LogWarning(
+            "Chat capture for {Channel} dropped {Count} messages between {DroppedFrom} and {DroppedTo} in session {SessionId}; the capture queue was full.",
+            summary.Channel,
+            dropped.Count,
+            DateTimeOffset.FromUnixTimeMilliseconds(dropped.FromMs),
+            DateTimeOffset.FromUnixTimeMilliseconds(dropped.ToMs),
+            summary.Id);
 
     public void Close(bool finalize)
     {
@@ -116,30 +132,39 @@ internal sealed class ChatSessionWriter(
                 return;
 
             _closed = true;
-            if (!Directory.Exists(sessionDirectory))
-            {
-                CloseWriters();
-                return;
-            }
+            CloseLog(finalize);
+            logger.LogInformation(
+                "Chat session {SessionId} for {Channel} closed with {MessageCount} messages ({Bytes} message bytes); finalized: {Finalized}.",
+                summary.Id, summary.Channel, _messageCount, _approxBytes, finalize);
+        }
+    }
 
-            if (!HasLog)
-                return;
-
-            if (finalize)
-                WriteEvent(StoredChatEvent.Create(ChatEventKinds.End, clock.GetUtcNow().ToUnixTimeMilliseconds()));
-
+    /// <summary>Ends the log on disk; a session with no log or no directory leaves nothing behind.</summary>
+    private void CloseLog(bool finalize)
+    {
+        if (!Directory.Exists(sessionDirectory))
+        {
             CloseWriters();
-            WriteMeta(finalize);
+            return;
+        }
 
-            if (finalize && options.PurgeDeletedText == ChatPurgeMode.OnFinalize)
-            {
-                ChatLogPurge.PurgeDeleted(
-                    sessionDirectory,
-                    summary.Id,
-                    () => BuildMeta(finalize: true, previous: null),
-                    clock,
-                    logger);
-            }
+        if (!HasLog)
+            return;
+
+        if (finalize)
+            WriteEvent(StoredChatEvent.Create(ChatEventKinds.End, clock.GetUtcNow().ToUnixTimeMilliseconds()));
+
+        CloseWriters();
+        WriteMeta(finalize);
+
+        if (finalize && options.PurgeDeletedText == ChatPurgeMode.OnFinalize)
+        {
+            ChatLogPurge.PurgeDeleted(
+                sessionDirectory,
+                summary.Id,
+                () => BuildMeta(finalize: true, previous: null),
+                clock,
+                logger);
         }
     }
 
