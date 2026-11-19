@@ -488,6 +488,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   /* The tab has no header: Video and Network stack, and their tiles stack too. */
   .sk-stats-panel[data-chrome="tab"] .sk-stats { grid-template-columns: 1fr; }
   .sk-stats-panel[data-chrome="tab"] .sk-tiles { grid-template-columns: 1fr; }
+  .sk-stats-panel[data-chrome="tab"] .sk-viewers { grid-template-columns: minmax(0, 1fr); }
   .sk-watch-tabs .sk-chat,
   .sk-watch-tabs .sk-chat[data-open="true"] {
     width: 100%; max-height: none; min-height: 0; height: 60dvh; contain: none;
@@ -689,6 +690,49 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-stats-heading.stream svg[data-icon] { color: var(--tertiary); }
 .sk-stats-section.stream { grid-column: 1 / -1; padding-top: var(--space-4); border-top: 1px solid var(--divider); }
 .sk-stats-empty { margin: 0; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
+/* Stream: the viewer tile (220px) beside the viewer chart (StatsPanel card, #211). The module
+   toggles [hidden]; none of these rules set display on a hidden element. */
+.sk-viewers { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--space-3); align-items: stretch; }
+.sk-viewer-tile .sk-kv { margin-top: var(--space-2); }
+.sk-vchart {
+  min-width: 0; padding: var(--space-4) var(--space-3) 26px 44px; border-radius: var(--radius-md); background: var(--surface-raised);
+}
+.sk-vchart:has(> .plot[hidden]) { display: none; }
+.sk-vchart > .plot { position: relative; height: 120px; cursor: pointer; touch-action: none; }
+.sk-vchart svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.sk-vchart .grid line { stroke: var(--divider); stroke-width: 1; }
+.sk-vchart .area { fill: color-mix(in srgb, var(--tertiary) 18%, transparent); }
+.sk-vchart .line { fill: none; stroke: var(--tertiary); stroke-width: 2; stroke-linejoin: round; }
+.sk-vchart .xh { stroke: var(--text-secondary); stroke-width: 1; }
+.sk-vchart .overlay { position: absolute; inset: 0; pointer-events: none; }
+.sk-vchart .ylab, .sk-vchart .xlab {
+  position: absolute; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.sk-vchart .ylab { left: -38px; width: 32px; text-align: right; transform: translateY(-50%); }
+.sk-vchart .xlab { bottom: -22px; transform: translateX(-50%); }
+.sk-vchart .xlab.first { transform: none; }
+.sk-vchart .xlab.last { transform: translateX(-100%); }
+.sk-vchart .playhead { position: absolute; top: -4px; bottom: 0; width: 0; border-left: 1px dashed var(--primary); }
+.sk-vchart .playhead .knob {
+  position: absolute; left: -5px; width: 9px; height: 9px; border-radius: var(--radius-full); background: var(--primary);
+  box-shadow: 0 0 0 2px var(--surface-raised); transform: translateY(-50%);
+}
+.sk-vchart .playhead .tag {
+  position: absolute; top: -2px; left: 6px; padding: 0 6px; border-radius: var(--radius-sm); background: var(--primary);
+  color: var(--primary-contrast-text); font: var(--text-caption); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.sk-vchart .edge {
+  position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: var(--radius-full); background: var(--rec);
+  box-shadow: 0 0 0 2px var(--surface-raised);
+}
+.sk-vchart .tip {
+  position: absolute; top: 0; transform: translate(-50%, -110%); padding: 2px 6px; border-radius: var(--radius-sm);
+  background: var(--tooltip-background); color: var(--tooltip-text); box-shadow: var(--elevation-8); pointer-events: none; opacity: 0;
+  font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; transition: opacity 120ms; z-index: 1;
+}
+.sk-vchart .tip:empty { display: none; }
+.sk-vchart > .plot:is(:hover, [data-active]) .tip { opacity: 1; }
 .sk-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-bottom: var(--space-3); }
 .sk-tile { position: relative; min-width: 0; padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface-raised); }
 .sk-tile .lbl {
@@ -727,9 +771,11 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   .sk-stats { grid-template-columns: 1fr; }
   /* The panel stacks, but each section keeps its two tiles (player contract §10). */
   .sk-stats .sk-tiles { grid-template-columns: 1fr 1fr; }
+  /* The Stream tile moves above its chart, which keeps the full width. */
+  .sk-viewers { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sk-stats-collapse, .sk-stats-switch::before, .sk-stats-switch::after, .sk-tile .tip { transition: none; }
+  .sk-stats-collapse, .sk-stats-switch::before, .sk-stats-switch::after, .sk-tile .tip, .sk-vchart .tip { transition: none; }
 }
 
 /* ---------- panel ---------- */

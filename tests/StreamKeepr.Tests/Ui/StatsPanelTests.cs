@@ -21,6 +21,9 @@ public sealed class StatsPanelTests
         "value-buffer", "spark-buffer", "tip-buffer", "table-buffer", "rows-buffer",
         "kv-resolution", "kv-codecs", "kv-dropped", "kv-decoder",
         "kv-last-segment", "kv-segments", "kv-errors", "kv-playlist",
+        "viewer-chart-empty", "viewer-tile", "viewer-at", "viewer-count",
+        "viewer-now", "viewer-peak", "viewer-average",
+        "viewer-chart", "viewer-svg", "tip-viewers", "table-viewers", "rows-viewers",
     ];
 
     [Fact]
@@ -105,6 +108,73 @@ public sealed class StatsPanelTests
         Assert.Equal(
             "No viewer data for this recording.",
             cut.Find("[data-sk='stats-stream'] [data-sk='stream-empty']").TextContent.Trim());
+    }
+
+    [Fact]
+    public void The_viewer_tile_and_chart_stay_hidden_until_the_module_has_samples()
+    {
+        using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<StatsPanel> cut = context.Render<StatsPanel>(p =>
+            p.Add(c => c.Recording, Recording("r1")));
+
+        var stream = cut.Find("[data-sk='stats-stream']");
+        Assert.False(stream.QuerySelector("[data-sk='viewer-chart-empty']")!.HasAttribute("hidden"));
+        Assert.True(stream.QuerySelector("[data-sk='viewer-tile']")!.HasAttribute("hidden"));
+        Assert.True(stream.QuerySelector("[data-sk='viewer-chart']")!.HasAttribute("hidden"));
+        Assert.True(stream.QuerySelector("[data-sk='table-viewers']")!.HasAttribute("hidden"));
+
+        var tile = cut.Find("[data-sk='viewer-tile']");
+        Assert.Equal("Viewers at 0:00", tile.QuerySelector("[data-sk='viewer-at']")!.TextContent.Trim());
+        Assert.Equal("—", tile.QuerySelector("[data-sk='viewer-count']")!.TextContent.Trim());
+        string[] rows = tile.QuerySelectorAll("dt").Select(dt => dt.TextContent.Trim()).ToArray();
+        Assert.Equal(["Now", "Peak", "Average"], rows);
+        foreach (string hook in new[] { "viewer-now", "viewer-peak", "viewer-average" })
+            Assert.Equal("—", tile.QuerySelector($"dd[data-sk='{hook}']")!.TextContent.Trim());
+    }
+
+    [Fact]
+    public void The_viewer_chart_is_a_labelled_image_with_a_screen_reader_table_beside_it()
+    {
+        using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<StatsPanel> cut = context.Render<StatsPanel>(p =>
+            p.Add(c => c.Recording, Recording("r1")));
+
+        var chart = cut.Find("[data-sk='viewer-chart']");
+        Assert.Equal("img", chart.GetAttribute("role"));
+        Assert.False(string.IsNullOrWhiteSpace(chart.GetAttribute("aria-label")));
+        Assert.Equal("true", chart.QuerySelector("[data-sk='viewer-svg']")!.GetAttribute("aria-hidden"));
+        Assert.Equal("true", chart.QuerySelector("[data-sk='tip-viewers']")!.GetAttribute("aria-hidden"));
+
+        // An img's children are presentational, so the sample table must sit outside it.
+        var table = cut.Find("[data-sk='table-viewers']");
+        Assert.Null(chart.QuerySelector("table"));
+        Assert.True(table.HasAttribute("data-sr-only"));
+        Assert.Equal("Viewer count samples", table.QuerySelector("caption")!.TextContent.Trim());
+        Assert.Equal(
+            ["Time", "Viewers"],
+            table.QuerySelectorAll("thead th").Select(th => th.TextContent.Trim()).ToArray());
+        Assert.Empty(cut.FindAll("[data-sk='rows-viewers'] tr"));
+    }
+
+    [Fact]
+    public async Task A_chart_seek_moves_the_player_through_the_bridge()
+    {
+        using BunitContext context = CreateContext(out _);
+        var bridge = context.Services.GetRequiredService<PlayerBridge>();
+        var seeks = new List<double>();
+        bridge.Attach(seconds =>
+        {
+            seeks.Add(seconds);
+            return ValueTask.CompletedTask;
+        });
+        IRenderedComponent<StatsPanel> cut = context.Render<StatsPanel>(p =>
+            p.Add(c => c.Recording, Recording("r1")));
+
+        await cut.InvokeAsync(() => cut.Instance.Seek(2280.5));
+
+        Assert.Equal([2280.5], seeks);
     }
 
     [Fact]
@@ -246,6 +316,7 @@ public sealed class StatsPanelTests
         context.Services.AddSingleton<IClientStateStore>(store);
         context.Services.AddScoped<UiPreferences>();
         context.Services.AddSingleton(TimeProvider.System);
+        context.Services.AddScoped<PlayerBridge>();
         return context;
     }
 

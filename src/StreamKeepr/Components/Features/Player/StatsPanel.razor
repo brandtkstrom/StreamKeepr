@@ -2,6 +2,7 @@
 @inject UiPreferences Preferences
 @inject MudBlazor.ISnackbar Snackbars
 @inject IJSRuntime JS
+@inject PlayerBridge Bridge
 @inject ILogger<StatsPanel> Logger
 
 @* Rendered once. StatsPanel.razor.js owns the open state, sampled values, sparklines, and
@@ -141,10 +142,49 @@
                     </dl>
                 </div>
 
-                @* Ready for viewer-count samples (StatsPanel card); none are recorded yet. *@
+                @* Viewer counts (StatsPanel card, #211). The module fetches the samples, then
+                   swaps the empty line for the tile and chart; it draws the chart, its labels,
+                   playhead and tooltip, and fills the screen-reader table. *@
                 <div class="sk-stats-section stream" data-sk="stats-stream">
                     <h3 class="sk-stats-heading stream">@IslandIcon.Svg("Groups")Stream</h3>
-                    <p class="sk-stats-empty" data-sk="stream-empty">No viewer data for this recording.</p>
+                    <div data-sk="viewer-chart-empty">
+                        <p class="sk-stats-empty" data-sk="stream-empty">No viewer data for this recording.</p>
+                    </div>
+                    <div class="sk-viewers">
+                        <div class="sk-tile sk-viewer-tile" data-sk="viewer-tile" hidden>
+                            <div class="lbl" data-sk="viewer-at">Viewers at 0:00</div>
+                            <div class="val" data-sk="viewer-count">—</div>
+                            <dl class="sk-kv">
+                                <dt>Now</dt>
+                                <dd data-sk="viewer-now">—</dd>
+                                <dt>Peak</dt>
+                                <dd data-sk="viewer-peak">—</dd>
+                                <dt>Average</dt>
+                                <dd data-sk="viewer-average">—</dd>
+                            </dl>
+                        </div>
+                        <div class="sk-vchart">
+                            <div class="plot"
+                                 data-sk="viewer-chart"
+                                 role="img"
+                                 aria-label="No viewer data for this recording."
+                                 hidden>
+                                <svg data-sk="viewer-svg"
+                                     viewBox="0 0 1000 100"
+                                     preserveAspectRatio="none"
+                                     aria-hidden="true"
+                                     focusable="false"></svg>
+                                <span class="tip" data-sk="tip-viewers" aria-hidden="true"></span>
+                            </div>
+                            <table class="sk-visually-hidden" data-sr-only data-sk="table-viewers" hidden>
+                                <caption>Viewer count samples</caption>
+                                <thead>
+                                    <tr><th scope="col">Time</th><th scope="col">Viewers</th></tr>
+                                </thead>
+                                <tbody data-sk="rows-viewers"></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -235,6 +275,10 @@
         if (!string.IsNullOrWhiteSpace(message))
             Snackbars.Show(message);
     }
+
+    /// <summary>Seeks the player to a recording time picked on the viewer chart.</summary>
+    [JSInvokable]
+    public Task Seek(double seconds) => Bridge.SeekAsync(seconds).AsTask();
 
     private void OnPreferencesChanged() => _ = InvokeAsync(async () =>
     {
