@@ -44,11 +44,12 @@ public sealed class TelemetryHostTests
         Assert.Empty(custom);
     }
 
-    [Fact]
-    public void Enabled_telemetry_refuses_disabled_query_redaction()
+    [Theory]
+    [InlineData("OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_DISABLE_URL_QUERY_REDACTION")]
+    [InlineData("OTEL_DOTNET_EXPERIMENTAL_HTTPCLIENT_DISABLE_URL_QUERY_REDACTION")]
+    public void Enabled_telemetry_refuses_disabled_query_redaction(string variable)
     {
-        using var redaction = SetVariable(
-            "OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_DISABLE_URL_QUERY_REDACTION", "true");
+        using var redaction = SetVariable(variable, "true");
         using var factory = new StreamKeeprAppFactory(telemetry: true);
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(

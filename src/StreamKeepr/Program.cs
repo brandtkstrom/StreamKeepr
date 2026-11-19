@@ -67,11 +67,7 @@ try
     // The Mock in-memory configuration runs last, so the disposable profile can never inherit
     // a real endpoint from the host environment.
     bool telemetryEnabled = builder.Configuration.GetValue("Telemetry:Enabled", false);
-    if (telemetryEnabled
-        && (builder.Configuration.GetValue(
-                "OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_DISABLE_URL_QUERY_REDACTION", false)
-            || builder.Configuration.GetValue(
-                "OTEL_DOTNET_EXPERIMENTAL_HTTPCLIENT_DISABLE_URL_QUERY_REDACTION", false)))
+    if (telemetryEnabled && TelemetryQueryRedaction.DisableRequested(builder.Configuration))
     {
         throw new InvalidOperationException(
             "OpenTelemetry URL query redaction cannot be disabled; OAuth codes and state must never be exported.");
