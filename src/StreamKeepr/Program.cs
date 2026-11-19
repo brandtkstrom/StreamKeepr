@@ -1,8 +1,14 @@
+using System.Diagnostics.Metrics;
 using MudBlazor.Services;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting.StaticWebAssets;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Options;
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Serilog;
 using Serilog.Extensions.Hosting;
 using StreamKeepr.Components;
@@ -13,6 +19,7 @@ using StreamKeepr.Infrastructure.Emotes;
 using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Infrastructure.Telemetry;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Infrastructure.Twitch.Chat;
 using StreamKeepr.Mock;
@@ -54,6 +61,91 @@ try
     if (mock)
     {
         MockEnvironment.Configure(builder);
+    }
+
+    // Telemetry is opt-in and never sends anything unless an OTLP endpoint is configured.
+    // The Mock in-memory configuration runs last, so the disposable profile can never inherit
+    // a real endpoint from the host environment.
+    bool telemetryEnabled = builder.Configuration.GetValue("Telemetry:Enabled", false);
+    if (telemetryEnabled && TelemetryQueryRedaction.DisableRequested(builder.Configuration))
+    {
+        throw new InvalidOperationException(
+            "OpenTelemetry URL query redaction cannot be disabled; OAuth codes and state must never be exported.");
+    }
+
+    // The singleton exists even when telemetry is off: it reports Enabled=false, its
+    // instruments are no-ops without a provider, and instrumented constructors resolve it.
+    builder.Services.AddSingleton(services => new StreamKeeprTelemetry(
+        services.GetRequiredService<IMeterFactory>(), telemetryEnabled));
+
+    if (telemetryEnabled)
+    {
+        string? otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
+        bool export = ParseEndpoint(otlpEndpoint) is not null;
+        int exportTimeout = builder.Configuration.GetValue(
+            "OTEL_EXPORTER_OTLP_TIMEOUT", TelemetryDefaults.ExportTimeoutMilliseconds);
+        int batchTimeout = builder.Configuration.GetValue(
+            "OTEL_BSP_EXPORT_TIMEOUT", TelemetryDefaults.BatchExportTimeoutMilliseconds);
+        int batchDelay = builder.Configuration.GetValue(
+            "OTEL_BSP_SCHEDULE_DELAY", TelemetryDefaults.BatchScheduleDelayMilliseconds);
+        int metricTimeout = builder.Configuration.GetValue(
+            "OTEL_METRIC_EXPORT_TIMEOUT", TelemetryDefaults.MetricExportTimeoutMilliseconds);
+        int metricInterval = builder.Configuration.GetValue(
+            "OTEL_METRIC_EXPORT_INTERVAL", TelemetryDefaults.MetricExportIntervalMilliseconds);
+
+        var openTelemetry = builder.Services.AddOpenTelemetry()
+            .ConfigureResource(resource => resource
+                .AddService(
+                    StreamKeeprTelemetry.ServiceName,
+                    serviceVersion: StreamKeeprTelemetry.ServiceVersion,
+                    autoGenerateServiceInstanceId: false)
+                .AddAttributes(new Dictionary<string, object>
+                {
+                    ["deployment.environment.name"] = TelemetryEnvironment.Name(builder.Environment),
+                }));
+
+        openTelemetry.WithTracing(tracing =>
+        {
+            tracing.AddSource(StreamKeeprTelemetry.SourceName)
+                .AddAspNetCoreInstrumentation(options =>
+                {
+                    options.Filter = TelemetryPaths.ShouldTrace;
+                    options.EnableAspNetCoreSignalRSupport = false;
+                    options.EnableRazorComponentsSupport = false;
+                    options.EnrichWithHttpResponse = TelemetryPaths.RewriteUrlPath;
+                })
+                .AddHttpClientInstrumentation();
+
+            if (export)
+            {
+                tracing.AddOtlpExporter(options =>
+                {
+                    options.TimeoutMilliseconds = exportTimeout;
+                    options.BatchExportProcessorOptions.ExporterTimeoutMilliseconds = batchTimeout;
+                    options.BatchExportProcessorOptions.ScheduledDelayMilliseconds = batchDelay;
+                });
+            }
+        });
+
+        openTelemetry.WithMetrics(metrics =>
+        {
+            metrics.AddMeter(StreamKeeprTelemetry.MeterName)
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddMeter("System.Runtime");
+
+            if (export)
+            {
+                metrics.AddOtlpExporter((options, reader) =>
+                {
+                    options.TimeoutMilliseconds = exportTimeout;
+                    reader.PeriodicExportingMetricReaderOptions.ExportTimeoutMilliseconds = metricTimeout;
+                    reader.PeriodicExportingMetricReaderOptions.ExportIntervalMilliseconds = metricInterval;
+                });
+            }
+        });
+
+        builder.Services.AddSingleton<StreamKeeprRuntimeMetrics>();
     }
 
     // The host budget is the recorder job budget plus shutdown/cleanup headroom.
@@ -290,11 +382,40 @@ try
         {
             app.Logger.LogWarning("AllowedTwitchLogins is empty; any Twitch user can administer this app. " + "Set Auth:AllowedTwitchLogins on shared networks.");
         }
+
+        if (telemetryEnabled)
+            app.Services.GetRequiredService<StreamKeeprRuntimeMetrics>();
+
+        string endpoint = SanitizeEndpoint(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
+        app.Logger.LogInformation(
+            "OpenTelemetry {State}: service={Service} version={Version} environment={Environment} endpoint={Endpoint}",
+            telemetryEnabled ? "enabled" : "disabled",
+            StreamKeeprTelemetry.ServiceName,
+            StreamKeeprTelemetry.ServiceVersion,
+            TelemetryEnvironment.Name(app.Environment),
+            endpoint);
+
+        if (telemetryEnabled && endpoint is "none" or "invalid")
+            app.Logger.LogWarning("OpenTelemetry is enabled without a usable OTEL_EXPORTER_OTLP_ENDPOINT; nothing will be exported.");
     });
 
     // Must precede authentication and antiforgery so the callback and cookies use
     // the public origin. No trusted proxy configured means no forwarded headers.
     app.UseStreamKeeprForwardedHeaders();
+
+    if (telemetryEnabled)
+    {
+        app.Use(async (context, next) =>
+        {
+            if (TelemetryPaths.DisableHttpMetrics(context.Request.Path)
+                && context.Features.Get<IHttpMetricsTagsFeature>() is { } feature)
+            {
+                feature.MetricsDisabled = true;
+            }
+
+            await next();
+        });
+    }
 
     // After forwarded headers (public scheme/client) and before the exception handler (its
     // 500 logs at Error) and authentication (401/403 stay visible). Everything below it,
@@ -349,14 +470,31 @@ try
     app.MapHealthChecks("/health/live", new HealthCheckOptions
     {
         Predicate = registration => registration.Tags.Contains("live"),
-    });
+    }).DisableHttpMetrics();
 
     app.MapHealthChecks("/health/ready", new HealthCheckOptions
     {
         Predicate = registration => registration.Tags.Contains("ready"),
-    });
+    }).DisableHttpMetrics();
 
     await app.RunAsync();
+
+    static string SanitizeEndpoint(string? endpoint)
+    {
+        if (string.IsNullOrWhiteSpace(endpoint))
+            return "none";
+
+        Uri? uri = ParseEndpoint(endpoint);
+        return uri is null
+            ? "invalid"
+            : uri.GetComponents(UriComponents.SchemeAndServer, UriFormat.UriEscaped);
+    }
+
+    static Uri? ParseEndpoint(string? endpoint) =>
+        Uri.TryCreate(endpoint, UriKind.Absolute, out Uri? uri)
+            && uri.Scheme is "http" or "https"
+                ? uri
+                : null;
 }
 // WebApplicationFactory stops the entry point after Build() with HostAbortedException;
 // that is test plumbing, not a failure.

@@ -32,6 +32,18 @@ dotnet user-secrets --project src/StreamKeepr set "Chat:TwitchLogin" "<twitch-lo
 
 Chat is a best-effort live tap, not a complete history: disconnects, dropped events, and a full log are shown as gaps. The other `Chat:` settings are listed in `docs/runtime-contract.md`. `Chat:PurgeDeletedText=OnFinalize` opts in to physically removing deleted text when a recording finalizes; it is off by default. Chat failures never stop recording.
 
+## Telemetry (optional)
+
+OpenTelemetry metrics and traces are off by default. To export them, set
+`Telemetry__Enabled=true` and point `OTEL_EXPORTER_OTLP_ENDPOINT` at a collector; the standard
+`OTEL_EXPORTER_OTLP_*` protocol, timeout, and header settings apply. Without an endpoint the app
+starts with telemetry enabled but exports nothing and logs a warning. Traces cover ASP.NET Core,
+HttpClient, and one Twitch poll span; metrics cover DVR state, recorder parts, polling, EventSub,
+chat drops, storage, and exports, plus the framework and runtime meters. Logs are not exported:
+Serilog remains the only logging pipeline. The app filters the OAuth callback, media, Blazor
+WebSocket, and health paths, and never exports tokens, OAuth codes/state, chat text, or channel
+logins. See [`docs/runtime-contract.md`](docs/runtime-contract.md) for the full contract.
+
 ## Mock profile (no Twitch credentials)
 
 The `Mock` launch profile runs the whole app without Twitch, OAuth, or production data. It is a

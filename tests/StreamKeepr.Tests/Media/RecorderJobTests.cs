@@ -1,5 +1,8 @@
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.IO.Pipelines;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using CliWrap;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -7,7 +10,9 @@ using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Media;
+using StreamKeepr.Infrastructure.Telemetry;
 using StreamKeepr.Tests.Hosting;
+using StreamKeepr.Tests.Telemetry;
 
 namespace StreamKeepr.Tests.Media;
 
@@ -20,11 +25,13 @@ public sealed class RecorderJobTests : IDisposable
         Path.GetTempPath(),
         "streamkeepr-tests",
         Guid.NewGuid().ToString("N"));
+    private readonly TestTelemetry _telemetry = new();
 
     public RecorderJobTests() => Directory.CreateDirectory(_root);
 
     public void Dispose()
     {
+        _telemetry.Dispose();
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
     }
@@ -333,6 +340,9 @@ public sealed class RecorderJobTests : IDisposable
         options.StreamlinkPath = FixturePath("fake-streamlink-stall");
         options.StallTimeoutSeconds = 15;
 
+        using var stalls = new MetricCollector<long>(
+            _telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.stalls");
+
         using var safetyStop = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         (Task run, List<DvrEvent> events) = StartJob(
             session, options, clock, stopRequested: safetyStop.Token);
@@ -349,6 +359,7 @@ public sealed class RecorderJobTests : IDisposable
         Assert.Equal(RecorderExitKind.Killed, exited.Kind);
         Assert.Contains("stall", exited.Detail, StringComparison.Ordinal);
         Assert.Contains("no new media", exited.Detail, StringComparison.Ordinal);
+        Assert.Equal(1, Assert.Single(stalls.GetMeasurementSnapshot()).Value);
         Assert.True(
             recorded.ToList().IndexOf(media) < recorded.ToList().IndexOf(exited),
             "PartProducingMedia must be published before RecorderExited");
@@ -435,6 +446,8 @@ public sealed class RecorderJobTests : IDisposable
     [Fact]
     public async Task A_worst_case_stop_fits_inside_the_35_second_job_budget()
     {
+        using var forceKills = new MetricCollector<long>(
+            _telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.force_kills");
         Session session = NewSession();
         var clock = new ScaledTimeProvider();
         var options = new RecorderOptions
@@ -463,6 +476,7 @@ public sealed class RecorderJobTests : IDisposable
 
         var exited = Assert.Single(events.OfType<DvrEvent.RecorderExited>());
         Assert.Equal(RecorderExitKind.Killed, exited.Kind);
+        Assert.Equal(1, Assert.Single(forceKills.GetMeasurementSnapshot()).Value);
 
         // The fake processes never exit on their own and ignore SIGINT, so every wait in the
         // contract's shutdown order expires: 5 + 5 for Streamlink, 15 finalize for FFmpeg,
@@ -480,7 +494,7 @@ public sealed class RecorderJobTests : IDisposable
         Assert.True(elapsed < TimeSpan.FromSeconds(35), $"stop took {elapsed}");
     }
 
-    private static (Task Run, List<DvrEvent> Events) StartJob(
+    private (Task Run, List<DvrEvent> Events) StartJob(
         Session session,
         RecorderOptions options,
         TimeProvider? clock = null,
@@ -498,12 +512,13 @@ public sealed class RecorderJobTests : IDisposable
         var job = new RecorderJob(
             Options.Create(options),
             clock ?? TimeProvider.System,
-            logger ?? NullLogger<RecorderJob>.Instance);
+            logger ?? NullLogger<RecorderJob>.Instance,
+            _telemetry.Value);
         Task run = job.RunAsync(session, new JobId(session.Id, 1), Publish, stopRequested);
         return (run, events);
     }
 
-    private static async Task<IReadOnlyList<DvrEvent>> RunAsync(
+    private async Task<IReadOnlyList<DvrEvent>> RunAsync(
         Session session,
         RecorderOptions options,
         CancellationToken stopRequested = default,

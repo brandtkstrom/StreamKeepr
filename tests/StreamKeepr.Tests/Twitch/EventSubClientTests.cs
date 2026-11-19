@@ -1,6 +1,9 @@
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Text;
 using System.Threading.Channels;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -9,7 +12,9 @@ using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Infrastructure.Telemetry;
 using StreamKeepr.Infrastructure.Twitch;
+using StreamKeepr.Tests.Telemetry;
 using StreamKeepr.Tests.Hosting;
 using static StreamKeepr.Tests.Twitch.EventSubMessages;
 
@@ -28,6 +33,7 @@ public sealed class EventSubClientTests : IDisposable
     private readonly FakeEventSubSocketFactory _socketFactory = new();
     private readonly FakeChannelInfoPoller _poller = new();
     private readonly PollSchedule _schedule;
+    private readonly TestTelemetry _telemetry = new();
 
     public EventSubClientTests()
     {
@@ -48,6 +54,7 @@ public sealed class EventSubClientTests : IDisposable
 
     public void Dispose()
     {
+        _telemetry.Dispose();
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
     }
@@ -84,6 +91,28 @@ public sealed class EventSubClientTests : IDisposable
         Assert.Contains(requests, body => body.Contains("stream.offline", StringComparison.Ordinal));
         Assert.Contains(requests, body => body.Contains("session-1", StringComparison.Ordinal));
         Assert.Contains(requests, body => body.Contains("123", StringComparison.Ordinal));
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task A_session_end_records_a_reconnect()
+    {
+        using var reconnects = new MetricCollector<long>(
+            _telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.eventsub.reconnects");
+
+        EventSubClient client = CreateClient();
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket!.Close();
+
+        await reconnects.WaitForMeasurementsAsync(1, TimeSpan.FromSeconds(5));
+        CollectedMeasurement<long> reconnect = Assert.Single(reconnects.GetMeasurementSnapshot());
+        Assert.Equal(1, reconnect.Value);
+        Assert.Equal("WebSocket", reconnect.Tags["eventsub.transport"]);
 
         stop.Cancel();
         await run.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1639,7 +1668,8 @@ public sealed class EventSubClientTests : IDisposable
             _schedule,
             jitter ?? new NoJitter(),
             _clock,
-            logger ?? NullLogger<EventSubClient>.Instance);
+            logger ?? NullLogger<EventSubClient>.Instance,
+            _telemetry.Value);
 
     private static HttpResponseMessage SubscriptionsResponse(string sessionId) =>
         new(HttpStatusCode.OK)

@@ -161,16 +161,24 @@ public sealed class ToolPreflightTests
     }
 
     [Fact]
-    public void Preflight_is_the_first_hosted_service()
+    public void Preflight_is_the_first_application_hosted_service()
     {
-        using var factory = new StreamKeeprAppFactory();
+        using var factory = new StreamKeeprAppFactory(telemetry: true);
 
         var hosted = factory.Services.GetServices<IHostedService>().ToList();
 
-        Assert.IsType<ToolPreflight>(hosted[0]);
+        // OpenTelemetry inserts its hosted service at index 0 so it can capture early
+        // telemetry. Preflight must remain the first application service after it.
+        int preflight = hosted.FindIndex(service => service is ToolPreflight);
+        Assert.True(preflight >= 0, "preflight must be registered");
+        Assert.All(
+            hosted.Take(preflight),
+            service => Assert.StartsWith(
+                "OpenTelemetry.", service.GetType().FullName, StringComparison.Ordinal));
+
         int keyRingCheck = hosted.FindIndex(
             service => service.GetType().Name == "DataProtectionKeyRingStartupCheck");
-        Assert.True(keyRingCheck > 0, "the key-ring check must start after preflight");
+        Assert.True(keyRingCheck > preflight, "the key-ring check must start after preflight");
     }
 
     [Fact]

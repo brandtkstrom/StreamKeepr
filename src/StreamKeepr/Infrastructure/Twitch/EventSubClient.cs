@@ -3,6 +3,7 @@ using System.Text.Json;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Infrastructure.Telemetry;
 
 namespace StreamKeepr.Infrastructure.Twitch;
 
@@ -20,7 +21,8 @@ public sealed class EventSubClient(
     PollSchedule schedule,
     IRetryJitter jitter,
     TimeProvider clock,
-    ILogger<EventSubClient> logger) : IEventSubClient
+    ILogger<EventSubClient> logger,
+    StreamKeeprTelemetry telemetry) : IEventSubClient
 {
     private static readonly Uri BaseUri = new("wss://eventsub.wss.twitch.tv/ws");
     private static readonly TimeSpan InitialBackoff = TimeSpan.FromSeconds(5);
@@ -47,6 +49,10 @@ public sealed class EventSubClient(
     {
         var backoff = new Backoff(jitter);
 
+        // Setup retries are reconnect attempts only once a session has existed; failed
+        // first connects are not reconnects.
+        bool hadSession = false;
+
         while (!ct.IsCancellationRequested)
         {
             IEventSubSessionBinding? session;
@@ -62,6 +68,8 @@ public sealed class EventSubClient(
             {
                 LogEventSub(
                     LogLevel.Warning, ex, "could not start a session; polling continues.");
+                if (hadSession)
+                    telemetry.EventSubReconnectAttempt(Transport);
                 schedule.SetPushStatus(PushStatus.Reconnecting);
                 if (!await BackoffAsync(backoff, $"session setup failed: {ex.GetType().Name}", ct))
                     break;
@@ -76,6 +84,7 @@ public sealed class EventSubClient(
             }
 
             // Setup succeeded, but no subscription delivers until the session welcomes us.
+            hadSession = true;
             schedule.SetPushStatus(PushStatus.Reconnecting);
 
             using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -123,6 +132,9 @@ public sealed class EventSubClient(
                 channels.SubscriptionsChanged -= ChannelsChanged;
                 binding.RestartRequested -= BindingRestart;
                 schedule.SetPushStatus(PushStatus.Reconnecting);
+
+                if (!ct.IsCancellationRequested && !sessionCts.IsCancellationRequested)
+                    telemetry.EventSubReconnectAttempt(Transport);
             }
 
             if (state.HadSubscriptions)
@@ -345,6 +357,7 @@ public sealed class EventSubClient(
     /// </summary>
     private ReconnectHandoff StartHandoff(Uri reconnectUrl, CancellationToken ct)
     {
+        telemetry.EventSubReconnectAttempt(Transport);
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         try
         {

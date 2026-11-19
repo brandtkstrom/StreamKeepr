@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -5,6 +6,7 @@ using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
+using StreamKeepr.Infrastructure.Telemetry;
 
 namespace StreamKeepr.Infrastructure.Twitch;
 
@@ -20,13 +22,24 @@ public sealed class TwitchStreamPoller(
     DvrStatus status,
     IOptions<TwitchOptions> options,
     TimeProvider clock,
-    ILogger<TwitchStreamPoller> logger) : IStreamPoller
+    ILogger<TwitchStreamPoller> logger,
+    StreamKeeprTelemetry telemetry) : IStreamPoller
 {
+    private const int StreamsBatchSize = 100;
+
     public async Task RunAsync(
         Func<IReadOnlyList<string>> logins,
         StreamObservationRoute route,
         CancellationToken ct)
     {
+        // The poll loop is a background root. A coordinator can be started from an HTTP
+        // request, so clear any ambient activity before creating the poll span.
+        Activity? ambient = null;
+        if (telemetry.Enabled)
+        {
+            ambient = Activity.Current;
+            Activity.Current = null;
+        }
         try
         {
             TimeSpan normal = TimeSpan.FromSeconds(options.Value.PollIntervalSeconds);
@@ -42,20 +55,44 @@ public sealed class TwitchStreamPoller(
 
                 bool succeeded = true;
                 TimeSpan? roundTrip = null;
-                if (channels.Count > 0)
+                string outcome = "ok";
+                int batches = 0;
+
+                using (Activity? activity = telemetry.Enabled
+                    ? telemetry.ActivitySource.StartActivity(
+                        "streamkeepr.twitch.poll", ActivityKind.Internal, parentContext: default)
+                    : null)
                 {
-                    long started = clock.GetTimestamp();
-                    IReadOnlyDictionary<string, StreamObservation> observed =
-                        await ObserveAsync(channels, ct);
+                    activity?.SetTag("channels.count", channels.Count);
 
-                    // Unknown only comes from a failed batch; the round trip is for the UI.
-                    succeeded = observed.Values.All(
-                        observation => observation is not StreamObservation.Unknown);
-                    if (succeeded)
-                        roundTrip = clock.GetElapsedTime(started);
+                    if (channels.Count > 0)
+                    {
+                        batches = (channels.Count + StreamsBatchSize - 1) / StreamsBatchSize;
+                        long started = clock.GetTimestamp();
+                        IReadOnlyDictionary<string, StreamObservation> observed =
+                            await ObserveAsync(channels, ct);
 
-                    foreach ((string login, StreamObservation observation) in observed)
-                        await route(login, observation, ct);
+                        int unknown = observed.Values.Count(
+                            observation => observation is StreamObservation.Unknown);
+                        succeeded = unknown == 0;
+                        outcome = succeeded ? "ok"
+                            : unknown == observed.Count ? "failed"
+                            : "partial";
+
+                        if (succeeded)
+                            roundTrip = clock.GetElapsedTime(started);
+
+                        foreach ((string login, StreamObservation observation) in observed)
+                            await route(login, observation, ct);
+                    }
+
+                    activity?.SetTag("poll.batch_count", batches);
+                    activity?.SetTag("poll.outcome", outcome);
+
+                    // Only a round where every batch failed is a failure; a partial round is
+                    // an expected degraded outcome and keeps the status Unset.
+                    if (outcome == "failed")
+                        activity?.SetStatus(ActivityStatusCode.Error);
                 }
 
                 bool recording = status.Current.Values.Any(
@@ -71,6 +108,11 @@ public sealed class TwitchStreamPoller(
         {
             // Host shutdown.
         }
+        finally
+        {
+            if (telemetry.Enabled)
+                Activity.Current = ambient;
+        }
     }
 
     /// <summary>
@@ -84,7 +126,7 @@ public sealed class TwitchStreamPoller(
         long started = clock.GetTimestamp();
         int batches = 0, liveCount = 0, unknownCount = 0;
 
-        foreach (string[] batch in logins.Chunk(100))
+        foreach (string[] batch in logins.Chunk(StreamsBatchSize))
         {
             batches++;
             Dictionary<string, LiveStream>? live;

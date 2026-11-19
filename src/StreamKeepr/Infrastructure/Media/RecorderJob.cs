@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
+using StreamKeepr.Infrastructure.Telemetry;
 
 namespace StreamKeepr.Infrastructure.Media;
 
@@ -15,7 +16,8 @@ namespace StreamKeepr.Infrastructure.Media;
 public sealed class RecorderJob(
     IOptions<RecorderOptions> options,
     TimeProvider clock,
-    ILogger<RecorderJob> logger) : IRecorder
+    ILogger<RecorderJob> logger,
+    StreamKeeprTelemetry telemetry) : IRecorder
 {
     private const int StderrCapacity = 20;
 
@@ -266,6 +268,22 @@ public sealed class RecorderJob(
                 CancellationToken.None);
         }
 
+        // Null when unknown: telemetry must never fail the recorder, and a failed read must not
+        // be reported as a 0-byte part.
+        long? partBytes = null;
+        if (telemetry.Enabled)
+        {
+            try
+            {
+                partBytes = PartFiles.TotalBytes(session.Directory, job.Part);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex, "Could not read the part size; the part's size metric is skipped.");
+            }
+        }
+
         if (Volatile.Read(ref producing) == 0)
             PartFiles.Delete(session.Directory, job.Part);
 
@@ -276,6 +294,12 @@ public sealed class RecorderJob(
             : stopRequested.IsCancellationRequested
                 ? RecorderExitKind.Stopped
                 : RecorderExitKind.Exited;
+
+        telemetry.PartExited(kind, clock.GetElapsedTime(startedAt), partBytes);
+        if (stalledEnd)
+            telemetry.Stall();
+        if (forcedKill || finalizeTimedOut)
+            telemetry.ForceKill();
 
         string detail = $"{reason}; streamlink {Describe(streamlinkTask)}, ffmpeg {Describe(ffmpegTask)}";
         string stderr = tail.ToString();

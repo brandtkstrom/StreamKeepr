@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Infrastructure.Telemetry;
 
 namespace StreamKeepr.Infrastructure.Twitch.Chat;
 
@@ -15,7 +16,8 @@ public sealed class ChatCaptureService(
     ChatLogStore store,
     IOptions<ChatOptions> options,
     TimeProvider clock,
-    ILogger<ChatCaptureService> logger) : BackgroundService
+    ILogger<ChatCaptureService> logger,
+    StreamKeeprTelemetry telemetry) : BackgroundService
 {
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan SourceRetryDelay = TimeSpan.FromSeconds(5);
@@ -139,6 +141,10 @@ public sealed class ChatCaptureService(
 
             case ChatSourceEvent.MessageEvent message:
                 _lastMessageAt[message.Channel] = message.AtMs;
+                break;
+
+            case ChatSourceEvent.Dropped dropped:
+                telemetry.ChatDropped(dropped.Count);
                 break;
         }
 

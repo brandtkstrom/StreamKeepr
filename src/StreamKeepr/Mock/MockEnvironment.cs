@@ -88,6 +88,7 @@ public static class MockEnvironment
 
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
+            ["Telemetry:Enabled"] = "false",
             ["Storage:RecordingsRoot"] = recordingsRoot,
             ["Storage:MinFreeGb"] = "1",
             ["Twitch:ClientId"] = ClientId,

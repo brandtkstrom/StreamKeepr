@@ -1,4 +1,7 @@
+using System.Diagnostics.Metrics;
 using System.Security.Claims;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -6,6 +9,7 @@ using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Infrastructure.Telemetry;
 using StreamKeepr.Tests.Hosting;
 using CliWrap;
 using Microsoft.Extensions.Time.Testing;
@@ -26,6 +30,9 @@ public sealed class ExportServiceTests : IAsyncLifetime
     private readonly ExportLeaseRegistry _leases = new();
     private readonly List<ExportService> _started = [];
     private readonly List<SerilogLoggerFactory> _logFactories = [];
+    private ServiceProvider _meters = null!;
+    private IMeterFactory _meterFactory = null!;
+    private StreamKeeprTelemetry _telemetry = null!;
     private ExportService _service = null!;
     private string _ffmpeg = null!;
     private string _ffprobe = null!;
@@ -38,6 +45,9 @@ public sealed class ExportServiceTests : IAsyncLifetime
             "ffmpeg", "ffmpeg is required for export tests. Install it and put it on PATH.");
         _ffprobe = TestPaths.RequireExecutable(
             "ffprobe", "ffprobe is required for export tests. Install it and put it on PATH.");
+        _meters = new ServiceCollection().AddMetrics().BuildServiceProvider();
+        _meterFactory = _meters.GetRequiredService<IMeterFactory>();
+        _telemetry = new StreamKeeprTelemetry(_meterFactory, enabled: true);
         _service = await StartServiceAsync();
     }
 
@@ -53,6 +63,9 @@ public sealed class ExportServiceTests : IAsyncLifetime
         foreach (SerilogLoggerFactory factory in _logFactories)
             factory.Dispose();
 
+        _telemetry.Dispose();
+        _meters.Dispose();
+
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
     }
@@ -67,7 +80,8 @@ public sealed class ExportServiceTests : IAsyncLifetime
             Options.Create(new StorageOptions { RecordingsRoot = _root }),
             Options.Create(new RecorderOptions { FfmpegPath = ffmpeg ?? _ffmpeg, FfprobePath = ffprobe ?? _ffprobe }),
             clock ?? TimeProvider.System,
-            logger ?? NullLogger<ExportService>.Instance);
+            logger ?? NullLogger<ExportService>.Instance,
+            _telemetry);
         _started.Add(service);
         await service.StartAsync(CancellationToken.None);
         return service;
@@ -101,6 +115,21 @@ public sealed class ExportServiceTests : IAsyncLifetime
         Assert.True(text.IndexOf("moov", StringComparison.Ordinal) < text.IndexOf("mdat", StringComparison.Ordinal));
         Assert.Equal(1, progress[^1]);
         Assert.Same(_service.Find(done.Id), _service.FindByRecording(summary.Id));
+    }
+
+    [Fact]
+    public async Task A_finished_export_increments_the_job_counter()
+    {
+        using var jobs = new MetricCollector<long>(
+            _meterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.export.jobs");
+        await SeedAsync("r1", "Title");
+
+        ExportJob queued = _service.Start("r1", Admin, CancellationToken.None);
+        await WaitForAsync(queued.Id, ExportState.Succeeded);
+
+        Assert.Contains(
+            jobs.GetMeasurementSnapshot(),
+            measurement => (string)measurement.Tags["export.outcome"]! == "succeeded");
     }
 
     [Theory]
@@ -237,9 +266,16 @@ public sealed class ExportServiceTests : IAsyncLifetime
     [Fact]
     public async Task Incompatible_parts_fail_with_the_stable_code_and_produce_no_file()
     {
+        using var jobs = new MetricCollector<long>(
+            _meterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.export.jobs");
         await SeedPartsAsync("r1", ("160x90", "libx264"), ("320x180", "libx264"));
 
         ExportJob job = await WaitForAsync(_service.Start("r1", Admin, CancellationToken.None).Id, ExportState.Failed);
+        await jobs.WaitForMeasurementsAsync(1, TimeSpan.FromSeconds(5));
+
+        Assert.Contains(
+            jobs.GetMeasurementSnapshot(),
+            measurement => (string)measurement.Tags["export.outcome"]! == "failed");
 
         Assert.Equal(ExportService.IncompatibleParts, job.Error);
         Assert.False(_leases.IsLeased("r1"));
@@ -275,6 +311,8 @@ public sealed class ExportServiceTests : IAsyncLifetime
     [Fact]
     public async Task Cancelling_a_queued_job_removes_it_from_the_queue_and_releases_its_lease()
     {
+        using var jobs = new MetricCollector<long>(
+            _meterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.export.jobs");
         await SeedAsync("r1", "First");
         await SeedAsync("r2", "Second");
         ExportJob first = _service.Start("r1", Admin, CancellationToken.None);
@@ -285,6 +323,9 @@ public sealed class ExportServiceTests : IAsyncLifetime
         Assert.Equal(ExportState.Cancelled, _service.Find(second.Id)?.State);
         Assert.False(_leases.IsLeased("r2"));
         await WaitForAsync(first.Id, ExportState.Succeeded);
+        Assert.Contains(
+            jobs.GetMeasurementSnapshot(),
+            measurement => (string)measurement.Tags["export.outcome"]! == "cancelled");
         Assert.Equal(ExportState.Cancelled, _service.Find(second.Id)?.State);
         Assert.Null(_service.FilePath(second.Id));
         Assert.False(File.Exists(Path.Combine(ExportsDirectory, $"{second.Id}.mp4")));
@@ -293,6 +334,8 @@ public sealed class ExportServiceTests : IAsyncLifetime
     [Fact]
     public async Task Cancelling_a_running_job_stops_ffmpeg_deletes_the_partial_file_and_allows_a_retry()
     {
+        using var jobs = new MetricCollector<long>(
+            _meterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.export.jobs");
         ExportService service = await StartServiceAsync(ffmpeg: TestPaths.FixturePath("fake-hanging-export-ffmpeg"));
         await SeedAsync("r1", "Title");
         ExportJob job = service.Start("r1", Admin, CancellationToken.None);
@@ -302,6 +345,10 @@ public sealed class ExportServiceTests : IAsyncLifetime
         service.Cancel(job.Id, Admin);
 
         await WaitUntilAsync(() => service.Find(job.Id)?.State == ExportState.Cancelled);
+        await jobs.WaitForMeasurementsAsync(1, TimeSpan.FromSeconds(5));
+        Assert.Contains(
+            jobs.GetMeasurementSnapshot(),
+            measurement => (string)measurement.Tags["export.outcome"]! == "cancelled");
         Assert.False(File.Exists(partial));
         Assert.False(_leases.IsLeased("r1"));
         Assert.Null(service.Find(job.Id)?.Error);
@@ -309,6 +356,24 @@ public sealed class ExportServiceTests : IAsyncLifetime
         ExportJob retry = service.Start("r1", Admin, CancellationToken.None);
         Assert.NotEqual(job.Id, retry.Id);
         Assert.Same(service.Find(retry.Id), service.FindByRecording("r1"));
+    }
+
+    [Fact]
+    public async Task Host_shutdown_during_a_running_job_records_no_export_outcome()
+    {
+        using var jobs = new MetricCollector<long>(
+            _meterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.export.jobs");
+        ExportService service = await StartServiceAsync(ffmpeg: TestPaths.FixturePath("fake-hanging-export-ffmpeg"));
+        await SeedAsync("r1", "Title");
+        ExportJob job = service.Start("r1", Admin, CancellationToken.None);
+        string partial = Path.Combine(ExportsDirectory, $"{job.Id}.mp4.tmp");
+        await WaitUntilAsync(() => service.Find(job.Id)?.State == ExportState.Running && File.Exists(partial));
+
+        await service.StopAsync(CancellationToken.None);
+
+        // Shutdown never completes the job, so it is not an export outcome.
+        Assert.False(File.Exists(partial));
+        Assert.Empty(jobs.GetMeasurementSnapshot());
     }
 
     [Fact]

@@ -1,10 +1,13 @@
+using System.Diagnostics.Metrics;
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Infrastructure.Telemetry;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
 
@@ -44,8 +47,17 @@ public sealed class RecordingRuntimeIntegrationTests
 
         using var factory = new StreamKeeprAppFactory(
             overrides,
-            configureTestServices: services => services.AddSingleton<IStreamPoller>(poller));
+            configureTestServices: services => services.AddSingleton<IStreamPoller>(poller),
+            telemetry: true);
         using var client = factory.CreateClient();
+
+        var factoryMeter = factory.Services.GetRequiredService<IMeterFactory>();
+        using var parts = new MetricCollector<long>(
+            factoryMeter, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.parts");
+        using var durations = new MetricCollector<double>(
+            factoryMeter, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.part.duration");
+        using var sizes = new MetricCollector<long>(
+            factoryMeter, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.part.size");
 
         IReadOnlyList<string> logins = await poller.Started.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal([Channel], logins);
@@ -91,6 +103,13 @@ public sealed class RecordingRuntimeIntegrationTests
                 return all.Count == 1 && !all[0].IsRecording ? all[0] : null;
             },
             TimeSpan.FromSeconds(30));
+
+        await parts.WaitForMeasurementsAsync(1, TimeSpan.FromSeconds(5));
+        Assert.Contains(
+            parts.GetMeasurementSnapshot(),
+            measurement => (string)measurement.Tags["recorder.exit_kind"]! == "exited");
+        Assert.Contains(durations.GetMeasurementSnapshot(), measurement => measurement.Value > 0);
+        Assert.Contains(sizes.GetMeasurementSnapshot(), measurement => measurement.Value > 0);
 
         string indexPath = $"/media/{Channel}/{summary.Id}/index.m3u8";
         using HttpResponseMessage indexResponse = await client.GetAsync(indexPath);

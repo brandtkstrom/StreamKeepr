@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -7,8 +8,10 @@ using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Infrastructure.Telemetry;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
+using StreamKeepr.Tests.Telemetry;
 using static StreamKeepr.Tests.Twitch.EventSubMessages;
 
 namespace StreamKeepr.Tests.Twitch;
@@ -30,6 +33,7 @@ public sealed class ConduitEventSubClientTests : IDisposable
     private readonly PollSchedule _schedule;
     private readonly ConduitStateStore _state;
     private readonly TwitchTokenProvider _tokens;
+    private readonly TestTelemetry _telemetry = new();
     private readonly IOptions<TwitchOptions> _options = Options.Create(new TwitchOptions
     {
         ClientId = ClientId,
@@ -53,6 +57,7 @@ public sealed class ConduitEventSubClientTests : IDisposable
 
     public void Dispose()
     {
+        _telemetry.Dispose();
         _tokens.Dispose();
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
@@ -446,6 +451,38 @@ public sealed class ConduitEventSubClientTests : IDisposable
     }
 
     [Fact]
+    public async Task Failed_first_connects_record_no_reconnects()
+    {
+        using var reconnects = new MetricCollector<long>(
+            _telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.eventsub.reconnects");
+        int tokenRequests = 0;
+        var secondAttempt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _twitch.Override = request =>
+        {
+            if (request.RequestUri!.AbsolutePath != "/oauth2/token")
+                return null;
+            if (Interlocked.Increment(ref tokenRequests) == 2)
+                secondAttempt.TrySetResult();
+            return FakeConduitTwitch.Error(HttpStatusCode.ServiceUnavailable, "down");
+        };
+
+        var jitter = new PassThroughJitter();
+        await using Running run = Start(jitter: jitter);
+        await jitter.FirstBase.Task.WaitAsync(Wait);
+
+        // The backoff timer starts just after the jitter call; advance until it fires.
+        for (int i = 0; i < 100 && !secondAttempt.Task.IsCompleted; i++)
+        {
+            _clock.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(10);
+        }
+
+        // The first setup failure has been handled; no session ever existed to reconnect.
+        await secondAttempt.Task.WaitAsync(Wait);
+        Assert.Empty(reconnects.GetMeasurementSnapshot());
+    }
+
+    [Fact]
     public async Task Session_logs_carry_the_transport_and_conduit_id_and_never_the_token()
     {
         using var logs = new ListLoggerProvider();
@@ -573,7 +610,8 @@ public sealed class ConduitEventSubClientTests : IDisposable
             _schedule,
             jitter ?? new NoJitter(),
             _clock,
-            logger ?? NullLogger<EventSubClient>.Instance);
+            logger ?? NullLogger<EventSubClient>.Instance,
+            _telemetry.Value);
         var stop = new CancellationTokenSource();
         Task task = client.RunAsync(route ?? ((_, _, _) => ValueTask.CompletedTask), stop.Token);
         return new Running(task, stop);

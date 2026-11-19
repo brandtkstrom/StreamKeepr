@@ -209,7 +209,41 @@ Binding: ownership and lifetimes, unbounded single-reader event queue with non-b
 
 Freedom: dictionary/lock implementation, task scheduling, exception types beyond fatal-vs-recoverable, logging, queue-depth warning threshold implementation, and test harness.
 
-## 13. Related
+## 13. Telemetry
+
+OpenTelemetry is opt-in. `Telemetry:Enabled` defaults to `false`; the Mock profile forces it to
+`false` in its in-memory configuration, and the test host factory defaults to `false` (telemetry
+tests opt in explicitly). Telemetry is enabled only when `Telemetry:Enabled` is `true`.
+
+- The app exports OTLP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is a usable `http` or `https` URL.
+  Enabling telemetry without one registers the SDK and instruments but no exporter, and logs a
+  warning. This keeps tests and the Mock profile hermetic and avoids accidental localhost traffic.
+- Standard `OTEL_EXPORTER_OTLP_*`, `OTEL_BSP_*`, `OTEL_METRIC_*`, and `OTEL_SDK_DISABLED` settings
+  apply. The app uses 3 s export timeouts so the final flush fits inside the existing 50 s Compose
+  grace period.
+- Tracing adds ASP.NET Core server spans, HttpClient spans, and one `streamkeepr.twitch.poll` span.
+  SignalR and Razor Components trace sources are disabled. `/health/live`, `/health/ready`,
+  `/media`, `/_blazor`, and `/signin-twitch` are not traced or counted in HTTP metrics.
+- Traced request paths are rewritten to the matched route template. No channel login, session,
+  recording, export, or message ID, title, chat text, token, cookie, OAuth code, or OAuth state is
+  exported.
+- Metrics cover DVR state counts, recorder exits/duration/size/stalls/force-kills, poll age and push
+  coverage, EventSub connection/reconnects, chat drops, free storage, and export outcomes. Runtime,
+  ASP.NET Core, Kestrel, Blazor/SignalR, and HttpClient meters are also collected. The SignalR and
+  Razor Components **trace** sources are disabled; their metrics remain enabled.
+- Counting rules: an export interrupted by host shutdown records no `export.jobs` outcome, because
+  the job never completes. EventSub reconnects count dropped sessions, handoffs, and setup retries
+  after a session has existed, but not failed first connects. A part whose size cannot be read
+  is counted but gets no size sample. A poll round in which every batch failed marks its span
+  `Error`; a partial round leaves the status unset.
+- Startup refuses enabled telemetry when either `*_DISABLE_URL_QUERY_REDACTION` variable is set to
+  any non-blank value.
+- This change adds no logging provider; Serilog remains the only logging pipeline. The startup log
+  reports whether telemetry is enabled, the service/version/environment, and the sanitized endpoint.
+
+The design and verification are recorded in `docs/research/opentelemetry.md`.
+
+## 14. Related
 
 - `docs/domain-model.md` for reducer states, events, commands, and recovery classification.
 - `docs/recorder-contract.md` for job stop budget and exit kinds.
