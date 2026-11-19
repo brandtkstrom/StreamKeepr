@@ -1,9 +1,11 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Storage;
 
@@ -170,6 +172,47 @@ public sealed class ChatLogStoreTests : IDisposable
     }
 
     [Fact]
+    public void Closing_a_session_logs_one_summary_with_its_message_count_and_bytes()
+    {
+        using var logs = new ListLoggerProvider();
+        using ILoggerFactory loggers = TestLogging.Factory(logs);
+        (ChatLogStore store, _, RecordingSummary summary) = Create(
+            new ChatOptions(), loggers.CreateLogger<ChatLogStore>());
+        store.OpenSession(summary, ChatSources.Anonymous);
+        store.Append("chan", Message(summary, "a", 2, "first"));
+        store.Append("chan", Message(summary, "b", 3, "second"));
+        store.CloseSession(summary.Id, finalize: true);
+
+        CapturedLogEntry closed = Assert.Single(
+            logs.Entries, entry => entry.Properties.ContainsKey("MessageCount"));
+        Assert.Equal(LogLevel.Information, closed.Level);
+        Assert.Equal(summary.Id, closed.Properties["SessionId"]);
+        Assert.Equal("chan", closed.Properties["Channel"]);
+        Assert.Equal(2, closed.Properties["MessageCount"]);
+        Assert.Equal(BucketBytes(store.SessionDirectory(summary)), closed.Properties["Bytes"]);
+        Assert.Equal(true, closed.Properties["Finalized"]);
+    }
+
+    [Fact]
+    public void Appending_a_dropped_range_logs_a_warning_with_its_count_and_time_bounds()
+    {
+        using var logs = new ListLoggerProvider();
+        using ILoggerFactory loggers = TestLogging.Factory(logs);
+        (ChatLogStore store, _, RecordingSummary summary) = Create(
+            new ChatOptions(), loggers.CreateLogger<ChatLogStore>());
+        store.OpenSession(summary, ChatSources.Anonymous);
+        store.Append("chan", new ChatSourceEvent.Dropped(
+            "chan", At(summary, 6), At(summary, 3), At(summary, 6), Count: 40));
+
+        CapturedLogEntry dropped = Assert.Single(logs.Entries, entry => entry.Level == LogLevel.Warning);
+        Assert.Equal(summary.Id, dropped.Properties["SessionId"]);
+        Assert.Equal("chan", dropped.Properties["Channel"]);
+        Assert.Equal(40, dropped.Properties["Count"]);
+        Assert.Equal(Pdt.AddSeconds(3 - 12), dropped.Properties["DroppedFrom"]);
+        Assert.Equal(Pdt.AddSeconds(6 - 12), dropped.Properties["DroppedTo"]);
+    }
+
+    [Fact]
     public void Query_reports_messages_dropped_by_a_full_capture_queue_as_a_gap()
     {
         (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(
@@ -303,12 +346,13 @@ public sealed class ChatLogStoreTests : IDisposable
         Assert.True(ChatLogLayout.HasChat(directory, NullLogger.Instance));
     }
 
-    private (ChatLogStore, ChatReader, RecordingSummary) Create(ChatOptions options)
+    private (ChatLogStore, ChatReader, RecordingSummary) Create(
+        ChatOptions options, ILogger<ChatLogStore>? logger = null)
     {
         var storage = Options.Create(new StorageOptions { RecordingsRoot = _root });
         var chat = Options.Create(options);
         var store = new ChatLogStore(
-            storage, chat, _clock, NullLogger<ChatLogStore>.Instance);
+            storage, chat, _clock, logger ?? NullLogger<ChatLogStore>.Instance);
         var reader = new ChatReader(store, chat, NullLogger<ChatReader>.Instance);
         var summary = new RecordingSummary(
             "20261110T163000Z_1",
@@ -375,6 +419,9 @@ public sealed class ChatLogStoreTests : IDisposable
         Directory.GetFiles(ChatLogLayout.ChatDirectory(sessionDirectory), "*.jsonl")
             .Where(path => !path.EndsWith("events.jsonl", StringComparison.Ordinal))
             .ToArray();
+
+    private static long BucketBytes(string sessionDirectory) =>
+        MessageBuckets(sessionDirectory).Sum(path => new FileInfo(path).Length);
 
     private static long At(RecordingSummary summary, int offsetSeconds) =>
         Pdt.AddSeconds(offsetSeconds - 12).ToUnixTimeMilliseconds();

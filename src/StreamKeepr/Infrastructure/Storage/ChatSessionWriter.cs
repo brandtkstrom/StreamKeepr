@@ -105,8 +105,24 @@ internal sealed class ChatSessionWriter(
 
             if (stored is not null)
                 WriteEvent(stored);
+
+            if (evt is ChatSourceEvent.Dropped drop)
+                LogDropped(drop);
         }
     }
+
+    /// <summary>
+    /// Logged only when the range is stored. A range arriving after the session is closed or
+    /// truncated is discarded with it; the truncation warning already covers that loss.
+    /// </summary>
+    private void LogDropped(ChatSourceEvent.Dropped dropped) =>
+        logger.LogWarning(
+            "Chat capture for {Channel} dropped {Count} messages between {DroppedFrom} and {DroppedTo} in session {SessionId}; the capture queue was full.",
+            summary.Channel,
+            dropped.Count,
+            DateTimeOffset.FromUnixTimeMilliseconds(dropped.FromMs),
+            DateTimeOffset.FromUnixTimeMilliseconds(dropped.ToMs),
+            summary.Id);
 
     public void Close(bool finalize)
     {
@@ -117,6 +133,9 @@ internal sealed class ChatSessionWriter(
 
             _closed = true;
             CloseLog(finalize);
+            logger.LogInformation(
+                "Chat session {SessionId} for {Channel} closed with {MessageCount} messages ({Bytes} message bytes); finalized: {Finalized}.",
+                summary.Id, summary.Channel, _messageCount, _approxBytes, finalize);
         }
     }
 
