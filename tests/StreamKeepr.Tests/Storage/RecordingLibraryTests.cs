@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Infrastructure.Storage;
 
 namespace StreamKeepr.Tests.Storage;
@@ -11,7 +12,7 @@ public sealed class RecordingLibraryTests
     [Fact]
     public void Upsert_keeps_all_newest_first_and_find_returns_the_entry()
     {
-        var library = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
+        var library = new RecordingLibrary(new FakeTimeProvider(), NullLogger<RecordingLibrary>.Instance);
         var older = Summary("older", StartedAt);
         var newer = Summary("newer", StartedAt.AddMinutes(5));
 
@@ -27,7 +28,7 @@ public sealed class RecordingLibraryTests
     [Fact]
     public void Upsert_replaces_an_existing_entry_and_keeps_a_deterministic_order()
     {
-        var library = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
+        var library = new RecordingLibrary(new FakeTimeProvider(), NullLogger<RecordingLibrary>.Instance);
         var first = Summary("b", StartedAt);
         var second = Summary("a", StartedAt);
 
@@ -40,7 +41,7 @@ public sealed class RecordingLibraryTests
     [Fact]
     public void Upsert_remove_and_mark_loaded_raise_changed()
     {
-        var library = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
+        var library = new RecordingLibrary(new FakeTimeProvider(), NullLogger<RecordingLibrary>.Instance);
         int changed = 0;
         library.Changed += () => changed++;
 
@@ -70,7 +71,7 @@ public sealed class RecordingLibraryTests
     [Fact]
     public void Concurrent_upserts_notify_subscribers_and_keep_every_entry()
     {
-        var library = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
+        var library = new RecordingLibrary(new FakeTimeProvider(), NullLogger<RecordingLibrary>.Instance);
         int changed = 0;
         library.Changed += () => Interlocked.Increment(ref changed);
         var summaries = Enumerable.Range(0, 50)
@@ -86,7 +87,7 @@ public sealed class RecordingLibraryTests
     [Fact]
     public void All_is_a_snapshot_that_later_upserts_do_not_mutate()
     {
-        var library = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
+        var library = new RecordingLibrary(new FakeTimeProvider(), NullLogger<RecordingLibrary>.Instance);
         library.Upsert(Summary("one", StartedAt));
 
         IReadOnlyList<RecordingSummary> snapshot = library.All;

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -18,17 +19,18 @@ internal sealed class SessionStoreTestContext : IDisposable
 
     public static readonly DateTimeOffset Now = StartedAt.AddMinutes(5);
 
-    public SessionStoreTestContext(int segmentSeconds = 6)
+    public SessionStoreTestContext(int segmentSeconds = 6, ILoggerFactory? loggers = null)
     {
+        loggers ??= NullLoggerFactory.Instance;
         Root = Path.Combine(
             Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
         Clock = new FakeTimeProvider(Now);
-        Library = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
+        Library = new RecordingLibrary(Clock, loggers.CreateLogger<RecordingLibrary>());
         Store = new SessionStore(
             Options.Create(new RecorderOptions { SegmentSeconds = segmentSeconds }),
             Library,
             Clock,
-            NullLogger<SessionStore>.Instance);
+            loggers.CreateLogger<SessionStore>());
         Live = new LiveStream("123456789", "A stream", "Just Chatting", StartedAt, null);
         Session = Session.For(Live, "streamer", Root);
     }

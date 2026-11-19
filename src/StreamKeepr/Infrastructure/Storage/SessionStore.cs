@@ -376,6 +376,8 @@ public sealed class SessionStore(
 
     private async Task FinalizeCoreAsync(string directory, CancellationToken ct)
     {
+        // Callers hold the session lock, so ElapsedMs times the finalize work, not the wait.
+        long startedAt = clock.GetTimestamp();
         var manifest = await ReadManifestCoreAsync(directory, ct);
         var parts = await ReadPartsAsync(directory, ct);
 
@@ -401,7 +403,14 @@ public sealed class SessionStore(
         };
         await WriteManifestAsync(directory, complete, ct);
         await UpsertLibraryAsync(directory, ct);
-        logger.LogInformation("Finalized session {SessionId} in {Directory}.", complete.Id, directory);
+        logger.LogInformation(
+            "Finalized session {SessionId} for {Channel} in {ElapsedMs:0} ms: {PartCount} parts, {SizeBytes} bytes in {Directory}.",
+            complete.Id,
+            complete.Channel,
+            clock.GetElapsedTime(startedAt).TotalMilliseconds,
+            parts.Count,
+            complete.SizeBytes,
+            directory);
     }
 
     private async Task UpsertLibraryAsync(string directory, CancellationToken ct)

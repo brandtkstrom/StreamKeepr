@@ -464,7 +464,7 @@ public sealed class LibraryViewTests
                 await channels.AddAsync(login, CancellationToken.None);
 
             var clock = new FakeTimeProvider(Now);
-            var library = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
+            var library = new RecordingLibrary(clock, NullLogger<RecordingLibrary>.Instance);
             var status = new DvrStatus();
             var disk = new MutableDiskSpace(
                 freeBytes: 50L * 1024 * 1024 * 1024,

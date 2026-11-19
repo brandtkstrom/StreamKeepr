@@ -22,7 +22,7 @@ public sealed class ExportServiceTests : IAsyncLifetime
 
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
-    private readonly RecordingLibrary _library = new(NullLogger<RecordingLibrary>.Instance);
+    private readonly RecordingLibrary _library = new(new FakeTimeProvider(), NullLogger<RecordingLibrary>.Instance);
     private readonly ExportLeaseRegistry _leases = new();
     private readonly List<ExportService> _started = [];
     private readonly List<SerilogLoggerFactory> _logFactories = [];

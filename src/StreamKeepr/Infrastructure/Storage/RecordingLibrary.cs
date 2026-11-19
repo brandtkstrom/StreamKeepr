@@ -6,7 +6,7 @@ namespace StreamKeepr.Infrastructure.Storage;
 /// The in-memory index of every recording. Recovery and the session store upsert summaries;
 /// the UI reads <see cref="All"/> and <see cref="Find"/> without touching the disk.
 /// </summary>
-public sealed class RecordingLibrary(ILogger<RecordingLibrary> logger)
+public sealed class RecordingLibrary(TimeProvider clock, ILogger<RecordingLibrary> logger)
 {
     private readonly object _gate = new();
     private readonly Dictionary<string, RecordingSummary> _byId = new(StringComparer.Ordinal);
@@ -86,7 +86,8 @@ public sealed class RecordingLibrary(ILogger<RecordingLibrary> logger)
     /// Loads every session folder under the recordings root. Dot-prefixed channels and sessions
     /// are skipped, as are folders without a readable manifest. A malformed part playlist skips
     /// that one session; the library still becomes loaded. The scan is a single bulk update so
-    /// startup pays one sort and one change notification.
+    /// startup pays one sort and one change notification. Ends with one Information summary of
+    /// the recording count and elapsed time.
     /// </summary>
     public async Task LoadAsync(
         string recordingsRoot, SessionStore store, CancellationToken ct)
@@ -94,6 +95,7 @@ public sealed class RecordingLibrary(ILogger<RecordingLibrary> logger)
         ArgumentException.ThrowIfNullOrWhiteSpace(recordingsRoot);
         ArgumentNullException.ThrowIfNull(store);
 
+        long startedAt = clock.GetTimestamp();
         string root = Path.GetFullPath(recordingsRoot);
         var summaries = new List<RecordingSummary>();
 
@@ -138,6 +140,7 @@ public sealed class RecordingLibrary(ILogger<RecordingLibrary> logger)
             }
         }
 
+        int recordingCount;
         lock (_gate)
         {
             _byId.Clear();
@@ -146,7 +149,14 @@ public sealed class RecordingLibrary(ILogger<RecordingLibrary> logger)
 
             Refresh();
             SetLoaded();
+            recordingCount = _byId.Count;
         }
+
+        logger.LogInformation(
+            "Loaded {RecordingCount} recordings in {ElapsedMs:0} ms from {Root}.",
+            recordingCount,
+            clock.GetElapsedTime(startedAt).TotalMilliseconds,
+            root);
 
         Changed?.Invoke();
     }

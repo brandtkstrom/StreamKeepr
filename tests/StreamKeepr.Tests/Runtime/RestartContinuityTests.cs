@@ -262,7 +262,7 @@ public sealed class RestartContinuityTests
     {
         var store = new SessionStore(
             Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
-            new RecordingLibrary(NullLogger<RecordingLibrary>.Instance),
+            new RecordingLibrary(TimeProvider.System, NullLogger<RecordingLibrary>.Instance),
             TimeProvider.System,
             NullLogger<SessionStore>.Instance);
 

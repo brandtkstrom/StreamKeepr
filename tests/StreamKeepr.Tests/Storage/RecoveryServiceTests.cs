@@ -1,8 +1,10 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Storage;
 
@@ -17,11 +19,7 @@ public sealed class RecoveryServiceTests : IDisposable
 
     public RecoveryServiceTests()
     {
-        _recovery = new RecoveryService(
-            _context.Store,
-            _context.Library,
-            Options.Create(new StorageOptions { RecordingsRoot = _context.Root }),
-            NullLogger<RecoveryService>.Instance);
+        _recovery = CreateRecovery(NullLoggerFactory.Instance);
     }
 
     public void Dispose() => _context.Dispose();
@@ -298,6 +296,71 @@ public sealed class RecoveryServiceTests : IDisposable
         Assert.Equal(SessionStatus.Complete, manifest!.Status);
         Assert.True(File.Exists(Path.Combine(session.Directory, SessionStore.IndexFileName)));
     }
+
+    [Fact]
+    public async Task Recovery_logs_one_summary_that_accounts_for_every_session()
+    {
+        Session older = CreateSession("111", SessionStoreTestContext.StartedAt);
+        Session newer = CreateSession("222", SessionStoreTestContext.StartedAt.AddHours(1));
+        Session repaired = CreateSession("333", SessionStoreTestContext.StartedAt.AddHours(-1));
+        Session missing = CreateSession("444", SessionStoreTestContext.StartedAt.AddHours(-2));
+        Session intact = CreateSession("555", SessionStoreTestContext.StartedAt.AddHours(-3));
+        Session empty = CreateSession("666", SessionStoreTestContext.StartedAt.AddHours(-4));
+        await WriteRecordingAsync(older, "111");
+        await WriteRecordingAsync(newer, "222");
+        await WriteRecordingAsync(repaired, "333");
+        await _context.Store.FinalizeAsync(repaired, CancellationToken.None);
+        File.Delete(Path.Combine(repaired.Directory, SessionStore.IndexFileName));
+        Directory.CreateDirectory(missing.Directory);
+        await WriteRecordingAsync(intact, "555");
+        await _context.Store.FinalizeAsync(intact, CancellationToken.None);
+        await _context.Store.OpenAsync(
+            empty,
+            new LiveStream("666", "Title 666", "Just Chatting", empty.StartedAt, null),
+            CancellationToken.None);
+
+        using var logs = new ListLoggerProvider();
+        using var loggers = TestLogging.Factory(logs);
+        await CreateRecovery(loggers).RecoverAsync(Watched, CancellationToken.None);
+
+        CapturedLogEntry summary = Assert.Single(
+            logs.Entries, entry => entry.Message.StartsWith("Recovered", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Information, summary.Level);
+        Assert.Equal(6, summary.Properties["SessionCount"]);
+        Assert.Equal(1, summary.Properties["CompleteCount"]);
+        Assert.Equal(1, summary.Properties["ResumableCount"]);
+        Assert.Equal(2, summary.Properties["FinalizedCount"]);
+        Assert.Equal(1, summary.Properties["DeletedCount"]);
+        Assert.Equal(1, summary.Properties["SkippedCount"]);
+        Assert.Equal(0.0, summary.Properties["ElapsedMs"]);
+
+        // The skip keeps its own warning; the summary does not replace it.
+        Assert.Contains(logs.Entries, entry =>
+            entry.Level == LogLevel.Warning
+            && entry.Message.StartsWith("Skipping session without a manifest", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Recovery_of_an_empty_recordings_root_still_logs_its_summary()
+    {
+        using var logs = new ListLoggerProvider();
+        using var loggers = TestLogging.Factory(logs);
+
+        await CreateRecovery(loggers).RecoverAsync(Watched, CancellationToken.None);
+
+        CapturedLogEntry summary = Assert.Single(
+            logs.Entries, entry => entry.Message.StartsWith("Recovered", StringComparison.Ordinal));
+        Assert.Equal(0, summary.Properties["SessionCount"]);
+        Assert.Equal(0, summary.Properties["SkippedCount"]);
+    }
+
+    private RecoveryService CreateRecovery(ILoggerFactory loggers) =>
+        new(
+            _context.Store,
+            _context.Library,
+            Options.Create(new StorageOptions { RecordingsRoot = _context.Root }),
+            _context.Clock,
+            loggers.CreateLogger<RecoveryService>());
 
     private Session CreateSession(
         string streamId, DateTimeOffset startedAt, string channel = Channel)
