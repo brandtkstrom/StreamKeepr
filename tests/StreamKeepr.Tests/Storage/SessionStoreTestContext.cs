@@ -19,7 +19,10 @@ internal sealed class SessionStoreTestContext : IDisposable
 
     public static readonly DateTimeOffset Now = StartedAt.AddMinutes(5);
 
-    public SessionStoreTestContext(int segmentSeconds = 6, ILoggerFactory? loggers = null)
+    public SessionStoreTestContext(
+        int segmentSeconds = 6,
+        ILoggerFactory? loggers = null,
+        Func<TimeSpan, CancellationToken, Task>? retryDelay = null)
     {
         loggers ??= NullLoggerFactory.Instance;
         Root = Path.Combine(
@@ -30,7 +33,8 @@ internal sealed class SessionStoreTestContext : IDisposable
             Options.Create(new RecorderOptions { SegmentSeconds = segmentSeconds }),
             Library,
             Clock,
-            loggers.CreateLogger<SessionStore>());
+            loggers.CreateLogger<SessionStore>(),
+            retryDelay ?? (static (_, _) => Task.CompletedTask));
         Live = new LiveStream("123456789", "A stream", "Just Chatting", StartedAt, null);
         Session = Session.For(Live, "streamer", Root);
     }

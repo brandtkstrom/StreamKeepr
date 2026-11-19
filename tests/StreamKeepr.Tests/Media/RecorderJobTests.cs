@@ -153,7 +153,12 @@ public sealed class RecorderJobTests : IDisposable
 
         var media = Assert.Single(events.OfType<DvrEvent.PartProducingMedia>());
         var exited = Assert.Single(events.OfType<DvrEvent.RecorderExited>());
-        Assert.Equal(RecorderExitKind.Stopped, exited.Kind);
+        // The recorder stops a fixture with Ctrl+C, which CliWrap can only deliver to a process
+        // with an attachable console. A dotnet test host has none on Windows, so the bounded
+        // stop escalates to a force kill there; Linux CI still covers the graceful path.
+        Assert.Equal(
+            OperatingSystem.IsWindows() ? RecorderExitKind.Killed : RecorderExitKind.Stopped,
+            exited.Kind);
         Assert.True(
             events.ToList().IndexOf(media) < events.ToList().IndexOf(exited),
             "PartProducingMedia must be published before RecorderExited");
@@ -169,8 +174,7 @@ public sealed class RecorderJobTests : IDisposable
     [Fact]
     public async Task Ffmpeg_exiting_first_stops_streamlink_and_reports_exited()
     {
-        string trueCommand = FindExecutable("true")
-            ?? throw new InvalidOperationException("the true command is required by this test");
+        string trueCommand = WriteExitingCommand();
         Session session = NewSession();
         RecorderOptions options = NewOptions(trueCommand);
 
@@ -576,6 +580,14 @@ public sealed class RecorderJobTests : IDisposable
         SegmentSeconds = 2,
         FinalizeTimeoutSeconds = 10,
     };
+
+    /// <summary>An ffmpeg stand-in that exits at once; "true" is not on PATH on every platform.</summary>
+    private string WriteExitingCommand()
+    {
+        string path = Path.Combine(_root, "exiting-command");
+        File.WriteAllText(path, "#!/bin/sh\nexit 0\n");
+        return TestPaths.StartableScriptPath(path);
+    }
 
     private Session NewSession()
     {

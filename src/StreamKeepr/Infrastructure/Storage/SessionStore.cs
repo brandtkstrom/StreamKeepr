@@ -23,7 +23,8 @@ public sealed class SessionStore(
     IOptions<RecorderOptions> recorder,
     RecordingLibrary library,
     TimeProvider clock,
-    ILogger<SessionStore> logger)
+    ILogger<SessionStore> logger,
+    Func<TimeSpan, CancellationToken, Task> retryDelay)
 {
     public const int ManifestVersion = 1;
     public const string ManifestFileName = "session.json";
@@ -434,8 +435,7 @@ public sealed class SessionStore(
     private async Task<SessionManifest> ReadManifestCoreAsync(string directory, CancellationToken ct)
     {
         string path = Path.Combine(directory, ManifestFileName);
-        await using var stream = new FileStream(
-            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, useAsync: true);
+        await using var stream = OpenSharedRead(path);
 
         var manifest = await JsonSerializer.DeserializeAsync<SessionManifest>(stream, Json, ct)
             ?? throw new InvalidDataException($"Empty session manifest in {directory}.");
@@ -459,19 +459,42 @@ public sealed class SessionStore(
         return JsonSerializer.Serialize(manifest, Json);
     }
 
-    private static Task WriteManifestAsync(
+    private Task WriteManifestAsync(
         string directory, SessionManifest manifest, CancellationToken ct) =>
         WriteAtomicAsync(
             Path.Combine(directory, ManifestFileName),
             SerializeManifest(manifest),
             ct);
 
-    private static async Task WriteAtomicAsync(string path, string content, CancellationToken ct)
+    private async Task WriteAtomicAsync(string path, string content, CancellationToken ct)
     {
         string temp = path + ".tmp";
         await File.WriteAllTextAsync(temp, content, ct);
-        File.Move(temp, path, overwrite: true);
+
+        // Windows refuses the replace while another handle without delete sharing still holds
+        // the destination (a scanner, an external reader). Retry the sharing violation only.
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(temp, path, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (attempt < 5 && IsSharingViolation(ex) && File.Exists(temp))
+            {
+                logger.LogDebug(
+                    "Retrying atomic replace of {Path} after a sharing violation (attempt {Attempt}).",
+                    path,
+                    attempt);
+                await retryDelay(TimeSpan.FromMilliseconds(10 * attempt), ct);
+            }
+        }
     }
+
+    private static bool IsSharingViolation(Exception exception) =>
+        exception is UnauthorizedAccessException
+        || (exception is IOException io
+            && (io.HResult & 0xFFFF) is 32 or 33); // ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
 
     private async Task<List<PartPlaylist>> ReadPartsAsync(string directory, CancellationToken ct)
     {
@@ -479,6 +502,8 @@ public sealed class SessionStore(
 
         foreach (var (number, path) in PartPlaylistFiles(directory))
         {
+            // The recorder writes part playlists in place, so a plain read cannot block an
+            // atomic replace the way a manifest read would.
             string content = await File.ReadAllTextAsync(path, ct);
             if (HasSegments(content))
                 parts.Add(new PartPlaylist(number, content));
@@ -545,13 +570,23 @@ public sealed class SessionStore(
     {
         try
         {
-            return await File.ReadAllTextAsync(path, ct);
+            await using var stream = OpenSharedRead(path);
+            using var reader = new StreamReader(stream);
+            return await reader.ReadToEndAsync(ct);
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
             return null;
         }
     }
+
+    /// <summary>
+    /// Opens a file for reading while allowing writers and deleters. Windows refuses to replace
+    /// a file that another handle opened without delete sharing, so a lock-free reader would
+    /// break the store's temp-and-move writes.
+    /// </summary>
+    private static FileStream OpenSharedRead(string path) =>
+        new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, useAsync: true);
 
     private static long MediaSize(string directory)
     {

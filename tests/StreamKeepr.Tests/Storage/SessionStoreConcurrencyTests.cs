@@ -60,6 +60,38 @@ public sealed class SessionStoreConcurrencyTests
     }
 
     [Fact]
+    public async Task Atomic_write_retries_while_a_reader_still_holds_the_manifest()
+    {
+        FileStream? blocker = null;
+        using var context = new SessionStoreTestContext(retryDelay: (_, _) =>
+        {
+            blocker?.Dispose();
+            return Task.CompletedTask;
+        });
+        await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
+
+        // A handle without delete sharing blocks Windows' replace. The injected retry releases
+        // it, proving the write survives a sharing violation instead of failing.
+        blocker = new FileStream(
+            context.ManifestPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        try
+        {
+            await context.Store.AppendMetadataAsync(
+                context.Session,
+                context.Metadata("Retried title", "Retried game"),
+                CancellationToken.None);
+        }
+        finally
+        {
+            blocker.Dispose();
+        }
+
+        var manifest = await context.Store.TryLoadAsync(context.Directory, CancellationToken.None);
+        Assert.NotNull(manifest);
+        Assert.Contains(manifest.Metadata, entry => entry.Title == "Retried title");
+    }
+
+    [Fact]
     public async Task Two_sessions_use_independent_locks()
     {
         using var context = new SessionStoreTestContext();

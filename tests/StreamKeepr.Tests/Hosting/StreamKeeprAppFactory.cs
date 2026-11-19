@@ -49,14 +49,9 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
         // CI installs ffmpeg but not Streamlink; preflight only needs a tool that
         // answers --version, so every host test gets a temp stand-in.
         Directory.CreateDirectory(_toolsRoot);
-        string streamlink = Path.Combine(_toolsRoot, "streamlink");
-        File.WriteAllText(streamlink, FakeStreamlinkScript);
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(
-                streamlink,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
+        string streamlinkScript = Path.Combine(_toolsRoot, "streamlink");
+        File.WriteAllText(streamlinkScript, FakeStreamlinkScript);
+        string streamlink = TestPaths.StartableScriptPath(streamlinkScript);
 
         _settings = new()
         {

@@ -372,7 +372,7 @@ public sealed class MockLiveFeedTests : IDisposable
                 recorder,
                 Library,
                 Clock,
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<SessionStore>.Instance);
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<SessionStore>.Instance, TestRetry.Immediate);
 
             Storage = new StorageMonitor(
                 new DiskGuard(storageOptions, Disk),
@@ -667,7 +667,7 @@ public sealed class MockSeederTests : IDisposable
             Microsoft.Extensions.Logging.Abstractions.NullLogger<RecordingLibrary>.Instance);
         var sessions = new SessionStore(
             recorder, library, new FakeTimeProvider(MockCatalog.T0),
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<SessionStore>.Instance);
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<SessionStore>.Instance, TestRetry.Immediate);
 
         var seeder = new MockSeeder(
             storage,

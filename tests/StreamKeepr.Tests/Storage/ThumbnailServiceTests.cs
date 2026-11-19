@@ -161,8 +161,14 @@ public sealed class ThumbnailServiceTests : IDisposable
         }
     }
 
-    private static string FailingTool() => TestPaths.RequireExecutable(
-        "false", "the 'false' utility is required to simulate an FFmpeg failure.");
+    private string FailingTool()
+    {
+        Directory.CreateDirectory(_context.Root);
+        string path = Path.Combine(_context.Root, "failing-tool");
+        if (!File.Exists(path))
+            File.WriteAllText(path, "#!/bin/sh\nexit 1\n");
+        return TestPaths.StartableScriptPath(path);
+    }
 
     /// <summary>
     /// Opens the context's session and records one real fMP4 part with the recorder's file

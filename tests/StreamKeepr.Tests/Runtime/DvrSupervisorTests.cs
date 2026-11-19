@@ -149,7 +149,7 @@ public sealed class DvrSupervisorTests
             Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
             library,
             clock,
-            NullLogger<SessionStore>.Instance);
+            NullLogger<SessionStore>.Instance, TestRetry.Immediate);
         var disk = new DiskGuard(
             storageOptions,
             new FakeDiskSpace(DiskGuard.BytesPerGib * 2, DiskGuard.BytesPerGib * 4));

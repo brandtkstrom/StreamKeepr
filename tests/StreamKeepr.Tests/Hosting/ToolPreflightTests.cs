@@ -81,7 +81,7 @@ public sealed class ToolPreflightTests
     {
         using var factory = new StreamKeeprAppFactory(new Dictionary<string, string?>
         {
-            [Setting(nameof(RecorderOptions.StreamlinkPath))] = FixturePath("fake-streamlink-broken"),
+            [Setting(nameof(RecorderOptions.StreamlinkPath))] = TestPaths.FixturePath("fake-streamlink-broken"),
         });
 
         using var client = factory.CreateClient();
@@ -239,44 +239,9 @@ public sealed class ToolPreflightTests
     {
         string path = Path.Combine(temp.Path, name);
         File.WriteAllText(path, contents);
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(
-                path,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
-
-        return path;
+        return TestPaths.StartableScriptPath(path);
     }
 
-    private static string FixturePath(string name)
-    {
-        string path = Path.Combine(FindRepositoryRoot(), "tests", "fixtures", name);
-        Assert.True(File.Exists(path), $"fixture script not found at {path}");
-
-        if (!OperatingSystem.IsWindows())
-        {
-            UnixFileMode mode = File.GetUnixFileMode(path);
-            Assert.True(
-                (mode & UnixFileMode.UserExecute) != 0,
-                $"fixture script is not executable: {path}");
-        }
-
-        return path;
-    }
-
-    private static string FindRepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "StreamKeepr.sln")))
-                return directory.FullName;
-            directory = directory.Parent;
-        }
-
-        throw new InvalidOperationException("could not locate the repository root from the test output");
-    }
 
     private sealed class TrackingHostedService : IHostedService
     {
@@ -291,23 +256,4 @@ public sealed class ToolPreflightTests
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
-    private sealed class TempDirectory : IDisposable
-    {
-        public TempDirectory()
-        {
-            Path = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(),
-                "streamkeepr-tests",
-                Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(Path);
-        }
-
-        public string Path { get; }
-
-        public void Dispose()
-        {
-            if (Directory.Exists(Path))
-                Directory.Delete(Path, recursive: true);
-        }
-    }
 }

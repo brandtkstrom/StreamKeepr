@@ -204,6 +204,8 @@ try
     builder.Services.AddSingleton<IDiskSpace, DriveInfoDiskSpace>();
     builder.Services.AddSingleton<DiskGuard>();
     builder.Services.AddSingleton<IStorageMonitor, StorageMonitor>();
+    builder.Services.AddSingleton<Func<TimeSpan, CancellationToken, Task>>(
+        _ => static (delay, ct) => Task.Delay(delay, ct));
     builder.Services.AddSingleton<SessionStore>();
     builder.Services.AddSingleton<ChannelStore>();
     builder.Services.AddSingleton<ProgressStore>();
