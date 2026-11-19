@@ -53,10 +53,85 @@ public sealed class DvrSupervisorTests
         }
     }
 
+    [Fact]
+    public async Task Channel_control_actions_log_the_channel_and_action()
+    {
+        string root = NewRoot();
+
+        try
+        {
+            var poller = new ScriptedStreamPoller();
+            poller.Profiles["new_channel"] = new ChannelProfile(
+                "123456", "New Channel", "https://example/avatar.png");
+            var logs = new ListLoggerProvider();
+            using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+            using DvrSupervisor supervisor = CreateSupervisor(
+                root, poller, new FakeHostApplicationLifetime(), loggerFactory, []);
+            await supervisor.StartAsync(CancellationToken.None);
+            await poller.Started.WaitAsync(TimeSpan.FromSeconds(5));
+
+            await supervisor.AddChannelAsync(" New_Channel ", CancellationToken.None);
+            await supervisor.StopRecordingAsync("new_channel", CancellationToken.None);
+            await supervisor.ResumeRecordingAsync("new_channel", CancellationToken.None);
+            await supervisor.RemoveChannelAsync("new_channel", CancellationToken.None);
+
+            CapturedLogEntry[] actions = logs.Entries
+                .Where(entry => entry.Properties.ContainsKey("Action"))
+                .ToArray();
+            Assert.Equal(
+                ["Add", "Stop", "Resume", "Remove"],
+                actions.Select(entry => entry.Properties["Action"]?.ToString()));
+            Assert.All(actions, entry =>
+            {
+                Assert.Equal(LogLevel.Information, entry.Level);
+                Assert.Equal("new_channel", entry.Properties["Channel"]);
+            });
+
+            await supervisor.StopAsync(CancellationToken.None);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task Failed_channel_control_actions_log_no_action()
+    {
+        string root = NewRoot();
+
+        try
+        {
+            var poller = new ScriptedStreamPoller();
+            var logs = new ListLoggerProvider();
+            using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+            using DvrSupervisor supervisor = CreateSupervisor(
+                root, poller, new FakeHostApplicationLifetime(), loggerFactory, [Channel]);
+            await supervisor.StartAsync(CancellationToken.None);
+            await poller.Started.WaitAsync(TimeSpan.FromSeconds(5));
+
+            await Assert.ThrowsAsync<UnknownChannelException>(
+                () => supervisor.AddChannelAsync("missing", CancellationToken.None));
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => supervisor.AddChannelAsync(Channel, CancellationToken.None));
+            await Assert.ThrowsAsync<KeyNotFoundException>(
+                () => supervisor.StopRecordingAsync("missing", CancellationToken.None));
+
+            Assert.DoesNotContain(logs.Entries, entry => entry.Properties.ContainsKey("Action"));
+
+            await supervisor.StopAsync(CancellationToken.None);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
     /// <summary>
     /// A supervisor over real stores in <paramref name="root"/>, watching
     /// <paramref name="channels"/>. Its fake recorder publishes an exit the reducer does not
-    /// expect, so a live observation crashes the channel loop.
+    /// expect, so a live observation crashes the channel loop; tests that never send one are
+    /// unaffected.
     /// </summary>
     private static DvrSupervisor CreateSupervisor(
         string root,

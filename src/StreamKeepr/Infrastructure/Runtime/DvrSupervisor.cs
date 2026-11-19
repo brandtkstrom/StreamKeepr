@@ -126,6 +126,7 @@ public sealed class DvrSupervisor(
             if (!_running.ContainsKey(login))
                 StartChannel(entry, recovered: null, lifetime.ApplicationStopping);
 
+            LogChannelAction(login, ChannelAction.Add);
             poller.Nudge();
         }
         finally
@@ -153,6 +154,7 @@ public sealed class DvrSupervisor(
 
             await channelStore.RemoveAsync(login, ct);
             status.Remove(login);
+            LogChannelAction(login, ChannelAction.Remove);
             poller.Nudge();
         }
         finally
@@ -175,6 +177,8 @@ public sealed class DvrSupervisor(
                 await running.Coordinator.PublishAsync(
                     new DvrEvent.StopRequested(), CancellationToken.None);
             }
+
+            LogChannelAction(login, ChannelAction.Stop);
         }
         finally
         {
@@ -197,6 +201,7 @@ public sealed class DvrSupervisor(
                     new DvrEvent.ResumeRequested(), CancellationToken.None);
             }
 
+            LogChannelAction(login, ChannelAction.Resume);
             poller.Nudge();
         }
         finally
@@ -204,6 +209,14 @@ public sealed class DvrSupervisor(
             _controlGate.Release();
         }
     }
+
+    /// <summary>
+    /// The audit line for a channel-control change, written once the change is persisted and
+    /// signalled; a rejected or failed operation throws first and logs nothing here.
+    /// </summary>
+    private void LogChannelAction(string login, ChannelAction action) =>
+        logger.LogInformation(
+            "Channel control {Action} applied to {Channel}.", action, login);
 
     private ChannelEntry GetWatched(string login) =>
         channelStore.Snapshot.FirstOrDefault(entry => entry.Login == login)
@@ -258,4 +271,13 @@ public sealed class DvrSupervisor(
 
     private sealed record Running(
         ChannelCoordinator Coordinator, CancellationTokenSource Cts, Task Loop);
+}
+
+/// <summary>The channel-control operations, as named in the <c>Action</c> log property.</summary>
+internal enum ChannelAction
+{
+    Add,
+    Remove,
+    Stop,
+    Resume,
 }

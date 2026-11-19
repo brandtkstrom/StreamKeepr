@@ -89,6 +89,7 @@ A command failure other than the fatal cases is logged and surfaced through `Dvr
 - `StopRecordingAsync(login)`: persist `Paused = true`, then route `StopRequested`. The reducer finalizes an open session and enters `Paused`.
 - `ResumeRecordingAsync(login)`: persist `Paused = false`, route `ResumeRequested`, then nudge the poller. The next observation decides whether to record.
 - Add/remove/stop/resume are serialized by one control gate. Recording continues while channel control is busy.
+- Each add/remove/stop/resume that succeeds logs one `Information` audit line with `Channel` (the normalized login) and `Action` (`Add`, `Remove`, `Stop`, `Resume`), after the change is persisted and routed. Rejected or failed operations throw and log no audit line (#203).
 - At startup, channels seeded from `Twitch:Channels` are added without Helix validation; failures to resolve their profiles are logged and the channel stays polling-only until a later resolve. A corrupt `channels.json` fails startup with a clear error; never silently reset the list.
 - EventSub’s `SubscriptionsChanged` fires only when a login or `UserId` is added or removed, not when a name, avatar, or pause flag changes.
 
