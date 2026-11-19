@@ -65,9 +65,10 @@ public sealed class FatalStartupProcessTests
         });
 
         Assert.Equal(1, productionExit);
-        Assert.DoesNotContain("Unhandled exception", production, StringComparison.Ordinal);
+        Assert.Equal(1, productionExit);
+        Assert.DoesNotContain("unhandled exception", production, StringComparison.OrdinalIgnoreCase);
         Assert.NotEqual(0, mockExit);
-        Assert.Contains("Unhandled exception", mock, StringComparison.Ordinal);
+        Assert.Contains("terminated unexpectedly", mock, StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<(int ExitCode, string Output)> RunAppAsync(

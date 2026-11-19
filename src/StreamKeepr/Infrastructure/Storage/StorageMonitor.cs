@@ -20,6 +20,9 @@ public interface IStorageMonitor
 /// raised only when the sample moved by more than 1 % of the total (or the total itself changed)
 /// since the last notification. Sampling and commit happen under one lock so a timer tick and a
 /// library refresh cannot commit out of order.
+/// It also logs each crossing of <c>Storage:MinFreeGb</c>, judged the way <see cref="DiskGuard"/>
+/// judges it: one <c>Warning</c> when free space drops below the minimum (including a first sample
+/// that is already low) and one <c>Information</c> when it recovers, never one per sample.
 /// </summary>
 public sealed class StorageMonitor : IStorageMonitor, IDisposable
 {
@@ -41,6 +44,9 @@ public sealed class StorageMonitor : IStorageMonitor, IDisposable
 
     /// <summary>The sample at which <see cref="Changed"/> last fired.</summary>
     private StorageView _notified;
+
+    /// <summary>Whether the last successful sample had room to record; starts optimistic.</summary>
+    private bool _hasRoom = true;
     private bool _disposed;
 
     public StorageMonitor(
@@ -60,6 +66,7 @@ public sealed class StorageMonitor : IStorageMonitor, IDisposable
         _logger = logger;
         _current = Sample();
         _notified = _current;
+        TrackThreshold(_current);
 
         _timer = _clock.CreateTimer(
             _ => Refresh(),
@@ -112,6 +119,7 @@ public sealed class StorageMonitor : IStorageMonitor, IDisposable
             // Current tracks every successful sample; the notification compares against the
             // last sample that actually crossed the threshold, not the last sampled value.
             _current = sample;
+            TrackThreshold(sample);
             notify = MovedEnough(_notified, sample);
             if (notify)
                 _notified = sample;
@@ -145,6 +153,33 @@ public sealed class StorageMonitor : IStorageMonitor, IDisposable
         long total = _disk.TotalBytes;
         return new StorageView(Math.Max(0, free), Math.Max(0, total));
     }
+
+    /// <summary>Logs only when the sample lands on the other side of the minimum. Caller holds the gate.</summary>
+    private void TrackThreshold(StorageView sample)
+    {
+        int minFreeGb = _disk.MinFreeGb;
+        bool hasRoom = DiskGuard.HasRoom(sample.FreeBytes, minFreeGb);
+        if (hasRoom == _hasRoom)
+            return;
+
+        _hasRoom = hasRoom;
+        double freeGb = ToGb(sample.FreeBytes);
+        double totalGb = ToGb(sample.TotalBytes);
+        if (hasRoom)
+        {
+            _logger.LogInformation(
+                "Free space on the recordings volume recovered to {FreeGb} GB of {TotalGb} GB (minimum {MinFreeGb} GB); new parts can start.",
+                freeGb, totalGb, minFreeGb);
+        }
+        else
+        {
+            _logger.LogWarning(
+                "Free space on the recordings volume dropped to {FreeGb} GB of {TotalGb} GB, below the {MinFreeGb} GB minimum; no new part will start until it recovers.",
+                freeGb, totalGb, minFreeGb);
+        }
+    }
+
+    private static double ToGb(long bytes) => Math.Round((double)bytes / DiskGuard.BytesPerGib, 2);
 
     private static bool MovedEnough(StorageView previous, StorageView next)
     {
