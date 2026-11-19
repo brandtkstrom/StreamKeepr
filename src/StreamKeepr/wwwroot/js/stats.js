@@ -439,6 +439,7 @@ export function buildSnapshot({
   level = null,
   samples = [],
   errors = [],
+  viewers = null,
 } = {}) {
   return {
     v: SNAPSHOT_VERSION,
@@ -471,6 +472,13 @@ export function buildSnapshot({
       details: String(error.details ?? ""),
       fatal: Boolean(error.fatal),
     })),
+    // Viewer figures from the Stream section (#211); peakAt is recording seconds.
+    viewers: {
+      now: finiteOrNull(viewers?.now),
+      peak: finiteOrNull(viewers?.peak),
+      peakAt: finiteOrNull(viewers?.peakAt),
+      average: finiteOrNull(viewers?.average),
+    },
   };
 }
 

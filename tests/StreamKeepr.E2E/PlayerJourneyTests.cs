@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using static StreamKeepr.E2E.LibraryJourneyTests;
 
@@ -157,6 +158,88 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     }
 
     [Fact]
+    public async Task Stats_shows_the_viewer_tile_and_chart_and_the_chart_seeks()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        string href = (await page.Locator(LibraryHooks.SavedRow).First.GetAttributeAsync("href"))!;
+        await page.GotoAsync(new Uri(new Uri(page.Url), href).ToString(),
+            new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
+        string id = page.Url[(page.Url.LastIndexOf('/') + 1)..];
+
+        // The seeded samples are the independent source of truth for the tile figures.
+        string viewersJson = await page.EvaluateAsync<string>(
+            "async id => JSON.stringify(await (await fetch(`/api/recordings/${id}/viewers`)).json())", id);
+        using JsonDocument viewers = JsonDocument.Parse(viewersJson);
+        JsonElement[] samples = [.. viewers.RootElement.GetProperty("samples").EnumerateArray()];
+        Assert.True(samples.Length >= 2, $"The Mock seeder writes viewer samples for {id}: {viewersJson}");
+        int now = samples[^1].GetProperty("count").GetInt32();
+        double domain = Math.Max(
+            Math.Max(viewers.RootElement.GetProperty("durationSec").GetDouble(), samples[^1].GetProperty("at").GetDouble()),
+            1);
+
+        await page.Locator("[data-sk='stats']").ClickAsync();
+        ILocator panel = page.Locator("[data-sk-stats]:not([data-chrome='tab'])");
+        await Assertions.Expect(panel).ToHaveAttributeAsync("data-open", "true");
+
+        ILocator tile = panel.Locator("[data-sk='viewer-tile']");
+        await Assertions.Expect(tile).ToBeVisibleAsync(new() { Timeout = 10_000 });
+        await Assertions.Expect(panel.Locator("[data-sk='viewer-chart-empty']")).ToBeHiddenAsync();
+        await Assertions.Expect(tile.Locator("[data-sk='viewer-now']"))
+            .ToHaveTextAsync(now.ToString("N0", System.Globalization.CultureInfo.InvariantCulture));
+        await Assertions.Expect(tile.Locator("[data-sk='viewer-peak']")).ToHaveTextAsync(new Regex(@"^[\d,]+ at \d+:\d\d$"));
+        await Assertions.Expect(tile.Locator("[data-sk='viewer-average']")).ToHaveTextAsync(new Regex(@"^[\d,]+$"));
+
+        ILocator chart = panel.GetByRole(AriaRole.Img, new() { NameRegex = new Regex("^Viewer count over the recording: ") });
+        await Assertions.Expect(chart).ToHaveAttributeAsync("data-sk", "viewer-chart");
+        await Assertions.Expect(chart.Locator("path.line")).ToHaveCountAsync(1);
+        await Assertions.Expect(chart.Locator("[data-axis='x']").First).ToHaveTextAsync("0:00");
+        await Assertions.Expect(panel.Locator("[data-sk='rows-viewers'] tr")).ToHaveCountAsync(samples.Length);
+
+        // Hover shows the time and count of the nearest sample.
+        await chart.HoverAsync();
+        await Assertions.Expect(panel.Locator("[data-sk='tip-viewers']"))
+            .ToHaveTextAsync(new Regex(@"^\d+:\d\d · [\d,]+ viewers?$"));
+
+        // A click seeks the player to that recording time, and the tile follows the playhead.
+        LocatorBoundingBoxResult box = (await chart.BoundingBoxAsync())!;
+        double target = domain * 0.75;
+        await page.Mouse.ClickAsync(box.X + (box.Width * 0.75f), box.Y + (box.Height / 2));
+        await page.WaitForFunctionAsync(
+            "([t, tol]) => Math.abs(document.querySelector('[data-sk=video]').currentTime - t) <= tol",
+            new object[] { target, 2.0 },
+            new PageWaitForFunctionOptions { Timeout = 10_000 });
+        double position = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
+        await Assertions.Expect(tile.Locator("[data-sk='viewer-at']"))
+            .ToHaveTextAsync($"Viewers at {Timecode(position)}");
+
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-viewers");
+
+        // On a phone the Stats tab holds the panel; the tile stacks above the full-width chart.
+        await using Session phone = await OpenAsync(app.BaseUrl, viewport: new() { Width = 375, Height = 812 });
+        page = phone.Page;
+        await page.GotoAsync(new Uri(new Uri(page.Url), href).ToString(),
+            new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
+        await page.GetByRole(AriaRole.Tab, new() { Name = "Stats" }).ClickAsync();
+        ILocator tab = page.Locator("[data-sk-stats][data-chrome='tab']");
+        await Assertions.Expect(tab.Locator("[data-sk='viewer-tile']")).ToBeVisibleAsync(new() { Timeout = 10_000 });
+        await Assertions.Expect(tab.GetByRole(AriaRole.Img, new() { NameRegex = new Regex("^Viewer count over the recording: ") }))
+            .ToBeVisibleAsync();
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-viewers-phone");
+    }
+
+    // Mirrors Ui/Format.Timecode and /js/timecode.js.
+    private static string Timecode(double seconds)
+    {
+        var time = TimeSpan.FromSeconds(Math.Floor(Math.Max(0, seconds)));
+        return time.TotalHours >= 1
+            ? $"{(int)time.TotalHours}:{time.Minutes:00}:{time.Seconds:00}"
+            : $"{time.Minutes}:{time.Seconds:00}";
+    }
+
+    [Fact]
     public async Task Stats_open_with_the_player_button_samples_and_copies_a_versioned_snapshot()
     {
         await using Session session = await OpenAsync(app.BaseUrl);
@@ -197,7 +280,8 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         // painting no visible area, so the data-sr-only hook cannot drift from the CSS. A table
         // keeps its content width despite width: 1px, so a clip-path that insets half of each
         // side (nothing left to paint) also counts as hidden.
-        string screenReaderOnlyJson = await panel.Locator("[data-sr-only]").EvaluateAllAsync<string>(
+        // The viewer table is hidden until samples arrive (#211); its own journey checks it.
+        string screenReaderOnlyJson = await panel.Locator("[data-sr-only]:not([data-sk='table-viewers'])").EvaluateAllAsync<string>(
             """
             elements => JSON.stringify(elements.map(e => {
               const box = e.getBoundingClientRect();
@@ -273,8 +357,11 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             "visible",
             await bufferSpark.Locator("[data-crosshair]").GetAttributeAsync("visibility"));
 
-        // The Stream section waits for viewer-count samples, which no recording has yet.
-        await page.Locator("[data-sk-stats]").GetByText("No viewer data for this recording.").WaitForAsync();
+        // The growing capture may or may not have its first viewer sample yet (#211): wait for
+        // the Stream section to settle on either the empty line or the tile.
+        await page.Locator(
+            "[data-sk-stats] [data-sk='viewer-chart-empty']:not([hidden]), [data-sk-stats] [data-sk='viewer-tile']:not([hidden])")
+            .First.WaitForAsync();
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-stats");
 
         await page.Locator("[data-sk='copy-stats']").ClickAsync();

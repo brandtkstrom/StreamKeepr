@@ -15,6 +15,19 @@ import {
   statsSource,
 } from "/js/stats.js";
 import { drawSparkline, formatSparklineTip, sparklinePointAt } from "/js/sparkline.js";
+import { formatTimecode } from "/js/timecode.js";
+import {
+  drawViewerChart,
+  formatViewerCount,
+  formatViewerTip,
+  placeViewerPlayhead,
+  viewerChartGeometry,
+  viewerChartLabel,
+  viewerChartPointAt,
+  viewerChartTimeAt,
+  viewerCountAt,
+  viewerSummary,
+} from "/js/viewer-chart.js";
 
 // Mirrors the data-sk hooks StatsPanel.razor renders (StatsPanelTests guards the markup).
 const HOOKS = [
@@ -25,7 +38,27 @@ const HOOKS = [
   "value-buffer", "spark-buffer", "tip-buffer", "table-buffer", "rows-buffer",
   "kv-resolution", "kv-codecs", "kv-dropped", "kv-decoder",
   "kv-last-segment", "kv-segments", "kv-errors", "kv-playlist",
+  "viewer-chart-empty", "viewer-tile", "viewer-at", "viewer-count",
+  "viewer-now", "viewer-peak", "viewer-average",
+  "viewer-chart", "viewer-svg", "tip-viewers", "table-viewers", "rows-viewers",
 ];
+
+// A live recording's viewer samples are refetched this often while the panel is open.
+export const VIEWER_REFRESH_MS = 60_000;
+
+const NO_VIEWERS = Object.freeze({ recordingId: null, durationSec: 0, samples: [], loaded: false });
+
+function viewersUrl(recordingId) {
+  return `/api/recordings/${encodeURIComponent(recordingId)}/viewers`;
+}
+
+/** Keeps well-formed samples only; the endpoint already orders them oldest first. */
+function readSamples(body) {
+  const list = Array.isArray(body?.samples) ? body.samples : [];
+  return list
+    .filter((sample) => Number.isFinite(sample?.at) && Number.isFinite(sample?.count))
+    .map((sample) => ({ at: sample.at, count: sample.count }));
+}
 
 const TILES = {
   bitrate: { key: "bitrateMbps", digits: 1 },
@@ -55,7 +88,13 @@ function collect(root) {
   );
 }
 
-export function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERVAL_MS, clock = () => performance.now() } = {}) {
+export function createStatsPanel(root, {
+  dotNet = null,
+  interval = SAMPLE_INTERVAL_MS,
+  clock = () => performance.now(),
+  fetch = globalThis.fetch?.bind(globalThis),
+  viewerRefreshMs = VIEWER_REFRESH_MS,
+} = {}) {
   const el = collect(root);
   const listeners = new AbortController();
   const on = (target, type, handler) =>
@@ -72,6 +111,15 @@ export function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERV
   let lastMetrics = null;
   let frameWindowStarted = false;
   let hover = { name: null, fraction: null };
+  let viewers = NO_VIEWERS;
+  let viewerGeometry = null;
+  let viewerRequest = null;
+  let viewerSequence = 0;
+  let viewerTimer = 0;
+  let playheadAt = 0;
+  let dragging = false;
+  let seekInFlight = false;
+  let pendingSeek = null;
 
   function player() {
     if (!playerRoot) playerRoot = findPlayerRoot(root);
@@ -271,8 +319,13 @@ export function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERV
     }));
 
     if (changed) {
-      if (open) startWindow();
-      else stopWindow();
+      if (open) {
+        startWindow();
+        startViewers();
+      } else {
+        stopWindow();
+        stopViewers();
+      }
     }
 
     if (changed && persist) void persistOpen(open);
@@ -288,10 +341,214 @@ export function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERV
       level: metrics?.level ?? null,
       samples: samples.values(),
       errors: metrics?.errors ?? [],
+      viewers: viewers.recordingId === options.recordingId ? viewerSummary(viewers.samples) : null,
     });
 
     const written = await copyText(JSON.stringify(snapshot, null, 2));
     await notify(written ? "Stats copied" : "Could not copy stats");
+  }
+
+  // ---- Stream section: viewer tile and chart ----
+
+  function setHidden(node, hidden) {
+    if (node) node.hidden = hidden;
+  }
+
+  function renderViewerTable(samples) {
+    const body = el["rows-viewers"];
+    if (!body) return;
+    body.replaceChildren(...samples.map((sample) => {
+      const row = document.createElement("tr");
+      const time = document.createElement("th");
+      time.scope = "row";
+      time.textContent = formatTimecode(sample.at);
+      const value = document.createElement("td");
+      value.textContent = formatViewerCount(sample.count);
+      row.append(time, value);
+      return row;
+    }));
+  }
+
+  function renderPlayhead() {
+    if (!viewerGeometry) return;
+    const count = viewerCountAt(viewers.samples, playheadAt);
+    if (el["viewer-at"]) el["viewer-at"].textContent = `Viewers at ${formatTimecode(playheadAt)}`;
+    if (el["viewer-count"]) el["viewer-count"].textContent = formatViewerCount(count);
+    placeViewerPlayhead(el["viewer-chart"], viewerGeometry, playheadAt, count);
+  }
+
+  function renderViewers() {
+    const { samples } = viewers;
+    const has = samples.length > 0;
+    const live = isLive(options.state);
+
+    setHidden(el["viewer-chart-empty"], has);
+    setHidden(el["viewer-tile"], !has);
+    setHidden(el["viewer-chart"], !has);
+    setHidden(el["table-viewers"], !has);
+    el["viewer-chart"]?.setAttribute("aria-label", viewerChartLabel(samples, { live }));
+    renderViewerTable(samples);
+
+    if (!has) {
+      viewerGeometry = null;
+      el["viewer-svg"]?.replaceChildren();
+      el["viewer-chart"]?.querySelector("[data-chart-overlay]")?.remove();
+      if (el["tip-viewers"]) el["tip-viewers"].textContent = "";
+      return;
+    }
+
+    viewerGeometry = drawViewerChart(
+      el["viewer-chart"],
+      el["viewer-svg"],
+      viewerChartGeometry(samples, { durationSec: viewers.durationSec }),
+      { live });
+
+    const summary = viewerSummary(samples);
+    if (el["viewer-now"]) el["viewer-now"].textContent = formatViewerCount(summary.now);
+    if (el["viewer-peak"])
+      el["viewer-peak"].textContent =
+        `${formatViewerCount(summary.peak)} at ${formatTimecode(summary.peakAt)}`;
+    if (el["viewer-average"]) el["viewer-average"].textContent = formatViewerCount(summary.average);
+    renderPlayhead();
+  }
+
+  async function loadViewers() {
+    const recordingId = options.recordingId;
+    if (disposed || !recordingId || typeof fetch !== "function") return;
+
+    viewerRequest?.abort();
+    const request = new AbortController();
+    viewerRequest = request;
+    const sequence = ++viewerSequence;
+    // Only the latest request for the current recording may change the section.
+    const current = () =>
+      !disposed && !request.signal.aborted && sequence === viewerSequence &&
+      recordingId === options.recordingId;
+
+    try {
+      const response = await fetch(viewersUrl(recordingId), {
+        signal: request.signal,
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      if (!current()) return;
+
+      // An unknown recording has no samples; any other failure keeps what is shown.
+      let body = { recordingId, durationSec: 0, samples: [] };
+      if (response.ok) body = await response.json();
+      else if (response.status !== 404)
+        throw new Error(`Viewer samples returned HTTP ${response.status}.`);
+
+      if (!current() || body?.recordingId !== recordingId) return;
+      viewers = {
+        recordingId,
+        durationSec: Number.isFinite(body.durationSec) ? body.durationSec : 0,
+        samples: readSamples(body),
+        loaded: true,
+      };
+      renderViewers();
+    } catch (error) {
+      if (request.signal.aborted) return;
+      console.warn("Stream Keepr: viewer samples could not be loaded.", error);
+    } finally {
+      if (viewerRequest === request) viewerRequest = null;
+    }
+  }
+
+  function stopViewers() {
+    clearInterval(viewerTimer);
+    viewerTimer = 0;
+    viewerRequest?.abort();
+    viewerRequest = null;
+  }
+
+  /** Opening fetches once per recording; a live recording also refetches on reopen and every 60 s. */
+  function startViewers() {
+    stopViewers();
+    if (!open || disposed) return;
+
+    const live = isLive(options.state);
+    if (live || !viewers.loaded || viewers.recordingId !== options.recordingId)
+      void loadViewers();
+    if (live) viewerTimer = setInterval(() => void loadViewers(), viewerRefreshMs);
+  }
+
+  function chartFraction(event) {
+    const rect = el["viewer-chart"]?.getBoundingClientRect();
+    if (!rect || !(rect.width > 0)) return 0;
+    return Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+  }
+
+  function showViewerTip(fraction) {
+    const tip = el["tip-viewers"];
+    const point = viewerChartPointAt(viewerGeometry, fraction);
+    if (!tip || !point) return;
+
+    tip.textContent = formatViewerTip(point.at, point.count);
+    tip.style.left = `${(point.x / viewerGeometry.width) * 100}%`;
+    const crosshair = el["viewer-svg"]?.querySelector(".xh");
+    if (crosshair) {
+      crosshair.setAttribute("x1", String(point.x));
+      crosshair.setAttribute("x2", String(point.x));
+      crosshair.setAttribute("visibility", "visible");
+    }
+  }
+
+  function hideViewerTip() {
+    if (el["tip-viewers"]) el["tip-viewers"].textContent = "";
+    el["viewer-svg"]?.querySelector(".xh")?.setAttribute("visibility", "hidden");
+  }
+
+  // Seeks go through .NET to the PlayerBridge. A drag sends at most one call at a time and
+  // keeps only the latest position meanwhile, so the circuit is never flooded.
+  async function sendSeek(seconds) {
+    if (seekInFlight) {
+      pendingSeek = seconds;
+      return;
+    }
+
+    seekInFlight = true;
+    try {
+      await dotNet?.invokeMethodAsync("Seek", seconds);
+    } catch (error) {
+      console.debug("Stream Keepr: the chart seek was not delivered.", error);
+    } finally {
+      seekInFlight = false;
+    }
+
+    if (pendingSeek !== null && !disposed) {
+      const next = pendingSeek;
+      pendingSeek = null;
+      await sendSeek(next);
+    }
+  }
+
+  function seekToPointer(event) {
+    if (!viewerGeometry) return;
+    void sendSeek(viewerChartTimeAt(viewerGeometry, chartFraction(event)));
+  }
+
+  function bindViewerChart() {
+    const chart = el["viewer-chart"];
+    if (!chart) return;
+
+    on(chart, "pointerdown", (event) => {
+      if (event.button !== 0 || !viewerGeometry) return;
+      dragging = true;
+      if (event.pointerId !== undefined) chart.setPointerCapture?.(event.pointerId);
+      seekToPointer(event);
+    });
+    on(chart, "pointermove", (event) => {
+      if (!viewerGeometry) return;
+      showViewerTip(chartFraction(event));
+      if (dragging) seekToPointer(event);
+    });
+    const endDrag = () => {
+      dragging = false;
+    };
+    on(chart, "pointerup", endDrag);
+    on(chart, "pointercancel", endDrag);
+    on(chart, "pointerleave", hideViewerTip);
   }
 
   function showTooltip(name, fraction) {
@@ -361,11 +618,25 @@ export function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERV
       renderValues(null);
       renderSparklines();
       renderTables();
-      if (open) startWindow();
+      stopViewers();
+      viewers = NO_VIEWERS;
+      playheadAt = 0;
+      renderViewers();
+      if (open) {
+        startWindow();
+        startViewers();
+      }
       return;
     }
 
     renderValues(lastMetrics);
+
+    // A capture that has just finished needs one last fetch for its final samples and duration.
+    const wasLive = isLive(previous.state);
+    if (wasLive !== isLive(options.state)) {
+      if (wasLive) viewers = { ...viewers, loaded: false };
+      startViewers();
+    }
   }
 
   function init(next) {
@@ -382,6 +653,7 @@ export function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERV
     if (disposed) return;
     disposed = true;
     stopWindow();
+    stopViewers();
     listeners.abort();
   }
 
@@ -396,6 +668,17 @@ export function createStatsPanel(root, { dotNet = null, interval = SAMPLE_INTERV
   });
 
   for (const name of Object.keys(TILES)) bindHover(name);
+  bindViewerChart();
+
+  // The player announces its position on the document; only this recording's moves the
+  // tile and the chart's playhead.
+  on(document, "sk:playhead", (event) => {
+    const detail = event instanceof CustomEvent ? event.detail : null;
+    if (!detail || detail.recordingId !== options.recordingId || !Number.isFinite(detail.time))
+      return;
+    playheadAt = Math.max(0, detail.time);
+    renderPlayhead();
+  });
 
   return { init, update, setOpen: applyOpen, dispose };
 }

@@ -306,6 +306,16 @@ describe("sample and snapshot shapes", () => {
     });
   });
 
+  it("adds the four viewer figures to the v1 snapshot, null when unknown", () => {
+    expect(buildSnapshot({}).viewers).toEqual({ now: null, peak: null, peakAt: null, average: null });
+    expect(buildSnapshot({
+      viewers: { now: 1492, peak: 1658, peakAt: 2280.4, average: 1218 },
+    }).viewers).toEqual({ now: 1492, peak: 1658, peakAt: 2280.4, average: 1218 });
+    expect(buildSnapshot({
+      viewers: { now: Number.NaN, peak: 3, peakAt: null, average: undefined },
+    }).viewers).toEqual({ now: null, peak: 3, peakAt: null, average: null });
+  });
+
   it("builds a versioned snapshot with the last twenty samples and ten errors", () => {
     const samples = Array.from({ length: 25 }, (_, index) => ({
       at: index * 2,
