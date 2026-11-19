@@ -230,6 +230,13 @@ tests opt in explicitly). Telemetry is enabled only when `Telemetry:Enabled` is 
   coverage, EventSub connection/reconnects, chat drops, free storage, and export outcomes. Runtime,
   ASP.NET Core, Kestrel, Blazor/SignalR, and HttpClient meters are also collected. The SignalR and
   Razor Components **trace** sources are disabled; their metrics remain enabled.
+- Counting rules: an export interrupted by host shutdown records no `export.jobs` outcome, because
+  the job never completes. EventSub reconnects count dropped sessions, handoffs, and setup retries
+  after a session has existed, but not failed first connects. A part whose size cannot be read
+  is counted but gets no size sample. A poll round in which every batch failed marks its span
+  `Error`; a partial round leaves the status unset.
+- Startup refuses enabled telemetry when either `*_DISABLE_URL_QUERY_REDACTION` variable is set to
+  any non-blank value.
 - This change adds no logging provider; Serilog remains the only logging pipeline. The startup log
   reports whether telemetry is enabled, the service/version/environment, and the sanitized endpoint.
 
