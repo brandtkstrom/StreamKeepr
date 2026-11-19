@@ -732,7 +732,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; transition: opacity 120ms; z-index: 1;
 }
 .sk-vchart .tip:empty { display: none; }
-.sk-vchart > .plot:hover .tip { opacity: 1; }
+.sk-vchart > .plot:is(:hover, [data-active]) .tip { opacity: 1; }
 .sk-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-bottom: var(--space-3); }
 .sk-tile { position: relative; min-width: 0; padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface-raised); }
 .sk-tile .lbl {

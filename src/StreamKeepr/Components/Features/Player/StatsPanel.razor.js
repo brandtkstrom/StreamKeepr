@@ -1,6 +1,7 @@
 import {
   buildSnapshot,
   copyText,
+  formatCount,
   createRing,
   formatCodecs,
   formatDroppedFrames,
@@ -18,7 +19,6 @@ import { drawSparkline, formatSparklineTip, sparklinePointAt } from "/js/sparkli
 import { formatTimecode } from "/js/timecode.js";
 import {
   drawViewerChart,
-  formatViewerCount,
   formatViewerTip,
   placeViewerPlayhead,
   viewerChartGeometry,
@@ -118,6 +118,7 @@ export function createStatsPanel(root, {
   let viewerTimer = 0;
   let playheadAt = 0;
   let dragging = false;
+  let viewerHover = null;
   let seekInFlight = false;
   let pendingSeek = null;
 
@@ -363,7 +364,7 @@ export function createStatsPanel(root, {
       time.scope = "row";
       time.textContent = formatTimecode(sample.at);
       const value = document.createElement("td");
-      value.textContent = formatViewerCount(sample.count);
+      value.textContent = formatCount(sample.count);
       row.append(time, value);
       return row;
     }));
@@ -373,7 +374,7 @@ export function createStatsPanel(root, {
     if (!viewerGeometry) return;
     const count = viewerCountAt(viewers.samples, playheadAt);
     if (el["viewer-at"]) el["viewer-at"].textContent = `Viewers at ${formatTimecode(playheadAt)}`;
-    if (el["viewer-count"]) el["viewer-count"].textContent = formatViewerCount(count);
+    if (el["viewer-count"]) el["viewer-count"].textContent = formatCount(count);
     placeViewerPlayhead(el["viewer-chart"], viewerGeometry, playheadAt, count);
   }
 
@@ -402,13 +403,16 @@ export function createStatsPanel(root, {
       el["viewer-svg"],
       viewerChartGeometry(samples, { durationSec: viewers.durationSec }),
       { live });
+    // A refresh must not leave a stale tooltip: reposition the active one against the new data.
+    if (viewerHover !== null) showViewerTip(viewerHover);
+    else hideViewerTip();
 
     const summary = viewerSummary(samples);
-    if (el["viewer-now"]) el["viewer-now"].textContent = formatViewerCount(summary.now);
+    if (el["viewer-now"]) el["viewer-now"].textContent = formatCount(summary.now);
     if (el["viewer-peak"])
       el["viewer-peak"].textContent =
-        `${formatViewerCount(summary.peak)} at ${formatTimecode(summary.peakAt)}`;
-    if (el["viewer-average"]) el["viewer-average"].textContent = formatViewerCount(summary.average);
+        `${formatCount(summary.peak)} at ${formatTimecode(summary.peakAt)}`;
+    if (el["viewer-average"]) el["viewer-average"].textContent = formatCount(summary.average);
     renderPlayhead();
   }
 
@@ -532,23 +536,36 @@ export function createStatsPanel(root, {
     const chart = el["viewer-chart"];
     if (!chart) return;
 
+    const hover = (event) => {
+      viewerHover = chartFraction(event);
+      showViewerTip(viewerHover);
+    };
+
     on(chart, "pointerdown", (event) => {
       if (event.button !== 0 || !viewerGeometry) return;
       dragging = true;
+      // data-active shows the tooltip where there is no :hover (touch).
+      chart.setAttribute("data-active", "");
       if (event.pointerId !== undefined) chart.setPointerCapture?.(event.pointerId);
+      hover(event);
       seekToPointer(event);
     });
     on(chart, "pointermove", (event) => {
       if (!viewerGeometry) return;
-      showViewerTip(chartFraction(event));
+      hover(event);
       if (dragging) seekToPointer(event);
     });
     const endDrag = () => {
       dragging = false;
+      chart.removeAttribute("data-active");
     };
     on(chart, "pointerup", endDrag);
     on(chart, "pointercancel", endDrag);
-    on(chart, "pointerleave", hideViewerTip);
+    on(chart, "pointerleave", () => {
+      endDrag();
+      viewerHover = null;
+      hideViewerTip();
+    });
   }
 
   function showTooltip(name, fraction) {

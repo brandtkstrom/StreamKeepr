@@ -117,6 +117,14 @@ describe("viewerChartGeometry", () => {
     expect(viewerChartGeometry([{ at: 0, count: 1 }], { durationSec: 120 })
       .xTicks.map((tick) => tick.label)).toEqual(["0:00", "0:30", "1:00", "1:30", "2:00"]);
 
+    // Durations between the round steps still get four labels, never three.
+    const shortLabels = (durationSec) => viewerChartGeometry([{ at: 0, count: 1 }], { durationSec })
+      .xTicks.map((tick) => tick.label);
+    expect(shortLabels(290)).toEqual(["0:00", "1:30", "3:00", "4:50"]);
+    expect(shortLabels(1450)).toEqual(["0:00", "6:00", "12:00", "18:00", "24:10"]);
+    for (const durationSec of [45, 61, 290, 599, 1450, 2500, 7322, 20_000, 80_000])
+      expect(shortLabels(durationSec).length, `${durationSec} s`).toBeGreaterThanOrEqual(4);
+
     const ticks = viewerChartGeometry(SAMPLES, { durationSec: 3733 }).xTicks;
     expect(ticks[0].fraction).toBe(0);
     expect(ticks[1].fraction).toBeCloseTo(900 / 3733, 6);

@@ -484,7 +484,8 @@ export function buildSnapshot({
 
 const countFormat = new Intl.NumberFormat("en-US");
 
-function formatCount(value) {
+/** A grouped count ("1,658"), or an em dash when unknown. */
+export function formatCount(value) {
   return Number.isFinite(value) ? countFormat.format(value) : "—";
 }
 

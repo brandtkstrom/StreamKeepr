@@ -193,9 +193,19 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
 
         ILocator chart = panel.GetByRole(AriaRole.Img, new() { NameRegex = new Regex("^Viewer count over the recording: ") });
         await Assertions.Expect(chart).ToHaveAttributeAsync("data-sk", "viewer-chart");
-        await Assertions.Expect(chart.Locator("path.line")).ToHaveCountAsync(1);
+        await Assertions.Expect(chart.Locator("[data-series='line']")).ToHaveCountAsync(1);
         await Assertions.Expect(chart.Locator("[data-axis='x']").First).ToHaveTextAsync("0:00");
         await Assertions.Expect(panel.Locator("[data-sk='rows-viewers'] tr")).ToHaveCountAsync(samples.Length);
+        // The sample table is exposed to screen readers but paints nothing (see the stats journey).
+        Assert.True(await panel.Locator("[data-sk='table-viewers']").EvaluateAsync<bool>(
+            """
+            t => {
+              const box = t.getBoundingClientRect();
+              const style = getComputedStyle(t);
+              return style.display !== 'none' && style.visibility !== 'hidden'
+                && ((box.width <= 1 && box.height <= 1) || /^inset\(50%/.test(style.clipPath));
+            }
+            """));
 
         // Hover shows the time and count of the nearest sample.
         await chart.HoverAsync();
@@ -280,7 +290,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         // painting no visible area, so the data-sr-only hook cannot drift from the CSS. A table
         // keeps its content width despite width: 1px, so a clip-path that insets half of each
         // side (nothing left to paint) also counts as hidden.
-        // The viewer table is hidden until samples arrive (#211); its own journey checks it.
+        // The viewer table is hidden until samples arrive (#211); the viewer journey checks it.
         string screenReaderOnlyJson = await panel.Locator("[data-sr-only]:not([data-sk='table-viewers'])").EvaluateAllAsync<string>(
             """
             elements => JSON.stringify(elements.map(e => {

@@ -347,9 +347,9 @@ describe("StatsPanel.razor.js", () => {
         "Viewer count over the recording: from 380 at the start to a peak of 1,658 at 38:00, 1,492 at the end.");
 
       const svg = hook("viewer-svg");
-      expect(svg.querySelectorAll("path.line")).toHaveLength(1);
-      expect(svg.querySelectorAll("path.area")).toHaveLength(1);
-      expect(svg.querySelectorAll(".grid line")).toHaveLength(3);
+      expect(svg.querySelectorAll("[data-series='line']")).toHaveLength(1);
+      expect(svg.querySelectorAll("[data-series='area']")).toHaveLength(1);
+      expect(svg.querySelectorAll("[data-gridline]")).toHaveLength(3);
       const xLabels = [...hook("viewer-chart").querySelectorAll("[data-axis='x']")].map((n) => n.textContent);
       expect(xLabels).toEqual(["0:00", "15:00", "30:00", "45:00", "1:02:13"]);
       const yLabels = [...hook("viewer-chart").querySelectorAll("[data-axis='y']")].map((n) => n.textContent);
@@ -549,6 +549,38 @@ describe("StatsPanel.razor.js", () => {
 
       chart.dispatchEvent(new MouseEvent("pointerleave"));
       expect(hook("tip-viewers").textContent).toBe("");
+    });
+
+    it("keeps an active tooltip through a live refresh", async () => {
+      let samples = VIEWER_SAMPLES.slice(0, 3);
+      start(true, { state: "recording", fetch: viewerFetch(() => viewerBody("r1", samples, 3733)) });
+      await flush();
+      chartBox();
+
+      const chart = hook("viewer-chart");
+      chart.dispatchEvent(new MouseEvent("pointermove", { clientX: 611, bubbles: true }));
+      expect(hook("tip-viewers").textContent).toBe("38:00 · 1,658 viewers");
+
+      samples = [...VIEWER_SAMPLES.slice(0, 2), { at: 2280, count: 1700 }];
+      vi.advanceTimersByTime(60_000);
+      await flush();
+
+      expect(hook("tip-viewers").textContent).toBe("38:00 · 1,700 viewers");
+      expect(hook("viewer-svg").querySelector("[data-crosshair]").getAttribute("visibility")).toBe("visible");
+    });
+
+    it("marks the chart active while touched, so the tooltip shows without hover", async () => {
+      start(true, { state: "saved", fetch: withSamples() });
+      await flush();
+      chartBox();
+      const chart = hook("viewer-chart");
+
+      chart.dispatchEvent(new MouseEvent("pointerdown", { clientX: 611, button: 0, bubbles: true }));
+      expect(chart.hasAttribute("data-active")).toBe(true);
+      expect(hook("tip-viewers").textContent).toBe("38:00 · 1,658 viewers");
+
+      chart.dispatchEvent(new MouseEvent("pointerup", { clientX: 611, bubbles: true }));
+      expect(chart.hasAttribute("data-active")).toBe(false);
     });
 
     it("seeks through .NET on click and while dragging", async () => {

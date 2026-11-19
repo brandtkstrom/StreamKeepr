@@ -2,17 +2,11 @@
 // The figures and geometry are pure so Vitest covers them without a browser; drawViewerChart
 // only owns the chart's SVG and label children. StatsPanel.razor.js owns fetching and events.
 
+import { formatCount } from "/js/stats.js";
 import { formatTimecode } from "/js/timecode.js";
 
-const countFormat = new Intl.NumberFormat("en-US");
-
-/** A grouped count ("1,658"), or an em dash when unknown. */
-export function formatViewerCount(value) {
-  return Number.isFinite(value) ? countFormat.format(value) : "—";
-}
-
 function viewers(count) {
-  return `${formatViewerCount(count)} ${count === 1 ? "viewer" : "viewers"}`;
+  return `${formatCount(count)} ${count === 1 ? "viewer" : "viewers"}`;
 }
 
 /** The hover tooltip: "38:00 · 1,658 viewers". */
@@ -80,9 +74,9 @@ export function viewerChartLabel(samples, { live = false } = {}) {
     return `${prefix} ${viewers(list[0].count)} at ${formatTimecode(list[0].at)}.`;
 
   const summary = viewerSummary(list);
-  const last = `${formatViewerCount(summary.now)} ${live ? "now" : "at the end"}`;
-  return `${prefix} from ${formatViewerCount(list[0].count)} at the start to a peak of ` +
-    `${formatViewerCount(summary.peak)} at ${formatTimecode(summary.peakAt)}, ${last}.`;
+  const last = `${formatCount(summary.now)} ${live ? "now" : "at the end"}`;
+  return `${prefix} from ${formatCount(list[0].count)} at the start to a peak of ` +
+    `${formatCount(summary.peak)} at ${formatTimecode(summary.peakAt)}, ${last}.`;
 }
 
 // The plot is drawn in a fixed 1000 × 100 viewBox stretched to the chart (preserveAspectRatio
@@ -90,11 +84,12 @@ export function viewerChartLabel(samples, { live = false } = {}) {
 export const VIEWER_CHART_WIDTH = 1000;
 export const VIEWER_CHART_HEIGHT = 100;
 
-// Candidate x-axis steps in seconds; the smallest that yields at most five labels wins.
+// Candidate x-axis steps in seconds, dense enough that most durations get four or five labels.
 const TIME_STEPS = [
-  1, 2, 5, 10, 15, 20, 30, 60, 120, 300, 600, 900, 1200, 1800,
-  3600, 7200, 10800, 14400, 21600, 43200, 86400,
+  1, 2, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 360, 480, 600, 900, 1200, 1800,
+  2400, 3600, 5400, 7200, 10800, 14400, 21600, 28800, 43200, 86400,
 ];
+const MIN_TIME_LABELS = 4;
 const MAX_TIME_LABELS = 5;
 const MIN_TOP = 10;
 
@@ -118,7 +113,14 @@ function timeTicks(domain) {
     return ticks;
   };
 
-  const step = TIME_STEPS.find((candidate) => ticksFor(candidate).length <= MAX_TIME_LABELS)
+  // The smallest step with four or five labels; failing that (a very short recording) the
+  // smallest with at most five.
+  const fits = (candidate, minimum) => {
+    const count = ticksFor(candidate).length;
+    return count >= minimum && count <= MAX_TIME_LABELS;
+  };
+  const step = TIME_STEPS.find((candidate) => fits(candidate, MIN_TIME_LABELS))
+    ?? TIME_STEPS.find((candidate) => fits(candidate, 0))
     ?? TIME_STEPS.at(-1);
   return ticksFor(step).map((at) => ({
     at,
@@ -220,14 +222,14 @@ export function drawViewerChart(chart, svg, geometry, { live = false } = {}) {
   for (const tick of geometry.yTicks) {
     const y = geometry.height - tick.fraction * geometry.height;
     grid.append(svgElement("line", {
-      x1: 0, x2: geometry.width, y1: y, y2: y, "vector-effect": "non-scaling-stroke",
+      x1: 0, x2: geometry.width, y1: y, y2: y, "data-gridline": "", "vector-effect": "non-scaling-stroke",
     }));
   }
   svg.append(grid);
   if (geometry.points.length > 0) {
-    svg.append(svgElement("path", { class: "area", d: geometry.areaPath }));
+    svg.append(svgElement("path", { class: "area", "data-series": "area", d: geometry.areaPath }));
     svg.append(svgElement("path", {
-      class: "line", d: geometry.linePath, "vector-effect": "non-scaling-stroke",
+      class: "line", "data-series": "line", d: geometry.linePath, "vector-effect": "non-scaling-stroke",
     }));
   }
   svg.append(svgElement("line", {
