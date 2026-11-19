@@ -44,6 +44,7 @@ else
                                             data-auth-dot>
                             <ChannelAvatar Login="@Login(context.User)"
                                            Name="@DisplayName(context.User)"
+                                           ImageUrl="@AvatarUrl(context.User)"
                                            Size="MudBlazor.Size.Small"
                                            Class="sk-account-avatar"
                                            Decorative="true"
@@ -53,7 +54,7 @@ else
                 </ActivatorContent>
                 <ChildContent>
                     <div class="sk-account-header" role="presentation" data-account-header>
-                        <ChannelAvatar Login="@Login(context.User)" Name="@DisplayName(context.User)" Size="MudBlazor.Size.Medium" Decorative="true" />
+                        <ChannelAvatar Login="@Login(context.User)" Name="@DisplayName(context.User)" ImageUrl="@AvatarUrl(context.User)" Size="MudBlazor.Size.Medium" Decorative="true" />
                         <div class="who">
                             <div class="name">@DisplayName(context.User)</div>
                             @if (DistinctLogin(context.User) is { } login)
@@ -131,6 +132,14 @@ else
             : Login(user);
 
     internal static string Login(ClaimsPrincipal user) => user.Identity?.Name ?? "Twitch";
+
+    // The Twitch profile image from sign-in; anything but an absolute https URL falls back to
+    // the initial, so a stale or odd claim can never put a non-image URL in the page.
+    internal static string? AvatarUrl(ClaimsPrincipal user) =>
+        Uri.TryCreate(user.FindFirst(AdminAuth.ProfileImageClaim)?.Value, UriKind.Absolute, out Uri? url)
+            && url.Scheme == Uri.UriSchemeHttps
+            ? url.AbsoluteUri
+            : null;
 
     // Shown beside the display name only when it adds something (contract: login, and the
     // display name when available).

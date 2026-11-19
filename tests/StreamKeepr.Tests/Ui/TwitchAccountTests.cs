@@ -84,6 +84,46 @@ public sealed class TwitchAccountTests
     }
 
     [Fact]
+    public async Task The_account_avatar_shows_the_twitch_profile_image_in_the_bar_and_menu()
+    {
+        const string image = "https://static-cdn.jtvnw.net/jtv_user_pictures/mock-profile.png";
+        await using BunitContext context = CreateContext(out _);
+        context.AddAuthorization()
+            .SetAuthorized("mock_admin")
+            .SetClaims(
+                new Claim(StreamKeepr.Infrastructure.Twitch.AdminAuth.DisplayNameClaim, "Mock Admin"),
+                new Claim(StreamKeepr.Infrastructure.Twitch.AdminAuth.ProfileImageClaim, image));
+        IRenderedComponent<TwitchAccount> cut = RenderAccount(context, out var popovers);
+
+        Assert.Equal(image, Activator(cut).QuerySelector("[data-account-avatar] [data-avatar-image]")?.GetAttribute("src"));
+
+        Activator(cut).QuerySelector("[data-account-trigger]")!.Click();
+        cut.WaitForAssertion(() => Assert.NotNull(Menu(popovers).QuerySelector("[data-account-header]")));
+        Assert.Equal(image, Menu(popovers).QuerySelector("[data-account-header] [data-avatar-image]")?.GetAttribute("src"));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("http://static-cdn.jtvnw.net/insecure.png")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("/relative.png")]
+    public async Task The_account_avatar_falls_back_to_the_initial_without_an_https_profile_image(string value)
+    {
+        await using BunitContext context = CreateContext(out _);
+        context.AddAuthorization()
+            .SetAuthorized("mock_admin")
+            .SetClaims(
+                new Claim(StreamKeepr.Infrastructure.Twitch.AdminAuth.DisplayNameClaim, "Mock Admin"),
+                new Claim(StreamKeepr.Infrastructure.Twitch.AdminAuth.ProfileImageClaim, value));
+
+        IRenderedComponent<TwitchAccount> cut = RenderAccount(context);
+
+        var avatar = Activator(cut).QuerySelector("[data-account-avatar]")!;
+        Assert.Null(avatar.QuerySelector("[data-avatar-image]"));
+        Assert.Equal("M", avatar.TextContent.Trim());
+    }
+
+    [Fact]
     public async Task The_account_menu_shows_who_is_signed_in_and_links_manage_and_settings()
     {
         await using BunitContext context = CreateContext(out _);

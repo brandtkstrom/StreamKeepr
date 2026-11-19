@@ -38,6 +38,7 @@ public sealed class DvrSupervisor(
         try
         {
             await channelStore.LoadAsync(cancellationToken);
+            await ResolveMissingProfilesAsync(cancellationToken);
             _channels = channelStore.Snapshot;
             _recovered = await recovery.RecoverAsync(_channels, cancellationToken);
         }
@@ -98,6 +99,48 @@ public sealed class DvrSupervisor(
 
             foreach (Running running in _running.Values)
                 running.Cts.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Startup step 2 (runtime contract §7): any stored channel missing its user ID, display name,
+    /// or avatar gets its Helix profile. Lookups run concurrently, so startup waits for the
+    /// slowest one rather than their sum. A failed or empty lookup is logged and never aborts
+    /// startup; the channel keeps what it had, so one without a user ID stays polling-only.
+    /// </summary>
+    private async Task ResolveMissingProfilesAsync(CancellationToken ct)
+    {
+        IEnumerable<Task> lookups = channelStore.Snapshot
+            .Where(channel => string.IsNullOrWhiteSpace(channel.UserId)
+                || string.IsNullOrWhiteSpace(channel.DisplayName)
+                || string.IsNullOrWhiteSpace(channel.AvatarUrl))
+            .Select(channel => ResolveProfileAsync(channel.Login, ct));
+
+        await Task.WhenAll(lookups);
+    }
+
+    private async Task ResolveProfileAsync(string login, CancellationToken ct)
+    {
+        try
+        {
+            ChannelProfile? profile = await poller.GetUserAsync(login, ct);
+            if (profile is null)
+            {
+                logger.LogWarning(
+                    "Twitch has no user for watched channel {Channel}; its profile stays as stored.",
+                    login);
+                return;
+            }
+
+            await channelStore.SetProfileAsync(
+                login, profile.UserId, profile.DisplayName, profile.AvatarUrl, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(
+                ex,
+                "Resolving the Twitch profile for {Channel} failed; its profile stays as stored.",
+                login);
         }
     }
 

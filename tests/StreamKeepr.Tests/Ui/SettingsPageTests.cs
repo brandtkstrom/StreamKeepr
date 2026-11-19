@@ -34,6 +34,17 @@ public sealed class SettingsPageTests
     }
 
     [Fact]
+    public async Task The_account_avatar_falls_back_to_the_initial_without_a_profile_image()
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true, accountImage: "");
+
+        IRenderedComponent<Settings> cut = context.Render<Settings>();
+
+        Assert.Empty(cut.FindAll("#twitch [data-avatar-image]"));
+        Assert.Equal("M", cut.Find("#twitch [data-channel-color]").TextContent.Trim());
+    }
+
+    [Fact]
     public async Task Signed_in_shows_the_account_and_channels_with_their_states()
     {
         await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
@@ -48,6 +59,7 @@ public sealed class SettingsPageTests
 
         Assert.Equal("Mock Admin", cut.Find("#twitch [data-account-name]").TextContent);
         Assert.Equal("mock_admin", cut.Find("#twitch [data-account-login]").TextContent);
+        Assert.Equal(AccountImage, cut.Find("#twitch [data-avatar-image]").GetAttribute("src"));
         Assert.Equal("/api/auth/logout", cut.Find("#twitch form").GetAttribute("action"));
         Assert.Equal(["ann", "bob", "cat"], cut.FindAll("[data-channel]").Select(r => r.GetAttribute("data-channel")));
         Assert.Equal(
@@ -433,6 +445,8 @@ public sealed class SettingsPageTests
         Assert.Equal("schedule", cut.Find("[data-push='polling']").GetAttribute("data-status-icon"));
     }
 
+    private const string AccountImage = "https://static-cdn.jtvnw.net/jtv_user_pictures/mock-profile.png";
+
     private const string ExitModule = "./Components/Features/Settings/SettingsExit.razor.js";
 
     private static IRenderedComponent<CascadingValue<NavigationHistory>> RenderWithHistory(BunitContext context)
@@ -450,7 +464,7 @@ public sealed class SettingsPageTests
         cut.Find("button[aria-label='Exit settings']");
 
     private static BunitContext CreateContext(
-        out TestChannelsView channels, bool signedIn, string? baseUri = null)
+        out TestChannelsView channels, bool signedIn, string? baseUri = null, string accountImage = AccountImage)
     {
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
@@ -472,7 +486,9 @@ public sealed class SettingsPageTests
 
         BunitAuthorizationContext auth = context.AddAuthorization();
         if (signedIn)
-            auth.SetAuthorized("mock_admin").SetClaims(new Claim(AdminAuth.DisplayNameClaim, "Mock Admin"));
+            auth.SetAuthorized("mock_admin").SetClaims(
+                new Claim(AdminAuth.DisplayNameClaim, "Mock Admin"),
+                new Claim(AdminAuth.ProfileImageClaim, accountImage));
         else
             auth.SetNotAuthorized();
 

@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
+using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
@@ -76,6 +77,161 @@ public sealed class ChannelControlTests
 
             Assert.Empty(store.Snapshot);
             Assert.Equal(0, poller.Nudges);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task Seeded_channel_resolves_its_missing_profile_at_startup()
+    {
+        string ffmpeg = RequireFfmpeg();
+        string root = NewRoot();
+
+        try
+        {
+            var poller = new ScriptedStreamPoller();
+            poller.Profiles[Channel] = new ChannelProfile(
+                "654321", "Seeded Channel", "https://example/seeded.png");
+
+            using var factory = CreateFactory(root, poller, ffmpeg, Channel);
+            using var client = factory.CreateClient();
+            var store = factory.Services.GetRequiredService<ChannelStore>();
+
+            ChannelEntry entry = Assert.Single(store.Snapshot);
+            Assert.Equal(Channel, entry.Login);
+            Assert.Equal("654321", entry.UserId);
+            Assert.Equal("Seeded Channel", entry.DisplayName);
+            Assert.Equal("https://example/seeded.png", entry.AvatarUrl);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Stored_channel_missing_only_its_avatar_is_resolved_at_startup(string? avatar)
+    {
+        string ffmpeg = RequireFfmpeg();
+        string root = NewRoot();
+
+        try
+        {
+            Directory.CreateDirectory(AppDataPaths.AppDataDirectory(root));
+            await File.WriteAllTextAsync(
+                AppDataPaths.ChannelsFile(root),
+                System.Text.Json.JsonSerializer.Serialize(
+                    new[] { new { login = Channel, userId = "111", displayName = "Old Name", avatarUrl = avatar } }));
+
+            var poller = new ScriptedStreamPoller();
+            poller.Profiles[Channel] = new ChannelProfile(
+                "111", "Streamer", "https://example/streamer.png");
+
+            using var factory = CreateFactory(root, poller, ffmpeg);
+            using var client = factory.CreateClient();
+            var store = factory.Services.GetRequiredService<ChannelStore>();
+
+            ChannelEntry entry = Assert.Single(store.Snapshot);
+            Assert.Equal("111", entry.UserId);
+            Assert.Equal("Streamer", entry.DisplayName);
+            Assert.Equal("https://example/streamer.png", entry.AvatarUrl);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task Seeded_channel_twitch_does_not_know_stays_polling_only()
+    {
+        string ffmpeg = RequireFfmpeg();
+        string root = NewRoot();
+
+        try
+        {
+            var poller = new ScriptedStreamPoller();
+
+            using var factory = CreateFactory(root, poller, ffmpeg, Channel);
+            using var client = factory.CreateClient();
+            var store = factory.Services.GetRequiredService<ChannelStore>();
+
+            Assert.Equal([Channel], await poller.Started.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Equal(1, poller.Lookups);
+            ChannelEntry entry = Assert.Single(store.Snapshot);
+            Assert.Null(entry.UserId);
+            Assert.Null(entry.AvatarUrl);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task Startup_profile_lookups_run_concurrently()
+    {
+        string ffmpeg = RequireFfmpeg();
+        string root = NewRoot();
+
+        try
+        {
+            // Each lookup waits until both have started, so a one-at-a-time loop never finishes.
+            var bothStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            int started = 0;
+            var poller = new ScriptedStreamPoller
+            {
+                Lookup = async (login, ct) =>
+                {
+                    if (Interlocked.Increment(ref started) == 2)
+                        bothStarted.TrySetResult();
+                    await bothStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+                    return new ChannelProfile(
+                        login == "first" ? "1" : "2", login, $"https://example/{login}.png");
+                },
+            };
+
+            using var factory = CreateFactory(root, poller, ffmpeg, "first", "second");
+            using var client = factory.CreateClient();
+            var store = factory.Services.GetRequiredService<ChannelStore>();
+
+            Assert.All(store.Snapshot, entry => Assert.Equal($"https://example/{entry.Login}.png", entry.AvatarUrl));
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task Seeded_channel_whose_profile_lookup_fails_stays_polling_only()
+    {
+        string ffmpeg = RequireFfmpeg();
+        string root = NewRoot();
+
+        try
+        {
+            var poller = new ScriptedStreamPoller
+            {
+                Lookup = (_, _) => throw new HttpRequestException("Helix is down."),
+            };
+
+            using var factory = CreateFactory(root, poller, ffmpeg, Channel);
+            using var client = factory.CreateClient();
+            var store = factory.Services.GetRequiredService<ChannelStore>();
+
+            IReadOnlyList<string> polled = await poller.Started.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal([Channel], polled);
+            Assert.True(poller.Lookups > 0);
+            ChannelEntry entry = Assert.Single(store.Snapshot);
+            Assert.Null(entry.UserId);
+            Assert.Null(entry.AvatarUrl);
         }
         finally
         {

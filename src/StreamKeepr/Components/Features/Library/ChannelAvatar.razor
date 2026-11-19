@@ -20,7 +20,9 @@
                          @attributes="AdditionalAttributes">
         @if (!string.IsNullOrWhiteSpace(ImageUrl))
         {
-            <img src="@ImageUrl" alt="" loading="lazy" />
+            @* mud-image opts into MudBlazor's `.mud-avatar > .mud-image` rule (100% size,
+               object-fit: cover); a bare img keeps its natural size and is clipped. *@
+            <img class="mud-image" src="@ImageUrl" alt="" loading="lazy" data-avatar-image />
         }
         else
         {

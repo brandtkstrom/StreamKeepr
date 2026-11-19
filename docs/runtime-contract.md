@@ -90,7 +90,7 @@ A command failure other than the fatal cases is logged and surfaced through `Dvr
 - `ResumeRecordingAsync(login)`: persist `Paused = false`, route `ResumeRequested`, then nudge the poller. The next observation decides whether to record.
 - Add/remove/stop/resume are serialized by one control gate. Recording continues while channel control is busy.
 - Each add/remove/stop/resume that succeeds logs one `Information` audit line with `Channel` (the normalized login) and `Action` (`Add`, `Remove`, `Stop`, `Resume`), after the change is persisted and routed. Rejected or failed operations throw and log no audit line (#203).
-- At startup, channels seeded from `Twitch:Channels` are added without Helix validation; failures to resolve their profiles are logged and the channel stays polling-only until a later resolve. A corrupt `channels.json` fails startup with a clear error; never silently reset the list.
+- At startup, channels seeded from `Twitch:Channels` are added without Helix validation; profile resolution for stored channels is §7 step 2. A corrupt `channels.json` fails startup with a clear error; never silently reset the list.
 - EventSub’s `SubscriptionsChanged` fires only when a login or `UserId` is added or removed, not when a name, avatar, or pause flag changes.
 
 ## 6. `DvrStatus`
@@ -118,7 +118,7 @@ public sealed record DvrSnapshot(
 ## 7. Startup
 
 1. `ChannelStore.LoadAsync` reads `channels.json`, or seeds it from `Twitch:Channels` on first start.
-2. Resolve missing profiles for seeded channels; log failures and continue polling-only.
+2. Resolve missing profiles: every stored channel (seeded or added) missing its user ID, display name, or avatar (null or blank) is looked up through Helix `/users`, concurrently. A failed or empty lookup is logged, never aborts startup, and leaves the stored profile as it was, so a channel without a user ID stays polling-only until a later startup resolves it.
 3. `RecoveryService.RecoverAsync` scans the recordings root and returns `Unfinished`/`Finished` per channel.
 4. `RecordingLibrary.MarkLoaded()`; the UI leaves skeleton state.
 5. Start one coordinator per channel:
