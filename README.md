@@ -39,10 +39,11 @@ OpenTelemetry metrics and traces are off by default. To export them, set
 `OTEL_EXPORTER_OTLP_*` protocol, timeout, and header settings apply. Without an endpoint the app
 starts with telemetry enabled but exports nothing and logs a warning. Traces cover ASP.NET Core,
 HttpClient, and one Twitch poll span; metrics cover DVR state, recorder parts, polling, EventSub,
-chat drops, storage, and exports, plus the framework and runtime meters. Logs are not exported:
-Serilog remains the only logging pipeline. The app filters the OAuth callback, media, Blazor
-WebSocket, and health paths, and never exports tokens, OAuth codes/state, chat text, or channel
-logins. See [`docs/runtime-contract.md`](docs/runtime-contract.md) for the full contract.
+chat drops, storage, and exports, plus the framework and runtime meters. Logs are not exported
+through OpenTelemetry: Serilog remains the only logging pipeline. The app filters the OAuth
+callback, media, Blazor WebSocket, and health paths, and never exports tokens, OAuth codes/state,
+chat text, or channel logins. See [`docs/runtime-contract.md`](docs/runtime-contract.md) for the
+full contract.
 
 ## Mock profile (no Twitch credentials)
 
@@ -181,7 +182,7 @@ Both lists default to empty, which ignores every `X-Forwarded-*` header. An app 
 
 `docker compose stop` sends SIGTERM through `init` to the app. Active recordings finalize within the host's 40 s shutdown budget, below Compose's 50 s grace period. `docker compose restart` (or `start`) recovers unfinished sessions on the next launch. Data Protection keys live under `/recordings/.streamkeepr/keys`, so sign-in cookies survive a restart. `docker compose down` keeps the recordings volume; `docker compose down --volumes` deletes recordings and keys.
 
-Docker log rotation is capped at 10 MB per file with five files.
+Docker log rotation is capped at 10 MB per file with five files. The app also writes the same events as compact JSON to `<recordings>/.streamkeepr/logs/`: daily files, 50 MB each, seven kept, so they can take up to roughly 350 MB of the recordings volume. Set `Serilog__File__Enabled=false` to turn them off. Local runs use the `Development` profile, which logs at `Debug` by default; production stays at `Information` unless you change it.
 
 ### Compose smoke test
 

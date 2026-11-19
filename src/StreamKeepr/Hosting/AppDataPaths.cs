@@ -8,6 +8,7 @@ public static class AppDataPaths
 {
     public const string AppDataDirectoryName = ".streamkeepr";
     public const string KeysDirectoryName = "keys";
+    public const string LogsDirectoryName = "logs";
     public const string AdminTokensFileName = "admin-tokens.json";
     public const string EventSubConduitFileName = "eventsub-conduit.json";
     public const string ChannelsFileName = "channels.json";
@@ -20,6 +21,10 @@ public static class AppDataPaths
 
     public static string KeysDirectory(string recordingsRoot) =>
         Path.Combine(AppDataDirectory(recordingsRoot), KeysDirectoryName);
+
+    /// <summary>Compact-JSON app logs; private app data, never media.</summary>
+    public static string LogsDirectory(string recordingsRoot) =>
+        Path.Combine(AppDataDirectory(recordingsRoot), LogsDirectoryName);
 
     public static string AdminTokensFile(string recordingsRoot) =>
         Path.Combine(AppDataDirectory(recordingsRoot), AdminTokensFileName);

@@ -77,6 +77,15 @@ services:
       # Serilog__MinimumLevel__Override__StreamKeepr: Debug
       # Serilog__MinimumLevel__Override__Microsoft.AspNetCore: Information
 
+      # The same events are also written as compact JSON under
+      # /recordings/.streamkeepr/logs (daily, 50 MB, seven kept). Uncomment to
+      # disable them, or point the path at a mounted directory to keep them
+      # outside the recordings volume.
+      # Serilog__File__Enabled: "false"
+      # Serilog__File__Path: /logs/log-.json
+      # Serilog__File__FileSizeLimitBytes: "50000000"
+      # Serilog__File__RetainedFileCountLimit: "7"
+
     # Secret files are mounted under /run/secrets and read as configuration: the
     # file name maps "__" to ":", so Twitch__ClientId becomes Twitch:ClientId.
     secrets:
