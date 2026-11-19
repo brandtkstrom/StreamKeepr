@@ -103,41 +103,44 @@ public sealed class DvrSupervisor(
     }
 
     /// <summary>
-    /// Startup step 2 (runtime contract §7): channels seeded from configuration, or stored before
-    /// their profile was known, get their Helix profile (user ID, display name, avatar). A failed
-    /// or empty lookup is logged and the channel stays polling-only; it never blocks startup.
+    /// Startup step 2 (runtime contract §7): any stored channel missing its user ID, display name,
+    /// or avatar gets its Helix profile. Lookups run concurrently, so startup waits for the
+    /// slowest one rather than their sum. A failed or empty lookup is logged and never aborts
+    /// startup; the channel keeps what it had, so one without a user ID stays polling-only.
     /// </summary>
     private async Task ResolveMissingProfilesAsync(CancellationToken ct)
     {
-        ChannelEntry[] missing = channelStore.Snapshot
-            .Where(channel => channel.UserId is null
-                || channel.DisplayName is null
-                || channel.AvatarUrl is null)
-            .ToArray();
+        IEnumerable<Task> lookups = channelStore.Snapshot
+            .Where(channel => string.IsNullOrWhiteSpace(channel.UserId)
+                || string.IsNullOrWhiteSpace(channel.DisplayName)
+                || string.IsNullOrWhiteSpace(channel.AvatarUrl))
+            .Select(channel => ResolveProfileAsync(channel.Login, ct));
 
-        foreach (ChannelEntry channel in missing)
+        await Task.WhenAll(lookups);
+    }
+
+    private async Task ResolveProfileAsync(string login, CancellationToken ct)
+    {
+        try
         {
-            try
-            {
-                ChannelProfile? profile = await poller.GetUserAsync(channel.Login, ct);
-                if (profile is null)
-                {
-                    logger.LogWarning(
-                        "Twitch has no user for watched channel {Channel}; it stays polling-only.",
-                        channel.Login);
-                    continue;
-                }
-
-                await channelStore.SetProfileAsync(
-                    channel.Login, profile.UserId, profile.DisplayName, profile.AvatarUrl, ct);
-            }
-            catch (Exception ex) when (!ct.IsCancellationRequested)
+            ChannelProfile? profile = await poller.GetUserAsync(login, ct);
+            if (profile is null)
             {
                 logger.LogWarning(
-                    ex,
-                    "Resolving the Twitch profile for {Channel} failed; it stays polling-only.",
-                    channel.Login);
+                    "Twitch has no user for watched channel {Channel}; its profile stays as stored.",
+                    login);
+                return;
             }
+
+            await channelStore.SetProfileAsync(
+                login, profile.UserId, profile.DisplayName, profile.AvatarUrl, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(
+                ex,
+                "Resolving the Twitch profile for {Channel} failed; its profile stays as stored.",
+                login);
         }
     }
 
