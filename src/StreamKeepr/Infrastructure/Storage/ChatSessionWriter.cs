@@ -116,30 +116,36 @@ internal sealed class ChatSessionWriter(
                 return;
 
             _closed = true;
-            if (!Directory.Exists(sessionDirectory))
-            {
-                CloseWriters();
-                return;
-            }
+            CloseLog(finalize);
+        }
+    }
 
-            if (!HasLog)
-                return;
-
-            if (finalize)
-                WriteEvent(StoredChatEvent.Create(ChatEventKinds.End, clock.GetUtcNow().ToUnixTimeMilliseconds()));
-
+    /// <summary>Ends the log on disk; a session with no log or no directory leaves nothing behind.</summary>
+    private void CloseLog(bool finalize)
+    {
+        if (!Directory.Exists(sessionDirectory))
+        {
             CloseWriters();
-            WriteMeta(finalize);
+            return;
+        }
 
-            if (finalize && options.PurgeDeletedText == ChatPurgeMode.OnFinalize)
-            {
-                ChatLogPurge.PurgeDeleted(
-                    sessionDirectory,
-                    summary.Id,
-                    () => BuildMeta(finalize: true, previous: null),
-                    clock,
-                    logger);
-            }
+        if (!HasLog)
+            return;
+
+        if (finalize)
+            WriteEvent(StoredChatEvent.Create(ChatEventKinds.End, clock.GetUtcNow().ToUnixTimeMilliseconds()));
+
+        CloseWriters();
+        WriteMeta(finalize);
+
+        if (finalize && options.PurgeDeletedText == ChatPurgeMode.OnFinalize)
+        {
+            ChatLogPurge.PurgeDeleted(
+                sessionDirectory,
+                summary.Id,
+                () => BuildMeta(finalize: true, previous: null),
+                clock,
+                logger);
         }
     }
 
