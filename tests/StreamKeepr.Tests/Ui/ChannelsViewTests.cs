@@ -20,7 +20,7 @@ public sealed class ChannelsViewTests : IDisposable
         Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
     private readonly FakeTimeProvider _clock = new(Now);
     private readonly DvrStatus _status = new();
-    private readonly RecordingLibrary _library = new(NullLogger<RecordingLibrary>.Instance);
+    private readonly RecordingLibrary _library = new(new FakeTimeProvider(), NullLogger<RecordingLibrary>.Instance);
     private readonly FakeControl _control = new();
     private readonly SwitchableAuth _auth = new();
     private readonly PollSchedule _schedule = new(new FakeTimeProvider(Now));

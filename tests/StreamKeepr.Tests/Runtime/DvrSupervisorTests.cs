@@ -29,7 +29,7 @@ public sealed class DvrSupervisorTests
                 new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
             IOptions<StorageOptions> storageOptions = Options.Create(
                 new StorageOptions { RecordingsRoot = root, MinFreeGb = 1 });
-            var library = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
+            var library = new RecordingLibrary(clock, NullLogger<RecordingLibrary>.Instance);
             var store = new SessionStore(
                 Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
                 library,
@@ -60,7 +60,7 @@ public sealed class DvrSupervisorTests
                 storageOptions,
                 NullLogger<ChannelStore>.Instance);
             var recovery = new RecoveryService(
-                store, library, storageOptions, NullLogger<RecoveryService>.Instance);
+                store, library, storageOptions, clock, NullLogger<RecoveryService>.Instance);
             var poller = new ScriptedStreamPoller();
             var lifetime = new FakeHostApplicationLifetime();
             var logs = new ListLoggerProvider();

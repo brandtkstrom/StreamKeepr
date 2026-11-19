@@ -225,7 +225,7 @@ public sealed class HealthCheckTests : IDisposable
     [Fact]
     public async Task Library_check_waits_for_recovery()
     {
-        var library = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
+        var library = new RecordingLibrary(new FakeTimeProvider(), NullLogger<RecordingLibrary>.Instance);
         var check = new LibraryLoadedHealthCheck(library);
 
         Assert.Equal(HealthStatus.Unhealthy, (await check.CheckHealthAsync(

@@ -22,7 +22,7 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
     private readonly FakeTimeProvider _clock = new(Start);
-    private readonly RecordingLibrary _library = new(NullLogger<RecordingLibrary>.Instance);
+    private readonly RecordingLibrary _library = new(new FakeTimeProvider(), NullLogger<RecordingLibrary>.Instance);
     private readonly FakeChatSource _source = new();
     private readonly ListLoggerProvider _logs = new();
     private readonly ILoggerFactory _loggers;

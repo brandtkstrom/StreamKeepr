@@ -566,7 +566,7 @@ public sealed class ChannelCoordinatorTests
                 Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Root);
 
-            Library = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
+            Library = new RecordingLibrary(Clock, NullLogger<RecordingLibrary>.Instance);
             Store = new SessionStore(
                 Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
                 Library,

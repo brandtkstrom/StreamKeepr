@@ -1,6 +1,8 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Storage;
 
@@ -89,7 +91,7 @@ public sealed class RecordingLibraryLoadTests
         File.Delete(Path.Combine(empty.Directory, "init_001.mp4"));
         File.Delete(Path.Combine(empty.Directory, "index.m3u8"));
 
-        var target = new RecordingLibrary(NullLogger<RecordingLibrary>.Instance);
+        var target = new RecordingLibrary(context.Clock, NullLogger<RecordingLibrary>.Instance);
         int changed = 0;
         target.Changed += () => changed++;
 
@@ -129,5 +131,42 @@ public sealed class RecordingLibraryLoadTests
         Assert.Null(target.Find(hiddenSession.Id));
         Assert.Null(target.Find(broken.Id));
         Assert.Null(target.Find(empty.Id));
+    }
+
+    [Fact]
+    public async Task Load_logs_one_summary_with_the_recording_count_and_elapsed_time()
+    {
+        using var logs = new ListLoggerProvider();
+        using var loggers = TestLogging.Factory(logs);
+        using var context = new SessionStoreTestContext(loggers: loggers);
+
+        await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
+        context.WritePart(
+            1, PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T16:35:00Z", 1.5));
+        context.WriteSegment(1, 1, 10);
+        await context.Store.FinalizeAsync(context.Session, CancellationToken.None);
+
+        var otherLive = new LiveStream(
+            "222222222", "Other", "Game", context.Session.StartedAt.AddHours(1), null);
+        await context.Store.OpenAsync(
+            Session.For(otherLive, "streamer", context.Root), otherLive, CancellationToken.None);
+
+        // A corrupt manifest is skipped with its own warning and is not counted.
+        string corrupt = Path.Combine(context.Root, "streamer", "corrupt");
+        Directory.CreateDirectory(corrupt);
+        await File.WriteAllTextAsync(
+            Path.Combine(corrupt, "session.json"), "{ not json", CancellationToken.None);
+
+        var library = new RecordingLibrary(context.Clock, loggers.CreateLogger<RecordingLibrary>());
+        await library.LoadAsync(context.Root, context.Store, CancellationToken.None);
+
+        CapturedLogEntry summary = Assert.Single(
+            logs.Entries, entry => entry.Message.StartsWith("Loaded", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Information, summary.Level);
+        Assert.Equal(2, summary.Properties["RecordingCount"]);
+        Assert.Equal(0.0, summary.Properties["ElapsedMs"]);
+        Assert.Contains(logs.Entries, entry =>
+            entry.Level == LogLevel.Warning
+            && entry.Message.StartsWith("Skipping unreadable session manifest", StringComparison.Ordinal));
     }
 }
