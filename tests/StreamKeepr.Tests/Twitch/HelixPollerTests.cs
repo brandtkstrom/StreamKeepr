@@ -69,10 +69,50 @@ public sealed class HelixPollerTests : IDisposable
         Assert.Equal(1, span.GetTagItem("channels.count"));
         Assert.Equal(1, span.GetTagItem("poll.batch_count"));
         Assert.Equal("ok", span.GetTagItem("poll.outcome"));
+        Assert.Equal(ActivityStatusCode.Unset, span.Status);
         Assert.DoesNotContain(
             span.Tags,
             tag => tag.Key.Contains("login", StringComparison.OrdinalIgnoreCase)
                 || tag.Value?.ToString()?.Contains("streamer", StringComparison.Ordinal) == true);
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task A_failed_poll_round_marks_its_span_as_an_error()
+    {
+        var pollStopped = new TaskCompletionSource<Activity>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == StreamKeeprTelemetry.SourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
+                ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                if (activity.OperationName == "streamkeepr.twitch.poll")
+                    pollStopped.TrySetResult(activity);
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        var handler = new StubHandler(request => Task.FromResult(
+            request.RequestUri!.Host == "id.twitch.tv"
+                ? Token()
+                : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)));
+        var clock = new FakeTimeProvider(
+            new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
+        TwitchStreamPoller poller = CreatePoller(handler, clock, new PollSchedule(clock));
+
+        using var stop = new CancellationTokenSource();
+        Task run = poller.RunAsync(
+            () => ["streamer"], (_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        Activity span = await pollStopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal("failed", span.GetTagItem("poll.outcome"));
+        Assert.Equal(ActivityStatusCode.Error, span.Status);
 
         stop.Cancel();
         await run.WaitAsync(TimeSpan.FromSeconds(5));

@@ -88,6 +88,11 @@ public sealed class TwitchStreamPoller(
 
                     activity?.SetTag("poll.batch_count", batches);
                     activity?.SetTag("poll.outcome", outcome);
+
+                    // Only a round where every batch failed is a failure; a partial round is
+                    // an expected degraded outcome and keeps the status Unset.
+                    if (outcome == "failed")
+                        activity?.SetStatus(ActivityStatusCode.Error);
                 }
 
                 bool recording = status.Current.Values.Any(
