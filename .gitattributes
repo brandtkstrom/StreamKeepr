@@ -1,0 +1,9 @@
+# Store text files as LF and check them out as LF on every platform.
+#
+# Keep this rule in step with .editorconfig's end_of_line setting: .editorconfig
+# drives the C# formatter, while this file makes Git honour the same rule for
+# every clone. Without it Git applies each contributor's core.autocrlf, and the
+# Windows default (autocrlf=true) checks files out as CRLF, which fails
+# `dotnet format --verify-no-changes` on every .cs file and gives the POSIX test
+# fixtures CRLF shebangs.
+* text=auto eol=lf
