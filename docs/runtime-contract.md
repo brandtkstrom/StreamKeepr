@@ -211,12 +211,12 @@ Freedom: dictionary/lock implementation, task scheduling, exception types beyond
 ## 13. Telemetry
 
 OpenTelemetry is opt-in. `Telemetry:Enabled` defaults to `false`; the Mock profile forces it to
-`false` in its in-memory configuration, and the test host factory sets it to `false` for every host
-it creates. Telemetry is enabled only when `Telemetry:Enabled` is `true`.
+`false` in its in-memory configuration, and the test host factory defaults to `false` (telemetry
+tests opt in explicitly). Telemetry is enabled only when `Telemetry:Enabled` is `true`.
 
-- The app exports OTLP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is non-empty. Enabling telemetry
-  without an endpoint registers the SDK and instruments but no exporter, and logs a warning. This
-  keeps tests and the Mock profile hermetic and avoids accidental localhost traffic.
+- The app exports OTLP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is a usable `http` or `https` URL.
+  Enabling telemetry without one registers the SDK and instruments but no exporter, and logs a
+  warning. This keeps tests and the Mock profile hermetic and avoids accidental localhost traffic.
 - Standard `OTEL_EXPORTER_OTLP_*`, `OTEL_BSP_*`, `OTEL_METRIC_*`, and `OTEL_SDK_DISABLED` settings
   apply. The app uses 3 s export timeouts so the final flush fits inside the existing 50 s Compose
   grace period.
@@ -228,7 +228,8 @@ it creates. Telemetry is enabled only when `Telemetry:Enabled` is `true`.
   exported.
 - Metrics cover DVR state counts, recorder exits/duration/size/stalls/force-kills, poll age and push
   coverage, EventSub connection/reconnects, chat drops, free storage, and export outcomes. Runtime,
-  ASP.NET Core, Kestrel, Blazor/SignalR, and HttpClient meters are also collected.
+  ASP.NET Core, Kestrel, Blazor/SignalR, and HttpClient meters are also collected. The SignalR and
+  Razor Components **trace** sources are disabled; their metrics remain enabled.
 - This change adds no logging provider; Serilog remains the only logging pipeline. The startup log
   reports whether telemetry is enabled, the service/version/environment, and the sanitized endpoint.
 

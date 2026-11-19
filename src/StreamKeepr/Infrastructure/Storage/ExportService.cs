@@ -182,6 +182,7 @@ public sealed class ExportService : BackgroundService, IExportService
         if (user.Identity?.IsAuthenticated != true)
             throw new UnauthorizedAccessException("Connect Twitch to cancel exports.");
 
+        bool cancelledBeforeRun = false;
         lock (_gate)
         {
             ExportJob job = _jobs.GetValueOrDefault(exportId)
@@ -201,9 +202,12 @@ public sealed class ExportService : BackgroundService, IExportService
             // Still queued (or being probed): the worker skips anything that is no longer Queued.
             _jobs[exportId] = job with { State = ExportState.Cancelled };
             _needsHvc1Tag.Remove(exportId);
+            cancelledBeforeRun = true;
         }
 
         ReleaseLease(exportId);
+        if (cancelledBeforeRun)
+            _telemetry.ExportFinished("cancelled");
         _logger.LogInformation("Cancelled queued export {ExportId}.", exportId);
         RaiseChanged(immediate: true);
     }
@@ -429,7 +433,7 @@ public sealed class ExportService : BackgroundService, IExportService
         finally
         {
             if (outcome is not null)
-                _telemetry?.ExportFinished(outcome);
+                _telemetry.ExportFinished(outcome);
 
             // Idempotent: also covers host shutdown, which publishes no finished state.
             lock (_gate)

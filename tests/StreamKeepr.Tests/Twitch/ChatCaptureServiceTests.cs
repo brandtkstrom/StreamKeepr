@@ -42,7 +42,7 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
         _loggers = TestLogging.Factory(_logs);
         _meters = new ServiceCollection().AddMetrics().BuildServiceProvider();
         _meterFactory = _meters.GetRequiredService<IMeterFactory>();
-        _telemetry = new StreamKeeprTelemetry(_meterFactory);
+        _telemetry = new StreamKeeprTelemetry(_meterFactory, enabled: true);
         (_store, _service) = CreateCapture(new ChatOptions { Enabled = true });
         _recording = new RecordingSummary(
             "20261113T180000Z_1", "chan", "Title", "Game", Start, null,

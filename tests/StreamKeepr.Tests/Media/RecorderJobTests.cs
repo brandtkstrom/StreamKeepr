@@ -446,6 +446,8 @@ public sealed class RecorderJobTests : IDisposable
     [Fact]
     public async Task A_worst_case_stop_fits_inside_the_35_second_job_budget()
     {
+        using var forceKills = new MetricCollector<long>(
+            _telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.force_kills");
         Session session = NewSession();
         var clock = new ScaledTimeProvider();
         var options = new RecorderOptions
@@ -474,6 +476,7 @@ public sealed class RecorderJobTests : IDisposable
 
         var exited = Assert.Single(events.OfType<DvrEvent.RecorderExited>());
         Assert.Equal(RecorderExitKind.Killed, exited.Kind);
+        Assert.Equal(1, Assert.Single(forceKills.GetMeasurementSnapshot()).Value);
 
         // The fake processes never exit on their own and ignore SIGINT, so every wait in the
         // contract's shutdown order expires: 5 + 5 for Streamlink, 15 finalize for FFmpeg,

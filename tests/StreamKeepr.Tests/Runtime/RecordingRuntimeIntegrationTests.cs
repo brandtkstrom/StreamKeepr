@@ -47,7 +47,8 @@ public sealed class RecordingRuntimeIntegrationTests
 
         using var factory = new StreamKeeprAppFactory(
             overrides,
-            configureTestServices: services => services.AddSingleton<IStreamPoller>(poller));
+            configureTestServices: services => services.AddSingleton<IStreamPoller>(poller),
+            telemetry: true);
         using var client = factory.CreateClient();
 
         var factoryMeter = factory.Services.GetRequiredService<IMeterFactory>();

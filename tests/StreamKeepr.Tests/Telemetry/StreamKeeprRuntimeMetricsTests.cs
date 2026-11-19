@@ -16,8 +16,7 @@ public sealed class StreamKeeprRuntimeMetricsTests
     [Fact]
     public void Dvr_channel_gauge_reports_every_state_including_zero()
     {
-        using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
-        var factory = services.GetRequiredService<IMeterFactory>();
+        using var telemetry = new TestTelemetry();
         var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 18, 12, 0, 0, TimeSpan.Zero));
         var status = new DvrStatus();
         var live = new LiveStream("1", "Title", "Game", clock.GetUtcNow(), null);
@@ -33,11 +32,11 @@ public sealed class StreamKeeprRuntimeMetricsTests
 
         var schedule = new PollSchedule(clock);
         _ = new StreamKeeprRuntimeMetrics(
-            factory, status, schedule, new FakeStorage(new StorageView(1234, 9999)),
+            telemetry.Value, status, schedule, new FakeStorage(new StorageView(1234, 9999)),
             new FakeEventSub("WebSocket"), clock);
 
         using var channels = new MetricCollector<int>(
-            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.dvr.channels");
+            telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.dvr.channels");
         channels.RecordObservableInstruments();
 
         IReadOnlyList<CollectedMeasurement<int>> snapshot = channels.GetMeasurementSnapshot();
@@ -52,8 +51,7 @@ public sealed class StreamKeeprRuntimeMetricsTests
     [Fact]
     public void Poll_coverage_event_sub_and_storage_gauges_read_cached_state()
     {
-        using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
-        var factory = services.GetRequiredService<IMeterFactory>();
+        using var telemetry = new TestTelemetry();
         var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 18, 12, 0, 0, TimeSpan.Zero));
         var status = new DvrStatus();
         var schedule = new PollSchedule(clock);
@@ -63,17 +61,17 @@ public sealed class StreamKeeprRuntimeMetricsTests
         schedule.SetPushStatus(PushStatus.FromCoverage(["streamer"], watched: 2));
 
         _ = new StreamKeeprRuntimeMetrics(
-            factory, status, schedule, new FakeStorage(new StorageView(4242, 9999)),
+            telemetry.Value, status, schedule, new FakeStorage(new StorageView(4242, 9999)),
             new FakeEventSub("WebSocket"), clock);
 
         using var age = new MetricCollector<double>(
-            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.twitch.poll.age");
+            telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.twitch.poll.age");
         using var coverage = new MetricCollector<double>(
-            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.twitch.push.coverage");
+            telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.twitch.push.coverage");
         using var connected = new MetricCollector<int>(
-            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.eventsub.connected");
+            telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.eventsub.connected");
         using var free = new MetricCollector<long>(
-            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.storage.free");
+            telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.storage.free");
 
         age.RecordObservableInstruments();
         coverage.RecordObservableInstruments();
@@ -88,6 +86,28 @@ public sealed class StreamKeeprRuntimeMetricsTests
         Assert.Equal("WebSocket", connection.Tags["eventsub.transport"]);
 
         Assert.Equal(4242, Assert.Single(free.GetMeasurementSnapshot()).Value);
+    }
+
+    [Fact]
+    public void Zero_watched_channels_report_full_coverage_and_no_session()
+    {
+        using var telemetry = new TestTelemetry();
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 18, 12, 0, 0, TimeSpan.Zero));
+        var schedule = new PollSchedule(clock);
+
+        _ = new StreamKeeprRuntimeMetrics(
+            telemetry.Value, new DvrStatus(), schedule, new FakeStorage(new StorageView(1, 2)),
+            new FakeEventSub("WebSocket"), clock);
+
+        using var coverage = new MetricCollector<double>(
+            telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.twitch.push.coverage");
+        using var connected = new MetricCollector<int>(
+            telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.eventsub.connected");
+        coverage.RecordObservableInstruments();
+        connected.RecordObservableInstruments();
+
+        Assert.Equal(1, Assert.Single(coverage.GetMeasurementSnapshot()).Value);
+        Assert.Equal(0, Assert.Single(connected.GetMeasurementSnapshot()).Value);
     }
 
     private static string State(CollectedMeasurement<int> measurement) =>

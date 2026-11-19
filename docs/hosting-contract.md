@@ -14,7 +14,7 @@ The hosting layer owns the ASP.NET Core pipeline, media serving, health checks, 
 
 ```text
 UseForwardedHeaders          // only when a trusted reverse proxy is configured
-UseTelemetryMetricsFilter    // only when telemetry is enabled
+Telemetry metrics filter    // anonymous app.Use, only when telemetry is enabled
 UseSerilogRequestLogging     // one completion event per request (UseStreamKeeprRequestLogging)
 UseExceptionHandler          // non-Development
 UseAuthentication
@@ -133,7 +133,7 @@ long-lived routes out of HTTP metrics.
 - `HEALTHCHECK` as above; `ENTRYPOINT ["dotnet", "StreamKeepr.dll"]`.
 - Only `src/` enters the build; tests, secrets, recordings, and docs never enter an image layer.
 
-Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6.3`, static FFmpeg/ffprobe `9.0.2-1`, CliWrap `3.10.5`, Resilience `10.11.0`, OAuth `10.1.0`, Serilog.AspNetCore `10.0.0`. Update deliberately; Streamlink is the one to watch and the build arg allows a bump.
+Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6.3`, static FFmpeg/ffprobe `9.0.2-1`, CliWrap `3.10.5`, Resilience `10.11.0`, OAuth `10.1.0`, Serilog.AspNetCore `10.0.0`, OpenTelemetry `1.21.0` (`Extensions.Hosting`, `Exporter.OpenTelemetryProtocol`, `Instrumentation.AspNetCore`, `Instrumentation.Http`). Test-only: `OpenTelemetry.Exporter.InMemory` `1.21.0` and `Microsoft.Extensions.Diagnostics.Testing` `10.11.0`. Update deliberately; Streamlink is the one to watch and the build arg allows a bump.
 
 ### `.dockerignore`
 
@@ -143,7 +143,7 @@ Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6
 
 - One service `stream-keepr`; build; image; `container_name`; `restart: unless-stopped`; `init: true`; `stop_grace_period: 50s`.
 - Port `8080:8080` (plain HTTP). **HTTPS is an external reverse-proxy requirement** (E-15); without it, sign-in works only from `localhost`.
-- Environment: `ASPNETCORE_ENVIRONMENT=Production`, `TZ`, optional `Twitch__Channels__0` seed.
+- Environment: `ASPNETCORE_ENVIRONMENT=Production`, `TZ`, optional `Twitch__Channels__0` seed, optional `Telemetry__Enabled` and `OTEL_EXPORTER_OTLP_ENDPOINT` (both default to disabled/empty).
 - Secrets: `Twitch__ClientId`, `Twitch__ClientSecret`; optional `Recorder__TwitchUserOAuthToken`. Mounted as `/run/secrets` and loaded by `AddKeyPerFile`.
 - Volume: `recordings:/recordings`; bind mount requires `chown -R 1654:1654 ./recordings`.
 - Logging: `json-file`, `max-size: 10m`, `max-file: 5`. The app writes through Serilog's console sink only, configured by the `Serilog` section; `Serilog__MinimumLevel__…` environment variables change levels on restart.

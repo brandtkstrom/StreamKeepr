@@ -25,6 +25,8 @@ public sealed class TwitchStreamPoller(
     ILogger<TwitchStreamPoller> logger,
     StreamKeeprTelemetry telemetry) : IStreamPoller
 {
+    private const int StreamsBatchSize = 100;
+
     public async Task RunAsync(
         Func<IReadOnlyList<string>> logins,
         StreamObservationRoute route,
@@ -32,8 +34,12 @@ public sealed class TwitchStreamPoller(
     {
         // The poll loop is a background root. A coordinator can be started from an HTTP
         // request, so clear any ambient activity before creating the poll span.
-        Activity? ambient = Activity.Current;
-        Activity.Current = null;
+        Activity? ambient = null;
+        if (telemetry.Enabled)
+        {
+            ambient = Activity.Current;
+            Activity.Current = null;
+        }
         try
         {
             TimeSpan normal = TimeSpan.FromSeconds(options.Value.PollIntervalSeconds);
@@ -52,14 +58,16 @@ public sealed class TwitchStreamPoller(
                 string outcome = "ok";
                 int batches = 0;
 
-                using (Activity? activity = telemetry?.ActivitySource.StartActivity(
-                    "streamkeepr.twitch.poll", ActivityKind.Internal, parentContext: default))
+                using (Activity? activity = telemetry.Enabled
+                    ? telemetry.ActivitySource.StartActivity(
+                        "streamkeepr.twitch.poll", ActivityKind.Internal, parentContext: default)
+                    : null)
                 {
                     activity?.SetTag("channels.count", channels.Count);
 
                     if (channels.Count > 0)
                     {
-                        batches = (channels.Count + 99) / 100;
+                        batches = (channels.Count + StreamsBatchSize - 1) / StreamsBatchSize;
                         long started = clock.GetTimestamp();
                         IReadOnlyDictionary<string, StreamObservation> observed =
                             await ObserveAsync(channels, ct);
@@ -97,7 +105,8 @@ public sealed class TwitchStreamPoller(
         }
         finally
         {
-            Activity.Current = ambient;
+            if (telemetry.Enabled)
+                Activity.Current = ambient;
         }
     }
 
@@ -112,7 +121,7 @@ public sealed class TwitchStreamPoller(
         long started = clock.GetTimestamp();
         int batches = 0, liveCount = 0, unknownCount = 0;
 
-        foreach (string[] batch in logins.Chunk(100))
+        foreach (string[] batch in logins.Chunk(StreamsBatchSize))
         {
             batches++;
             Dictionary<string, LiveStream>? live;

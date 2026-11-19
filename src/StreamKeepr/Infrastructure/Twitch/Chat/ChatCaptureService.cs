@@ -144,7 +144,7 @@ public sealed class ChatCaptureService(
                 break;
 
             case ChatSourceEvent.Dropped dropped:
-                telemetry?.ChatDropped(dropped.Count);
+                telemetry.ChatDropped(dropped.Count);
                 break;
         }
 

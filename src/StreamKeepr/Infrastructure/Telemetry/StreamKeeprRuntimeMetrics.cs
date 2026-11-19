@@ -28,14 +28,14 @@ public sealed class StreamKeeprRuntimeMetrics
     private readonly TimeProvider _clock;
 
     public StreamKeeprRuntimeMetrics(
-        IMeterFactory meterFactory,
+        StreamKeeprTelemetry telemetry,
         DvrStatus status,
         PollSchedule schedule,
         IStorageMonitor storage,
         IEventSubClient eventSub,
         TimeProvider clock)
     {
-        ArgumentNullException.ThrowIfNull(meterFactory);
+        ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(status);
         ArgumentNullException.ThrowIfNull(schedule);
         ArgumentNullException.ThrowIfNull(storage);
@@ -48,33 +48,27 @@ public sealed class StreamKeeprRuntimeMetrics
         _eventSub = eventSub;
         _clock = clock;
 
-        Meter meter = meterFactory.Create(
-            new MeterOptions(StreamKeeprTelemetry.MeterName)
-            {
-                Version = StreamKeeprTelemetry.ServiceVersion,
-            });
-
-        meter.CreateObservableGauge(
+        telemetry.Meter.CreateObservableGauge(
             "streamkeepr.dvr.channels",
             ObserveChannels,
             unit: "{channel}",
             description: "Watched channels by DVR state.");
-        meter.CreateObservableGauge(
+        telemetry.Meter.CreateObservableGauge(
             "streamkeepr.twitch.poll.age",
             ObservePollAge,
             unit: "s",
             description: "Seconds since the last poll attempt.");
-        meter.CreateObservableGauge(
+        telemetry.Meter.CreateObservableGauge(
             "streamkeepr.twitch.push.coverage",
             ObservePushCoverage,
             unit: "1",
             description: "Fraction of watched channels covered by EventSub.");
-        meter.CreateObservableGauge(
+        telemetry.Meter.CreateObservableGauge(
             "streamkeepr.eventsub.connected",
             ObserveEventSubConnected,
             unit: "1",
             description: "Whether an EventSub session is up and covering channels.");
-        meter.CreateObservableGauge(
+        telemetry.Meter.CreateObservableGauge(
             "streamkeepr.storage.free",
             () => _storage.Current.FreeBytes,
             unit: "By",

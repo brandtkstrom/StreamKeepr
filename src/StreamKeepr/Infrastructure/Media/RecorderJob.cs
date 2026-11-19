@@ -270,7 +270,7 @@ public sealed class RecorderJob(
         }
 
         long partBytes = 0;
-        if (telemetry is not null)
+        if (telemetry.Enabled)
         {
             try
             {
@@ -293,14 +293,11 @@ public sealed class RecorderJob(
                 ? RecorderExitKind.Stopped
                 : RecorderExitKind.Exited;
 
-        if (telemetry is not null)
-        {
-            telemetry.PartExited(kind, clock.GetUtcNow() - startedAt, partBytes);
-            if (stalledEnd)
-                telemetry.Stall();
-            if (forcedKill || finalizeTimedOut)
-                telemetry.ForceKill();
-        }
+        telemetry.PartExited(kind, clock.GetUtcNow() - startedAt, partBytes);
+        if (stalledEnd)
+            telemetry.Stall();
+        if (forcedKill || finalizeTimedOut)
+            telemetry.ForceKill();
 
         string detail = $"{reason}; streamlink {Describe(streamlinkTask)}, ffmpeg {Describe(ffmpegTask)}";
         string stderr = tail.ToString();

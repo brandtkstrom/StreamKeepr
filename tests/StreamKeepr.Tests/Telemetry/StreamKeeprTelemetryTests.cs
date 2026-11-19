@@ -8,11 +8,29 @@ namespace StreamKeepr.Tests.Telemetry;
 public sealed class StreamKeeprTelemetryTests
 {
     [Fact]
+    public void Disabled_telemetry_records_nothing()
+    {
+        using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
+        var factory = services.GetRequiredService<IMeterFactory>();
+        using var telemetry = new StreamKeeprTelemetry(factory, enabled: false);
+        using var parts = new MetricCollector<long>(
+            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.parts");
+        using var drops = new MetricCollector<long>(
+            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.chat.dropped");
+
+        telemetry.PartExited(StreamKeepr.Domain.RecorderExitKind.Killed, TimeSpan.FromSeconds(1), 2);
+        telemetry.ChatDropped(3);
+
+        Assert.Empty(parts.GetMeasurementSnapshot());
+        Assert.Empty(drops.GetMeasurementSnapshot());
+    }
+
+    [Fact]
     public void Part_exit_records_kind_duration_and_size()
     {
         using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
         var factory = services.GetRequiredService<IMeterFactory>();
-        using var telemetry = new StreamKeeprTelemetry(factory);
+        using var telemetry = new StreamKeeprTelemetry(factory, enabled: true);
         using var parts = new MetricCollector<long>(
             factory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.parts");
         using var durations = new MetricCollector<double>(
@@ -40,7 +58,7 @@ public sealed class StreamKeeprTelemetryTests
     {
         using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
         var factory = services.GetRequiredService<IMeterFactory>();
-        using var telemetry = new StreamKeeprTelemetry(factory);
+        using var telemetry = new StreamKeeprTelemetry(factory, enabled: true);
         using var stalls = new MetricCollector<long>(
             factory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.stalls");
         using var kills = new MetricCollector<long>(
@@ -58,7 +76,7 @@ public sealed class StreamKeeprTelemetryTests
     {
         using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
         var factory = services.GetRequiredService<IMeterFactory>();
-        using var telemetry = new StreamKeeprTelemetry(factory);
+        using var telemetry = new StreamKeeprTelemetry(factory, enabled: true);
         using var dropped = new MetricCollector<long>(
             factory, StreamKeeprTelemetry.MeterName, "streamkeepr.chat.dropped");
 
@@ -72,7 +90,7 @@ public sealed class StreamKeeprTelemetryTests
     {
         using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
         var factory = services.GetRequiredService<IMeterFactory>();
-        using var telemetry = new StreamKeeprTelemetry(factory);
+        using var telemetry = new StreamKeeprTelemetry(factory, enabled: true);
         using var jobs = new MetricCollector<long>(
             factory, StreamKeeprTelemetry.MeterName, "streamkeepr.export.jobs");
 
@@ -88,7 +106,7 @@ public sealed class StreamKeeprTelemetryTests
     {
         using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
         var factory = services.GetRequiredService<IMeterFactory>();
-        using var telemetry = new StreamKeeprTelemetry(factory);
+        using var telemetry = new StreamKeeprTelemetry(factory, enabled: true);
         using var reconnects = new MetricCollector<long>(
             factory, StreamKeeprTelemetry.MeterName, "streamkeepr.eventsub.reconnects");
 

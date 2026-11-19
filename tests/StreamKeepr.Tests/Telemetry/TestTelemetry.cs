@@ -13,7 +13,7 @@ internal sealed class TestTelemetry : IDisposable
     {
         _services = new ServiceCollection().AddMetrics().BuildServiceProvider();
         MeterFactory = _services.GetRequiredService<IMeterFactory>();
-        Value = new StreamKeeprTelemetry(MeterFactory);
+        Value = new StreamKeeprTelemetry(MeterFactory, enabled: true);
     }
 
     public IMeterFactory MeterFactory { get; }

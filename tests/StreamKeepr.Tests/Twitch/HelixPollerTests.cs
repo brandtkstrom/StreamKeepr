@@ -69,6 +69,10 @@ public sealed class HelixPollerTests : IDisposable
         Assert.Equal(1, span.GetTagItem("channels.count"));
         Assert.Equal(1, span.GetTagItem("poll.batch_count"));
         Assert.Equal("ok", span.GetTagItem("poll.outcome"));
+        Assert.DoesNotContain(
+            span.Tags,
+            tag => tag.Key.Contains("login", StringComparison.OrdinalIgnoreCase)
+                || tag.Value?.ToString()?.Contains("streamer", StringComparison.Ordinal) == true);
 
         stop.Cancel();
         await run.WaitAsync(TimeSpan.FromSeconds(5));

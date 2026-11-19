@@ -163,7 +163,7 @@ public sealed class ToolPreflightTests
     [Fact]
     public void Preflight_is_the_first_application_hosted_service()
     {
-        using var factory = new StreamKeeprAppFactory();
+        using var factory = new StreamKeeprAppFactory(telemetry: true);
 
         var hosted = factory.Services.GetServices<IHostedService>().ToList();
 

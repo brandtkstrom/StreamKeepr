@@ -47,7 +47,7 @@ public sealed class ExportServiceTests : IAsyncLifetime
             "ffprobe", "ffprobe is required for export tests. Install it and put it on PATH.");
         _meters = new ServiceCollection().AddMetrics().BuildServiceProvider();
         _meterFactory = _meters.GetRequiredService<IMeterFactory>();
-        _telemetry = new StreamKeeprTelemetry(_meterFactory);
+        _telemetry = new StreamKeeprTelemetry(_meterFactory, enabled: true);
         _service = await StartServiceAsync();
     }
 
@@ -311,6 +311,8 @@ public sealed class ExportServiceTests : IAsyncLifetime
     [Fact]
     public async Task Cancelling_a_queued_job_removes_it_from_the_queue_and_releases_its_lease()
     {
+        using var jobs = new MetricCollector<long>(
+            _meterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.export.jobs");
         await SeedAsync("r1", "First");
         await SeedAsync("r2", "Second");
         ExportJob first = _service.Start("r1", Admin, CancellationToken.None);
@@ -321,6 +323,9 @@ public sealed class ExportServiceTests : IAsyncLifetime
         Assert.Equal(ExportState.Cancelled, _service.Find(second.Id)?.State);
         Assert.False(_leases.IsLeased("r2"));
         await WaitForAsync(first.Id, ExportState.Succeeded);
+        Assert.Contains(
+            jobs.GetMeasurementSnapshot(),
+            measurement => (string)measurement.Tags["export.outcome"]! == "cancelled");
         Assert.Equal(ExportState.Cancelled, _service.Find(second.Id)?.State);
         Assert.Null(_service.FilePath(second.Id));
         Assert.False(File.Exists(Path.Combine(ExportsDirectory, $"{second.Id}.mp4")));

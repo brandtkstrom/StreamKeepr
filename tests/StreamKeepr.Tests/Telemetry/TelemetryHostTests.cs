@@ -6,6 +6,7 @@ using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using StreamKeepr.Infrastructure.Telemetry;
 using StreamKeepr.Tests.Hosting;
 
 namespace StreamKeepr.Tests.Telemetry;
@@ -14,8 +15,21 @@ namespace StreamKeepr.Tests.Telemetry;
 public sealed class TelemetryHostTests
 {
     [Fact]
-    public void Telemetry_is_off_by_default()
+    public async Task Telemetry_is_off_by_default()
     {
+        var custom = new List<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == StreamKeeprTelemetry.SourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
+                ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                lock (custom)
+                    custom.Add(activity);
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
         using var factory = new StreamKeeprAppFactory();
 
         Assert.Null(factory.Services.GetService<TracerProvider>());
@@ -23,6 +37,11 @@ public sealed class TelemetryHostTests
         Assert.DoesNotContain(
             factory.Services.GetServices<ILoggerProvider>(),
             provider => provider.GetType().Namespace?.Contains("OpenTelemetry", StringComparison.Ordinal) == true);
+
+        using var client = factory.CreateClient();
+        using HttpResponseMessage response = await client.GetAsync("/");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty(custom);
     }
 
     [Fact]

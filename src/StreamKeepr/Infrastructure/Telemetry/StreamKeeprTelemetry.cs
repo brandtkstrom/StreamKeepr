@@ -20,12 +20,6 @@ public sealed class StreamKeeprTelemetry : IDisposable
     public const string EventSubTransportAttribute = "eventsub.transport";
     public const string DvrStateAttribute = "dvr.state";
 
-    public const int DefaultExportTimeoutMilliseconds = 3000;
-    public const int DefaultBatchExportTimeoutMilliseconds = 3000;
-    public const int DefaultBatchScheduleDelayMilliseconds = 2000;
-    public const int DefaultMetricExportTimeoutMilliseconds = 3000;
-    public const int DefaultMetricExportIntervalMilliseconds = 30_000;
-
     public static readonly string ServiceVersion =
         typeof(StreamKeeprTelemetry).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion
@@ -47,44 +41,45 @@ public sealed class StreamKeeprTelemetry : IDisposable
     private readonly Counter<long> _exportJobs;
     private readonly Counter<long> _eventSubReconnects;
 
-    public StreamKeeprTelemetry(IMeterFactory meterFactory)
+    public StreamKeeprTelemetry(IMeterFactory meterFactory, bool enabled)
     {
         ArgumentNullException.ThrowIfNull(meterFactory);
 
-        Meter meter = meterFactory.Create(new MeterOptions(MeterName) { Version = ServiceVersion });
+        Enabled = enabled;
+        Meter = meterFactory.Create(new MeterOptions(MeterName) { Version = ServiceVersion });
         ActivitySource = new ActivitySource(SourceName, ServiceVersion);
 
-        _parts = meter.CreateCounter<long>(
+        _parts = Meter.CreateCounter<long>(
             "streamkeepr.recorder.parts",
             unit: "{part}",
             description: "Recorder parts by exit kind.");
-        _partDuration = meter.CreateHistogram<double>(
+        _partDuration = Meter.CreateHistogram<double>(
             "streamkeepr.recorder.part.duration",
             unit: "s",
             description: "Recorder part duration by exit kind.",
             advice: new InstrumentAdvice<double> { HistogramBucketBoundaries = DurationBuckets });
-        _partSize = meter.CreateHistogram<long>(
+        _partSize = Meter.CreateHistogram<long>(
             "streamkeepr.recorder.part.size",
             unit: "By",
             description: "Recorder part size by exit kind.",
             advice: new InstrumentAdvice<long> { HistogramBucketBoundaries = SizeBuckets });
-        _stalls = meter.CreateCounter<long>(
+        _stalls = Meter.CreateCounter<long>(
             "streamkeepr.recorder.stalls",
             unit: "{stall}",
             description: "Watchdog-triggered recorder stalls.");
-        _forceKills = meter.CreateCounter<long>(
+        _forceKills = Meter.CreateCounter<long>(
             "streamkeepr.recorder.force_kills",
             unit: "{kill}",
             description: "Recorder processes that required a forced stop.");
-        _chatDropped = meter.CreateCounter<long>(
+        _chatDropped = Meter.CreateCounter<long>(
             "streamkeepr.chat.dropped",
             unit: "{message}",
             description: "Chat events dropped by a full capture queue.");
-        _exportJobs = meter.CreateCounter<long>(
+        _exportJobs = Meter.CreateCounter<long>(
             "streamkeepr.export.jobs",
             unit: "{job}",
             description: "Export jobs by outcome.");
-        _eventSubReconnects = meter.CreateCounter<long>(
+        _eventSubReconnects = Meter.CreateCounter<long>(
             "streamkeepr.eventsub.reconnects",
             unit: "{reconnect}",
             description: "EventSub reconnect attempts by transport.");
@@ -92,8 +87,15 @@ public sealed class StreamKeeprTelemetry : IDisposable
 
     public ActivitySource ActivitySource { get; }
 
+    public Meter Meter { get; }
+
+    public bool Enabled { get; }
+
     public void PartExited(RecorderExitKind kind, TimeSpan duration, long bytes)
     {
+        if (!Enabled)
+            return;
+
         var tag = new KeyValuePair<string, object?>(
             RecorderExitKindAttribute, ExitKind(kind));
 
@@ -102,25 +104,39 @@ public sealed class StreamKeeprTelemetry : IDisposable
         _partSize.Record(bytes, tag);
     }
 
-    public void Stall() => _stalls.Add(1);
+    public void Stall()
+    {
+        if (Enabled)
+            _stalls.Add(1);
+    }
 
-    public void ForceKill() => _forceKills.Add(1);
+    public void ForceKill()
+    {
+        if (Enabled)
+            _forceKills.Add(1);
+    }
 
     public void ChatDropped(int count)
     {
-        if (count > 0)
+        if (Enabled && count > 0)
             _chatDropped.Add(count);
     }
 
-    public void ExportFinished(string outcome) =>
-        _exportJobs.Add(
-            1,
-            new KeyValuePair<string, object?>(ExportOutcomeAttribute, outcome));
+    public void ExportFinished(string outcome)
+    {
+        if (Enabled)
+            _exportJobs.Add(
+                1,
+                new KeyValuePair<string, object?>(ExportOutcomeAttribute, outcome));
+    }
 
-    public void EventSubReconnectAttempt(string transport) =>
-        _eventSubReconnects.Add(
-            1,
-            new KeyValuePair<string, object?>(EventSubTransportAttribute, transport));
+    public void EventSubReconnectAttempt(string transport)
+    {
+        if (Enabled)
+            _eventSubReconnects.Add(
+                1,
+                new KeyValuePair<string, object?>(EventSubTransportAttribute, transport));
+    }
 
     public void Dispose() => ActivitySource.Dispose();
 

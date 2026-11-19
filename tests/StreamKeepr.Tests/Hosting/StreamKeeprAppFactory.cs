@@ -77,19 +77,15 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
     protected override IHost CreateHost(IHostBuilder builder)
     {
         // Program reads Telemetry:Enabled while the app is being built, before the
-        // WebApplicationFactory configuration callbacks run. Set the environment variable
-        // just around host creation so every test is explicit and leaks nothing afterward.
-        const string key = "Telemetry__Enabled";
-        string? previous = Environment.GetEnvironmentVariable(key);
-        Environment.SetEnvironmentVariable(key, _telemetry ? "true" : "false");
-        try
-        {
-            return base.CreateHost(builder);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(key, previous);
-        }
+        // WebApplicationFactory app-configuration callbacks run. Host configuration is
+        // applied earlier, so every test is explicit without mutating the process.
+        builder.ConfigureHostConfiguration(configuration =>
+            configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Telemetry:Enabled"] = _telemetry ? "true" : "false",
+            }));
+
+        return base.CreateHost(builder);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

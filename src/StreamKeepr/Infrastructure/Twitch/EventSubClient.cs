@@ -64,6 +64,7 @@ public sealed class EventSubClient(
             {
                 LogEventSub(
                     LogLevel.Warning, ex, "could not start a session; polling continues.");
+                telemetry.EventSubReconnectAttempt(Transport);
                 schedule.SetPushStatus(PushStatus.Reconnecting);
                 if (!await BackoffAsync(backoff, $"session setup failed: {ex.GetType().Name}", ct))
                     break;
@@ -126,8 +127,8 @@ public sealed class EventSubClient(
                 binding.RestartRequested -= BindingRestart;
                 schedule.SetPushStatus(PushStatus.Reconnecting);
 
-                if (!ct.IsCancellationRequested)
-                    telemetry?.EventSubReconnectAttempt(Transport);
+                if (!ct.IsCancellationRequested && !sessionCts.IsCancellationRequested)
+                    telemetry.EventSubReconnectAttempt(Transport);
             }
 
             if (state.HadSubscriptions)
@@ -350,7 +351,7 @@ public sealed class EventSubClient(
     /// </summary>
     private ReconnectHandoff StartHandoff(Uri reconnectUrl, CancellationToken ct)
     {
-        telemetry?.EventSubReconnectAttempt(Transport);
+        telemetry.EventSubReconnectAttempt(Transport);
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         try
         {
