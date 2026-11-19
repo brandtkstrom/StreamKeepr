@@ -146,7 +146,7 @@ Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6
 - Environment: `ASPNETCORE_ENVIRONMENT=Production`, `TZ`, optional `Twitch__Channels__0` seed, optional `Telemetry__Enabled` and `OTEL_EXPORTER_OTLP_ENDPOINT` (both default to disabled/empty).
 - Secrets: `Twitch__ClientId`, `Twitch__ClientSecret`; optional `Recorder__TwitchUserOAuthToken`. Mounted as `/run/secrets` and loaded by `AddKeyPerFile`.
 - Volume: `recordings:/recordings`; bind mount requires `chown -R 1654:1654 ./recordings`.
-- Logging: `json-file`, `max-size: 10m`, `max-file: 5`. The app writes through Serilog's console sink only, configured by the `Serilog` section; `Serilog__MinimumLevel__…` environment variables change levels on restart.
+- Logging: `json-file`, `max-size: 10m`, `max-file: 5`. The app writes through Serilog's console sink, configured by the `Serilog` section; outside Testing and Mock it also writes the same events as compact JSON to `<recordings>/.streamkeepr/logs/`, rolling daily with a 50 MB per-file cap and seven retained files. `Serilog__MinimumLevel__…` environment variables change levels on restart; `Serilog__File__Enabled=false` disables the JSON files and `Serilog__File__Path` relocates them. An unwritable log directory fails startup like an unwritable recordings root.
 - The image healthcheck is inherited; no Compose override.
 
 ## 9. Shutdown
