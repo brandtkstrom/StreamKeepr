@@ -48,6 +48,7 @@ public sealed class SettingsPageTests
 
         Assert.Equal("Mock Admin", cut.Find("#twitch [data-account-name]").TextContent);
         Assert.Equal("mock_admin", cut.Find("#twitch [data-account-login]").TextContent);
+        Assert.Equal(AccountImage, cut.Find("#twitch img").GetAttribute("src"));
         Assert.Equal("/api/auth/logout", cut.Find("#twitch form").GetAttribute("action"));
         Assert.Equal(["ann", "bob", "cat"], cut.FindAll("[data-channel]").Select(r => r.GetAttribute("data-channel")));
         Assert.Equal(
@@ -433,6 +434,8 @@ public sealed class SettingsPageTests
         Assert.Equal("schedule", cut.Find("[data-push='polling']").GetAttribute("data-status-icon"));
     }
 
+    private const string AccountImage = "https://static-cdn.jtvnw.net/jtv_user_pictures/mock-profile.png";
+
     private const string ExitModule = "./Components/Features/Settings/SettingsExit.razor.js";
 
     private static IRenderedComponent<CascadingValue<NavigationHistory>> RenderWithHistory(BunitContext context)
@@ -472,7 +475,9 @@ public sealed class SettingsPageTests
 
         BunitAuthorizationContext auth = context.AddAuthorization();
         if (signedIn)
-            auth.SetAuthorized("mock_admin").SetClaims(new Claim(AdminAuth.DisplayNameClaim, "Mock Admin"));
+            auth.SetAuthorized("mock_admin").SetClaims(
+                new Claim(AdminAuth.DisplayNameClaim, "Mock Admin"),
+                new Claim(AdminAuth.ProfileImageClaim, AccountImage));
         else
             auth.SetNotAuthorized();
 

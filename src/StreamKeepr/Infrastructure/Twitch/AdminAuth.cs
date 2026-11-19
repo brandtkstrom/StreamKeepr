@@ -30,6 +30,9 @@ public static class AdminAuth
     /// <summary>The display-name claim the Twitch handler maps; the Mock identity uses it too.</summary>
     public const string DisplayNameClaim = TwitchAuthenticationConstants.Claims.DisplayName;
 
+    /// <summary>The Twitch handler maps Helix <c>profile_image_url</c> to this claim.</summary>
+    public const string ProfileImageClaim = TwitchAuthenticationConstants.Claims.ProfileImageUrl;
+
     private const string HomePath = "/";
 
     private const string RejectedSignInItem = "StreamKeepr.AdminAuth.AuthError";

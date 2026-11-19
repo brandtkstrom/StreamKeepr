@@ -25,6 +25,7 @@
             <div class="sk-settings-account">
                 <ChannelAvatar Login="@TwitchAccount.Login(context.User)"
                                Name="@TwitchAccount.DisplayName(context.User)"
+                               ImageUrl="@TwitchAccount.AvatarUrl(context.User)"
                                Decorative="true" />
                 <div class="who">
                     <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle1" data-account-name>@TwitchAccount.DisplayName(context.User)</MudBlazor.MudText>
