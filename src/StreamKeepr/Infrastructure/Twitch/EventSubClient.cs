@@ -49,6 +49,10 @@ public sealed class EventSubClient(
     {
         var backoff = new Backoff(jitter);
 
+        // Setup retries are reconnect attempts only once a session has existed; failed
+        // first connects are not reconnects.
+        bool hadSession = false;
+
         while (!ct.IsCancellationRequested)
         {
             IEventSubSessionBinding? session;
@@ -64,7 +68,8 @@ public sealed class EventSubClient(
             {
                 LogEventSub(
                     LogLevel.Warning, ex, "could not start a session; polling continues.");
-                telemetry.EventSubReconnectAttempt(Transport);
+                if (hadSession)
+                    telemetry.EventSubReconnectAttempt(Transport);
                 schedule.SetPushStatus(PushStatus.Reconnecting);
                 if (!await BackoffAsync(backoff, $"session setup failed: {ex.GetType().Name}", ct))
                     break;
@@ -79,6 +84,7 @@ public sealed class EventSubClient(
             }
 
             // Setup succeeded, but no subscription delivers until the session welcomes us.
+            hadSession = true;
             schedule.SetPushStatus(PushStatus.Reconnecting);
 
             using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
