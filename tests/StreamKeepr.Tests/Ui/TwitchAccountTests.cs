@@ -95,11 +95,11 @@ public sealed class TwitchAccountTests
                 new Claim(StreamKeepr.Infrastructure.Twitch.AdminAuth.ProfileImageClaim, image));
         IRenderedComponent<TwitchAccount> cut = RenderAccount(context, out var popovers);
 
-        Assert.Equal(image, Activator(cut).QuerySelector("[data-account-avatar] img")?.GetAttribute("src"));
+        Assert.Equal(image, Activator(cut).QuerySelector("[data-account-avatar] [data-avatar-image]")?.GetAttribute("src"));
 
         Activator(cut).QuerySelector("[data-account-trigger]")!.Click();
         cut.WaitForAssertion(() => Assert.NotNull(Menu(popovers).QuerySelector("[data-account-header]")));
-        Assert.Equal(image, Menu(popovers).QuerySelector("[data-account-header] img")?.GetAttribute("src"));
+        Assert.Equal(image, Menu(popovers).QuerySelector("[data-account-header] [data-avatar-image]")?.GetAttribute("src"));
     }
 
     [Theory]
@@ -119,7 +119,7 @@ public sealed class TwitchAccountTests
         IRenderedComponent<TwitchAccount> cut = RenderAccount(context);
 
         var avatar = Activator(cut).QuerySelector("[data-account-avatar]")!;
-        Assert.Null(avatar.QuerySelector("img"));
+        Assert.Null(avatar.QuerySelector("[data-avatar-image]"));
         Assert.Equal("M", avatar.TextContent.Trim());
     }
 
