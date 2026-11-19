@@ -73,14 +73,20 @@ public sealed class TwitchStreamPoller(
         }
     }
 
-    /// <summary>One /streams request per 100 logins; a batch failure is Unknown for that batch.</summary>
+    /// <summary>
+    /// One /streams request per 100 logins; a batch failure is Unknown for that batch. Ends with
+    /// a <c>Debug</c> summary of counts only: channel names never reach the summary.
+    /// </summary>
     public async Task<IReadOnlyDictionary<string, StreamObservation>> ObserveAsync(
         IReadOnlyList<string> logins, CancellationToken ct)
     {
         var result = new Dictionary<string, StreamObservation>(StringComparer.Ordinal);
+        long started = clock.GetTimestamp();
+        int batches = 0, liveCount = 0, unknownCount = 0;
 
         foreach (string[] batch in logins.Chunk(100))
         {
+            batches++;
             Dictionary<string, LiveStream>? live;
             try
             {
@@ -104,8 +110,22 @@ public sealed class TwitchStreamPoller(
                         ? new StreamObservation.Live(stream)
                         : new StreamObservation.Offline();
             }
+
+            if (live is null)
+                unknownCount += batch.Length;
+            else
+                liveCount += live.Count;
         }
 
+        logger.LogDebug(
+            "Polled {ChannelCount} channels in {BatchCount} Helix batches after {ElapsedMs:F0} ms: "
+            + "{LiveCount} live, {OfflineCount} offline, {UnknownCount} unknown.",
+            result.Count,
+            batches,
+            clock.GetElapsedTime(started).TotalMilliseconds,
+            liveCount,
+            result.Count - liveCount - unknownCount,
+            unknownCount);
         return result;
     }
 

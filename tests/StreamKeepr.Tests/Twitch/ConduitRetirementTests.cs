@@ -129,7 +129,8 @@ public sealed class ConduitRetirementTests : IDisposable
         });
         var factory = new StubHttpClientFactory(_twitch);
         var tokens = new TwitchTokenProvider(
-            factory, options, new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero)));
+            factory, options, new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero)),
+            NullLogger<TwitchTokenProvider>.Instance);
         _tokenProviders.Add(tokens);
         return new ConduitRetirementService(
             options,

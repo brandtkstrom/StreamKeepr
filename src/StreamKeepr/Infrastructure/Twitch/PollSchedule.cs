@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace StreamKeepr.Infrastructure.Twitch;
 
@@ -94,9 +95,16 @@ public sealed record PushStatus(PushState State)
 /// <summary>
 /// Owns the poll tick interval, burst window, nudge coalescing, and push coverage.
 /// The poller supplies the normal and push-aware intervals; this type chooses between them.
+/// A change of <see cref="PushState"/> logs one <c>Information</c> line, never channel names.
 /// </summary>
-public sealed class PollSchedule(TimeProvider clock)
+/// <param name="logger">
+/// Optional so the many UI and health tests that only need a schedule can keep constructing one
+/// directly; DI always supplies the real logger.
+/// </param>
+public sealed class PollSchedule(TimeProvider clock, ILogger<PollSchedule>? logger = null)
 {
+    private readonly ILogger _logger = logger ?? NullLogger<PollSchedule>.Instance;
+
     private static readonly TimeSpan BurstInterval = TimeSpan.FromSeconds(10);
 
     private readonly Channel<bool> _nudge = Channel.CreateBounded<bool>(
@@ -129,8 +137,20 @@ public sealed class PollSchedule(TimeProvider clock)
     public void SetPushStatus(PushStatus status)
     {
         ArgumentNullException.ThrowIfNull(status);
-        bool lostCoverage = _push.Connected && !status.Connected;
-        _push = status;
+        PushStatus previous = Interlocked.Exchange(ref _push, status);
+        bool lostCoverage = previous.Connected && !status.Connected;
+
+        // Only a state change is logged here; the EventSub bindings already log the
+        // covered/total counts each time they recompute coverage.
+        if (previous.State != status.State)
+        {
+            _logger.LogInformation(
+                "Push coverage changed {Previous} -> {State} ({Reason}).",
+                previous.State,
+                status.State,
+                status.Reason);
+        }
+
         Changed?.Invoke();
 
         if (lostCoverage)
