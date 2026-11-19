@@ -94,18 +94,24 @@ public sealed class HelixPollerTests
     [Fact]
     public async Task Observe_logs_a_debug_summary_of_counts_without_channel_names()
     {
-        var handler = new StubHandler(request => Task.FromResult(
-            request.RequestUri!.Host == "id.twitch.tv"
-                ? Token()
-                : Streams("""
+        var clock = new FakeTimeProvider(
+            new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
+        var handler = new StubHandler(request =>
+        {
+            if (request.RequestUri!.Host == "id.twitch.tv")
+                return Task.FromResult(Token());
+
+            clock.Advance(TimeSpan.FromMilliseconds(250));
+            return Task.FromResult(Streams("""
                     {"data":[
                       {"id":"123","user_login":"alpha_streamer","type":"live","title":"Title",
                        "game_name":"Game","started_at":"2026-11-10T16:30:00Z"}
                     ]}
-                    """)));
+                    """));
+        });
         var logs = new ListLoggerProvider();
         using ILoggerFactory factory = TestLogging.Factory(logs);
-        TwitchStreamPoller poller = CreatePoller(handler, factory);
+        TwitchStreamPoller poller = CreatePoller(handler, clock, new PollSchedule(clock), factory);
 
         await poller.ObserveAsync(["alpha_streamer", "bravo_streamer"], CancellationToken.None);
 
@@ -117,6 +123,7 @@ public sealed class HelixPollerTests
         Assert.Equal(1, summary.Properties["OfflineCount"]);
         Assert.Equal(0, summary.Properties["UnknownCount"]);
         Assert.Equal(1, summary.Properties["BatchCount"]);
+        Assert.Equal(250d, summary.Properties["ElapsedMs"]);
         Assert.DoesNotContain(logs.Entries, entry =>
             entry.Message.Contains("_streamer", StringComparison.Ordinal));
         Assert.DoesNotContain(logs.Entries, entry => entry.Level >= LogLevel.Information
@@ -144,8 +151,10 @@ public sealed class HelixPollerTests
         Assert.Equal(LogLevel.Debug, summary.Level);
         Assert.Equal(2, summary.Properties["UnknownCount"]);
         Assert.Equal(0, summary.Properties["LiveCount"]);
-        Assert.DoesNotContain(logs.Entries, entry => entry.Level == LogLevel.Information
-            && entry.Message.Contains("poll", StringComparison.OrdinalIgnoreCase));
+        // The token acquisition is the only Information line; the poll adds none.
+        Assert.All(
+            logs.Entries.Where(entry => entry.Level == LogLevel.Information),
+            entry => Assert.True(entry.Properties.ContainsKey("ExpiresInSeconds")));
     }
 
     [Fact]

@@ -11,7 +11,7 @@ public sealed class PollScheduleTests
     private static readonly TimeSpan WithPush = TimeSpan.FromSeconds(300);
 
     [Fact]
-    public void A_coverage_state_change_logs_information_with_counts_only()
+    public void A_coverage_state_change_logs_information_without_channel_names()
     {
         var logs = new ListLoggerProvider();
         using ILoggerFactory factory = TestLogging.Factory(logs);
@@ -23,10 +23,9 @@ public sealed class PollScheduleTests
         Assert.Equal(LogLevel.Information, changed.Level);
         Assert.Equal(PushState.PollingOnly, changed.Properties["Previous"]);
         Assert.Equal(PushState.PartialCoverage, changed.Properties["State"]);
-        Assert.Equal(1, changed.Properties["Covered"]);
-        Assert.Equal(2, changed.Properties["Total"]);
         Assert.Equal("Partial coverage", changed.Properties["Reason"]);
         Assert.DoesNotContain("alpha_streamer", changed.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(changed.Properties.Values, value => value is IEnumerable<string>);
     }
 
     [Fact]

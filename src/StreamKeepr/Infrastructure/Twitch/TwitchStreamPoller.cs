@@ -82,7 +82,7 @@ public sealed class TwitchStreamPoller(
     {
         var result = new Dictionary<string, StreamObservation>(StringComparer.Ordinal);
         long started = clock.GetTimestamp();
-        int batches = 0;
+        int batches = 0, liveCount = 0, unknownCount = 0;
 
         foreach (string[] batch in logins.Chunk(100))
         {
@@ -110,44 +110,23 @@ public sealed class TwitchStreamPoller(
                         ? new StreamObservation.Live(stream)
                         : new StreamObservation.Offline();
             }
-        }
 
-        LogPollSummary(result.Values, batches, clock.GetElapsedTime(started));
-        return result;
-    }
-
-    private void LogPollSummary(
-        IEnumerable<StreamObservation> observations, int batches, TimeSpan elapsed)
-    {
-        if (!logger.IsEnabled(LogLevel.Debug))
-            return;
-
-        int live = 0, offline = 0, unknown = 0;
-        foreach (StreamObservation observation in observations)
-        {
-            switch (observation)
-            {
-                case StreamObservation.Live:
-                    live++;
-                    break;
-                case StreamObservation.Offline:
-                    offline++;
-                    break;
-                case StreamObservation.Unknown:
-                    unknown++;
-                    break;
-            }
+            if (live is null)
+                unknownCount += batch.Length;
+            else
+                liveCount += live.Count;
         }
 
         logger.LogDebug(
             "Polled {ChannelCount} channels in {BatchCount} Helix batches after {ElapsedMs:F0} ms: "
             + "{LiveCount} live, {OfflineCount} offline, {UnknownCount} unknown.",
-            live + offline + unknown,
+            result.Count,
             batches,
-            elapsed.TotalMilliseconds,
-            live,
-            offline,
-            unknown);
+            clock.GetElapsedTime(started).TotalMilliseconds,
+            liveCount,
+            result.Count - liveCount - unknownCount,
+            unknownCount);
+        return result;
     }
 
     public async Task<ChannelProfile?> GetUserAsync(string login, CancellationToken ct)

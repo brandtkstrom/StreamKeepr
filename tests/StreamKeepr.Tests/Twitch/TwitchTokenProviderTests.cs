@@ -143,7 +143,9 @@ public sealed class TwitchTokenProviderTests
             Task.FromResult(Token($"secret-token-{++calls}", 3600)));
         var logs = new ListLoggerProvider();
         using ILoggerFactory factory = TestLogging.Factory(logs);
-        var provider = CreateProvider(handler, TimeProvider.System, factory);
+        var clock = new FakeTimeProvider(
+            new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
+        var provider = CreateProvider(handler, clock, factory);
 
         await provider.GetAsync(CancellationToken.None);
         provider.Invalidate("secret-token-1");

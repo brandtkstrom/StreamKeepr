@@ -95,7 +95,7 @@ public sealed record PushStatus(PushState State)
 /// <summary>
 /// Owns the poll tick interval, burst window, nudge coalescing, and push coverage.
 /// The poller supplies the normal and push-aware intervals; this type chooses between them.
-/// A change of <see cref="PushState"/> logs one <c>Information</c> line with counts only.
+/// A change of <see cref="PushState"/> logs one <c>Information</c> line, never channel names.
 /// </summary>
 /// <param name="logger">
 /// Optional so the many UI and health tests that only need a schedule can keep constructing one
@@ -140,16 +140,15 @@ public sealed class PollSchedule(TimeProvider clock, ILogger<PollSchedule>? logg
         PushStatus previous = Interlocked.Exchange(ref _push, status);
         bool lostCoverage = previous.Connected && !status.Connected;
 
-        // Bindings recompute coverage on every resubscribe; only a state change is news.
+        // Only a state change is logged here; the EventSub bindings already log the
+        // covered/total counts each time they recompute coverage.
         if (previous.State != status.State)
         {
             _logger.LogInformation(
-                "Push coverage changed {Previous} -> {State} ({Reason}): {Covered}/{Total} channels covered.",
+                "Push coverage changed {Previous} -> {State} ({Reason}).",
                 previous.State,
                 status.State,
-                status.Reason,
-                status.Covered,
-                status.Watched);
+                status.Reason);
         }
 
         Changed?.Invoke();
