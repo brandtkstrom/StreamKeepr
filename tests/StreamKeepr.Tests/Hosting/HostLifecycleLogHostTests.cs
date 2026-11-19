@@ -13,6 +13,7 @@ namespace StreamKeepr.Tests.Hosting;
 public sealed class HostLifecycleLogHostTests
 {
     private const string StartedFragment = "Stream Keepr started";
+    private const string StoppingFragment = "Stream Keepr stopping";
 
     [Fact]
     public async Task Startup_logs_one_information_summary_with_the_safe_fields()
@@ -82,9 +83,15 @@ public sealed class HostLifecycleLogHostTests
                 Assert.DoesNotContain(secret, values, StringComparison.Ordinal);
             }
         }
-    }
 
-    private const string StoppingFragment = "Stream Keepr stopping";
+        // The chat login is personal data; the breadcrumbs carry only the chat on/off flag.
+        foreach (CapturedLogEntry breadcrumb in factory.Logs.Entries.Where(entry =>
+                     entry.Message.StartsWith(StartedFragment, StringComparison.Ordinal)
+                     || entry.Message.StartsWith(StoppingFragment, StringComparison.Ordinal)))
+        {
+            Assert.DoesNotContain("keeprbot", breadcrumb.Message, StringComparison.Ordinal);
+        }
+    }
 
     private static IEnumerable<CapturedLogEntry> StartupSummaries(StreamKeeprAppFactory factory) =>
         factory.Logs.Entries.Where(entry =>
