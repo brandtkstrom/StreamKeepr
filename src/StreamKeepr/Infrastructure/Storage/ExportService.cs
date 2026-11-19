@@ -411,8 +411,8 @@ public sealed class ExportService : BackgroundService, IExportService
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
+            // Host shutdown never completes the job, so it records no export outcome.
             TryDelete(temp);
-            outcome = "cancelled";
             throw;
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested)

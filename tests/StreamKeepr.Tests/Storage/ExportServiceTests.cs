@@ -359,6 +359,24 @@ public sealed class ExportServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Host_shutdown_during_a_running_job_records_no_export_outcome()
+    {
+        using var jobs = new MetricCollector<long>(
+            _meterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.export.jobs");
+        ExportService service = await StartServiceAsync(ffmpeg: TestPaths.FixturePath("fake-hanging-export-ffmpeg"));
+        await SeedAsync("r1", "Title");
+        ExportJob job = service.Start("r1", Admin, CancellationToken.None);
+        string partial = Path.Combine(ExportsDirectory, $"{job.Id}.mp4.tmp");
+        await WaitUntilAsync(() => service.Find(job.Id)?.State == ExportState.Running && File.Exists(partial));
+
+        await service.StopAsync(CancellationToken.None);
+
+        // Shutdown never completes the job, so it is not an export outcome.
+        Assert.False(File.Exists(partial));
+        Assert.Empty(jobs.GetMeasurementSnapshot());
+    }
+
+    [Fact]
     public async Task Cancel_requires_an_admin_a_known_job_and_an_active_one()
     {
         await SeedAsync("r1", "Title");
