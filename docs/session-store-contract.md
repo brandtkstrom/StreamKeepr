@@ -58,7 +58,8 @@ The `chat/` sidecar holds `meta.json` (advisory status, counts, lead-in, bucket 
 ## 3. Atomic writes
 
 - Manifest, stitched index, and thumbnail are written to `<name>.tmp` in the same directory, then renamed over the target with `File.Move(temp, target, overwrite: true)`.
-- Atomicity relies on a local POSIX filesystem (the Docker volume). Network filesystems are not supported.
+- Atomicity relies on a local filesystem: the Docker POSIX volume in production, a local NTFS volume for Windows development. Network filesystems are not supported.
+- Readers open with read/write/delete sharing, and a replace that loses a brief race with another handle on Windows is retried a bounded number of times before it fails. A concurrent lock-free read therefore never blocks or corrupts a write.
 - A failed rename leaves the previous complete file and a `.tmp`; recovery deletes stale `.tmp` files.
 - No fsync is required. A host power loss may lose the last metadata update; media files remain the source of truth.
 - Thumbnails are best-effort, atomic, and written once. `ThumbnailService` writes the image under `.streamkeepr/thumbnails/` on the same volume; `SaveThumbnailAsync` renames it into place. An existing `thumb.jpg` is never replaced, because `/media` serves it as immutable. If a grab fails, log it; `HasThumbnail` stays false.

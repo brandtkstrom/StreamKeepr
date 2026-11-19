@@ -1,4 +1,5 @@
 using StreamKeepr.Configuration;
+using StreamKeepr.Hosting;
 
 namespace StreamKeepr.Mock;
 
@@ -86,6 +87,7 @@ public static class MockEnvironment
                 "Run it from the repository checkout (dotnet run --project src/StreamKeepr).");
         }
 
+        string startableStreamlink = PlatformScript.ResolveForHost(streamlink);
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Telemetry:Enabled"] = "false",
@@ -94,7 +96,7 @@ public static class MockEnvironment
             ["Twitch:ClientId"] = ClientId,
             ["Twitch:ClientSecret"] = ClientSecret,
             ["Twitch:PollIntervalSeconds"] = "10",
-            ["Recorder:StreamlinkPath"] = streamlink,
+            ["Recorder:StreamlinkPath"] = startableStreamlink,
             ["Recorder:SegmentSeconds"] = "2",
             ["Recorder:HealthyPartSeconds"] = "5",
         });
@@ -111,7 +113,7 @@ public static class MockEnvironment
 
         builder.Services.PostConfigure<RecorderOptions>(options =>
         {
-            options.StreamlinkPath = streamlink;
+            options.StreamlinkPath = startableStreamlink;
             options.TwitchUserOAuthToken = null;
         });
     }

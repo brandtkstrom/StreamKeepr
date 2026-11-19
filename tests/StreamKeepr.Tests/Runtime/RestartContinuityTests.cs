@@ -264,7 +264,7 @@ public sealed class RestartContinuityTests
             Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
             new RecordingLibrary(TimeProvider.System, NullLogger<RecordingLibrary>.Instance),
             TimeProvider.System,
-            NullLogger<SessionStore>.Instance);
+            NullLogger<SessionStore>.Instance, TestRetry.Immediate);
 
         return await store.TryLoadAsync(sessionDirectory, CancellationToken.None);
     }

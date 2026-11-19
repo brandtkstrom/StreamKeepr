@@ -571,7 +571,7 @@ public sealed class ChannelCoordinatorTests
                 Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
                 Library,
                 Clock,
-                NullLogger<SessionStore>.Instance);
+                NullLogger<SessionStore>.Instance, TestRetry.Immediate);
 
             IDiskSpace disk = diskSpace
                 ?? new FakeDiskSpace(DiskGuard.BytesPerGib * 2, DiskGuard.BytesPerGib * 4);

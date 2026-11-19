@@ -64,7 +64,9 @@ Open <http://localhost:5187>. The profile starts four fake channels and eight re
 `MockPoller` supplies deterministic observations, `MockEventSubClient` accepts test-controlled
 pushes, and the fake cookie auth signs in as `mock_admin` by default. None of these touch Twitch
 or construct the real HTTP/EventSub clients. The startup tool preflight still runs, so
-`ffmpeg`/`ffprobe` must be on `PATH`; Streamlink is always the committed fake fixture.
+`ffmpeg`/`ffprobe` must be on `PATH`; Streamlink is always the committed fake fixture. On Windows
+that fixture runs through bash, so `bash.exe` (Git for Windows) must be on `PATH` or under
+`%ProgramFiles%\Git`.
 
 Mock data lives under the system temp directory (`.../streamkeepr-mock/recordings`), is reset
 on each start, and is never read from user secrets. `Mock:RecordingsRoot` must be a directory

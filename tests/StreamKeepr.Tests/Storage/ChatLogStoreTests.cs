@@ -321,13 +321,25 @@ public sealed class ChatLogStoreTests : IDisposable
         store.OpenSession(summary, ChatSources.Anonymous);
         store.Append("chan", Message(summary, "a", 3, "first"));
         store.Append("chan", Message(summary, "b", 6, "second"));
-        File.AppendAllText(MessageBuckets(directory).Single(), "{not json\n");
+        AppendUnreadableRow(MessageBuckets(directory).Single());
         store.Append("chan", new ChatSourceEvent.Delete("chan", At(summary, 7), "b"));
         store.CloseSession(summary.Id, finalize: true);
 
         string raw = File.ReadAllText(MessageBuckets(directory).Single());
         Assert.Contains("{not json", raw, StringComparison.Ordinal);
         Assert.Contains("second", raw, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Appends outside the store's writer. The bucket handle is open for append, so Windows
+    /// admits the second writer only when it shares write access; POSIX ignores the difference.
+    /// </summary>
+    private static void AppendUnreadableRow(string path)
+    {
+        using var stream = new FileStream(
+            path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+        using var writer = new StreamWriter(stream);
+        writer.Write("{not json\n");
     }
 
     [Fact]
