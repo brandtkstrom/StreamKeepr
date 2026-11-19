@@ -13,18 +13,21 @@ using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Telemetry;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
+using StreamKeepr.Tests.Telemetry;
 
 namespace StreamKeepr.Tests.Twitch;
 
-public sealed class HelixPollerTests
+public sealed class HelixPollerTests : IDisposable
 {
+    private readonly TestTelemetry _telemetry = new();
+
+    public void Dispose() => _telemetry.Dispose();
+
     [Fact]
     public async Task A_poll_round_emits_one_span_with_bounded_attributes()
     {
-        using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
-        var meterFactory = services.GetRequiredService<IMeterFactory>();
-        using var telemetry = new StreamKeeprTelemetry(meterFactory);
-        var stopped = new List<Activity>();
+        var pollStopped = new TaskCompletionSource<Activity>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         using var listener = new ActivityListener
         {
             ShouldListenTo = source => source.Name == StreamKeeprTelemetry.SourceName,
@@ -32,8 +35,8 @@ public sealed class HelixPollerTests
                 ActivitySamplingResult.AllDataAndRecorded,
             ActivityStopped = activity =>
             {
-                lock (stopped)
-                    stopped.Add(activity);
+                if (activity.OperationName == "streamkeepr.twitch.poll")
+                    pollStopped.TrySetResult(activity);
             },
         };
         ActivitySource.AddActivityListener(listener);
@@ -43,9 +46,10 @@ public sealed class HelixPollerTests
         var clock = new FakeTimeProvider(
             new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
         var schedule = new PollSchedule(clock);
-        TwitchStreamPoller poller = CreatePoller(handler, clock, schedule, telemetry);
+        TwitchStreamPoller poller = CreatePoller(handler, clock, schedule);
         var polled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        using var ambient = new Activity("ambient").Start();
         using var stop = new CancellationTokenSource();
         Task run = poller.RunAsync(
             () => ["streamer"],
@@ -57,12 +61,10 @@ public sealed class HelixPollerTests
             stop.Token);
 
         await polled.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
-        while (stopped.Count == 0 && DateTime.UtcNow < deadline)
-            await Task.Delay(20);
+        Activity span = await pollStopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Activity span = Assert.Single(stopped);
         Assert.Equal("streamkeepr.twitch.poll", span.OperationName);
+        Assert.Equal(default, span.ParentSpanId);
         Assert.Equal(ActivityKind.Internal, span.Kind);
         Assert.Equal(1, span.GetTagItem("channels.count"));
         Assert.Equal(1, span.GetTagItem("poll.batch_count"));
@@ -448,7 +450,8 @@ public sealed class HelixPollerTests
             status,
             options,
             clock,
-            NullLogger<TwitchStreamPoller>.Instance);
+            NullLogger<TwitchStreamPoller>.Instance,
+            _telemetry.Value);
 
         using var stop = new CancellationTokenSource();
         Task run = poller.RunAsync(
@@ -556,7 +559,7 @@ public sealed class HelixPollerTests
         }
     }
 
-    private static TwitchStreamPoller CreatePoller(
+    private TwitchStreamPoller CreatePoller(
         StubHandler handler, ILoggerFactory? logs = null)
     {
         var clock = new FakeTimeProvider(
@@ -564,12 +567,11 @@ public sealed class HelixPollerTests
         return CreatePoller(handler, clock, new PollSchedule(clock), logs);
     }
 
-    private static TwitchStreamPoller CreatePoller(
+    private TwitchStreamPoller CreatePoller(
         StubHandler handler,
         FakeTimeProvider clock,
         PollSchedule schedule,
-        ILoggerFactory? logs = null,
-        StreamKeeprTelemetry? telemetry = null)
+        ILoggerFactory? logs = null)
     {
         logs ??= NullLoggerFactory.Instance;
         var factory = new StubHttpClientFactory(handler);
@@ -588,7 +590,7 @@ public sealed class HelixPollerTests
             options,
             clock,
             logs.CreateLogger<TwitchStreamPoller>(),
-            telemetry);
+            _telemetry.Value);
     }
 
     private static HttpResponseMessage Token() =>

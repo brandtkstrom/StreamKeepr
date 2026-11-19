@@ -129,7 +129,7 @@ public sealed class ExportServiceTests : IAsyncLifetime
 
         Assert.Contains(
             jobs.GetMeasurementSnapshot(),
-            measurement => (string)measurement.Tags["streamkeepr.export.outcome"]! == "succeeded");
+            measurement => (string)measurement.Tags["export.outcome"]! == "succeeded");
     }
 
     [Theory]
@@ -266,9 +266,16 @@ public sealed class ExportServiceTests : IAsyncLifetime
     [Fact]
     public async Task Incompatible_parts_fail_with_the_stable_code_and_produce_no_file()
     {
+        using var jobs = new MetricCollector<long>(
+            _meterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.export.jobs");
         await SeedPartsAsync("r1", ("160x90", "libx264"), ("320x180", "libx264"));
 
         ExportJob job = await WaitForAsync(_service.Start("r1", Admin, CancellationToken.None).Id, ExportState.Failed);
+        await jobs.WaitForMeasurementsAsync(1, TimeSpan.FromSeconds(5));
+
+        Assert.Contains(
+            jobs.GetMeasurementSnapshot(),
+            measurement => (string)measurement.Tags["export.outcome"]! == "failed");
 
         Assert.Equal(ExportService.IncompatibleParts, job.Error);
         Assert.False(_leases.IsLeased("r1"));
@@ -322,6 +329,8 @@ public sealed class ExportServiceTests : IAsyncLifetime
     [Fact]
     public async Task Cancelling_a_running_job_stops_ffmpeg_deletes_the_partial_file_and_allows_a_retry()
     {
+        using var jobs = new MetricCollector<long>(
+            _meterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.export.jobs");
         ExportService service = await StartServiceAsync(ffmpeg: TestPaths.FixturePath("fake-hanging-export-ffmpeg"));
         await SeedAsync("r1", "Title");
         ExportJob job = service.Start("r1", Admin, CancellationToken.None);
@@ -331,6 +340,10 @@ public sealed class ExportServiceTests : IAsyncLifetime
         service.Cancel(job.Id, Admin);
 
         await WaitUntilAsync(() => service.Find(job.Id)?.State == ExportState.Cancelled);
+        await jobs.WaitForMeasurementsAsync(1, TimeSpan.FromSeconds(5));
+        Assert.Contains(
+            jobs.GetMeasurementSnapshot(),
+            measurement => (string)measurement.Tags["export.outcome"]! == "cancelled");
         Assert.False(File.Exists(partial));
         Assert.False(_leases.IsLeased("r1"));
         Assert.Null(service.Find(job.Id)?.Error);

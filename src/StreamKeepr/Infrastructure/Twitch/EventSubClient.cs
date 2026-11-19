@@ -22,7 +22,7 @@ public sealed class EventSubClient(
     IRetryJitter jitter,
     TimeProvider clock,
     ILogger<EventSubClient> logger,
-    StreamKeeprTelemetry? telemetry = null) : IEventSubClient
+    StreamKeeprTelemetry telemetry) : IEventSubClient
 {
     private static readonly Uri BaseUri = new("wss://eventsub.wss.twitch.tv/ws");
     private static readonly TimeSpan InitialBackoff = TimeSpan.FromSeconds(5);
@@ -127,7 +127,7 @@ public sealed class EventSubClient(
                 schedule.SetPushStatus(PushStatus.Reconnecting);
 
                 if (!ct.IsCancellationRequested)
-                    telemetry?.EventSubReconnected(Transport);
+                    telemetry?.EventSubReconnectAttempt(Transport);
             }
 
             if (state.HadSubscriptions)
@@ -350,7 +350,7 @@ public sealed class EventSubClient(
     /// </summary>
     private ReconnectHandoff StartHandoff(Uri reconnectUrl, CancellationToken ct)
     {
-        telemetry?.EventSubReconnected(Transport);
+        telemetry?.EventSubReconnectAttempt(Transport);
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         try
         {

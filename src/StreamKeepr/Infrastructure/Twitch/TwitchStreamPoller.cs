@@ -23,13 +23,17 @@ public sealed class TwitchStreamPoller(
     IOptions<TwitchOptions> options,
     TimeProvider clock,
     ILogger<TwitchStreamPoller> logger,
-    StreamKeeprTelemetry? telemetry = null) : IStreamPoller
+    StreamKeeprTelemetry telemetry) : IStreamPoller
 {
     public async Task RunAsync(
         Func<IReadOnlyList<string>> logins,
         StreamObservationRoute route,
         CancellationToken ct)
     {
+        // The poll loop is a background root. A coordinator can be started from an HTTP
+        // request, so clear any ambient activity before creating the poll span.
+        Activity? ambient = Activity.Current;
+        Activity.Current = null;
         try
         {
             TimeSpan normal = TimeSpan.FromSeconds(options.Value.PollIntervalSeconds);
@@ -90,6 +94,10 @@ public sealed class TwitchStreamPoller(
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // Host shutdown.
+        }
+        finally
+        {
+            Activity.Current = ambient;
         }
     }
 

@@ -1,11 +1,9 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Logging;
-using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using StreamKeepr.Tests.Hosting;
@@ -18,7 +16,6 @@ public sealed class TelemetryHostTests
     [Fact]
     public void Telemetry_is_off_by_default()
     {
-        using var telemetry = SetTelemetry(null);
         using var factory = new StreamKeeprAppFactory();
 
         Assert.Null(factory.Services.GetService<TracerProvider>());
@@ -31,10 +28,9 @@ public sealed class TelemetryHostTests
     [Fact]
     public void Enabled_telemetry_refuses_disabled_query_redaction()
     {
-        using var telemetry = SetTelemetry("true");
         using var redaction = SetVariable(
             "OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_DISABLE_URL_QUERY_REDACTION", "true");
-        using var factory = new StreamKeeprAppFactory();
+        using var factory = new StreamKeeprAppFactory(telemetry: true);
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
             () => factory.CreateClient());
@@ -45,17 +41,13 @@ public sealed class TelemetryHostTests
     [Fact]
     public async Task Enabled_host_emits_a_server_span_and_filters_sensitive_paths()
     {
-        using var telemetry = SetTelemetry("true");
         using var batchDelay = SetVariable("OTEL_BSP_SCHEDULE_DELAY", "50");
         var exported = new List<Activity>();
         using var factory = new StreamKeeprAppFactory(
-            new Dictionary<string, string?>
-            {
-                ["Telemetry:Enabled"] = "true",
-            },
             configureTestServices: services => services
                 .ConfigureOpenTelemetryTracerProvider(
-                    tracing => tracing.AddInMemoryExporter(exported)));
+                    tracing => tracing.AddInMemoryExporter(exported)),
+            telemetry: true);
 
         using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
         {
@@ -77,7 +69,7 @@ public sealed class TelemetryHostTests
         using (HttpResponseMessage blazor = await client.GetAsync("/_blazor"))
             _ = blazor.StatusCode;
 
-        Activity[] spans = await WaitForSpansAsync(exported, atLeast: 1);
+        Activity[] spans = [.. exported];
 
         Assert.True(
             spans.Any(
@@ -102,14 +94,25 @@ public sealed class TelemetryHostTests
     }
 
     [Fact]
+    public void Enabled_host_shuts_down_within_the_budget()
+    {
+        var factory = new StreamKeeprAppFactory(telemetry: true);
+        using (HttpClient client = factory.CreateClient())
+        {
+        }
+
+        var elapsed = Stopwatch.StartNew();
+        factory.Dispose();
+
+        Assert.True(
+            elapsed.Elapsed < TimeSpan.FromSeconds(50),
+            $"telemetry shutdown took {elapsed.Elapsed}");
+    }
+
+    [Fact]
     public async Task Enabled_host_records_http_server_duration_but_not_for_health()
     {
-        using var telemetry = SetTelemetry("true");
-        using var factory = new StreamKeeprAppFactory(
-            new Dictionary<string, string?>
-            {
-                ["Telemetry:Enabled"] = "true",
-            });
+        using var factory = new StreamKeeprAppFactory(telemetry: true);
         using var client = factory.CreateClient();
 
         var factoryMeter = factory.Services.GetRequiredService<IMeterFactory>();
@@ -123,13 +126,15 @@ public sealed class TelemetryHostTests
 
         using (HttpResponseMessage health = await client.GetAsync("/health/live"))
             Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+        using (HttpResponseMessage ready = await client.GetAsync("/health/ready"))
+            _ = ready.StatusCode;
+        using (HttpResponseMessage media = await client.GetAsync("/media/streamer/id/index.m3u8"))
+            _ = media.StatusCode;
+        using (HttpResponseMessage blazor = await client.GetAsync("/_blazor"))
+            _ = blazor.StatusCode;
 
-        await Task.Delay(100);
         Assert.Empty(duration.GetMeasurementSnapshot());
     }
-
-    private static IDisposable SetTelemetry(string? value) =>
-        SetVariable("Telemetry__Enabled", value);
 
     private static IDisposable SetVariable(string name, string? value)
     {
@@ -143,13 +148,4 @@ public sealed class TelemetryHostTests
         public void Dispose() => Environment.SetEnvironmentVariable(name, previous);
     }
 
-    private static async Task<Activity[]> WaitForSpansAsync(
-        List<Activity> exported, int atLeast)
-    {
-        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
-        while (exported.Count < atLeast && DateTime.UtcNow < deadline)
-            await Task.Delay(20);
-
-        return [.. exported];
-    }
 }

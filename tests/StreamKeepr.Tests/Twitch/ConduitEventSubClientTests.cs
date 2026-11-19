@@ -9,6 +9,7 @@ using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
+using StreamKeepr.Tests.Telemetry;
 using static StreamKeepr.Tests.Twitch.EventSubMessages;
 
 namespace StreamKeepr.Tests.Twitch;
@@ -30,6 +31,7 @@ public sealed class ConduitEventSubClientTests : IDisposable
     private readonly PollSchedule _schedule;
     private readonly ConduitStateStore _state;
     private readonly TwitchTokenProvider _tokens;
+    private readonly TestTelemetry _telemetry = new();
     private readonly IOptions<TwitchOptions> _options = Options.Create(new TwitchOptions
     {
         ClientId = ClientId,
@@ -53,6 +55,7 @@ public sealed class ConduitEventSubClientTests : IDisposable
 
     public void Dispose()
     {
+        _telemetry.Dispose();
         _tokens.Dispose();
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
@@ -573,7 +576,8 @@ public sealed class ConduitEventSubClientTests : IDisposable
             _schedule,
             jitter ?? new NoJitter(),
             _clock,
-            logger ?? NullLogger<EventSubClient>.Instance);
+            logger ?? NullLogger<EventSubClient>.Instance,
+            _telemetry.Value);
         var stop = new CancellationTokenSource();
         Task task = client.RunAsync(route ?? ((_, _, _) => ValueTask.CompletedTask), stop.Token);
         return new Running(task, stop);

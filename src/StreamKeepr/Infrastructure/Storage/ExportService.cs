@@ -77,7 +77,7 @@ public sealed class ExportService : BackgroundService, IExportService
     private readonly IOptions<RecorderOptions> _recorder;
     private readonly TimeProvider _clock;
     private readonly ILogger<ExportService> _logger;
-    private readonly StreamKeeprTelemetry? _telemetry;
+    private readonly StreamKeeprTelemetry _telemetry;
     // Jobs are probed in start order, then run in that same order: two single-reader stages.
     private readonly Channel<string> _probeQueue = Channel.CreateUnbounded<string>(
         new UnboundedChannelOptions { SingleReader = true });
@@ -101,7 +101,7 @@ public sealed class ExportService : BackgroundService, IExportService
         IOptions<RecorderOptions> recorder,
         TimeProvider clock,
         ILogger<ExportService> logger,
-        StreamKeeprTelemetry? telemetry = null)
+        StreamKeeprTelemetry telemetry)
     {
         _library = library;
         _leases = leases;
@@ -288,6 +288,7 @@ public sealed class ExportService : BackgroundService, IExportService
                     "Export {ExportId} refused: the parts of {RecordingId} have different video parameters.",
                     id, job.RecordingId);
                 FailQueued(id, IncompatibleParts);
+                _telemetry.ExportFinished("failed");
                 return false;
             }
 
@@ -407,6 +408,7 @@ public sealed class ExportService : BackgroundService, IExportService
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             TryDelete(temp);
+            outcome = "cancelled";
             throw;
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested)

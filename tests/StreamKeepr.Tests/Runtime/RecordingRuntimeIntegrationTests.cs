@@ -106,7 +106,7 @@ public sealed class RecordingRuntimeIntegrationTests
         await parts.WaitForMeasurementsAsync(1, TimeSpan.FromSeconds(5));
         Assert.Contains(
             parts.GetMeasurementSnapshot(),
-            measurement => (string)measurement.Tags["streamkeepr.recorder.exit_kind"]! == "exited");
+            measurement => (string)measurement.Tags["recorder.exit_kind"]! == "exited");
         Assert.Contains(durations.GetMeasurementSnapshot(), measurement => measurement.Value > 0);
         Assert.Contains(sizes.GetMeasurementSnapshot(), measurement => measurement.Value > 0);
 

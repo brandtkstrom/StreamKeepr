@@ -17,7 +17,7 @@ public sealed class RecorderJob(
     IOptions<RecorderOptions> options,
     TimeProvider clock,
     ILogger<RecorderJob> logger,
-    StreamKeeprTelemetry? telemetry = null) : IRecorder
+    StreamKeeprTelemetry telemetry) : IRecorder
 {
     private const int StderrCapacity = 20;
 
@@ -269,7 +269,19 @@ public sealed class RecorderJob(
                 CancellationToken.None);
         }
 
-        long partBytes = PartFiles.TotalBytes(session.Directory, job.Part);
+        long partBytes = 0;
+        if (telemetry is not null)
+        {
+            try
+            {
+                partBytes = PartFiles.TotalBytes(session.Directory, job.Part);
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(ex, "Could not read the part size for telemetry.");
+            }
+        }
+
         if (Volatile.Read(ref producing) == 0)
             PartFiles.Delete(session.Directory, job.Part);
 
@@ -281,11 +293,14 @@ public sealed class RecorderJob(
                 ? RecorderExitKind.Stopped
                 : RecorderExitKind.Exited;
 
-        telemetry?.PartExited(kind, clock.GetUtcNow() - startedAt, partBytes);
-        if (stalledEnd)
-            telemetry?.Stall();
-        if (forcedKill || finalizeTimedOut)
-            telemetry?.ForceKill();
+        if (telemetry is not null)
+        {
+            telemetry.PartExited(kind, clock.GetUtcNow() - startedAt, partBytes);
+            if (stalledEnd)
+                telemetry.Stall();
+            if (forcedKill || finalizeTimedOut)
+                telemetry.ForceKill();
+        }
 
         string detail = $"{reason}; streamlink {Describe(streamlinkTask)}, ffmpeg {Describe(ffmpegTask)}";
         string stderr = tail.ToString();

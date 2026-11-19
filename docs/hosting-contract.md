@@ -14,6 +14,7 @@ The hosting layer owns the ASP.NET Core pipeline, media serving, health checks, 
 
 ```text
 UseForwardedHeaders          // only when a trusted reverse proxy is configured
+UseTelemetryMetricsFilter    // only when telemetry is enabled
 UseSerilogRequestLogging     // one completion event per request (UseStreamKeeprRequestLogging)
 UseExceptionHandler          // non-Development
 UseAuthentication
@@ -110,7 +111,11 @@ Docker healthcheck: `/health/live`, interval 30 s, timeout 5 s, start period 60 
 
 ## 7. Startup preflight
 
-`ToolPreflight` is the first hosted service and runs before the supervisor.
+`ToolPreflight` is the first application hosted service and runs before the supervisor.
+When telemetry is enabled, OpenTelemetry inserts its own hosted service at index 0 so it can capture
+early telemetry; `ToolPreflight` remains the first application service after it. The metrics-filter
+middleware runs before authentication and after forwarded headers, and opts sensitive or
+long-lived routes out of HTTP metrics.
 
 - `ffmpeg -version`, `ffprobe -version`, `streamlink --version`; log the first line of each. Missing tools throw a clear `InvalidOperationException` naming the tool.
 - Recordings root: create it, write and delete `.write-probe`, and fail with the UID 1654 / named-volume-or-chown message on `UnauthorizedAccessException` or `IOException`.

@@ -15,9 +15,10 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       TZ: ${TZ:-UTC}
       Storage__RecordingsRoot: /recordings
-      # Optional OpenTelemetry. Leave disabled unless a collector is reachable.
-      # Telemetry__Enabled: ${STREAMKEEP_TELEMETRY:-false}
-      # OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      # Optional OpenTelemetry. Leave disabled unless a collector is reachable;
+      # set both values together. An empty endpoint enables the SDK without export.
+      Telemetry__Enabled: ${STREAMKEEP_TELEMETRY:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       # Optional first-start channel seed. An empty value fails options
       # validation, so uncomment the line only when you set the login.
       # Twitch__Channels__0: ${TWITCH_CHANNEL_LOGIN}

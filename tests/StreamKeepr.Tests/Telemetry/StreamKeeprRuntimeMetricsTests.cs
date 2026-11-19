@@ -85,13 +85,13 @@ public sealed class StreamKeeprRuntimeMetricsTests
 
         CollectedMeasurement<int> connection = Assert.Single(connected.GetMeasurementSnapshot());
         Assert.Equal(1, connection.Value);
-        Assert.Equal("WebSocket", connection.Tags["streamkeepr.eventsub.transport"]);
+        Assert.Equal("WebSocket", connection.Tags["eventsub.transport"]);
 
         Assert.Equal(4242, Assert.Single(free.GetMeasurementSnapshot()).Value);
     }
 
     private static string State(CollectedMeasurement<int> measurement) =>
-        (string)measurement.Tags["streamkeepr.dvr.state"]!;
+        (string)measurement.Tags["dvr.state"]!;
 
     private sealed class FakeStorage(StorageView current) : IStorageMonitor
     {

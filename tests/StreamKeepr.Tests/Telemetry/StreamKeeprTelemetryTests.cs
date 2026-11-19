@@ -24,15 +24,15 @@ public sealed class StreamKeeprTelemetryTests
 
         CollectedMeasurement<long> part = Assert.Single(parts.GetMeasurementSnapshot());
         Assert.Equal(1, part.Value);
-        Assert.Equal("killed", part.Tags["streamkeepr.recorder.exit_kind"]);
+        Assert.Equal("killed", part.Tags["recorder.exit_kind"]);
 
         CollectedMeasurement<double> duration = Assert.Single(durations.GetMeasurementSnapshot());
         Assert.Equal(42, duration.Value);
-        Assert.Equal("killed", duration.Tags["streamkeepr.recorder.exit_kind"]);
+        Assert.Equal("killed", duration.Tags["recorder.exit_kind"]);
 
         CollectedMeasurement<long> size = Assert.Single(sizes.GetMeasurementSnapshot());
         Assert.Equal(1234, size.Value);
-        Assert.Equal("killed", size.Tags["streamkeepr.recorder.exit_kind"]);
+        Assert.Equal("killed", size.Tags["recorder.exit_kind"]);
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public sealed class StreamKeeprTelemetryTests
 
         CollectedMeasurement<long> job = Assert.Single(jobs.GetMeasurementSnapshot());
         Assert.Equal(1, job.Value);
-        Assert.Equal("failed", job.Tags["streamkeepr.export.outcome"]);
+        Assert.Equal("failed", job.Tags["export.outcome"]);
     }
 
     [Fact]
@@ -92,10 +92,10 @@ public sealed class StreamKeeprTelemetryTests
         using var reconnects = new MetricCollector<long>(
             factory, StreamKeeprTelemetry.MeterName, "streamkeepr.eventsub.reconnects");
 
-        telemetry.EventSubReconnected("WebSocket");
+        telemetry.EventSubReconnectAttempt("WebSocket");
 
         CollectedMeasurement<long> reconnect = Assert.Single(reconnects.GetMeasurementSnapshot());
         Assert.Equal(1, reconnect.Value);
-        Assert.Equal("WebSocket", reconnect.Tags["streamkeepr.eventsub.transport"]);
+        Assert.Equal("WebSocket", reconnect.Tags["eventsub.transport"]);
     }
 }

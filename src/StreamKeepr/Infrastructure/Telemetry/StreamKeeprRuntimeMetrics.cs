@@ -101,7 +101,7 @@ public sealed class StreamKeeprRuntimeMetrics
         {
             yield return new Measurement<int>(
                 count,
-                new KeyValuePair<string, object?>("streamkeepr.dvr.state", name));
+                new KeyValuePair<string, object?>(StreamKeeprTelemetry.DvrStateAttribute, name));
         }
     }
 
@@ -118,5 +118,5 @@ public sealed class StreamKeeprRuntimeMetrics
         new(
             _schedule.Push.HasSession ? 1 : 0,
             new KeyValuePair<string, object?>(
-                "streamkeepr.eventsub.transport", _eventSub.Transport));
+                StreamKeeprTelemetry.EventSubTransportAttribute, _eventSub.Transport));
 }

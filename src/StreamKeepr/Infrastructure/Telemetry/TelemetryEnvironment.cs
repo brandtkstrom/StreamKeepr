@@ -12,6 +12,6 @@ internal static class TelemetryEnvironment
         if (environment.IsEnvironment("Mock") || environment.IsEnvironment("Testing"))
             return "test";
 
-        return environment.EnvironmentName.ToLowerInvariant();
+        return environment.IsDevelopment() ? "development" : "production";
     }
 }

@@ -15,6 +15,16 @@ public sealed class StreamKeeprTelemetry : IDisposable
     public const string SourceName = "StreamKeepr";
     public const string MeterName = "StreamKeepr";
     public const string ServiceName = "streamkeepr";
+    public const string RecorderExitKindAttribute = "recorder.exit_kind";
+    public const string ExportOutcomeAttribute = "export.outcome";
+    public const string EventSubTransportAttribute = "eventsub.transport";
+    public const string DvrStateAttribute = "dvr.state";
+
+    public const int DefaultExportTimeoutMilliseconds = 3000;
+    public const int DefaultBatchExportTimeoutMilliseconds = 3000;
+    public const int DefaultBatchScheduleDelayMilliseconds = 2000;
+    public const int DefaultMetricExportTimeoutMilliseconds = 3000;
+    public const int DefaultMetricExportIntervalMilliseconds = 30_000;
 
     public static readonly string ServiceVersion =
         typeof(StreamKeeprTelemetry).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
@@ -85,7 +95,7 @@ public sealed class StreamKeeprTelemetry : IDisposable
     public void PartExited(RecorderExitKind kind, TimeSpan duration, long bytes)
     {
         var tag = new KeyValuePair<string, object?>(
-            "streamkeepr.recorder.exit_kind", ExitKind(kind));
+            RecorderExitKindAttribute, ExitKind(kind));
 
         _parts.Add(1, tag);
         _partDuration.Record(duration.TotalSeconds, tag);
@@ -98,7 +108,6 @@ public sealed class StreamKeeprTelemetry : IDisposable
 
     public void ChatDropped(int count)
     {
-        ArgumentOutOfRangeException.ThrowIfNegative(count);
         if (count > 0)
             _chatDropped.Add(count);
     }
@@ -106,12 +115,12 @@ public sealed class StreamKeeprTelemetry : IDisposable
     public void ExportFinished(string outcome) =>
         _exportJobs.Add(
             1,
-            new KeyValuePair<string, object?>("streamkeepr.export.outcome", outcome));
+            new KeyValuePair<string, object?>(ExportOutcomeAttribute, outcome));
 
-    public void EventSubReconnected(string transport) =>
+    public void EventSubReconnectAttempt(string transport) =>
         _eventSubReconnects.Add(
             1,
-            new KeyValuePair<string, object?>("streamkeepr.eventsub.transport", transport));
+            new KeyValuePair<string, object?>(EventSubTransportAttribute, transport));
 
     public void Dispose() => ActivitySource.Dispose();
 

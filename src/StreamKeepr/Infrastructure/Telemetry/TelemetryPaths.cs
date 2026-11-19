@@ -19,10 +19,11 @@ internal static class TelemetryPaths
         "/signin-twitch",
     ];
 
-    public static bool ShouldTrace(HttpContext context) =>
-        !Excluded.Any(path => context.Request.Path.StartsWithSegments(path));
+    public static bool ShouldTrace(HttpContext context) => !IsExcluded(context.Request.Path);
 
-    public static bool DisableHttpMetrics(PathString path) =>
+    public static bool DisableHttpMetrics(PathString path) => IsExcluded(path);
+
+    private static bool IsExcluded(PathString path) =>
         Excluded.Any(excluded => path.StartsWithSegments(excluded));
 
     public static void RewriteUrlPath(Activity activity, HttpResponse response)

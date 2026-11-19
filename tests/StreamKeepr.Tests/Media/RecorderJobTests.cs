@@ -12,6 +12,7 @@ using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Telemetry;
 using StreamKeepr.Tests.Hosting;
+using StreamKeepr.Tests.Telemetry;
 
 namespace StreamKeepr.Tests.Media;
 
@@ -24,11 +25,13 @@ public sealed class RecorderJobTests : IDisposable
         Path.GetTempPath(),
         "streamkeepr-tests",
         Guid.NewGuid().ToString("N"));
+    private readonly TestTelemetry _telemetry = new();
 
     public RecorderJobTests() => Directory.CreateDirectory(_root);
 
     public void Dispose()
     {
+        _telemetry.Dispose();
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
     }
@@ -337,15 +340,12 @@ public sealed class RecorderJobTests : IDisposable
         options.StreamlinkPath = FixturePath("fake-streamlink-stall");
         options.StallTimeoutSeconds = 15;
 
-        using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
-        var meterFactory = services.GetRequiredService<IMeterFactory>();
-        using var telemetry = new StreamKeeprTelemetry(meterFactory);
         using var stalls = new MetricCollector<long>(
-            meterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.stalls");
+            _telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.stalls");
 
         using var safetyStop = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         (Task run, List<DvrEvent> events) = StartJob(
-            session, options, clock, stopRequested: safetyStop.Token, telemetry: telemetry);
+            session, options, clock, stopRequested: safetyStop.Token);
 
         await WaitForPartSegmentAsync(session.Directory, part: 1);
         // Fire the watchdog; subsequent shutdown waits then fall back to short real timers so a
@@ -491,13 +491,12 @@ public sealed class RecorderJobTests : IDisposable
         Assert.True(elapsed < TimeSpan.FromSeconds(35), $"stop took {elapsed}");
     }
 
-    private static (Task Run, List<DvrEvent> Events) StartJob(
+    private (Task Run, List<DvrEvent> Events) StartJob(
         Session session,
         RecorderOptions options,
         TimeProvider? clock = null,
         ILogger<RecorderJob>? logger = null,
-        CancellationToken stopRequested = default,
-        StreamKeeprTelemetry? telemetry = null)
+        CancellationToken stopRequested = default)
     {
         var events = new List<DvrEvent>();
         ValueTask Publish(DvrEvent dvrEvent, CancellationToken _)
@@ -511,12 +510,12 @@ public sealed class RecorderJobTests : IDisposable
             Options.Create(options),
             clock ?? TimeProvider.System,
             logger ?? NullLogger<RecorderJob>.Instance,
-            telemetry);
+            _telemetry.Value);
         Task run = job.RunAsync(session, new JobId(session.Id, 1), Publish, stopRequested);
         return (run, events);
     }
 
-    private static async Task<IReadOnlyList<DvrEvent>> RunAsync(
+    private async Task<IReadOnlyList<DvrEvent>> RunAsync(
         Session session,
         RecorderOptions options,
         CancellationToken stopRequested = default,

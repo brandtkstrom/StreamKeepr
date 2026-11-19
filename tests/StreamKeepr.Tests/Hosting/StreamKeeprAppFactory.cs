@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
@@ -29,11 +30,13 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
     private readonly string _toolsRoot;
     private readonly Dictionary<string, string?> _settings;
     private readonly Action<IServiceCollection>? _configureTestServices;
+    private readonly bool _telemetry;
 
     public StreamKeeprAppFactory(
         IReadOnlyDictionary<string, string?>? overrides = null,
         string? recordingsRoot = null,
-        Action<IServiceCollection>? configureTestServices = null)
+        Action<IServiceCollection>? configureTestServices = null,
+        bool telemetry = false)
     {
         _ownsTestRoot = recordingsRoot is null;
         _testRoot = recordingsRoot ??
@@ -41,6 +44,7 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
         _toolsRoot = Path.Combine(
             Path.GetTempPath(), "streamkeepr-test-tools", Guid.NewGuid().ToString("N"));
         _configureTestServices = configureTestServices;
+        _telemetry = telemetry;
 
         // CI installs ffmpeg but not Streamlink; preflight only needs a tool that
         // answers --version, so every host test gets a temp stand-in.
@@ -69,6 +73,24 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
     public string RecordingsRoot => _settings[$"{StorageOptions.SectionName}:RecordingsRoot"]!;
 
     public ListLoggerProvider Logs { get; } = new();
+
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        // Program reads Telemetry:Enabled while the app is being built, before the
+        // WebApplicationFactory configuration callbacks run. Set the environment variable
+        // just around host creation so every test is explicit and leaks nothing afterward.
+        const string key = "Telemetry__Enabled";
+        string? previous = Environment.GetEnvironmentVariable(key);
+        Environment.SetEnvironmentVariable(key, _telemetry ? "true" : "false");
+        try
+        {
+            return base.CreateHost(builder);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(key, previous);
+        }
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

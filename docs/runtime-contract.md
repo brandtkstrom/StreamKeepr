@@ -211,8 +211,8 @@ Freedom: dictionary/lock implementation, task scheduling, exception types beyond
 ## 13. Telemetry
 
 OpenTelemetry is opt-in. `Telemetry:Enabled` defaults to `false`; the Mock profile forces it to
-`false` in its in-memory configuration, and the default test host inherits the `false` appsetting.
-Telemetry is enabled only when `Telemetry:Enabled` is `true`.
+`false` in its in-memory configuration, and the test host factory sets it to `false` for every host
+it creates. Telemetry is enabled only when `Telemetry:Enabled` is `true`.
 
 - The app exports OTLP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is non-empty. Enabling telemetry
   without an endpoint registers the SDK and instruments but no exporter, and logs a warning. This

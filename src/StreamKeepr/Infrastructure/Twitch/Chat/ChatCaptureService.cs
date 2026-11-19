@@ -17,7 +17,7 @@ public sealed class ChatCaptureService(
     IOptions<ChatOptions> options,
     TimeProvider clock,
     ILogger<ChatCaptureService> logger,
-    StreamKeeprTelemetry? telemetry = null) : BackgroundService
+    StreamKeeprTelemetry telemetry) : BackgroundService
 {
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan SourceRetryDelay = TimeSpan.FromSeconds(5);

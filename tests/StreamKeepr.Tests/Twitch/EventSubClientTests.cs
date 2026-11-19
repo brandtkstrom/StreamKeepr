@@ -14,6 +14,7 @@ using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Telemetry;
 using StreamKeepr.Infrastructure.Twitch;
+using StreamKeepr.Tests.Telemetry;
 using StreamKeepr.Tests.Hosting;
 using static StreamKeepr.Tests.Twitch.EventSubMessages;
 
@@ -32,6 +33,7 @@ public sealed class EventSubClientTests : IDisposable
     private readonly FakeEventSubSocketFactory _socketFactory = new();
     private readonly FakeChannelInfoPoller _poller = new();
     private readonly PollSchedule _schedule;
+    private readonly TestTelemetry _telemetry = new();
 
     public EventSubClientTests()
     {
@@ -52,6 +54,7 @@ public sealed class EventSubClientTests : IDisposable
 
     public void Dispose()
     {
+        _telemetry.Dispose();
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
     }
@@ -96,26 +99,20 @@ public sealed class EventSubClientTests : IDisposable
     [Fact]
     public async Task A_session_end_records_a_reconnect()
     {
-        using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
-        var factory = services.GetRequiredService<IMeterFactory>();
-        using var telemetry = new StreamKeeprTelemetry(factory);
         using var reconnects = new MetricCollector<long>(
-            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.eventsub.reconnects");
+            _telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.eventsub.reconnects");
 
-        EventSubClient client = CreateClient(telemetry: telemetry);
+        EventSubClient client = CreateClient();
         using var stop = new CancellationTokenSource();
         Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
 
         await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
         _socketFactory.LastSocket!.Close();
 
-        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
-        while (reconnects.GetMeasurementSnapshot().Count == 0 && DateTime.UtcNow < deadline)
-            await Task.Delay(20);
-
+        await reconnects.WaitForMeasurementsAsync(1, TimeSpan.FromSeconds(5));
         CollectedMeasurement<long> reconnect = Assert.Single(reconnects.GetMeasurementSnapshot());
         Assert.Equal(1, reconnect.Value);
-        Assert.Equal("WebSocket", reconnect.Tags["streamkeepr.eventsub.transport"]);
+        Assert.Equal("WebSocket", reconnect.Tags["eventsub.transport"]);
 
         stop.Cancel();
         await run.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1655,8 +1652,7 @@ public sealed class EventSubClientTests : IDisposable
         IAdminTokenStore? tokens = null,
         IHttpClientFactory? httpFactory = null,
         ILogger<EventSubClient>? logger = null,
-        ILogger<WebSocketEventSubBinding>? bindingLogger = null,
-        StreamKeeprTelemetry? telemetry = null) =>
+        ILogger<WebSocketEventSubBinding>? bindingLogger = null) =>
         new(
             socketFactory ?? _socketFactory,
             new WebSocketEventSubBinding(
@@ -1673,7 +1669,7 @@ public sealed class EventSubClientTests : IDisposable
             jitter ?? new NoJitter(),
             _clock,
             logger ?? NullLogger<EventSubClient>.Instance,
-            telemetry);
+            _telemetry.Value);
 
     private static HttpResponseMessage SubscriptionsResponse(string sessionId) =>
         new(HttpStatusCode.OK)
