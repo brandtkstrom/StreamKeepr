@@ -268,7 +268,9 @@ public sealed class RecorderJob(
                 CancellationToken.None);
         }
 
-        long partBytes = 0;
+        // Null when unknown: telemetry must never fail the recorder, and a failed read must not
+        // be reported as a 0-byte part.
+        long? partBytes = null;
         if (telemetry.Enabled)
         {
             try
@@ -277,7 +279,8 @@ public sealed class RecorderJob(
             }
             catch (Exception ex)
             {
-                logger.LogDebug(ex, "Could not read the part size for telemetry.");
+                logger.LogWarning(
+                    ex, "Could not read the part size; the part's size metric is skipped.");
             }
         }
 

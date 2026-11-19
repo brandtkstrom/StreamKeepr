@@ -54,6 +54,23 @@ public sealed class StreamKeeprTelemetryTests
     }
 
     [Fact]
+    public void An_unknown_part_size_counts_the_part_but_records_no_size()
+    {
+        using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
+        var factory = services.GetRequiredService<IMeterFactory>();
+        using var telemetry = new StreamKeeprTelemetry(factory, enabled: true);
+        using var parts = new MetricCollector<long>(
+            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.parts");
+        using var sizes = new MetricCollector<long>(
+            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.part.size");
+
+        telemetry.PartExited(StreamKeepr.Domain.RecorderExitKind.Exited, TimeSpan.FromSeconds(5), bytes: null);
+
+        Assert.Single(parts.GetMeasurementSnapshot());
+        Assert.Empty(sizes.GetMeasurementSnapshot());
+    }
+
+    [Fact]
     public void Stall_and_force_kill_are_counted()
     {
         using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();

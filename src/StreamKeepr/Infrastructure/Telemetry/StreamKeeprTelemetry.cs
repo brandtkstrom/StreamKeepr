@@ -91,7 +91,12 @@ public sealed class StreamKeeprTelemetry : IDisposable
 
     public bool Enabled { get; }
 
-    public void PartExited(RecorderExitKind kind, TimeSpan duration, long bytes)
+    /// <summary>
+    /// Counts a finished part and records its duration. <paramref name="bytes"/> is null when the
+    /// part size could not be read; no size sample is recorded then, so a failed read never
+    /// appears as a 0-byte part.
+    /// </summary>
+    public void PartExited(RecorderExitKind kind, TimeSpan duration, long? bytes)
     {
         if (!Enabled)
             return;
@@ -101,7 +106,8 @@ public sealed class StreamKeeprTelemetry : IDisposable
 
         _parts.Add(1, tag);
         _partDuration.Record(duration.TotalSeconds, tag);
-        _partSize.Record(bytes, tag);
+        if (bytes is long size)
+            _partSize.Record(size, tag);
     }
 
     public void Stall()
