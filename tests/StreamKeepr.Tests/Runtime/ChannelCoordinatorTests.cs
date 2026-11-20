@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
+using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Tests.Hosting;
@@ -522,6 +523,85 @@ public sealed class ChannelCoordinatorTests
             message => message.Contains("viewer sample", StringComparison.Ordinal));
     }
 
+
+    [Fact]
+    public async Task An_unverified_shutdown_faults_the_channel_and_never_starts_another_writer()
+    {
+        using var context = new Context();
+        var first = new TaskCompletionSource<RecorderCall>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        DateTime captured = new(2026, 11, 10, 16, 30, 0, DateTimeKind.Utc);
+        int runs = 0;
+
+        context.Recorder.OnRun = async (call, _) =>
+        {
+            Interlocked.Increment(ref runs);
+            first.TrySetResult(call);
+            WritePart(call.Session, 1);
+            await call.PublishAsync(new DvrEvent.PartProducingMedia(
+                call.Job, context.Clock.GetUtcNow()));
+            throw new RecorderShutdownException(
+                call.Job,
+                "streamlink",
+                4321,
+                captured,
+                ProcessStop.TimedOut,
+                taskPending: true,
+                "PID 4321 is still alive");
+        };
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
+
+        RecorderCall call = await first.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _ = await context.Recorder.Started.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.ThrowsAsync<ChannelFatalException>(
+            async () => await context.Loop.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.Equal(1, Volatile.Read(ref runs));
+        Assert.Equal(call.Job, context.Coordinator.ActiveJobId);
+        Assert.False(context.Recorder.Started.TryRead(out _));
+
+        DvrSnapshot snapshot = context.Status.Current[Channel];
+        Assert.Contains("4321", snapshot.LastError, StringComparison.Ordinal);
+        Assert.Contains("streamlink", snapshot.LastError, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_unverified_shutdown_faults_even_when_the_reducer_enters_cooling_down()
+    {
+        using var context = new Context(failuresBeforeCooldown: 1);
+        DateTime captured = new(2026, 11, 10, 16, 30, 0, DateTimeKind.Utc);
+        int runs = 0;
+
+        context.Recorder.OnRun = async (call, _) =>
+        {
+            Interlocked.Increment(ref runs);
+            WritePart(call.Session, 1);
+            await call.PublishAsync(new DvrEvent.PartProducingMedia(
+                call.Job, context.Clock.GetUtcNow()));
+            throw new RecorderShutdownException(
+                call.Job,
+                "ffmpeg",
+                4322,
+                captured,
+                ProcessStop.Unverified,
+                taskPending: false,
+                "PID 4322 is still alive");
+        };
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
+
+        await Assert.ThrowsAsync<ChannelFatalException>(
+            async () => await context.Loop.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.Equal(1, Volatile.Read(ref runs));
+        Assert.False(context.FixedJitter.Applied.IsCompleted);
+        Assert.Contains("4322", context.Status.Current[Channel].LastError, StringComparison.Ordinal);
+    }
+
     private static Func<RecorderCall, CancellationToken, Task> RecordUntilStopped(Context context) =>
         async (call, stopRequested) =>
         {
@@ -560,7 +640,10 @@ public sealed class ChannelCoordinatorTests
         public static readonly DateTimeOffset StartedAt =
             new(2026, 11, 10, 16, 30, 0, TimeSpan.Zero);
 
-        public Context(IRetryJitter? jitter = null, IDiskSpace? diskSpace = null)
+        public Context(
+            IRetryJitter? jitter = null,
+            IDiskSpace? diskSpace = null,
+            int failuresBeforeCooldown = 3)
         {
             Root = Path.Combine(
                 Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
@@ -589,7 +672,7 @@ public sealed class ChannelCoordinatorTests
                     MaxRetries: 3,
                     RetryBase: TimeSpan.FromSeconds(2),
                     RetryMax: TimeSpan.FromSeconds(10),
-                    FailuresBeforeCooldown: 3,
+                    FailuresBeforeCooldown: failuresBeforeCooldown,
                     Cooldown: TimeSpan.FromMinutes(1),
                     HealthyPart: TimeSpan.FromSeconds(30)),
                 new DvrState.Idle(),

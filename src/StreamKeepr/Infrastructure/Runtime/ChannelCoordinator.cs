@@ -41,6 +41,16 @@ public sealed class ChannelCoordinator
     private RetryTimer? _retry;
     private int _queueDepth;
 
+    // Durable after an unverified shutdown: no later StartJob, StopJob, or ScheduleRetry may
+    // start another writer while the previous process tree may still be writing.
+    private RecorderShutdownException? _shutdownFault;
+    private readonly TaskCompletionSource _faultSignal =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    // A job whose stop budget already expired is abandoned in place; the loop is faulting and
+    // must not spend a second budget in its finally block.
+    private bool _jobStopTimedOut;
+
     public ChannelCoordinator(
         string channel,
         DvrSettings settings,
@@ -101,14 +111,56 @@ public sealed class ChannelCoordinator
     /// <summary>Lets the loop drain queued events and then end; used when a channel is removed.</summary>
     public void Complete() => _events.Writer.TryComplete();
 
+    /// <summary>The active job, retained after an unverified shutdown.</summary>
+    internal JobId? ActiveJobId => _job?.Id;
+
+    /// <summary>
+    /// Fails the channel loop when a recorder shutdown could not be verified. The active job is
+    /// retained: the previous writer may still be alive, so no command may start another one.
+    /// </summary>
+    private void ThrowIfShutdownFault()
+    {
+        if (Volatile.Read(ref _shutdownFault) is not { } fault)
+            return;
+
+        throw new ChannelFatalException(
+            $"{_channel}: recorder {fault.Job} shutdown could not be verified "
+            + $"({fault.Tool}, pid {fault.ProcessId?.ToString() ?? "unknown"}); "
+            + "refusing to start another writer.",
+            fault);
+    }
+
     public async Task RunAsync(CancellationToken ct)
     {
         _status.Applied(_channel, null, _state, _clock.GetUtcNow());
 
+        Task<DvrEvent>? pending = null;
         try
         {
-            await foreach (DvrEvent @event in _events.Reader.ReadAllAsync(ct))
+            while (true)
             {
+                pending = _events.Reader.ReadAsync(ct).AsTask();
+
+                // Race the fault signal with the queue so a stop that cannot be verified fails
+                // the loop immediately, even when the reducer enters CoolingDown and emits no
+                // command that would otherwise notice it.
+                Task first = await Task.WhenAny(pending, _faultSignal.Task)
+                    .ConfigureAwait(false);
+                if (first == _faultSignal.Task)
+                    ThrowIfShutdownFault();
+
+                DvrEvent @event;
+                try
+                {
+                    @event = await pending.ConfigureAwait(false);
+                }
+                catch (ChannelClosedException)
+                {
+                    pending = null;
+                    break;
+                }
+
+                pending = null;
                 Interlocked.Decrement(ref _queueDepth);
 
                 DvrState before = _state;
@@ -134,6 +186,7 @@ public sealed class ChannelCoordinator
                 }
 
                 await ExecuteCommandsAsync(step.Commands, ct);
+                ThrowIfShutdownFault();
                 await SampleViewersAsync(@event, ct);
             }
         }
@@ -144,8 +197,24 @@ public sealed class ChannelCoordinator
         finally
         {
             _events.Writer.TryComplete();
+            if (pending is not null)
+            {
+                // Observe the read that was still pending when the fault signal ended the loop.
+                try
+                {
+                    await pending.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // The host token was canceled while the loop was unwinding.
+                }
+                catch (ChannelClosedException)
+                {
+                    // The writer was completed as the loop ended.
+                }
+            }
             await CancelRetryAsync();
-            await StopJobAsync(fatalOnTimeout: false);
+            await StopJobCoreAsync(fatalOnTimeout: false);
         }
     }
 
@@ -275,10 +344,12 @@ public sealed class ChannelCoordinator
     {
         // Never start a second writer while the previous job may still be writing.
         await StopJobAsync(fatalOnTimeout: true);
+        ThrowIfShutdownFault();
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         Task completion = Task.Run(() => RecordPartAsync(session, job, cts.Token), CancellationToken.None);
         _job = new ActiveJob(job, cts, completion);
+        _jobStopTimedOut = false;
     }
 
     private async Task RecordPartAsync(Session session, JobId job, CancellationToken stopRequested)
@@ -299,6 +370,19 @@ public sealed class ChannelCoordinator
                 PublishAsync,
                 stopRequested,
                 ReportProgress);
+        }
+        catch (RecorderShutdownException ex)
+        {
+            // The previous writer may still be alive. Publish exactly one Killed exit for status
+            // and streak, make the fault durable, and fail the loop; never synthesize Exited.
+            Volatile.Write(ref _shutdownFault, ex);
+            _logger.LogError(
+                ex, "{Channel}: recorder {Job} shutdown could not be verified", _channel, job);
+            _status.Failed(_channel, ex.Message);
+            await PublishAsync(new DvrEvent.RecorderExited(
+                job, _clock.GetUtcNow(), RecorderExitKind.Killed, ex.Message));
+            _faultSignal.TrySetResult();
+            throw;
         }
         catch (OperationCanceledException) when (stopRequested.IsCancellationRequested)
         {
@@ -324,17 +408,34 @@ public sealed class ChannelCoordinator
 
     private async Task StopJobAsync(bool fatalOnTimeout)
     {
+        ThrowIfShutdownFault();
+        await StopJobCoreAsync(fatalOnTimeout);
+        if (fatalOnTimeout)
+            ThrowIfShutdownFault();
+    }
+
+    private async Task StopJobCoreAsync(bool fatalOnTimeout)
+    {
         if (_job is not { } job)
             return;
 
-        _job = null;
-        await job.Cts.CancelAsync();
+        if (_jobStopTimedOut)
+        {
+            if (fatalOnTimeout)
+                throw StopTimedOut(job.Id);
+
+            return;
+        }
+
+        if (!job.Completion.IsCompleted)
+            await job.Cts.CancelAsync();
 
         using var budgetCts = new CancellationTokenSource();
         Task budget = Task.Delay(JobStopBudget, _clock, budgetCts.Token);
         Task finished = await Task.WhenAny(job.Completion, budget);
         if (finished != job.Completion)
         {
+            _jobStopTimedOut = true;
             _logger.LogError(
                 "{Channel}: recorder {Job} did not stop within {Budget}.",
                 _channel,
@@ -342,10 +443,7 @@ public sealed class ChannelCoordinator
                 JobStopBudget);
 
             if (fatalOnTimeout)
-            {
-                throw new ChannelFatalException(
-                    $"Recorder {job.Id} did not stop within {JobStopBudget}; refusing to start another writer.");
-            }
+                throw StopTimedOut(job.Id);
 
             return;
         }
@@ -353,10 +451,23 @@ public sealed class ChannelCoordinator
         await budgetCts.CancelAsync();
         await job.Completion.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         job.Cts.Dispose();
+
+        // Only a successful completion proves the recorder returned on its own terms. A faulted
+        // shutdown keeps the active job so no later command can start a second writer.
+        if (job.Completion.Status == TaskStatus.RanToCompletion)
+        {
+            _job = null;
+            _jobStopTimedOut = false;
+        }
     }
+
+    private static ChannelFatalException StopTimedOut(JobId job) =>
+        new($"Recorder {job} did not stop within {JobStopBudget}; refusing to start another writer.");
 
     private async Task ScheduleRetryAsync(JobId job, TimeSpan baseDelay, CancellationToken ct)
     {
+        ThrowIfShutdownFault();
+
         // The previous part is over, but its task may still be unwinding. Never leave two
         // writers or a stale retry timer behind.
         await StopJobAsync(fatalOnTimeout: true);
