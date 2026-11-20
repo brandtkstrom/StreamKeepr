@@ -110,4 +110,64 @@ public sealed class PartFilesTests : IDisposable
         Assert.Equal(0, PartFiles.TotalBytes(_directory, 2));
         Assert.Equal(0, PartFiles.TotalBytes(Path.Combine(_directory, "missing"), 1));
     }
+
+    [Theory]
+    [InlineData("p001_00000.m4s", 1)]
+    [InlineData("p999_99999.m4s", 999)]
+    public void TryParseSegment_accepts_exact_segment_names(string name, int expectedPart)
+    {
+        Assert.True(PartFiles.TryParseSegment(name, out int part));
+        Assert.Equal(expectedPart, part);
+    }
+
+    [Theory]
+    [InlineData("p001_0000.m4s")]
+    [InlineData("p001_000000.m4s")]
+    [InlineData("p001_00000.m4s.tmp")]
+    [InlineData("p01_00000.m4s")]
+    [InlineData("p001_00000.M4S")]
+    [InlineData("p001-00000.m4s")]
+    public void TryParseSegment_rejects_anything_else(string name)
+    {
+        Assert.False(PartFiles.TryParseSegment(name, out _));
+    }
+
+    [Theory]
+    [InlineData("init_001.mp4", 1)]
+    [InlineData("init_999.mp4", 999)]
+    public void TryParseInit_accepts_exact_init_names(string name, int expectedPart)
+    {
+        Assert.True(PartFiles.TryParseInit(name, out int part));
+        Assert.Equal(expectedPart, part);
+    }
+
+    [Theory]
+    [InlineData("init_01.mp4")]
+    [InlineData("init_001.mp4.tmp")]
+    [InlineData("init_001.m4s")]
+    [InlineData("init-001.mp4")]
+    public void TryParseInit_rejects_anything_else(string name)
+    {
+        Assert.False(PartFiles.TryParseInit(name, out _));
+    }
+
+    [Theory]
+    [InlineData("p001_00000.m4s")]
+    [InlineData("init_001.mp4")]
+    public void TryGetBareFileName_accepts_a_plain_name(string name)
+    {
+        Assert.True(PartFiles.TryGetBareFileName(name, out string fileName));
+        Assert.Equal(name, fileName);
+    }
+
+    [Theory]
+    [InlineData("../p001_00000.m4s")]
+    [InlineData("sub/p001_00000.m4s")]
+    [InlineData("sub\\p001_00000.m4s")]
+    [InlineData("/p001_00000.m4s")]
+    [InlineData("")]
+    public void TryGetBareFileName_rejects_directory_components(string name)
+    {
+        Assert.False(PartFiles.TryGetBareFileName(name, out _));
+    }
 }

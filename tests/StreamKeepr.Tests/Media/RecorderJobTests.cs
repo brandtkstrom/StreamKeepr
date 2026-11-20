@@ -21,6 +21,8 @@ public sealed class RecorderJobTests : IDisposable
     private static readonly DateTimeOffset StartedAt =
         new(2026, 11, 10, 16, 30, 0, TimeSpan.Zero);
 
+    private static readonly DateTime ProcessStartedAt = StartedAt.UtcDateTime;
+
     private readonly string _root = Path.Combine(
         Path.GetTempPath(),
         "streamkeepr-tests",
@@ -53,6 +55,8 @@ public sealed class RecorderJobTests : IDisposable
         Assert.Equal(job, media.Job);
         Assert.Equal(job, exited.Job);
         Assert.Equal(RecorderExitKind.Exited, exited.Kind);
+        Assert.Contains("pid ", exited.Detail, StringComparison.Ordinal);
+        Assert.Contains("started ", exited.Detail, StringComparison.Ordinal);
         Assert.True(
             events.ToList().IndexOf(media) < events.ToList().IndexOf(exited),
             "PartProducingMedia must be published before RecorderExited");
@@ -281,7 +285,7 @@ public sealed class RecorderJobTests : IDisposable
             Assert.Equal($"{session.Id}/p001", entry.Scopes["Job"]);
         });
 
-        CapturedLogEntry started = Assert.Single(entries, entry => entry.Message.Contains("started", StringComparison.Ordinal));
+        CapturedLogEntry started = Assert.Single(entries, entry => entry.Message.Contains("started part", StringComparison.Ordinal));
         Assert.Equal(LogLevel.Information, started.Level);
         Assert.Equal("streamer", started.Properties["Channel"]);
         Assert.Equal($"{session.Id}/p001", started.Properties["Job"]?.ToString());
@@ -498,12 +502,337 @@ public sealed class RecorderJobTests : IDisposable
         Assert.True(elapsed < TimeSpan.FromSeconds(35), $"stop took {elapsed}");
     }
 
+    [Fact]
+    public async Task Progress_is_nondecreasing_and_the_final_sample_matches_the_part_bytes()
+    {
+        Session session = NewSession();
+        RecorderOptions options = NewOptions(
+            WriteScript("fake-progress-ffmpeg", ProgressFfmpegScript));
+        options.StreamlinkPath = WriteScript(
+            "fake-finishing-streamlink", WaitingStreamlinkScript);
+
+        var progress = new List<(long Bytes, TimeSpan MediaTime)>();
+        IReadOnlyList<DvrEvent> events = await RunAsync(
+            session,
+            options,
+            reportProgress: (_, bytes, mediaTime) =>
+            {
+                lock (progress)
+                    progress.Add((bytes, mediaTime));
+            });
+
+        var exited = Assert.Single(events.OfType<DvrEvent.RecorderExited>());
+        Assert.Equal(RecorderExitKind.Exited, exited.Kind);
+
+        List<(long Bytes, TimeSpan MediaTime)> samples;
+        lock (progress)
+            samples = progress.ToList();
+
+        Assert.True(samples.Count >= 2, "expected a progress sample before the final block");
+        for (int i = 1; i < samples.Count; i++)
+        {
+            Assert.True(
+                samples[i].Bytes >= samples[i - 1].Bytes,
+                $"part bytes went backwards: {samples[i - 1].Bytes} then {samples[i].Bytes}");
+        }
+
+        long onDisk = PartFiles.TotalBytes(session.Directory, 1);
+        Assert.True(onDisk > 0, "the fake FFmpeg must produce part files");
+        Assert.Equal(onDisk, samples[^1].Bytes);
+    }
+
+    [Fact]
+    public async Task An_unreadable_playlist_does_not_fail_the_part()
+    {
+        Session session = NewSession();
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        ILogger<RecorderJob> logger = loggerFactory.CreateLogger<RecorderJob>();
+        RecorderOptions options = NewOptions(
+            WriteScript("fake-locking-ffmpeg", LockingFfmpegScript));
+        options.StreamlinkPath = WriteScript(
+            "fake-waiting-streamlink", WaitingStreamlinkScript);
+
+        var progress = new List<(long Bytes, TimeSpan MediaTime)>();
+        var firstSample = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        (Task run, List<DvrEvent> events) = StartJob(
+            session,
+            options,
+            logger: logger,
+            reportProgress: (_, bytes, mediaTime) =>
+            {
+                lock (progress)
+                    progress.Add((bytes, mediaTime));
+                if (mediaTime == TimeSpan.FromSeconds(1))
+                    firstSample.TrySetResult();
+            });
+
+        string playlistPath = Path.Combine(session.Directory, PartFiles.Playlist(1));
+        try
+        {
+            // The callback runs after the tracker's playlist handle is closed, so the test can
+            // take an exclusive lock without racing the reader.
+            await firstSample.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+            await File.WriteAllTextAsync(
+                Path.Combine(session.Directory, "p001_00001.m4s"), "bb");
+            await File.AppendAllTextAsync(playlistPath, "\np001_00001.m4s\n");
+
+            await using (var locked = new FileStream(
+                playlistPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.None))
+            {
+                await File.WriteAllTextAsync(
+                    Path.Combine(session.Directory, "playlist.locked"), string.Empty);
+                await WaitForFileAsync(Path.Combine(session.Directory, "second.sample"));
+                await WaitForCompletionAsync(run, "recorder job");
+            }
+        }
+        finally
+        {
+            if (!run.IsCompleted)
+            {
+                // Release the waiting fake process so disposal can delete the session directory.
+                try
+                {
+                    await File.WriteAllTextAsync(
+                        Path.Combine(session.Directory, "playlist.locked"), string.Empty);
+                    await run.WaitAsync(TimeSpan.FromSeconds(30));
+                }
+                catch (Exception)
+                {
+                    // Cleanup only; the test's own failure is the useful signal.
+                }
+            }
+        }
+
+        IReadOnlyList<DvrEvent> recorded = ReadEvents(events);
+        var exited = Assert.Single(recorded.OfType<DvrEvent.RecorderExited>());
+        Assert.Equal(RecorderExitKind.Exited, exited.Kind);
+
+        List<(long Bytes, TimeSpan MediaTime)> samples;
+        lock (progress)
+            samples = progress.ToList();
+        Assert.Contains(samples, sample => sample.MediaTime == TimeSpan.FromSeconds(2));
+
+        // Live progress keeps the last readable total; the final reconcile is authoritative.
+        Assert.Equal(samples[0].Bytes, samples[^1].Bytes);
+
+        long onDisk = PartFiles.TotalBytes(session.Directory, 1);
+        CapturedLogEntry finished = Assert.Single(
+            logs.Entries,
+            entry => entry.Message.Contains("finished", StringComparison.Ordinal));
+        Assert.Equal(onDisk, Assert.IsType<long>(finished.Properties["Bytes"]));
+    }
+
+    [Fact]
+    public async Task An_unverified_streamlink_shutdown_raises_a_shutdown_exception()
+    {
+        DateTime captured = ProcessStartedAt;
+        var ffmpeg = new TaskCompletionSource<ProcessOutcome>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var streamlink = new TaskCompletionSource<ProcessOutcome>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int starts = 0;
+
+        var runner = new FakeProcessRunner((tool, _, _) =>
+        {
+            if (Interlocked.Increment(ref starts) == 2)
+                started.TrySetResult();
+
+            return tool == "ffmpeg"
+                ? new RunningProcess(4322, captured, ffmpeg.Task)
+                : new RunningProcess(4321, captured, streamlink.Task);
+        });
+
+        using var stop = new CancellationTokenSource();
+        (Task run, _) = StartJob(
+            NewSession(),
+            FakeOptions(),
+            new ScaledTimeProvider(),
+            stopRequested: stop.Token,
+            processRunner: runner,
+            identityProbe: (pid, at) => ProcessIdentityInspector.Inspect(pid, at, _ => captured));
+
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        stop.Cancel();
+
+        RecorderShutdownException error = await Assert.ThrowsAsync<RecorderShutdownException>(
+            () => run.WaitAsync(TimeSpan.FromSeconds(30)));
+
+        Assert.Equal("streamlink", error.Tool);
+        Assert.Equal(4321, error.ProcessId);
+        Assert.Equal(captured, error.CapturedStartTime);
+        Assert.Equal(ProcessStop.TimedOut, error.Stop);
+        Assert.True(error.TaskPending);
+        Assert.Contains("still alive", error.ObservedState, StringComparison.Ordinal);
+        Assert.Contains("streamlink", error.Message, StringComparison.Ordinal);
+        Assert.Contains("4321", error.Message, StringComparison.Ordinal);
+        Assert.Contains("task pending", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Authorization", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_verified_force_kill_stays_killed()
+    {
+        DateTime captured = ProcessStartedAt;
+        var streamlink = new TaskCompletionSource<ProcessOutcome>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var runner = new FakeProcessRunner((tool, forceKill, _) =>
+        {
+            if (tool == "ffmpeg")
+            {
+                return new RunningProcess(
+                    4322, captured, Task.FromResult(Completed(4322, captured)));
+            }
+
+            forceKill.Register(() => streamlink.TrySetResult(
+                new ProcessOutcome(0, null, true, 4321, captured, ProcessStop.AlreadyStopped, false)));
+            return new RunningProcess(4321, captured, streamlink.Task);
+        });
+
+        IReadOnlyList<DvrEvent> events = await RunAsync(
+            NewSession(),
+            FakeOptions(),
+            clock: new ScaledTimeProvider(),
+            processRunner: runner,
+            identityProbe: (pid, at) =>
+                ProcessIdentityInspector.Inspect(pid, at, _ => throw new ArgumentException("gone")));
+
+        var exited = Assert.Single(events.OfType<DvrEvent.RecorderExited>());
+        Assert.Equal(RecorderExitKind.Killed, exited.Kind);
+        Assert.Contains("streamlink", exited.Detail, StringComparison.Ordinal);
+        Assert.Contains("4321", exited.Detail, StringComparison.Ordinal);
+        Assert.Contains("stop Forced", exited.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_clean_stream_end_stays_exited()
+    {
+        DateTime captured = ProcessStartedAt;
+        var runner = new FakeProcessRunner((tool, _, _) =>
+            tool == "ffmpeg"
+                ? new RunningProcess(4322, captured, Task.FromResult(Completed(4322, captured)))
+                : new RunningProcess(4321, captured, Task.FromResult(Completed(4321, captured))));
+
+        IReadOnlyList<DvrEvent> events = await RunAsync(
+            NewSession(),
+            FakeOptions(),
+            clock: new ScaledTimeProvider(),
+            processRunner: runner,
+            identityProbe: (_, _) => throw new InvalidOperationException(
+                "a clean exit must not inspect process identity"));
+
+        var exited = Assert.Single(events.OfType<DvrEvent.RecorderExited>());
+        Assert.Equal(RecorderExitKind.Exited, exited.Kind);
+        Assert.Contains("streamlink", exited.Detail, StringComparison.Ordinal);
+        Assert.Contains("exit 0", exited.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_force_killed_pid_that_is_still_alive_fails_closed()
+    {
+        DateTime captured = ProcessStartedAt;
+        var streamlink = new TaskCompletionSource<ProcessOutcome>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var runner = new FakeProcessRunner((tool, forceKill, _) =>
+        {
+            if (tool == "ffmpeg")
+            {
+                return new RunningProcess(
+                    4322, captured, Task.FromResult(Completed(4322, captured)));
+            }
+
+            forceKill.Register(() => streamlink.TrySetResult(
+                new ProcessOutcome(0, null, true, 4321, captured, ProcessStop.AlreadyStopped, false)));
+            return new RunningProcess(4321, captured, streamlink.Task);
+        });
+
+        RecorderShutdownException error = await Assert.ThrowsAsync<RecorderShutdownException>(
+            () => RunAsync(
+                NewSession(),
+                FakeOptions(),
+                clock: new ScaledTimeProvider(),
+                processRunner: runner,
+                identityProbe: (pid, at) =>
+                    ProcessIdentityInspector.Inspect(pid, at, _ => captured)));
+
+        Assert.Equal(ProcessStop.Unverified, error.Stop);
+        Assert.False(error.TaskPending);
+        Assert.Contains("still alive", error.ObservedState, StringComparison.Ordinal);
+        Assert.Contains("4321", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_force_killed_pid_with_an_unreadable_identity_fails_closed()
+    {
+        DateTime captured = ProcessStartedAt;
+        var streamlink = new TaskCompletionSource<ProcessOutcome>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var runner = new FakeProcessRunner((tool, forceKill, _) =>
+        {
+            if (tool == "ffmpeg")
+            {
+                return new RunningProcess(
+                    4322, captured, Task.FromResult(Completed(4322, captured)));
+            }
+
+            forceKill.Register(() => streamlink.TrySetResult(
+                new ProcessOutcome(0, null, true, 4321, captured, ProcessStop.AlreadyStopped, false)));
+            return new RunningProcess(4321, captured, streamlink.Task);
+        });
+
+        RecorderShutdownException error = await Assert.ThrowsAsync<RecorderShutdownException>(
+            () => RunAsync(
+                NewSession(),
+                FakeOptions(),
+                clock: new ScaledTimeProvider(),
+                processRunner: runner,
+                identityProbe: (pid, at) => ProcessIdentityInspector.Inspect(
+                    pid, at, _ => throw new UnauthorizedAccessException("denied"))));
+
+        Assert.Equal(ProcessStop.Unverified, error.Stop);
+        Assert.Contains("could not be read", error.ObservedState, StringComparison.Ordinal);
+        Assert.Contains("4321", error.Message, StringComparison.Ordinal);
+    }
+
+    private static ProcessOutcome Completed(int pid, DateTime started, int exitCode = 0) =>
+        new(exitCode, null, false, pid, started, ProcessStop.AlreadyStopped, false);
+
+    private static RecorderOptions FakeOptions() => new()
+    {
+        StreamlinkPath = "streamlink",
+        FfmpegPath = "ffmpeg",
+        Quality = "best",
+        SegmentSeconds = 2,
+        FinalizeTimeoutSeconds = 10,
+    };
+
+    private sealed class FakeProcessRunner(
+        Func<string, CancellationToken, CancellationToken, RunningProcess> start)
+        : IRecorderProcessRunner
+    {
+        public RunningProcess Start(
+            Command command, CancellationToken forceKill, CancellationToken gracefulStop) =>
+            start(command.TargetFilePath, forceKill, gracefulStop);
+    }
+
     private (Task Run, List<DvrEvent> Events) StartJob(
         Session session,
         RecorderOptions options,
         TimeProvider? clock = null,
         ILogger<RecorderJob>? logger = null,
-        CancellationToken stopRequested = default)
+        CancellationToken stopRequested = default,
+        Action<JobId, long, TimeSpan>? reportProgress = null,
+        IRecorderProcessRunner? processRunner = null,
+        Func<int?, DateTime?, ProcessIdentity>? identityProbe = null)
     {
         var events = new List<DvrEvent>();
         ValueTask Publish(DvrEvent dvrEvent, CancellationToken _)
@@ -513,12 +842,15 @@ public sealed class RecorderJobTests : IDisposable
             return ValueTask.CompletedTask;
         }
 
-        var job = new RecorderJob(
-            Options.Create(options),
-            clock ?? TimeProvider.System,
-            logger ?? NullLogger<RecorderJob>.Instance,
-            _telemetry.Value);
-        Task run = job.RunAsync(session, new JobId(session.Id, 1), Publish, stopRequested);
+        IOptions<RecorderOptions> configured = Options.Create(options);
+        TimeProvider time = clock ?? TimeProvider.System;
+        ILogger<RecorderJob> recorderLogger = logger ?? NullLogger<RecorderJob>.Instance;
+        var job = processRunner is null
+            ? new RecorderJob(configured, time, recorderLogger, _telemetry.Value)
+            : new RecorderJob(
+                configured, time, recorderLogger, _telemetry.Value, processRunner, identityProbe);
+        Task run = job.RunAsync(
+            session, new JobId(session.Id, 1), Publish, stopRequested, reportProgress);
         return (run, events);
     }
 
@@ -527,9 +859,13 @@ public sealed class RecorderJobTests : IDisposable
         RecorderOptions options,
         CancellationToken stopRequested = default,
         TimeProvider? clock = null,
-        ILogger<RecorderJob>? logger = null)
+        ILogger<RecorderJob>? logger = null,
+        Action<JobId, long, TimeSpan>? reportProgress = null,
+        IRecorderProcessRunner? processRunner = null,
+        Func<int?, DateTime?, ProcessIdentity>? identityProbe = null)
     {
-        (Task run, List<DvrEvent> events) = StartJob(session, options, clock, logger, stopRequested);
+        (Task run, List<DvrEvent> events) = StartJob(
+            session, options, clock, logger, stopRequested, reportProgress, processRunner, identityProbe);
         await WaitForCompletionAsync(run, "recorder job");
         return ReadEvents(events);
     }
@@ -582,12 +918,66 @@ public sealed class RecorderJobTests : IDisposable
     };
 
     /// <summary>An ffmpeg stand-in that exits at once; "true" is not on PATH on every platform.</summary>
-    private string WriteExitingCommand()
+    private string WriteExitingCommand() =>
+        WriteScript("exiting-command", "#!/bin/sh\nexit 0\n");
+
+    private string WriteScript(string name, string body)
     {
-        string path = Path.Combine(_root, "exiting-command");
-        File.WriteAllText(path, "#!/bin/sh\nexit 0\n");
+        string path = Path.Combine(_root, name);
+        File.WriteAllText(path, body);
         return TestPaths.StartableScriptPath(path);
     }
+
+    private const string WaitingStreamlinkScript = """
+        #!/bin/sh
+        set -eu
+
+        if [ "${1:-}" = "--version" ]; then
+            echo "streamlink 0.0.0-fake"
+            exit 0
+        fi
+
+        while [ ! -f ffmpeg.done ]; do
+            sleep 0.01
+        done
+        """;
+
+    private const string ProgressFfmpegScript = """
+        #!/bin/sh
+        set -eu
+
+        printf 'init' > init_001.mp4
+        printf 'aaaa' > p001_00000.m4s
+        printf 'bbbbbb' > p001_00001.m4s
+        printf '#EXTM3U\n#EXT-X-MAP:URI="init_001.mp4"\np001_00000.m4s\np001_00001.m4s\n' > p001.m3u8
+        printf 'out_time_us=1000000\nprogress=continue\n'
+
+        printf 'cc' > p001_00002.m4s
+        printf '#EXTM3U\n#EXT-X-MAP:URI="init_001.mp4"\np001_00000.m4s\np001_00001.m4s\np001_00002.m4s\n' > p001.m3u8
+        printf 'out_time_us=2000000\nprogress=continue\n'
+        printf 'out_time_us=2000000\nprogress=end\n'
+
+        : > ffmpeg.done
+        """;
+
+    private const string LockingFfmpegScript = """
+        #!/bin/sh
+        set -eu
+
+        printf 'init' > init_001.mp4
+        printf 'aaaa' > p001_00000.m4s
+        printf '#EXTM3U\n#EXT-X-MAP:URI="init_001.mp4"\np001_00000.m4s\n' > p001.m3u8
+        printf 'out_time_us=1000000\nprogress=continue\n'
+
+        while [ ! -f playlist.locked ]; do
+            sleep 0.01
+        done
+
+        printf 'out_time_us=2000000\nprogress=continue\n'
+        printf 'out_time_us=2000000\nprogress=end\n'
+        : > second.sample
+        : > ffmpeg.done
+        """;
 
     private Session NewSession()
     {

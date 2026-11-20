@@ -13,7 +13,9 @@ One `RecorderJob` run records exactly one part of one session. It runs Streamlin
 - Two independent CliWrap commands per part: Streamlink `--stdout` and FFmpeg `pipe:0`.
 - A bounded `System.IO.Pipelines.Pipe` bridges them: pause the writer at 4 MiB, resume at 2 MiB.
 - Separate graceful and forceful cancellation tokens per process. Never signal the process group.
-- Drain stdout and stderr concurrently. The CliWrap command task completes only after the process exits and both streams reach EOF.
+- Capture the direct PID from the CliWrap command task and its start time from `Process.GetProcessById(pid).StartTime` immediately after launch.
+- Drain stdout and stderr concurrently. The CliWrap command task completes only after the direct process exits and both streams reach EOF. Task completion is necessary but not sufficient for process-tree exit: a descendant can keep a stream open after the direct PID is gone.
+- After a force kill, verify the direct process by PID identity: the captured PID must be gone, or it must now resolve to a different start time (the PID was reused). The task must also have completed. An unreadable identity fails closed; never assume the process is gone.
 
 ## 3. Part files
 
@@ -81,6 +83,31 @@ Order, with every wait bounded:
 
 `FinalizeTimeoutSeconds` is capped at 15 s and defaults to 10 s. Worst case is `20 s + FinalizeTimeoutSeconds`: 30 s by default, 35 s at the cap, inside the 35 s job / 40 s host / 50 s Compose budgets. Do not send repeated SIGINTs; more than three can make FFmpeg hard-exit without a trailer. Never write `q\n` into FFmpeg's stdin.
 
+### Unverified shutdown
+
+A stop is verified only when the bounded wait completes, both streams reach EOF (the CliWrap task completes), and, after a force kill, the captured PID is gone or reused. If the force wait expires with the task still pending, or the captured PID still resolves to the captured start time, or the identity cannot be read, `RecorderJob.StopAsync` throws `RecorderShutdownException`.
+
+The exception carries the job, tool, PID, captured start time, stop result, task-pending flag, and observed process state. The job must not publish `RecorderExited(Exited, ...)` for it: the previous process tree may still be writing. Diagnostic text includes the tool, PID, start time, task state, and observed state; it never includes the OAuth token or the raw Streamlink command line.
+
+The coordinator responds as follows:
+
+1. Publish exactly one `RecorderExited(Killed, detail)` for the failed part, so status and the failure streak stay accurate.
+2. Record a durable shutdown fault and retain the active job; do not treat the recorder task as a verified stop.
+3. Fault the channel loop with `ChannelFatalException` immediately, even when the reducer enters `CoolingDown` and emits no retry command. `DvrSupervisor` stops the host.
+4. `StartRecorder`, `StopRecorder`, and `ScheduleRetry` refuse to start another writer after the fault.
+
+A verified force-kill remains `Killed` and retryable. A clean stream end remains `Exited` and healthy. Only an unverified shutdown is fatal. SIGKILL cannot be blocked, so a `D`-state process may stay unkillable until its I/O completes; the only safe action is to stop writing and alert.
+
+### Restart and orphan policy
+
+The application never signals the process group. A host restart can still kill the app while a tool process survives and keeps writing the old part. The supported guarantee is the service manager's, not a PID marker:
+
+- Docker Compose runs the service with `init: true` and a `stop_grace_period` above the host shutdown timeout, and removes the whole container process tree on stop or restart.
+- A systemd unit must set `KillMode=control-group` so stopping or restarting the unit kills every process in the cgroup.
+- Bare `dotnet run` is not a supported production supervisor; it provides no process-tree guarantee.
+
+There is no PID marker, startup orphan check, or new configuration knob. Recovery may repair orphaned part files; it must not start a writer for a part whose previous process may still be alive.
+
 ### Exit classification
 
 | Kind | Rule |
@@ -94,7 +121,11 @@ Precedence when more than one applies: `Stopped` > `Killed` > `Exited`.
 ## 6. Progress and media detection
 
 - Parse `-progress` key=value lines and emit a sample when `progress=continue` or `progress=end` arrives.
-- `total_size` is `N/A` for the HLS muxer. Compute `TotalBytes` from the part's init and segment files on each sample; report 0 only when no files exist.
+- `total_size` is `N/A` for the HLS muxer. Live byte progress comes from a per-part `PartByteTracker`; the progress path never enumerates the part directory.
+- The tracker re-stats the part playlist only when its length or last-write time changed. It reads `#EXT-X-MAP` for the init URI and non-comment lines for segment names, accepts only exact names for the current part, and stats each newly seen init or completed segment once. `.tmp` files, playlists, other parts, duplicates, and partial writes are ignored.
+- The tracker opens the playlist with sharing that permits FFmpeg's atomic rename. A missing, empty, malformed, or momentarily unreadable playlist returns the last known total and retries on the next sample; metadata errors never fault FFmpeg's stdout pipe or fail the recorder.
+- Live `PartBytes` is monotonic within a part (the high-water total); deleting a segment does not lower it. A new part starts at zero, and `DvrStatus` resets the bytes when the active job changes.
+- At part end one authoritative `PartFiles.TotalBytes` scan supplies `telemetry.PartExited`, the finish log, and their equality. If that scan throws, the tracker total is used and a warning is logged.
 - `Advanced` means `out_time_us` increased since the last report. The final block arrives after the trailer but before process exit; the job still awaits the process.
 - Publish `PartProducingMedia(job, At)` exactly once, when progress advances or at shutdown when at least one segment file exists. It must be published before `RecorderExited`.
 - Guard the “producing” flag with `Interlocked` or an equivalent atomic. Cleanup must never delete a part that produced media.
@@ -111,10 +142,10 @@ Precedence when more than one applies: `Stopped` > `Killed` > `Exited`.
 ## 8. Boundary and cleanup
 
 - The recorder writes only part files. It never writes the session manifest, the stitched index, progress, or library state.
-- It publishes exactly one `RecorderExited`. If an unexpected exception escapes, the coordinator synthesizes a `RecorderExited(Exited, detail)`; the event count stays one.
+- It publishes exactly one `RecorderExited`. If an unexpected exception escapes, the coordinator synthesizes a `RecorderExited(Exited, detail)`; the event count stays one. The sole exception is `RecorderShutdownException`: the coordinator publishes exactly one `RecorderExited(Killed, detail)` and then fails the channel loop, because the previous writer may still be alive.
 - If no media was produced, delete every part file including `.tmp` and init temp files before returning.
 - If the part already exists, return `RecorderExited` immediately; do not overwrite.
-- `RecorderExited.Detail` carries the reason, exit codes, and the last stderr lines. It is diagnostic; the reducer uses `RecorderExitKind`, never the detail string.
+- `RecorderExited.Detail` carries the reason, exit codes, process identity, stop result, and the last stderr lines. It is diagnostic; the reducer uses `RecorderExitKind`, never the detail string.
 
 ## 9. Failure modes
 
@@ -125,20 +156,34 @@ Precedence when more than one applies: `Stopped` > `Killed` > `Exited`.
 | FFmpeg dies first | Complete the pipe reader, stop Streamlink, return; the part may lack a trailer, recovery repairs | `Exited` |
 | User stop | Stop Streamlink, EOF FFmpeg, finalize, return | `Stopped` |
 | Stall watchdog | Stop both processes with the bounded shutdown; return | `Killed` |
+| Force kill verified (PID gone or reused, task complete) | Return; the part may lack a trailer and is retryable | `Killed` |
+| Force kill timed out (task still pending) | Raise `RecorderShutdownException`; the coordinator publishes one `Killed`, faults the channel loop, and the host stops; no second writer starts | `Killed` (fatal) |
+| Captured PID still alive after the force kill | Same fail-closed path | `Killed` (fatal) |
+| PID identity unreadable after the force kill | Same fail-closed path; never assume the process is gone | `Killed` (fatal) |
 | No media | Delete part files, return | `Exited` |
 | Part files already exist | Return without starting | `Exited` |
 | Tool missing or fails to start | Force-kill any child, return with the error detail | `Exited` |
-| App crash / container teardown | No trailer; recovery deletes `.tmp`/orphans and finalizes | n/a |
+| App crash / container teardown | No trailer; recovery deletes `.tmp`/orphans and finalizes. The service manager must kill the whole process group/cgroup (see §5) | n/a |
 
 ## 10. Test matrix
 
 Unit:
 
-- `PartFiles` paths and the delete globs, including `.tmp` and init temp files.
+- `PartFiles` paths, the delete globs (including `.tmp` and init temp files), and strict segment/init name parsing.
+- `PartByteTracker`: missing, empty, and malformed playlists; init-only; out-of-order and duplicate segments; `.tmp` and foreign names; late segments; deletion; transient read/stat failures; part isolation; final reconcile; and a probe proving one stat per newly seen segment.
 - FFmpeg and Streamlink argument builders, including `-bsf:a aac_adtstoasc` and `--twitch-supported-codecs h264,h265,av1`.
 - `FfmpegProgressParser`: `total_size=N/A`, `out_time_us`, `progress=continue`, `progress=end`, missing keys, first-block-only parts.
 - `StderrTail` capacity and ordering.
 - Ad-break regex and grace calculation.
+- PID identity: missing process is gone; the same start time is alive; a different start time is a reused PID; an unreadable identity is unknown and fails closed.
+- Coordinator shutdown fault: a `RecorderShutdownException` publishes one `Killed` exit, faults the loop, retains the active job, blocks a second `StartRecorder`, and is observed even when the reducer enters `CoolingDown` with no retry command.
+
+Recorder job seam (fake process runner and identity probe; no long-lived processes):
+
+- A never-completing CliWrap task with the captured PID alive raises `RecorderShutdownException`.
+- A verified force-kill (task completed, PID gone or reused) remains `Killed`.
+- A force kill whose captured PID is still alive, or whose identity is unreadable, fails closed.
+- A clean stream end remains `Exited` and never inspects process identity.
 
 Integration with the fake Streamlink and a synthetic media fixture:
 
@@ -162,7 +207,7 @@ Integration with the fake Streamlink and a synthetic media fixture:
 
 ## 12. Binding versus implementation freedom
 
-Binding: the two-process model, part file names, argument set, shutdown order and budgets, exit-kind rules, progress/media detection, stall/ad-break behaviour, recorder boundary, cleanup, and event order.
+Binding: the two-process model, part file names, argument set, shutdown order and budgets, process-identity verification and the fatal unverified-shutdown rule, the service-manager restart/orphan requirement, exit-kind rules, progress/media detection, stall/ad-break behaviour, recorder boundary, cleanup, and event order.
 
 Freedom: CliWrap versus raw `Process`, pipe sizes beyond the 4 MiB recommendation, parser internals, logging, regex, and test harness details.
 
