@@ -78,6 +78,19 @@ internal sealed class SessionStoreTestContext : IDisposable
         File.WriteAllBytes(InitPath(part), [1, 2, 3]);
     }
 
+    /// <summary>
+    /// Writes a recording part playlist without ENDLIST so tests exercise the append path the
+    /// way FFmpeg writes an EVENT playlist while recording.
+    /// </summary>
+    public void WriteLivePart(int part, params string[][] segments)
+    {
+        System.IO.Directory.CreateDirectory(Directory);
+        File.WriteAllText(
+            PartPath(part),
+            PlaylistTestData.LivePlaylist(6, $"init_{part:D3}.mp4", segments));
+        File.WriteAllBytes(InitPath(part), [1, 2, 3]);
+    }
+
     public void WriteSegment(int part, int index, int length = 10)
     {
         System.IO.Directory.CreateDirectory(Directory);

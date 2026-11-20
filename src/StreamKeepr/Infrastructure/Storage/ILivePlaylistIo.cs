@@ -37,3 +37,13 @@ public interface ILivePlaylistIo
 {
     Task<LivePlaylistRead> ReadAsync(RecordingSummary summary, CancellationToken ct);
 }
+
+/// <summary>
+/// Optional lifecycle hook for an <see cref="ILivePlaylistIo"/> that keeps its own per-session
+/// snapshot. The service calls it when a session leaves the live set so the IO can release the
+/// parsed parts immediately instead of waiting for a read that may never come.
+/// </summary>
+internal interface ILivePlaylistSnapshotInvalidator
+{
+    void Remove(string id);
+}

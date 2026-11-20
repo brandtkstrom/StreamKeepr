@@ -6,7 +6,15 @@ internal static class PlaylistTestData
 {
     public static string Lines(params string[] lines) => string.Join('\n', lines);
 
-    public static string Playlist(int targetDuration, string init, params string[][] segments)
+    /// <summary>A finalized part playlist; FFmpeg always terminates the last line.</summary>
+    public static string Playlist(int targetDuration, string init, params string[][] segments) =>
+        Build(targetDuration, init, final: true, segments);
+
+    /// <summary>A recording part playlist: no ENDLIST, still newline-terminated.</summary>
+    public static string LivePlaylist(int targetDuration, string init, params string[][] segments) =>
+        Build(targetDuration, init, final: false, segments);
+
+    private static string Build(int targetDuration, string init, bool final, string[][] segments)
     {
         var lines = new List<string>
         {
@@ -22,8 +30,10 @@ internal static class PlaylistTestData
         foreach (var segment in segments)
             lines.AddRange(segment);
 
-        lines.Add("#EXT-X-ENDLIST");
-        return string.Join('\n', lines);
+        if (final)
+            lines.Add("#EXT-X-ENDLIST");
+
+        return string.Join('\n', lines) + "\n";
     }
 
     public static string[] Segment(string uri, string programDateTime, double duration) =>

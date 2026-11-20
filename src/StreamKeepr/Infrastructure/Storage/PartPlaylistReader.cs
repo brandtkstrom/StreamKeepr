@@ -37,3 +37,24 @@ internal static class PartPlaylistReader
         }
     }
 }
+
+/// <summary>
+/// The content-read seam for the live path. Production wraps <see cref="PartPlaylistReader"/>;
+/// tests record or block reads without touching the filesystem.
+/// </summary>
+internal interface IPartPlaylistSource
+{
+    Task<string> ReadAsync(string path, CancellationToken ct);
+}
+
+internal sealed class FilePartPlaylistSource : IPartPlaylistSource
+{
+    public static FilePartPlaylistSource Instance { get; } = new();
+
+    private FilePartPlaylistSource()
+    {
+    }
+
+    public Task<string> ReadAsync(string path, CancellationToken ct) =>
+        PartPlaylistReader.ReadAllTextAsync(path, ct);
+}
