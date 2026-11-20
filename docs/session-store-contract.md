@@ -92,6 +92,8 @@ Rules:
 - One-way lock ordering: never acquire `LockFor` while holding the refresh gate, and never acquire the refresh gate while holding `LockFor`. `SemaphoreSlim` is not reentrant; a nested acquire deadlocks.
 - Hold at most one manifest lock at a time. Never acquire a second session's manifest lock while holding one.
 - The live index endpoint takes neither lock and reads no session file. `RecordingLibrary` decides known/Recording/Complete; `LivePlaylistCache` supplies a Recording session's body.
+- The cached snapshot is the last-known-good (LKG) body. `LivePlaylistSnapshot.RefreshedAt` is its cached-at timestamp; the endpoint computes the age with `TimeProvider` and, at or above `LivePlaylist:StaleAfterSeconds`, still returns `200` with `X-StreamKeepr-Stale: true`. A cold cache is `503` + `Retry-After: 1` + `no-store`; the request never waits on the refresh gate, rebuilds, or reads the session folder. A client abort is `499` and is logged at `Debug`.
+- Cache invalidation is library-driven: finalize, reopen, and delete do not mutate the cache from the lifecycle path. The endpoint switches to the finalized index or `404` immediately, and the refresher prunes the snapshot on its next tick; a session that is no longer Recording never serves its cached live body.
 - A live refresh reads the manifest and part playlists through `PartPlaylistReader`, which does not take `LockFor`. Requests and refreshes never wait on manifest/lifecycle I/O.
 - The refresh gate also serializes the per-session `LiveSnapshot` build. The snapshot slot is an immutable reference swap; a warm refresh only stats part metadata and reads no part content. When a session leaves the live set, the service drops its snapshot and calls the IO's internal invalidation hook, which bumps an epoch and releases the parsed parts. A build that raced the lifecycle change cannot publish over the newer state.
 - Keep the lock entry for finalized sessions because they may reopen; remove it on delete.
@@ -140,8 +142,9 @@ Live snapshot:
 - Finalize, reopen, and delete do not touch the cache from the lifecycle path. `RecordingLibrary` is the authority: finalize records Complete, the endpoint switches to the physical index immediately, and the refresher prunes the service snapshot and releases the IO parsed parts on its next tick. Recording-admin delete removes the library entry first, so the endpoint returns 404 immediately.
 - A refresh whose body is unchanged does not publish a new version or re-encode the body.
 - Refreshes for different sessions run concurrently; a slow session does not delay the others.
-- A refresh failure (`IOException`, `UnauthorizedAccessException`, corrupt/unreadable manifest, format error, or timeout) keeps the last-known-good body, logs with a per-session backoff, and never stops the host. One session's failure does not block another's refresh.
-- The live index endpoint is a pure cache read. A Recording session with no snapshot returns 503 with `Retry-After: 1`. `Cache-Control: no-cache` is set on every index response, including 404 and 503.
+- A refresh failure (`IOException`, `UnauthorizedAccessException`, corrupt/unreadable manifest, format error, or timeout) keeps the last-known-good body, logs one `Warning` on the first failure of a window and `Debug` for later failures in that window (reset on success), backs off per session, and never stops the host. One session's failure does not block another's refresh.
+- The live index endpoint is a pure cache read. A Recording session with no snapshot returns 503 with `Retry-After: 1` and `Cache-Control: no-store`; a warm snapshot returns 200 with `no-cache`, and one at or above `LivePlaylist:StaleAfterSeconds` adds `X-StreamKeepr-Stale: true`. `Cache-Control: no-cache` is set on 200 and 404 index responses. The endpoint never waits for a refresh, and no live/LKG body contains `#EXT-X-ENDLIST`.
+- RefreshedAt is updated only when a new body is published. An unchanged body keeps its cached-at time; the stale marker therefore reports how long the current body has been served, not whether the last refresh succeeded.
 - `ThumbnailService` calls `LivePlaylistService.GetOrRefreshAsync`: a live recording refreshes through the same gate and returns the current snapshot; a Complete recording reads the finalized index once and is not cached. If the session finalizes during a live refresh, the finalized body is returned instead of being discarded. The refresh gate is released before `SaveThumbnailAsync` takes the manifest lock.
 - If the library summary is `Complete`, the endpoint serves the finalized `index.m3u8` file with HEAD and Range; never a live stitch without ENDLIST.
 
@@ -242,9 +245,11 @@ public sealed record RecordingSummary(
 | Unparseable part playlist | Log and skip the session; never delete media. |
 | Complete session with missing index | Re-finalize from parts; if no parts, log and skip. |
 | Missing segment referenced by a playlist | Log; do not rewrite the playlist; playback may 404. |
-| Live request with an unloaded library | 503 + `Retry-After: 1`; no disk fallback. |
-| Recording session with a cold live cache | 503 + `Retry-After: 1`; the player retries. |
-| Live refresh fails | Last-known-good snapshot keeps serving; per-session backoff; the host stays up. A failed read publishes nothing. |
+| Live request with an unloaded library | 503 + `Retry-After: 1` + `no-store`; no disk fallback. |
+| Recording session with a cold live cache | 503 + `Retry-After: 1` + `no-store`; the player retries. |
+| Live snapshot older than `StaleAfterSeconds` | 200 last-known-good body + `X-StreamKeepr-Stale: true` + `no-cache`; still no ENDLIST. |
+| Live request aborted by the client | 499/no response; `Debug` request event; never 500/`Error`. |
+| Live refresh fails | Last-known-good snapshot keeps serving; one `Warning` per failure window then `Debug`; per-session backoff; the host stays up. A failed read publishes nothing. |
 | Live read races a recorder write or replace | `PartPlaylistReader` shares read/write/delete. Windows may still reject an atomic replace until the read completes; the atomic writer retries a bounded number of times. |
 | Refresh races finalize | The refresher re-checks the library before publishing and publishes nothing once the session is Complete; the endpoint serves the finalized index. The next refresh prunes the snapshot. |
 | Delete races live request | Library entry removed first; the endpoint returns 404 immediately even if a snapshot briefly remains; the next refresh prunes it. |
@@ -282,11 +287,11 @@ Writes and locks:
 - An unterminated tail, a changed part that is not a complete playlist, and a failed read keep the last good body and never publish a partial or corrupt playlist.
 - A concurrent temp-file writer and many readers see only complete, parseable playlists whose segment count never decreases; the final body equals a full stitch.
 - The refresher is single-flight per session; a busy session skips the tick.
-- A failed or timed-out refresh, including an unreadable manifest, keeps the last-known-good body and backs off.
+- A failed or timed-out refresh, including an unreadable manifest, keeps the last-known-good body and backs off; one `Warning` per failure window, `Debug` after that, reset on success.
 - A Complete session publishes nothing, and a session removed from the library prunes its live entry and releases the IO parsed parts; reopen republishes from disk.
 - One failing session does not stop another from publishing.
 - Delete removes the library entry before files; lock entry removed.
-- Endpoint: cached body serves after the session directory is deleted; a deleted session is 404 immediately; cold cache and unloaded library return 503; HEAD matches GET's content length with no body; a client abort is not an error; Complete still supports HEAD/Range and exactly one ENDLIST.
+- Endpoint: cached body serves after the session directory is deleted; a deleted session is 404 immediately; cold cache and unloaded library return 503 + `Retry-After: 1` + `no-store`; a snapshot at the staleness threshold returns 200 with `X-StreamKeepr-Stale: true` and a fresh one omits it; HEAD matches GET's content length for fresh and LKG bodies with no body; a client abort is 499/empty, not an error; Complete still supports HEAD/Range and exactly one ENDLIST.
 
 Viewer samples:
 

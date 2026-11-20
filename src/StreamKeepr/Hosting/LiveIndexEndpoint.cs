@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Storage;
@@ -13,21 +14,43 @@ public static class LiveIndexEndpoint
 {
     public const string Route = "/media/{channel}/{id}/index.m3u8";
 
+    /// <summary>Marks a 200 body that is last-known-good rather than freshly refreshed.</summary>
+    public const string StaleHeaderName = "X-StreamKeepr-Stale";
+
+    private const string LoggerCategory = "StreamKeepr.Hosting.LiveIndexEndpoint";
+
     public static Task<IResult> HandleAsync(
         string channel,
         string id,
         HttpContext context,
         RecordingLibrary library,
         LivePlaylistCache cache,
-        IOptions<StorageOptions> storage)
+        IOptions<StorageOptions> storage,
+        IOptions<LivePlaylistOptions> liveOptions,
+        TimeProvider clock,
+        ILoggerFactory loggers)
     {
-        // Playlists change while recording; this applies to 404s and 503s as well.
+        ILogger logger = loggers.CreateLogger(LoggerCategory);
+
+        // A client that is already gone needs no body and no playlist work. 499 is the
+        // ASP.NET Core/nginx convention for a client-closed request; never let an abort
+        // surface as a 500.
+        if (context.RequestAborted.IsCancellationRequested)
+        {
+            logger.LogDebug(
+                "Live index request for session {SessionId} was already aborted by the client.",
+                id);
+            context.Response.StatusCode = StatusCodes.Status499ClientClosedRequest;
+            return Task.FromResult(Results.Empty);
+        }
+
+        // Playlists change while recording; this applies to 404s as well.
         context.Response.Headers.CacheControl = "no-cache";
 
         // Recovery marks the library loaded before the host accepts requests. Before that,
         // nothing may fall back to a disk scan.
         if (!library.IsLoaded)
-            return Task.FromResult(Unavailable(context));
+            return Task.FromResult(Unavailable(context, logger, id, "the recording library is not loaded"));
 
         RecordingSummary? summary = library.Find(id);
         if (summary is null
@@ -56,15 +79,34 @@ public static class LiveIndexEndpoint
 
         LivePlaylistSnapshot? snapshot = cache.Find(summary.Id);
         if (snapshot is null)
-            return Task.FromResult(Unavailable(context));
+            return Task.FromResult(Unavailable(context, logger, id, "no live snapshot is cached"));
 
-        return Task.FromResult<IResult>(new LivePlaylistResult(snapshot));
+        // RefreshedAt is the cached-at timestamp of the current body. The snapshot itself is
+        // the last-known-good body; a stale one still plays, so it stays a 200.
+        TimeSpan age = clock.GetUtcNow() - snapshot.RefreshedAt;
+        bool stale = age >= TimeSpan.FromSeconds(liveOptions.Value.StaleAfterSeconds);
+        if (stale)
+        {
+            logger.LogDebug(
+                "Live index for session {SessionId} is {AgeSeconds:0.#} s old; serving the last-known-good body.",
+                id,
+                age.TotalSeconds);
+        }
+
+        return Task.FromResult<IResult>(new LivePlaylistResult(snapshot, stale));
     }
 
-    private static IResult Unavailable(HttpContext context)
+    private static IResult Unavailable(
+        HttpContext context, ILogger logger, string id, string reason)
     {
+        // A transient outage must never be cached; hls.js retries 5xx playlist loads.
         context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
         context.Response.Headers.RetryAfter = "1";
+        context.Response.Headers.CacheControl = "no-store";
+        logger.LogDebug(
+            "Live index for session {SessionId} returned 503: {Reason}.",
+            id,
+            reason);
         return Results.Empty;
     }
 }
@@ -73,12 +115,14 @@ public static class LiveIndexEndpoint
 /// Serves one immutable snapshot without re-encoding, re-stitching, or touching the session
 /// folder. A write that races the client disconnect is not an error.
 /// </summary>
-internal sealed class LivePlaylistResult(LivePlaylistSnapshot snapshot) : IResult
+internal sealed class LivePlaylistResult(LivePlaylistSnapshot snapshot, bool stale) : IResult
 {
     public async Task ExecuteAsync(HttpContext context)
     {
         context.Response.ContentType = RecordingsMedia.PlaylistContentType;
         context.Response.ContentLength = snapshot.Utf8.Length;
+        if (stale)
+            context.Response.Headers[LiveIndexEndpoint.StaleHeaderName] = "true";
 
         if (HttpMethods.IsHead(context.Request.Method))
             return;
