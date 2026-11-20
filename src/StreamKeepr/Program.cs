@@ -170,6 +170,11 @@ try
            .ValidateDataAnnotations()
            .ValidateOnStart();
 
+    builder.Services.AddOptions<LivePlaylistOptions>()
+           .BindConfiguration(LivePlaylistOptions.SectionName)
+           .ValidateDataAnnotations()
+           .ValidateOnStart();
+
     builder.Services.AddOptions<AuthOptions>()
            .BindConfiguration(AuthOptions.SectionName)
            .ValidateDataAnnotations()
@@ -207,6 +212,10 @@ try
     builder.Services.AddSingleton<Func<TimeSpan, CancellationToken, Task>>(
         _ => static (delay, ct) => Task.Delay(delay, ct));
     builder.Services.AddSingleton<SessionStore>();
+    // The live playlist is refreshed off the request path; requests only read this cache.
+    builder.Services.AddSingleton<LivePlaylistCache>();
+    builder.Services.AddSingleton<ILivePlaylistIo, SessionStoreLivePlaylistIo>();
+    builder.Services.AddSingleton<LivePlaylistService>();
     builder.Services.AddSingleton<ChannelStore>();
     builder.Services.AddSingleton<ProgressStore>();
 
@@ -305,7 +314,9 @@ try
 
     // The supervisor starts only after preflight and the key-ring check have succeeded.
     builder.Services.AddHostedService(services => services.GetRequiredService<DvrSupervisor>());
-    // Grabs thumbnails from recorded media; registered after the supervisor so recovery has run.
+    // Refreshes live snapshots after the supervisor's recovery has loaded the library.
+    builder.Services.AddHostedService(services => services.GetRequiredService<LivePlaylistService>());
+    // Grabs thumbnails from recorded media; registered after the refresher it reads from.
     builder.Services.AddHostedService(services => services.GetRequiredService<ThumbnailService>());
 
     // Start the chat source before the capture reconciler; both are non-fatal to recording.

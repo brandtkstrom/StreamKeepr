@@ -14,6 +14,7 @@ public sealed class ThumbnailServiceTests : IDisposable
     private readonly SessionStoreTestContext _context = new();
     private readonly RecorderOptions _recorder;
     private readonly string _ffmpeg;
+    private readonly LivePlaylistService _livePlaylists;
     private readonly ThumbnailService _service;
 
     public ThumbnailServiceTests()
@@ -21,9 +22,19 @@ public sealed class ThumbnailServiceTests : IDisposable
         _ffmpeg = TestPaths.RequireExecutable(
             "ffmpeg", "ffmpeg is required for thumbnail tests. Install it and put it on PATH.");
         _recorder = new RecorderOptions { FfmpegPath = _ffmpeg };
+        _livePlaylists = new LivePlaylistService(
+            _context.Library,
+            new LivePlaylistCache(),
+            new SessionStoreLivePlaylistIo(
+                _context.Store,
+                Options.Create(new StorageOptions { RecordingsRoot = _context.Root })),
+            Options.Create(new LivePlaylistOptions()),
+            TimeProvider.System,
+            NullLogger<LivePlaylistService>.Instance);
         _service = new ThumbnailService(
             _context.Library,
             _context.Store,
+            _livePlaylists,
             Options.Create(new StorageOptions { RecordingsRoot = _context.Root }),
             Options.Create(_recorder),
             TimeProvider.System,
@@ -35,6 +46,7 @@ public sealed class ThumbnailServiceTests : IDisposable
     public void Dispose()
     {
         _service.Dispose();
+        _livePlaylists.Dispose();
         _context.Dispose();
     }
 
