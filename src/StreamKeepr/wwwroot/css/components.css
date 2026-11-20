@@ -525,7 +525,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
    pushes the sync footer down the page. */
 .sk-chat {
   width: 44px; flex: none; display: flex; flex-direction: column; min-height: 0; overflow: hidden; contain: size;
-  background: var(--surface); border: 1px solid var(--lines-default); border-radius: var(--radius-lg); color: var(--text-primary);
+  background: var(--drawer-background); border: 1px solid var(--lines-default); border-radius: var(--radius-lg); color: var(--text-primary);
 }
 /* Open, the pane fills its sidecar; the watch layout owns the 400px/320px basis. As tall as
    the player, so a narrow desktop player keeps a few rows. */
