@@ -155,6 +155,32 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         await LibraryJourneyTests.Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "expanded" ? 1 : 0, 1);
     }
 
+    [Fact]
+    public async Task A_collapsed_drawer_loads_at_the_rail_width()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+
+        // Collapse Home's drawer, so the saved choice is the rail when the page is next loaded.
+        await page.Locator("[data-drawer-toggle]").ClickAsync();
+        await LibraryJourneyTests.Expect(
+            async () => await page.Locator(LibraryHooks.Drawer).GetAttributeAsync("data-drawer") == "rail" ? 1 : 0,
+            1);
+        await page.WaitForFunctionAsync(
+            """() => decodeURIComponent(document.cookie).includes('"drawer":"rail"')""",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 10_000 });
+
+        await page.ReloadAsync(new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+        await page.Locator("[data-shell][data-breakpoint-known]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
+        ILocator drawer = page.Locator(LibraryHooks.Drawer);
+
+        // A full load starts MudDrawer closed, so it must keep the rail's width. Breakpoint.Always
+        // used to force it open on the first viewport report, painting the library at 320px.
+        Assert.Equal("rail", await drawer.GetAttributeAsync("data-drawer"));
+        await LibraryJourneyTests.Expect(async () => await VisibleWidthAsync(drawer) <= 80 ? 1 : 0, 1);
+    }
+
     [Theory]
     [InlineData(1280, "home")]
     [InlineData(1280, "recording")]
