@@ -818,26 +818,38 @@ describe("chat replay pane", () => {
       return log;
     }
 
-    async function openPane(messages = steady) {
+    async function openPane({ fetch = windowFetch(steady), view = VIEW } = {}) {
       document.body.innerHTML = MARKUP;
       const log = layout(document.querySelector("[data-sk='chat-log']"));
       const pane = createChatPane(document.querySelector("[data-sk-chat]"),
-        { fetch: windowFetch(messages), storage: storage() });
-      await pane.load({ ...VIEW });
+        { fetch, storage: storage() });
+      await pane.load({ ...view });
       await flush();
       return { pane, log };
     }
 
+    // Playback in one-second steps, as the player's throttled playhead reports it.
+    function playOn(from, to) {
+      for (let t = from; t <= to; t++) playhead(t);
+    }
+
     const rows = (log) => [...log.querySelectorAll(".sk-chat-row")];
     const lastScroll = (log) => log.scrollTo.mock.calls.at(-1)?.[0];
+    const jump = () => document.querySelector("[data-sk='chat-jump']");
+
+    function scrollAway(log) {
+      log.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
+      log.scrollTop = 0;
+      log.dispatchEvent(new Event("scroll"));
+    }
 
     it("keeps rendered rows and appends new ones as playback runs on", async () => {
       const { pane, log } = await openPane();
-      playhead(2);
+      playOn(1, 2);
       const before = rows(log);
       expect(before.map((row) => row.dataset.messageId)).toEqual(["m0", "m1", "m2"]);
 
-      playhead(4);
+      playOn(3, 4);
       const after = rows(log);
       expect(after.map((row) => row.dataset.messageId)).toEqual(["m0", "m1", "m2", "m3", "m4"]);
       // The same elements, not a rebuild: a rebuilt log jumps and drops the browser's anchor.
@@ -850,8 +862,18 @@ describe("chat replay pane", () => {
       const { pane, log } = await openPane();
       expect(lastScroll(log)).toEqual({ top: 20, behavior: "instant" });
 
-      playhead(3);
+      playOn(1, 3);
       expect(lastScroll(log)).toEqual({ top: 80, behavior: "smooth" });
+
+      pane.dispose();
+    });
+
+    it("lands instantly after a short seek ahead within the kept window", async () => {
+      const { pane, log } = await openPane();
+      playOn(1, 2);
+      // Eight seconds ahead keeps the scrollback but must not sweep through the burst.
+      playhead(10);
+      expect(lastScroll(log)).toEqual({ top: 220, behavior: "instant" });
 
       pane.dispose();
     });
@@ -861,7 +883,7 @@ describe("chat replay pane", () => {
         ({ matches: query === "(prefers-reduced-motion: reduce)" }));
       const { pane, log } = await openPane();
 
-      playhead(3);
+      playOn(1, 3);
       expect(lastScroll(log)).toEqual({ top: 80, behavior: "instant" });
 
       pane.dispose();
@@ -869,25 +891,37 @@ describe("chat replay pane", () => {
 
     it("keeps following while its own smooth scroll is under way", async () => {
       const { pane, log } = await openPane();
-      playhead(5);
+      playOn(1, 5);
       // Mid-animation the log is still well above the bottom; that is not the viewer leaving.
       log.scrollTop = 30;
       log.dispatchEvent(new Event("scroll"));
       playhead(6);
       expect(lastScroll(log)).toEqual({ top: 140, behavior: "smooth" });
-      expect(document.querySelector("[data-sk='chat-jump']").hidden).toBe(true);
+      expect(jump().hidden).toBe(true);
+
+      pane.dispose();
+    });
+
+    it("keeps following when the viewer clicks a row or scrolls down mid-animation", async () => {
+      const { pane, log } = await openPane();
+      playOn(1, 5);
+      rows(log)[0].dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+      log.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      log.dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true }));
+      log.scrollTop = 30;
+      log.dispatchEvent(new Event("scroll"));
+      playhead(6);
+      expect(lastScroll(log)).toEqual({ top: 140, behavior: "smooth" });
 
       pane.dispose();
     });
 
     it("stops following when the viewer scrolls up during a smooth scroll", async () => {
       const { pane, log } = await openPane();
-      playhead(5);
+      playOn(1, 5);
       const calls = log.scrollTo.mock.calls.length;
 
-      log.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 }));
-      log.scrollTop = 0;
-      log.dispatchEvent(new Event("scroll"));
+      scrollAway(log);
       playhead(7);
 
       expect(log.scrollTo.mock.calls).toHaveLength(calls);
@@ -896,9 +930,39 @@ describe("chat replay pane", () => {
       pane.dispose();
     });
 
+    it("stops following on an upward scroll key or a scrollbar press", async () => {
+      for (const intent of [
+        (log) => log.dispatchEvent(new KeyboardEvent("keydown", { key: "PageUp", bubbles: true })),
+        (log) => log.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })),
+      ]) {
+        const { pane, log } = await openPane();
+        playOn(1, 5);
+        const calls = log.scrollTo.mock.calls.length;
+        intent(log);
+        log.scrollTop = 0;
+        log.dispatchEvent(new Event("scroll"));
+        playhead(6);
+        expect(log.scrollTo.mock.calls).toHaveLength(calls);
+        pane.dispose();
+      }
+    });
+
+    it("jumps to the current time instantly", async () => {
+      const { pane, log } = await openPane();
+      playOn(1, 5);
+      scrollAway(log);
+      playOn(6, 8);
+
+      jump().click();
+      expect(lastScroll(log)).toEqual({ top: 180, behavior: "instant" });
+      expect(log.scrollTop).toBe(180);
+
+      pane.dispose();
+    });
+
     it("chases the bottom again when a smooth scroll ends short of it", async () => {
       const { pane, log } = await openPane();
-      playhead(5);
+      playOn(1, 5);
       // The animation's target was read before later rows grew the log.
       log.scrollTop = 40;
       const calls = log.scrollTo.mock.calls.length;
@@ -909,9 +973,70 @@ describe("chat replay pane", () => {
       pane.dispose();
     });
 
-    it("places gap rows among kept rows as later chat arrives", async () => {
+    it("chases the bottom once scrolling goes idle where scrollend never fires", async () => {
+      const { pane, log } = await openPane();
+      vi.useFakeTimers();
+      playOn(1, 5);
+      log.scrollTop = 40;
+      log.dispatchEvent(new Event("scroll"));
+      const calls = log.scrollTo.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(200);
+      expect(log.scrollTo.mock.calls).toHaveLength(calls + 1);
+      expect(lastScroll(log)).toEqual({ top: 120, behavior: "smooth" });
+
+      pane.dispose();
+    });
+
+    it("lands at the end when backfill fills the log above a following view", async () => {
+      vi.useFakeTimers();
+      // One message every 20 s; the fresh window at 1000 s shows two rows, then backfill
+      // adds older rows above them.
+      const fetch = vi.fn(async (url) => {
+        const from = Number(url.searchParams.get("fromSec"));
+        const to = Number(url.searchParams.get("toSec"));
+        const messages = [];
+        for (let i = Math.ceil(from / 20); i * 20 <= to; i++) {
+          messages.push({ ...message, id: `m${i}`, mt: i * 20, text: `message ${i}`, emotes: [] });
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            v: 1, recordingId: "r1", state: "complete", hasChat: true, source: "mock",
+            leadInSec: 0, fromSec: from, toSec: to, syncOffsetSec: 0, gaps: [],
+            hasMoreBefore: from > 0, hasMoreAfter: false, messages,
+          }),
+        };
+      });
       document.body.innerHTML = MARKUP;
       const log = layout(document.querySelector("[data-sk='chat-log']"));
+      const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+        { fetch, storage: storage() });
+      await pane.load({ ...VIEW });
+      await vi.advanceTimersByTimeAsync(0);
+      playhead(1000);
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(rows(log).length).toBeGreaterThan(2);
+      expect(lastScroll(log)).toEqual({ top: log.scrollHeight, behavior: "instant" });
+      expect(log.scrollTop).toBe(log.scrollHeight);
+
+      pane.dispose();
+    });
+
+    it("redraws kept rows when the channel colour changes", async () => {
+      const view = { ...VIEW, channelLogin: "alice", channelColor: 3 };
+      const { pane, log } = await openPane({ view });
+      playOn(1, 2);
+      await pane.load({ ...view, channelColor: 5 });
+      playhead(3);
+      const colors = [...log.querySelectorAll("[data-chat-name]")]
+        .map((name) => name.dataset.channelColor);
+      expect(colors).toEqual(["5", "5", "5", "5"]);
+
+      pane.dispose();
+    });
+
+    it("places gap rows among kept rows as later chat arrives", async () => {
       const fetch = vi.fn(async () => ({
         ok: true,
         json: async () => ({
@@ -921,14 +1046,11 @@ describe("chat replay pane", () => {
           hasMoreBefore: false, hasMoreAfter: false, messages: steady,
         }),
       }));
-      const pane = createChatPane(document.querySelector("[data-sk-chat]"),
-        { fetch, storage: storage() });
-      await pane.load({ ...VIEW });
-      await flush();
+      const { pane, log } = await openPane({ fetch });
 
-      playhead(2);
+      playOn(1, 2);
       const kept = rows(log)[0];
-      playhead(4);
+      playOn(3, 4);
       const order = [...log.children].map((child) =>
         child.classList.contains("sk-chat-gap") ? "gap" : child.dataset.messageId);
       expect(order).toEqual(["m0", "m1", "m2", "gap", "m3", "m4"]);

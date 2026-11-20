@@ -24,6 +24,13 @@ const MAX_ROWS = 1000;
 // until the log overflows, the chat starts, or it has reached this far back.
 const BACKFILL_CHUNK_SEC = 120;
 const BACKFILL_MAX_SEC = 1800;
+// A playhead move larger than this between events is a seek, not playback.
+const SEEK_SEC = 2;
+// Where `scrollend` never fires, a smooth scroll counts as finished after this long without a
+// scroll event.
+const SCROLL_IDLE_MS = 150;
+// Keys that scroll the log towards older chat; they hand scrolling back to the viewer.
+const SCROLL_UP_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);
 const BADGE_LABELS = {
   broadcaster: "BROADCASTER",
   founder: "FOUNDER",
@@ -288,6 +295,7 @@ export function createChatPane(root, {
   // The pane's own smooth scroll to the end is under way. Scroll events it causes pass rows
   // short of the bottom; they must not read as the viewer scrolling away.
   let autoScrolling = false;
+  let scrollIdleTimer = 0;
   let pollTimer = 0;
   // The backfill in progress, if any. It has its own request so polls never abort it.
   let backfill = null;
@@ -715,7 +723,9 @@ export function createChatPane(root, {
   function onScroll() {
     if (autoScrolling) {
       // Only the viewer's own input (onScrollIntent) stops following mid-animation.
+      clearTimeout(scrollIdleTimer);
       if (nearBottom()) autoScrolling = false;
+      else scrollIdleTimer = setTimeout(onScrollEnd, SCROLL_IDLE_MS);
       return;
     }
     const atBottom = nearBottom();
@@ -728,12 +738,19 @@ export function createChatPane(root, {
 
   /** Wheel up, touch, pointer or key input on the log hands scrolling back to the viewer. */
   function onScrollIntent(event) {
+    // Clicks on rows (names, text selection) and keys that do not scroll up keep following;
+    // a press on the log itself is its scrollbar.
     if (event.type === "wheel" && event.deltaY >= 0) return;
+    if (event.type === "keydown" && !SCROLL_UP_KEYS.has(event.key) &&
+      !(event.key === " " && event.shiftKey)) return;
+    if (event.type === "pointerdown" && event.target !== el["chat-log"]) return;
     autoScrolling = false;
+    clearTimeout(scrollIdleTimer);
   }
 
   /** A smooth scroll whose target was read before later rows grew the log chases the end. */
   function onScrollEnd() {
+    clearTimeout(scrollIdleTimer);
     if (!autoScrolling) return;
     autoScrolling = false;
     if (following && !nearBottom()) scrollToEnd("smooth");
@@ -752,6 +769,7 @@ export function createChatPane(root, {
     if (!log) return;
     const smooth = behavior === "smooth" && !prefersReducedMotion();
     autoScrolling = smooth;
+    clearTimeout(scrollIdleTimer);
     if (typeof log.scrollTo === "function") {
       log.scrollTo({ top: log.scrollHeight, behavior: smooth ? "smooth" : "instant" });
     } else {
@@ -763,10 +781,12 @@ export function createChatPane(root, {
     following = true;
     newCount = 0;
     updateJump();
-    scrollToEnd("smooth");
+    // Up to MAX_ROWS of scrollback may lie between; an animation would sweep through it all.
+    scrollToEnd("instant");
   }
 
-  function render() {
+  /** Draws the log. `instant`: a seek within the kept window lands without animating. */
+  function render({ instant = false } = {}) {
     const log = el["chat-log"];
     if (!log) return;
     let visible = [...messages.values()]
@@ -788,7 +808,8 @@ export function createChatPane(root, {
     lastRenderKey = key;
 
     ground = opaqueGround(root);
-    const shell = `${view?.state ?? ""}|${view?.hasChat}|${emoteVersion}|${ground ?? ""}`;
+    const shell = [view?.state, view?.hasChat, view?.channelLogin, view?.channelColor,
+      emoteVersion, ground].join("|");
     const rebuild = freshLog || shell !== shellKey || rowNodes.size === 0;
     freshLog = false;
     shellKey = shell;
@@ -828,15 +849,18 @@ export function createChatPane(root, {
       }
     }
     // Walk the log once: kept nodes in place are skipped, so playing on only appends at the end
-    // and drops pruned rows from the top. `appended` is a new row after every kept one.
+    // and drops pruned rows from the top. `appended` is a new row after every kept one;
+    // `inserted` is one above a kept row, as backfill adds older chat.
     let cursor = log.firstChild;
     let appended = false;
+    let inserted = false;
     for (const [itemKey, create] of items) {
       let node = rowNodes.get(itemKey);
       if (!node) {
         node = create();
         rowNodes.set(itemKey, node);
         if (cursor === null) appended = true;
+        else inserted = true;
       }
       if (node === cursor) {
         cursor = cursor.nextSibling;
@@ -845,7 +869,11 @@ export function createChatPane(root, {
       }
     }
 
-    if (following && (rebuild || appended)) scrollToEnd(rebuild ? "instant" : "smooth");
+    // Only new chat at the end animates. Older rows above (backfill) would otherwise leave a
+    // following view on the oldest rows, since anchoring holds no anchor at the top.
+    if (following && (rebuild || appended || inserted)) {
+      scrollToEnd(rebuild || inserted || instant ? "instant" : "smooth");
+    }
     updateJump();
   }
 
@@ -1006,7 +1034,7 @@ export function createChatPane(root, {
 
     // Playing on keeps the scrollback; a seek before it, back, or far ahead starts over.
     // Polls never move windowFrom past the playhead, so they cannot trigger this.
-    const backward = currentTime < previous - 2;
+    const backward = currentTime < previous - SEEK_SEC;
     const farForward = currentTime > previous + WINDOW_AFTER_SEC;
     if (backward || farForward || currentTime < windowFrom) {
       resetWindow();
@@ -1014,7 +1042,7 @@ export function createChatPane(root, {
       return;
     }
 
-    render();
+    render({ instant: currentTime > previous + SEEK_SEC });
     // A live pane polls on a timer; a complete one reads ahead as the playhead nears the end.
     if (!liveState() && !endReached && currentTime + LOOKAHEAD_SEC > loadedTo) continueWindow();
   }
@@ -1055,7 +1083,7 @@ export function createChatPane(root, {
   on(el["chat-toggle"], "click", toggleAndPersist);
   on(el["chat-log"], "scroll", onScroll, { passive: true });
   on(el["chat-log"], "scrollend", onScrollEnd, { passive: true });
-  for (const type of ["wheel", "touchstart", "pointerdown", "keydown"]) {
+  for (const type of ["wheel", "touchmove", "pointerdown", "keydown"]) {
     on(el["chat-log"], type, onScrollIntent, { passive: true });
   }
   // Image errors do not bubble, so capture them at the log.
@@ -1091,6 +1119,7 @@ export function createChatPane(root, {
       emoteController?.abort();
       stopBackfill();
       stopPolling();
+      clearTimeout(scrollIdleTimer);
       listeners.abort();
       announce(false);
       rowNodes = new Map();
