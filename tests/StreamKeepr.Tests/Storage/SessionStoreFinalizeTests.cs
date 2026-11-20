@@ -43,6 +43,15 @@ public sealed class SessionStoreFinalizeTests
         Assert.Equal(4.0, manifest.DurationSeconds);
         Assert.Equal(3 + 3 + 10 + 20 + new FileInfo(context.IndexPath).Length, manifest.SizeBytes);
 
+        RecordingSummary summary = Assert.IsType<RecordingSummary>(
+            context.Library.Find(context.Session.Id));
+        Assert.False(summary.IsRecording);
+        Assert.Equal(2, summary.PartCount);
+        Assert.Equal(2, summary.SegmentCount);
+        Assert.Equal(manifest.EndedAt, summary.EndedAt);
+        Assert.Equal(manifest.DurationSeconds, summary.DurationSeconds);
+        Assert.Equal(manifest.SizeBytes, summary.SizeBytes);
+
         Assert.False(File.Exists(context.ManifestPath + ".tmp"));
         Assert.False(File.Exists(context.IndexPath + ".tmp"));
     }
@@ -62,7 +71,6 @@ public sealed class SessionStoreFinalizeTests
         Assert.False(Directory.Exists(context.Directory));
         Assert.Null(await context.Store.TryLoadAsync(context.Directory, CancellationToken.None));
         Assert.Null(await context.Store.SummarizeAsync(context.Directory, CancellationToken.None));
-        Assert.Null(await context.Store.StitchLiveAsync(context.Directory, CancellationToken.None));
     }
 
     [Fact]

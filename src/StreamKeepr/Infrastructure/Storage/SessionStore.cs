@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
-using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -39,9 +38,8 @@ public sealed class SessionStore(
     };
 
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, LiveIndex> _live = new(StringComparer.Ordinal);
 
-    private int MinTargetDuration => 2 * recorder.Value.SegmentSeconds;
+    internal int MinTargetDuration => 2 * recorder.Value.SegmentSeconds;
 
     /// <summary>The one lock for a session folder. Keep the entry after finalize; delete it on delete.</summary>
     public SemaphoreSlim LockFor(string sessionDir)
@@ -82,7 +80,6 @@ public sealed class SessionStore(
                 ImmutableList.Create(new MetadataChange(clock.GetUtcNow(), live.Title, live.Game)));
 
             await WriteManifestAsync(directory, manifest, ct);
-            _live.TryRemove(directory, out _);
             await UpsertLibraryAsync(directory, ct);
             logger.LogInformation("Opened session {SessionId} in {Directory}.", session.Id, directory);
         }
@@ -199,7 +196,6 @@ public sealed class SessionStore(
         }
         finally
         {
-            _live.TryRemove(directory, out _);
             gate.Release();
         }
     }
@@ -238,55 +234,6 @@ public sealed class SessionStore(
     }
 
     /// <summary>
-    /// Serves the playlist for a recording session: a cache hit is lock-free; a cache miss reads
-    /// the parts under the session lock. A Complete session always returns the finalized index.
-    /// Returns null when the session has no readable manifest or finalized index.
-    /// </summary>
-    public async Task<string?> StitchLiveAsync(string sessionDir, CancellationToken ct)
-    {
-        string directory = Normalize(sessionDir);
-        if (!File.Exists(Path.Combine(directory, ManifestFileName)))
-            return null;
-
-        string key = CacheKey(PartPlaylistFiles(directory));
-        if (_live.TryGetValue(directory, out var cached) && cached.Key == key)
-            return cached.Body;
-
-        var gate = LockFor(directory);
-        await gate.WaitAsync(ct);
-        try
-        {
-            key = CacheKey(PartPlaylistFiles(directory));
-            if (_live.TryGetValue(directory, out cached) && cached.Key == key)
-                return cached.Body;
-
-            var manifest = await TryLoadAsync(directory, ct);
-            if (manifest is null)
-                return null;
-
-            string? body;
-            if (manifest.Status == SessionStatus.Complete)
-            {
-                body = await TryReadFileAsync(Path.Combine(directory, IndexFileName), ct);
-                if (body is null)
-                    return null;
-            }
-            else
-            {
-                var parts = await ReadPartsAsync(directory, ct);
-                body = PlaylistStitcher.Stitch(parts, MinTargetDuration, final: false);
-            }
-
-            _live[directory] = new LiveIndex(key, body);
-            return body;
-        }
-        finally
-        {
-            gate.Release();
-        }
-    }
-
-    /// <summary>
     /// Reads the manifest and derives the library summary. Returns null when the manifest is
     /// missing or unreadable. Chapter history comes from the metadata after the first entry.
     /// </summary>
@@ -303,6 +250,21 @@ public sealed class SessionStore(
         if (manifest.Status == SessionStatus.Complete)
             playlist = await TryReadFileAsync(Path.Combine(directory, IndexFileName), ct);
 
+        return Summarize(directory, manifest, parts, playlist, MediaSize(directory));
+    }
+
+    /// <summary>
+    /// Derives the library projection from a manifest, its parts, an optional finalized
+    /// playlist, and the already-measured media size. Callers that hold the lock and have the
+    /// inputs in memory use this instead of re-reading the session folder.
+    /// </summary>
+    private RecordingSummary Summarize(
+        string directory,
+        SessionManifest manifest,
+        IReadOnlyList<PartPlaylist> parts,
+        string? playlist,
+        long mediaSize)
+    {
         playlist ??= PlaylistStitcher.Stitch(parts, MinTargetDuration, final: false);
 
         var latest = manifest.Metadata.Count > 0
@@ -324,7 +286,7 @@ public sealed class SessionStore(
             manifest.EndedAt,
             IsRecording: manifest.Status == SessionStatus.Recording,
             duration,
-            MediaSize(directory),
+            mediaSize,
             PartCount: parts.Count,
             SegmentCount: PlaylistStitcher.SegmentCount(playlist),
             HasThumbnail: File.Exists(Path.Combine(directory, ThumbnailFileName)),
@@ -370,7 +332,6 @@ public sealed class SessionStore(
             File.Delete(indexPath);
 
         await WriteManifestAsync(directory, reopened, ct);
-        _live.TryRemove(directory, out _);
         await UpsertLibraryAsync(directory, ct);
         logger.LogInformation("Reopened session {SessionId} in {Directory}.", reopened.Id, directory);
     }
@@ -395,15 +356,20 @@ public sealed class SessionStore(
         string index = PlaylistStitcher.Stitch(parts, MinTargetDuration, final: true);
         await WriteAtomicAsync(Path.Combine(directory, IndexFileName), index, ct);
 
+        long sizeBytes = MediaSize(directory);
         var complete = manifest with
         {
             Status = SessionStatus.Complete,
             EndedAt = manifest.EndedAt ?? clock.GetUtcNow(),
             DurationSeconds = PlaylistStitcher.TotalDuration(index),
-            SizeBytes = MediaSize(directory),
+            SizeBytes = sizeBytes,
         };
         await WriteManifestAsync(directory, complete, ct);
-        await UpsertLibraryAsync(directory, ct);
+
+        // Project from the inputs already in memory instead of re-reading the manifest, every
+        // part, the index, and every media file while the session lock is still held.
+        TryUpsertLibrary(directory, () => Summarize(directory, complete, parts, index, sizeBytes));
+
         logger.LogInformation(
             "Finalized session {SessionId} for {Channel} in {ElapsedMs:0} ms: {PartCount} parts, {SizeBytes} bytes in {Directory}.",
             complete.Id,
@@ -421,16 +387,34 @@ public sealed class SessionStore(
             if (await SummarizeAsync(directory, ct) is { } summary)
                 library.Upsert(summary);
         }
-        catch (Exception ex) when (ex is FormatException or IOException
-            or InvalidDataException or UnauthorizedAccessException or NotSupportedException)
+        catch (Exception ex) when (IsProjectionFailure(ex))
         {
-            // The manifest mutation already succeeded. A projection failure must not
-            // turn a recording command into a failure; recovery or the next update
-            // will rebuild the summary once the media is readable.
-            logger.LogWarning(
-                ex, "Could not update the recording library for {Directory}.", directory);
+            LogProjectionFailure(directory, ex);
         }
     }
+
+    private void TryUpsertLibrary(string directory, Func<RecordingSummary> project)
+    {
+        try
+        {
+            library.Upsert(project());
+        }
+        catch (Exception ex) when (IsProjectionFailure(ex))
+        {
+            LogProjectionFailure(directory, ex);
+        }
+    }
+
+    private void LogProjectionFailure(string directory, Exception exception) =>
+        // The manifest mutation already succeeded. A projection failure must not turn a
+        // recording command into a failure; recovery or the next update will rebuild the
+        // summary once the media is readable.
+        logger.LogWarning(
+            exception, "Could not update the recording library for {Directory}.", directory);
+
+    private static bool IsProjectionFailure(Exception ex) =>
+        ex is FormatException or IOException or InvalidDataException
+            or UnauthorizedAccessException or NotSupportedException;
 
     private async Task<SessionManifest> ReadManifestCoreAsync(string directory, CancellationToken ct)
     {
@@ -502,9 +486,7 @@ public sealed class SessionStore(
 
         foreach (var (number, path) in PartPlaylistFiles(directory))
         {
-            // The recorder writes part playlists in place, so a plain read cannot block an
-            // atomic replace the way a manifest read would.
-            string content = await File.ReadAllTextAsync(path, ct);
+            string content = await PartPlaylistReader.ReadAllTextAsync(path, ct);
             if (HasSegments(content))
                 parts.Add(new PartPlaylist(number, content));
         }
@@ -554,31 +536,8 @@ public sealed class SessionStore(
         return false;
     }
 
-    private static string CacheKey(IReadOnlyList<(int Part, string Path)> parts)
-    {
-        if (parts.Count == 0)
-            return "empty";
-
-        string last = parts[^1].Path;
-        var info = new FileInfo(last);
-        return string.Create(
-            CultureInfo.InvariantCulture,
-            $"{last}|{info.LastWriteTimeUtc.Ticks}|{info.Length}");
-    }
-
-    private static async Task<string?> TryReadFileAsync(string path, CancellationToken ct)
-    {
-        try
-        {
-            await using var stream = OpenSharedRead(path);
-            using var reader = new StreamReader(stream);
-            return await reader.ReadToEndAsync(ct);
-        }
-        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
-        {
-            return null;
-        }
-    }
+    private static Task<string?> TryReadFileAsync(string path, CancellationToken ct) =>
+        PartPlaylistReader.TryReadAllTextAsync(path, ct);
 
     /// <summary>
     /// Opens a file for reading while allowing writers and deleters. Windows refuses to replace
@@ -586,7 +545,7 @@ public sealed class SessionStore(
     /// break the store's temp-and-move writes.
     /// </summary>
     private static FileStream OpenSharedRead(string path) =>
-        new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, useAsync: true);
+        PartPlaylistReader.OpenSharedRead(path);
 
     private static long MediaSize(string directory)
     {
@@ -612,5 +571,4 @@ public sealed class SessionStore(
     private static string Normalize(string sessionDir) =>
         Path.TrimEndingDirectorySeparator(Path.GetFullPath(sessionDir));
 
-    private sealed record LiveIndex(string Key, string Body);
 }

@@ -115,6 +115,16 @@ public sealed class LivePlaylistService(
                     return null;
                 }
 
+                // Finalize may have completed while this refresh was in flight. The library
+                // is the authority: never publish a live body for a session that is no longer
+                // Recording. The endpoint already serves the finalized index.
+                if (library.Find(summary.Id) is not { IsRecording: true })
+                {
+                    cache.Remove(summary.Id);
+                    state.Succeed();
+                    return null;
+                }
+
                 LivePlaylistSnapshot? current = cache.Find(summary.Id);
                 if (current is not null
                     && string.Equals(current.Body, read.Body, StringComparison.Ordinal))
