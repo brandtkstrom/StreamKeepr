@@ -12,6 +12,8 @@ public sealed class OptionsStartupTests
     [InlineData("Recorder:HealthyPartSeconds", "1", "HealthyPartSeconds")]
     [InlineData("Twitch:Channels:0", "not a login", "Channels")]
     [InlineData("Storage:RecordingsRoot", "", "RecordingsRoot")]
+    [InlineData("LivePlaylist:RefreshSeconds", "0", "RefreshSeconds")]
+    [InlineData("LivePlaylist:RefreshTimeoutSeconds", "0", "RefreshTimeoutSeconds")]
     [InlineData("Auth:AllowedTwitchLogins:0", "not a login", "AllowedTwitchLogins")]
     [InlineData("Hosting:ForwardedHeaders:KnownProxies:0", "not-an-ip", "KnownProxies")]
     [InlineData("Hosting:ForwardedHeaders:KnownNetworks:0", "10.0.0.0/99", "KnownNetworks")]
