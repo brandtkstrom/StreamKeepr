@@ -124,6 +124,42 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     }
 
     [Fact]
+    public async Task Rail_ring_on_the_open_streamer_is_not_clipped_by_its_group()
+    {
+        await using Session session = await OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+        ILocator drawer = page.Locator(LibraryHooks.Drawer);
+
+        // Watch pages open with the rail (#174), which rings the open streamer's avatar.
+        await page.Locator(LibraryHooks.Row).First.ClickAsync();
+        await page.WaitForURLAsync(url => url.Contains("/r/", StringComparison.Ordinal));
+        await Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
+
+        string[] state = await page.EvaluateAsync<string[]>("""
+            () => {
+              const group = [...document.querySelectorAll("nav[aria-label=Library] [data-streamer-group]")]
+                .find(g => g.querySelector("[aria-current='true']"));
+              const avatar = group?.querySelector("[role='treeitem'][aria-level='1'] [role='img']");
+              if (!group || !avatar) return [];
+              const g = group.getBoundingClientRect();
+              const a = avatar.getBoundingClientRect();
+              const style = getComputedStyle(group);
+              return [
+                String(a.left - 4 < g.left || a.right + 4 > g.right),
+                style.contentVisibility,
+                style.contain,
+              ];
+            }
+            """);
+        Assert.Equal(3, state.Length);
+
+        // The ring reaches past the group sideways, so the group must not contain its paint.
+        Assert.Equal("true", state[0]);
+        Assert.Equal("visible", state[1]);
+        Assert.DoesNotContain("paint", state[2], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Clicking_a_streamer_hides_and_restores_its_recordings()
     {
         await using Session session = await OpenAsync(app.BaseUrl);

@@ -250,6 +250,9 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-drawer.rail .sk-drawer-head { justify-content: center; padding: var(--space-2) 0; }
 .sk-drawer.rail .sk-group-head { justify-content: center; padding: var(--space-2) 0; min-height: 0; }
 .sk-drawer.rail .sk-group + .sk-group { border-top: 0; }
+/* A rail group is one avatar (bodies are hidden), so it drops E-19's containment: the paint
+   containment it implies would clip the open streamer's ring, which is wider than the 55px group. */
+.sk-drawer.rail .sk-group { content-visibility: visible; }
 .sk-drawer.rail .sk-row[aria-current="true"] { background: none; }
 .sk-drawer.rail .sk-drawer-foot { display: grid; justify-items: center; padding: var(--space-2) 0; }
 /* The open streamer's avatar is ringed in primary. */
