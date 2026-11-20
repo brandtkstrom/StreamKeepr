@@ -498,12 +498,139 @@ public sealed class RecorderJobTests : IDisposable
         Assert.True(elapsed < TimeSpan.FromSeconds(35), $"stop took {elapsed}");
     }
 
+    [Fact]
+    public async Task Progress_is_nondecreasing_and_the_final_sample_matches_the_part_bytes()
+    {
+        Session session = NewSession();
+        RecorderOptions options = NewOptions(
+            WriteScript("fake-progress-ffmpeg", ProgressFfmpegScript));
+        options.StreamlinkPath = WriteScript(
+            "fake-finishing-streamlink", WaitingStreamlinkScript);
+
+        var progress = new List<(long Bytes, TimeSpan MediaTime)>();
+        IReadOnlyList<DvrEvent> events = await RunAsync(
+            session,
+            options,
+            reportProgress: (_, bytes, mediaTime) =>
+            {
+                lock (progress)
+                    progress.Add((bytes, mediaTime));
+            });
+
+        var exited = Assert.Single(events.OfType<DvrEvent.RecorderExited>());
+        Assert.Equal(RecorderExitKind.Exited, exited.Kind);
+
+        List<(long Bytes, TimeSpan MediaTime)> samples;
+        lock (progress)
+            samples = progress.ToList();
+
+        Assert.True(samples.Count >= 2, "expected a progress sample before the final block");
+        for (int i = 1; i < samples.Count; i++)
+        {
+            Assert.True(
+                samples[i].Bytes >= samples[i - 1].Bytes,
+                $"part bytes went backwards: {samples[i - 1].Bytes} then {samples[i].Bytes}");
+        }
+
+        long onDisk = PartFiles.TotalBytes(session.Directory, 1);
+        Assert.True(onDisk > 0, "the fake FFmpeg must produce part files");
+        Assert.Equal(onDisk, samples[^1].Bytes);
+    }
+
+    [Fact]
+    public async Task An_unreadable_playlist_does_not_fail_the_part()
+    {
+        Session session = NewSession();
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        ILogger<RecorderJob> logger = loggerFactory.CreateLogger<RecorderJob>();
+        RecorderOptions options = NewOptions(
+            WriteScript("fake-locking-ffmpeg", LockingFfmpegScript));
+        options.StreamlinkPath = WriteScript(
+            "fake-waiting-streamlink", WaitingStreamlinkScript);
+
+        var progress = new List<(long Bytes, TimeSpan MediaTime)>();
+        var firstSample = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        (Task run, List<DvrEvent> events) = StartJob(
+            session,
+            options,
+            logger: logger,
+            reportProgress: (_, bytes, mediaTime) =>
+            {
+                lock (progress)
+                    progress.Add((bytes, mediaTime));
+                if (mediaTime == TimeSpan.FromSeconds(1))
+                    firstSample.TrySetResult();
+            });
+
+        string playlistPath = Path.Combine(session.Directory, PartFiles.Playlist(1));
+        try
+        {
+            // The callback runs after the tracker's playlist handle is closed, so the test can
+            // take an exclusive lock without racing the reader.
+            await firstSample.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+            await File.WriteAllTextAsync(
+                Path.Combine(session.Directory, "p001_00001.m4s"), "bb");
+            await File.AppendAllTextAsync(playlistPath, "\np001_00001.m4s\n");
+
+            await using (var locked = new FileStream(
+                playlistPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.None))
+            {
+                await File.WriteAllTextAsync(
+                    Path.Combine(session.Directory, "playlist.locked"), string.Empty);
+                await WaitForFileAsync(Path.Combine(session.Directory, "second.sample"));
+                await WaitForCompletionAsync(run, "recorder job");
+            }
+        }
+        finally
+        {
+            if (!run.IsCompleted)
+            {
+                // Release the waiting fake process so disposal can delete the session directory.
+                try
+                {
+                    await File.WriteAllTextAsync(
+                        Path.Combine(session.Directory, "playlist.locked"), string.Empty);
+                    await run.WaitAsync(TimeSpan.FromSeconds(30));
+                }
+                catch (Exception)
+                {
+                    // Cleanup only; the test's own failure is the useful signal.
+                }
+            }
+        }
+
+        IReadOnlyList<DvrEvent> recorded = ReadEvents(events);
+        var exited = Assert.Single(recorded.OfType<DvrEvent.RecorderExited>());
+        Assert.Equal(RecorderExitKind.Exited, exited.Kind);
+
+        List<(long Bytes, TimeSpan MediaTime)> samples;
+        lock (progress)
+            samples = progress.ToList();
+        Assert.Contains(samples, sample => sample.MediaTime == TimeSpan.FromSeconds(2));
+
+        // Live progress keeps the last readable total; the final reconcile is authoritative.
+        Assert.Equal(samples[0].Bytes, samples[^1].Bytes);
+
+        long onDisk = PartFiles.TotalBytes(session.Directory, 1);
+        CapturedLogEntry finished = Assert.Single(
+            logs.Entries,
+            entry => entry.Message.Contains("finished", StringComparison.Ordinal));
+        Assert.Equal(onDisk, Assert.IsType<long>(finished.Properties["Bytes"]));
+    }
+
     private (Task Run, List<DvrEvent> Events) StartJob(
         Session session,
         RecorderOptions options,
         TimeProvider? clock = null,
         ILogger<RecorderJob>? logger = null,
-        CancellationToken stopRequested = default)
+        CancellationToken stopRequested = default,
+        Action<JobId, long, TimeSpan>? reportProgress = null)
     {
         var events = new List<DvrEvent>();
         ValueTask Publish(DvrEvent dvrEvent, CancellationToken _)
@@ -518,7 +645,8 @@ public sealed class RecorderJobTests : IDisposable
             clock ?? TimeProvider.System,
             logger ?? NullLogger<RecorderJob>.Instance,
             _telemetry.Value);
-        Task run = job.RunAsync(session, new JobId(session.Id, 1), Publish, stopRequested);
+        Task run = job.RunAsync(
+            session, new JobId(session.Id, 1), Publish, stopRequested, reportProgress);
         return (run, events);
     }
 
@@ -527,9 +655,11 @@ public sealed class RecorderJobTests : IDisposable
         RecorderOptions options,
         CancellationToken stopRequested = default,
         TimeProvider? clock = null,
-        ILogger<RecorderJob>? logger = null)
+        ILogger<RecorderJob>? logger = null,
+        Action<JobId, long, TimeSpan>? reportProgress = null)
     {
-        (Task run, List<DvrEvent> events) = StartJob(session, options, clock, logger, stopRequested);
+        (Task run, List<DvrEvent> events) = StartJob(
+            session, options, clock, logger, stopRequested, reportProgress);
         await WaitForCompletionAsync(run, "recorder job");
         return ReadEvents(events);
     }
@@ -582,12 +712,66 @@ public sealed class RecorderJobTests : IDisposable
     };
 
     /// <summary>An ffmpeg stand-in that exits at once; "true" is not on PATH on every platform.</summary>
-    private string WriteExitingCommand()
+    private string WriteExitingCommand() =>
+        WriteScript("exiting-command", "#!/bin/sh\nexit 0\n");
+
+    private string WriteScript(string name, string body)
     {
-        string path = Path.Combine(_root, "exiting-command");
-        File.WriteAllText(path, "#!/bin/sh\nexit 0\n");
+        string path = Path.Combine(_root, name);
+        File.WriteAllText(path, body);
         return TestPaths.StartableScriptPath(path);
     }
+
+    private const string WaitingStreamlinkScript = """
+        #!/bin/sh
+        set -eu
+
+        if [ "${1:-}" = "--version" ]; then
+            echo "streamlink 0.0.0-fake"
+            exit 0
+        fi
+
+        while [ ! -f ffmpeg.done ]; do
+            sleep 0.01
+        done
+        """;
+
+    private const string ProgressFfmpegScript = """
+        #!/bin/sh
+        set -eu
+
+        printf 'init' > init_001.mp4
+        printf 'aaaa' > p001_00000.m4s
+        printf 'bbbbbb' > p001_00001.m4s
+        printf '#EXTM3U\n#EXT-X-MAP:URI="init_001.mp4"\np001_00000.m4s\np001_00001.m4s\n' > p001.m3u8
+        printf 'out_time_us=1000000\nprogress=continue\n'
+
+        printf 'cc' > p001_00002.m4s
+        printf '#EXTM3U\n#EXT-X-MAP:URI="init_001.mp4"\np001_00000.m4s\np001_00001.m4s\np001_00002.m4s\n' > p001.m3u8
+        printf 'out_time_us=2000000\nprogress=continue\n'
+        printf 'out_time_us=2000000\nprogress=end\n'
+
+        : > ffmpeg.done
+        """;
+
+    private const string LockingFfmpegScript = """
+        #!/bin/sh
+        set -eu
+
+        printf 'init' > init_001.mp4
+        printf 'aaaa' > p001_00000.m4s
+        printf '#EXTM3U\n#EXT-X-MAP:URI="init_001.mp4"\np001_00000.m4s\n' > p001.m3u8
+        printf 'out_time_us=1000000\nprogress=continue\n'
+
+        while [ ! -f playlist.locked ]; do
+            sleep 0.01
+        done
+
+        printf 'out_time_us=2000000\nprogress=continue\n'
+        printf 'out_time_us=2000000\nprogress=end\n'
+        : > second.sample
+        : > ffmpeg.done
+        """;
 
     private Session NewSession()
     {

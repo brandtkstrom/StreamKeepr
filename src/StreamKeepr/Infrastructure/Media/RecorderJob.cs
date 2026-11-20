@@ -80,6 +80,7 @@ public sealed class RecorderJob(
 
         var tail = new StderrTail(StderrCapacity);
         var parser = new FfmpegProgressParser();
+        var byteTracker = new PartByteTracker(session.Directory, job.Part);
         int producing = 0;
         long lastMediaAdvanceTicks = clock.GetUtcNow().UtcTicks;
         long adGraceUntilTicks = 0;
@@ -114,8 +115,9 @@ public sealed class RecorderJob(
                 if (parser.Feed(line) is not { } sample)
                     return;
 
-                // total_size is N/A for the HLS muxer. Byte progress comes from the part files.
-                long bytes = PartFiles.TotalBytes(session.Directory, job.Part);
+                // total_size is N/A for the HLS muxer. The tracker reads the part playlist
+                // incrementally, so a progress sample never enumerates the part directory.
+                long bytes = byteTracker.Sample();
                 logger.LogDebug(
                     "Recorder {Job} progress: {Bytes} bytes, media {MediaTime}",
                     job,
@@ -268,24 +270,25 @@ public sealed class RecorderJob(
                 CancellationToken.None);
         }
 
-        // Null when unknown: telemetry must never fail the recorder, and a failed read must not
-        // be reported as a 0-byte part.
-        long? partBytes = null;
-        if (telemetry.Enabled)
-        {
-            try
-            {
-                partBytes = PartFiles.TotalBytes(session.Directory, job.Part);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(
-                    ex, "Could not read the part size; the part's size metric is skipped.");
-            }
-        }
-
         if (Volatile.Read(ref producing) == 0)
             PartFiles.Delete(session.Directory, job.Part);
+
+        // One authoritative scan for telemetry, the finish log, and their equality. The
+        // incremental tracker is the fallback; a metadata error must never fail the recorder.
+        long bytes;
+        try
+        {
+            bytes = byteTracker.Reconcile();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Could not read the part size; using the tracked total of {Bytes} bytes.",
+                byteTracker.Total);
+            bytes = byteTracker.Total;
+        }
+        long? partBytes = telemetry.Enabled ? bytes : null;
 
         // The watchdog and force-kill paths beat a requested stop; an escalated finalize did not
         // end on its own, so it is reported as killed rather than as a self exit.
@@ -313,7 +316,6 @@ public sealed class RecorderJob(
 
         // Bytes are what the part left on disk: zero when an empty part was removed.
         double elapsedMs = clock.GetElapsedTime(startedAt).TotalMilliseconds;
-        long bytes = PartFiles.TotalBytes(session.Directory, job.Part);
         logger.LogInformation(
             "Recorder {Job} finished ({Kind}) after {ElapsedMs:F0} ms with {Bytes} bytes: {Detail}",
             job,

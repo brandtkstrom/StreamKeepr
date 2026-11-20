@@ -94,7 +94,11 @@ Precedence when more than one applies: `Stopped` > `Killed` > `Exited`.
 ## 6. Progress and media detection
 
 - Parse `-progress` key=value lines and emit a sample when `progress=continue` or `progress=end` arrives.
-- `total_size` is `N/A` for the HLS muxer. Compute `TotalBytes` from the part's init and segment files on each sample; report 0 only when no files exist.
+- `total_size` is `N/A` for the HLS muxer. Live byte progress comes from a per-part `PartByteTracker`; the progress path never enumerates the part directory.
+- The tracker re-stats the part playlist only when its length or last-write time changed. It reads `#EXT-X-MAP` for the init URI and non-comment lines for segment names, accepts only exact names for the current part, and stats each newly seen init or completed segment once. `.tmp` files, playlists, other parts, duplicates, and partial writes are ignored.
+- The tracker opens the playlist with sharing that permits FFmpeg's atomic rename. A missing, empty, malformed, or momentarily unreadable playlist returns the last known total and retries on the next sample; metadata errors never fault FFmpeg's stdout pipe or fail the recorder.
+- Live `PartBytes` is monotonic within a part (the high-water total); deleting a segment does not lower it. A new part starts at zero, and `DvrStatus` resets the bytes when the active job changes.
+- At part end one authoritative `PartFiles.TotalBytes` scan supplies `telemetry.PartExited`, the finish log, and their equality. If that scan throws, the tracker total is used and a warning is logged.
 - `Advanced` means `out_time_us` increased since the last report. The final block arrives after the trailer but before process exit; the job still awaits the process.
 - Publish `PartProducingMedia(job, At)` exactly once, when progress advances or at shutdown when at least one segment file exists. It must be published before `RecorderExited`.
 - Guard the “producing” flag with `Interlocked` or an equivalent atomic. Cleanup must never delete a part that produced media.
@@ -134,7 +138,8 @@ Precedence when more than one applies: `Stopped` > `Killed` > `Exited`.
 
 Unit:
 
-- `PartFiles` paths and the delete globs, including `.tmp` and init temp files.
+- `PartFiles` paths, the delete globs (including `.tmp` and init temp files), and strict segment/init name parsing.
+- `PartByteTracker`: missing, empty, and malformed playlists; init-only; out-of-order and duplicate segments; `.tmp` and foreign names; late segments; deletion; transient read/stat failures; part isolation; final reconcile; and a probe proving one stat per newly seen segment.
 - FFmpeg and Streamlink argument builders, including `-bsf:a aac_adtstoasc` and `--twitch-supported-codecs h264,h265,av1`.
 - `FfmpegProgressParser`: `total_size=N/A`, `out_time_us`, `progress=continue`, `progress=end`, missing keys, first-block-only parts.
 - `StderrTail` capacity and ordering.
