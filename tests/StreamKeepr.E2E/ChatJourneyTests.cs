@@ -365,6 +365,25 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             "free space sits above the first row");
     }
 
+    [Fact]
+    public async Task The_chat_pane_uses_the_library_drawer_background()
+    {
+        await using LibraryJourneyTests.Session session =
+            await LibraryJourneyTests.OpenAsync(app.BaseUrl);
+        IPage page = session.Page;
+
+        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
+        string id = (await saved.GetAttributeAsync("data-recording-id"))!;
+        await saved.ClickAsync();
+        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await page.Locator("[data-sk='seek'][aria-disabled='false']")
+            .WaitForAsync(new() { Timeout = 20_000 });
+
+        string chat = await page.Locator("[data-sk-chat]")
+            .EvaluateAsync<string>("e => getComputedStyle(e).backgroundColor");
+        Assert.Equal(await TokenColourAsync(page, "--drawer-background"), chat);
+    }
+
     // Playwright deserializes evaluate results through a parameterless constructor.
     private sealed class LiveLayout
     {

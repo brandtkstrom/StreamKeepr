@@ -3,10 +3,11 @@ using Serilog.Events;
 namespace StreamKeepr.Hosting;
 
 /// <summary>
-/// Chooses the level of the one request-completion event. Failures are always visible:
-/// 5xx and unhandled exceptions are <see cref="LogEventLevel.Error"/> and 4xx is
-/// <see cref="LogEventLevel.Warning"/> on every path. Successful requests on quiet paths
-/// (health probes, media, Blazor transport, static assets, player APIs) are
+/// Chooses the level of the one request-completion event. Failures remain visible: 5xx and
+/// unhandled exceptions are <see cref="LogEventLevel.Error"/> and other 4xx responses are
+/// <see cref="LogEventLevel.Warning"/>. A 499 on the media surface is
+/// <see cref="LogEventLevel.Debug"/> because a player abort is expected. Successful requests
+/// on quiet paths (health probes, media, Blazor transport, static assets, player APIs) are
 /// <see cref="LogEventLevel.Verbose"/>, which the shipped minimum level drops before the
 /// event is built; everything else is <see cref="LogEventLevel.Information"/>.
 /// </summary>
@@ -35,11 +36,19 @@ internal static class RequestLogPolicy
         if (exception is not null || statusCode >= StatusCodes.Status500InternalServerError)
             return LogEventLevel.Error;
 
+        // A client-closed request on the media surface is expected player behavior. It is
+        // still an unhandled exception (Error) if one reaches the middleware.
+        if (statusCode == StatusCodes.Status499ClientClosedRequest && IsMedia(path))
+            return LogEventLevel.Debug;
+
         if (statusCode >= StatusCodes.Status400BadRequest)
             return LogEventLevel.Warning;
 
         return IsQuiet(path) ? LogEventLevel.Verbose : LogEventLevel.Information;
     }
+
+    private static bool IsMedia(PathString path) =>
+        path.StartsWithSegments("/media", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsQuiet(PathString path) =>
         QuietPrefixes.Any(prefix => path.StartsWithSegments(prefix, StringComparison.OrdinalIgnoreCase))

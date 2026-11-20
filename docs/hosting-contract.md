@@ -31,9 +31,9 @@ MapHealthChecks
 - `UseForwardedHeaders` trusts only configured proxies/networks. Never accept forwarded headers from arbitrary clients.
 - No `UseHttpsRedirection`: TLS terminates at the reverse proxy. Localhost HTTP remains usable.
 - `UseRecordingsMedia` runs before static assets so `/media` is governed by its allowlist.
-- The exception handler uses the `/Error` page outside Development.
+- The exception handler uses the `/Error` page outside Development. Development registers no exception handler by contract: the live index endpoint handles expected request aborts itself (499 with no body), and an unexpected exception remains a 500 there. Do not add `UseExceptionHandler` to Development to hide aborts.
 - Request logging (#199) sits after forwarded headers, so the request carries the public scheme and client, and before the exception handler and authentication, so handled 500s log at `Error` and 401/403 stay visible. It is outside media and static assets, so their 404s are logged. New middleware that should be covered by the request event (and its elapsed time) goes after it; middleware whose effect the request event must reflect, but which should not be timed, goes between forwarded headers and request logging.
-- Request events log method, path without the query string, status, elapsed time, and `RequestId` (`TraceIdentifier`). Never log the query: `/signin-twitch` carries the OAuth `code` and `state`. Levels: 5xx or an unhandled exception `Error`; 4xx `Warning`; any status below 400 (including 3xx) on `/health`, `/media`, `/_blazor`, `/_framework`, `/_content`, `/api/recordings`, and static-asset extensions `Verbose` (dropped at the shipped minimum); everything else `Information`.
+- Request events log method, path without the query string, status, elapsed time, and `RequestId` (`TraceIdentifier`). Never log the query: `/signin-twitch` carries the OAuth `code` and `state`. Levels: 5xx or an unhandled exception `Error`; 4xx `Warning`, except a 499 on `/media`, which is `Debug` because a player abort is normal; any status below 400 (including 3xx) on `/health`, `/media`, `/_blazor`, `/_framework`, `/_content`, `/api/recordings`, and static-asset extensions `Verbose` (dropped at the shipped minimum); everything else `Information`.
 - `AddRazorComponents().AddInteractiveServerComponents()` and `MapStaticAssets()` are registered as in the plan.
 
 ## 3. Endpoint map
@@ -74,7 +74,15 @@ ADR-0002 applies.
   - `.png` → `image/png`
 - Cache headers: `.m3u8` → `no-cache`; segments, init files, and thumbnails → `public, max-age=31536000, immutable`.
 - Static files handle GET/HEAD and Range requests. No directory listing; a missing file is 404, never a 500.
-- `index.m3u8`: static files may serve a finalized file; the live endpoint stitches while recording. Both set `Cache-Control: no-cache` and return 404 for unknown sessions/channels. A Complete session must return a playlist with one `#EXT-X-ENDLIST`.
+- `index.m3u8`: a Complete session serves the physical finalized file with HEAD and Range. A Recording session serves the immutable snapshot from `LivePlaylistCache`; the request performs no session-folder I/O and takes neither the session manifest lock nor the live refresh gate. `RecordingLibrary` is the authority for Recording/Complete/removed: finalize, reopen, and delete do not invalidate the cache, so a finalized session switches to the index immediately and a deleted session returns 404 immediately; the background refresher prunes on its next tick.
+- Live index status policy:
+  - Warm Recording snapshot: `200` with the cached body and `Cache-Control: no-cache`.
+  - Last-known-good (LKG): the cached snapshot is the LKG. When `TimeProvider.GetUtcNow() - LivePlaylistSnapshot.RefreshedAt` (the cached-at time) is at or above `LivePlaylist:StaleAfterSeconds` (validated 1–3600, default 10), the response is still `200` with `no-cache` plus `X-StreamKeepr-Stale: true`; a fresh snapshot omits the header. The request never waits on a refresh or rebuild for LKG.
+  - Cold cache or an unloaded library: `503` with `Retry-After: 1` and `Cache-Control: no-store`. There is no request-time rebuild or disk fallback.
+  - A client already aborted: `499` (or no response if the transport has closed) with no body; the request event is `Debug`, never `500`/`Error`.
+  - Unknown session or channel mismatch: `404`.
+- A live or LKG body never contains `#EXT-X-ENDLIST`; a Complete session must return a playlist with exactly one. `200` and `404` index responses set `Cache-Control: no-cache`, and HEAD reports the same `Content-Length` as GET for fresh and LKG bodies.
+- The request path has no I/O, so there is no per-request deadline middleware. The server deadline is the background `LivePlaylist:RefreshTimeoutSeconds` bound on `LivePlaylistService`; a timed-out refresh keeps the LKG while the endpoint keeps serving from the cache without waiting.
 - The chat endpoint is public, returns `Cache-Control: no-store`, bounds its window and result limit, and returns 400/404/200-with-`hasChat:false` as defined in `docs/backend-ui-contract.md`.
 - The media root is created at startup. An unwritable root fails startup with the UID 1654 guidance.
 - Deletion races return 404/410, never a 500.
@@ -165,7 +173,13 @@ Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6
 | Dot segment / traversal | 404 |
 | Missing media file | 404 |
 | Unknown session/channel | 404 |
-| Delete/stitch race | 404/410 |
+| Live index with an unloaded library or cold cache | 503 + `Retry-After: 1`, `Cache-Control: no-store` |
+| Live snapshot older than `StaleAfterSeconds` | 200 last-known-good body + `X-StreamKeepr-Stale: true`, `no-cache` |
+| Live index client abort | 499 (or no response); `Debug` request event; never 500/`Error` |
+| Unexpected exception in Development | 500; Development intentionally registers no exception handler |
+| Live playlist refresh failure | Last-known-good snapshot keeps serving; host stays up; a failed read publishes nothing; one `Warning` per failure window |
+| Refresh/finalize race | The library becomes Complete; the refresher publishes nothing and the endpoint serves the finalized index |
+| Delete/live-request race | 404/410 immediately; the library entry is removed first; the refresher prunes later |
 | Stuck poller | `/health/live` unhealthy after the push-aware budget |
 | Stuck channel loop or stalled media | `/health/live` unhealthy |
 | Disk below `MinFreeGb` | `/health/ready` unhealthy; recording stops |
@@ -185,7 +199,8 @@ Host and media:
 - Middleware order, auth challenge, antiforgery, forwarded headers.
 - Allowed media types served with correct content types and cache headers.
 - `.json`, `.tmp`, dot-folders, encoded traversal, unknown sessions/channels → 404.
-- GET/HEAD and Range; finalized index has ENDLIST; live index is stitched and no-cache.
+- GET/HEAD and Range; finalized index has exactly one ENDLIST; live index serves the cached snapshot with no session I/O and no session lock; finalize switches to the index immediately; a deleted session is 404 immediately; cold cache is 503 + `Retry-After: 1` + `no-store`; a snapshot at the staleness threshold is 200 with `X-StreamKeepr-Stale: true` and a fresh one omits it; HEAD matches GET's content length for fresh and LKG bodies; a client abort is 499/empty and never a 500 or an `Error` request event; 320 concurrent warm requests return 200/503 only.
+- `RequestLogPolicy`: `/media` 499 is `Debug`; other 4xx are `Warning`; 5xx and unhandled exceptions are `Error`. `LivePlaylistService` logs one `Warning` per failure window and `Debug` after that, resetting on success.
 - Export download requires sign-in; progress is public; delete/settings require sign-in.
 
 Health:

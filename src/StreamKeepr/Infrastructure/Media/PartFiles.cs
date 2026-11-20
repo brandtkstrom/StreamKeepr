@@ -12,6 +12,12 @@ public static class PartFiles
     private static readonly Regex PlaylistName = new(
         @"^p(?<part>\d{3})\.m3u8$", RegexOptions.CultureInvariant);
 
+    private static readonly Regex SegmentName = new(
+        @"^p(?<part>\d{3})_\d{5}\.m4s$", RegexOptions.CultureInvariant);
+
+    private static readonly Regex InitName = new(
+        @"^init_(?<part>\d{3})\.mp4$", RegexOptions.CultureInvariant);
+
     public const int FirstPart = 1;
     public const int LastPart = 999;
 
@@ -86,5 +92,42 @@ public static class PartFiles
             total += new FileInfo(file).Length;
 
         return total;
+    }
+
+    /// <summary>
+    /// Parses a completed segment name such as <c>p001_00000.m4s</c>. Only an exact five-digit
+    /// segment of a three-digit part parses; temporary and foreign names do not.
+    /// </summary>
+    public static bool TryParseSegment(string fileName, out int part)
+    {
+        Match match = SegmentName.Match(fileName);
+        part = match.Success
+            ? int.Parse(match.Groups["part"].Value, CultureInfo.InvariantCulture)
+            : 0;
+        return match.Success;
+    }
+
+    /// <summary>Parses an init name such as <c>init_001.mp4</c>.</summary>
+    public static bool TryParseInit(string fileName, out int part)
+    {
+        Match match = InitName.Match(fileName);
+        part = match.Success
+            ? int.Parse(match.Groups["part"].Value, CultureInfo.InvariantCulture)
+            : 0;
+        return match.Success;
+    }
+
+    /// <summary>
+    /// Returns the bare file name when <paramref name="candidate"/> has no directory component.
+    /// Both separators are rejected on every platform, so a Linux reader cannot accept a
+    /// backslash path that Windows would treat as a directory.
+    /// </summary>
+    public static bool TryGetBareFileName(string candidate, out string fileName)
+    {
+        fileName = Path.GetFileName(candidate);
+        return fileName.Length > 0
+            && string.Equals(fileName, candidate, StringComparison.Ordinal)
+            && !candidate.Contains('/')
+            && !candidate.Contains('\\');
     }
 }

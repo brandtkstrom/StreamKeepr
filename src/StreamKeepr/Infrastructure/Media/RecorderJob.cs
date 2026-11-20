@@ -21,6 +21,28 @@ public sealed class RecorderJob(
 {
     private const int StderrCapacity = 20;
 
+    private readonly IRecorderProcessRunner _processRunner = new CliWrapProcessRunner();
+    private readonly Func<int?, DateTime?, ProcessIdentity> _identityProbe =
+        ProcessIdentityInspector.Inspect;
+
+    /// <summary>
+    /// Test seam: production uses the CliWrap runner and the real process table. Tests substitute
+    /// both so an unverified stop is deterministic without long-lived processes.
+    /// </summary>
+    internal RecorderJob(
+        IOptions<RecorderOptions> options,
+        TimeProvider clock,
+        ILogger<RecorderJob> logger,
+        StreamKeeprTelemetry telemetry,
+        IRecorderProcessRunner processRunner,
+        Func<int?, DateTime?, ProcessIdentity>? identityProbe = null)
+        : this(options, clock, logger, telemetry)
+    {
+        _processRunner = processRunner;
+        if (identityProbe is not null)
+            _identityProbe = identityProbe;
+    }
+
     private static readonly TimeSpan WatchdogInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan GracefulStopTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ForceStopTimeout = TimeSpan.FromSeconds(5);
@@ -80,6 +102,7 @@ public sealed class RecorderJob(
 
         var tail = new StderrTail(StderrCapacity);
         var parser = new FfmpegProgressParser();
+        var byteTracker = new PartByteTracker(session.Directory, job.Part);
         int producing = 0;
         long lastMediaAdvanceTicks = clock.GetUtcNow().UtcTicks;
         long adGraceUntilTicks = 0;
@@ -114,8 +137,9 @@ public sealed class RecorderJob(
                 if (parser.Feed(line) is not { } sample)
                     return;
 
-                // total_size is N/A for the HLS muxer. Byte progress comes from the part files.
-                long bytes = PartFiles.TotalBytes(session.Directory, job.Part);
+                // total_size is N/A for the HLS muxer. The tracker reads the part playlist
+                // incrementally, so a progress sample never enumerates the part directory.
+                long bytes = byteTracker.Sample();
                 logger.LogDebug(
                     "Recorder {Job} progress: {Bytes} bytes, media {MediaTime}",
                     job,
@@ -171,10 +195,12 @@ public sealed class RecorderJob(
                 logger.LogDebug("[streamlink {Job}] {Line}", job, safe);
             }));
 
-        Task<ProcessOutcome> ffmpegTask = RunProcessAsync(
+        RunningProcess ffmpeg = _processRunner.Start(
             ffmpegCommand, ffmpegForce.Token, ffmpegGraceful.Token);
-        Task<ProcessOutcome> streamlinkTask = RunProcessAsync(
+        RunningProcess streamlink = _processRunner.Start(
             streamlinkCommand, streamlinkForce.Token, streamlinkGraceful.Token);
+        Task<ProcessOutcome> ffmpegTask = ffmpeg.Completion;
+        Task<ProcessOutcome> streamlinkTask = streamlink.Completion;
 
         var stopSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using CancellationTokenRegistration stopRegistration = stopRequested.Register(
@@ -195,6 +221,8 @@ public sealed class RecorderJob(
         bool forcedKill = false;
         bool finalizeTimedOut = false;
         bool stalledEnd = false;
+        ProcessStop streamlinkStop = ProcessStop.AlreadyStopped;
+        ProcessStop ffmpegStop = ProcessStop.AlreadyStopped;
         try
         {
             Task first = await Task.WhenAny(
@@ -220,9 +248,8 @@ public sealed class RecorderJob(
             if (!streamlinkTask.IsCompleted)
             {
                 ProcessStop stop = await StopAsync(
-                    streamlinkTask, streamlinkGraceful, streamlinkForce);
-                if (stop == ProcessStop.TimedOut)
-                    throw new TimeoutException("streamlink did not stop after a force kill");
+                    job, "streamlink", streamlink, streamlinkGraceful, streamlinkForce);
+                streamlinkStop = stop;
                 forcedKill |= stop == ProcessStop.Forced;
             }
 
@@ -236,9 +263,9 @@ public sealed class RecorderJob(
                 {
                     reason = $"{reason}; ffmpeg did not finalize";
                     finalizeTimedOut = true;
-                    ProcessStop stop = await StopAsync(ffmpegTask, ffmpegGraceful, ffmpegForce);
-                    if (stop == ProcessStop.TimedOut)
-                        throw new TimeoutException("ffmpeg did not stop after a force kill");
+                    ProcessStop stop = await StopAsync(
+                        job, "ffmpeg", ffmpeg, ffmpegGraceful, ffmpegForce);
+                    ffmpegStop = stop;
                     forcedKill |= stop == ProcessStop.Forced;
                 }
             }
@@ -268,24 +295,25 @@ public sealed class RecorderJob(
                 CancellationToken.None);
         }
 
-        // Null when unknown: telemetry must never fail the recorder, and a failed read must not
-        // be reported as a 0-byte part.
-        long? partBytes = null;
-        if (telemetry.Enabled)
-        {
-            try
-            {
-                partBytes = PartFiles.TotalBytes(session.Directory, job.Part);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(
-                    ex, "Could not read the part size; the part's size metric is skipped.");
-            }
-        }
-
         if (Volatile.Read(ref producing) == 0)
             PartFiles.Delete(session.Directory, job.Part);
+
+        // One authoritative scan for telemetry, the finish log, and their equality. The
+        // incremental tracker is the fallback; a metadata error must never fail the recorder.
+        long bytes;
+        try
+        {
+            bytes = byteTracker.Reconcile();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Could not read the part size; using the tracked total of {Bytes} bytes.",
+                byteTracker.Total);
+            bytes = byteTracker.Total;
+        }
+        long? partBytes = telemetry.Enabled ? bytes : null;
 
         // The watchdog and force-kill paths beat a requested stop; an escalated finalize did not
         // end on its own, so it is reported as killed rather than as a self exit.
@@ -301,7 +329,9 @@ public sealed class RecorderJob(
         if (forcedKill || finalizeTimedOut)
             telemetry.ForceKill();
 
-        string detail = $"{reason}; streamlink {Describe(streamlinkTask)}, ffmpeg {Describe(ffmpegTask)}";
+        string detail =
+            $"{reason}; streamlink {Describe(streamlink, streamlinkStop)}, "
+            + $"ffmpeg {Describe(ffmpeg, ffmpegStop)}";
         string stderr = tail.ToString();
         if (stderr.Length > 0)
             detail = $"{detail}; {stderr}";
@@ -313,7 +343,6 @@ public sealed class RecorderJob(
 
         // Bytes are what the part left on disk: zero when an empty part was removed.
         double elapsedMs = clock.GetElapsedTime(startedAt).TotalMilliseconds;
-        long bytes = PartFiles.TotalBytes(session.Directory, job.Part);
         logger.LogInformation(
             "Recorder {Job} finished ({Kind}) after {ElapsedMs:F0} ms with {Bytes} bytes: {Detail}",
             job,
@@ -359,49 +388,58 @@ public sealed class RecorderJob(
         }
     }
 
-    private static async Task<ProcessOutcome> RunProcessAsync(
-        Command command,
-        CancellationToken forceKill,
-        CancellationToken gracefulStop)
-    {
-        try
-        {
-            CommandResult result = await command
-                .ExecuteAsync(forceKill, gracefulStop)
-                .Task
-                .ConfigureAwait(false);
-            return new ProcessOutcome(result.ExitCode, null, Cancelled: false);
-        }
-        catch (OperationCanceledException)
-        {
-            return new ProcessOutcome(null, null, Cancelled: true);
-        }
-        catch (Exception ex)
-        {
-            return new ProcessOutcome(null, ex, Cancelled: false);
-        }
-    }
-
     /// <summary>
-    /// Stops one process within the bounded graceful then force-kill budget. CliWrap's
-    /// graceful token signals the single child PID; it never signals the process group.
+    /// Stops one process within the bounded graceful then force-kill budget. CliWrap's graceful
+    /// token signals the single child PID; it never signals the process group. A force kill is
+    /// accepted only when the captured PID is gone or was reused; an unreadable identity fails
+    /// closed because a descendant may still be writing.
     /// </summary>
     private async Task<ProcessStop> StopAsync(
-        Task process,
+        JobId job,
+        string tool,
+        RunningProcess process,
         CancellationTokenSource gracefulStop,
         CancellationTokenSource forceKill)
     {
-        if (process.IsCompleted)
+        if (process.Completion.IsCompleted)
             return ProcessStop.AlreadyStopped;
 
         await gracefulStop.CancelAsync();
-        if (await CompletesWithinAsync(process, GracefulStopTimeout))
+        if (await CompletesWithinAsync(process.Completion, GracefulStopTimeout))
             return ProcessStop.Graceful;
 
         await forceKill.CancelAsync();
-        return await CompletesWithinAsync(process, ForceStopTimeout)
+        if (!await CompletesWithinAsync(process.Completion, ForceStopTimeout))
+        {
+            throw ShutdownFault(
+                job, tool, process, ProcessStop.TimedOut, taskPending: true, identity: null);
+        }
+
+        ProcessIdentity identity = _identityProbe(process.ProcessId, process.StartTime);
+        return identity.IsVerifiedGone
             ? ProcessStop.Forced
-            : ProcessStop.TimedOut;
+            : throw ShutdownFault(
+                job, tool, process, ProcessStop.Unverified, taskPending: false, identity);
+    }
+
+    private RecorderShutdownException ShutdownFault(
+        JobId job,
+        string tool,
+        RunningProcess process,
+        ProcessStop stop,
+        bool taskPending,
+        ProcessIdentity? identity)
+    {
+        ProcessIdentity observed =
+            identity ?? _identityProbe(process.ProcessId, process.StartTime);
+        return new RecorderShutdownException(
+            job,
+            tool,
+            process.ProcessId,
+            process.StartTime,
+            stop,
+            taskPending,
+            observed.Detail);
     }
 
     private async Task<bool> CompletesWithinAsync(Task task, TimeSpan timeout)
@@ -412,26 +450,26 @@ public sealed class RecorderJob(
         return await Task.WhenAny(task, Task.Delay(timeout, clock)).ConfigureAwait(false) == task;
     }
 
-    private static string Describe(Task<ProcessOutcome> process)
+    private static string Describe(RunningProcess process, ProcessStop stop)
     {
-        if (!process.IsCompletedSuccessfully)
-            return "still running";
+        Task<ProcessOutcome> completion = process.Completion;
+        string identity =
+            $"pid {FormatPid(process.ProcessId)} started {FormatStart(process.StartTime)}";
+        if (!completion.IsCompletedSuccessfully)
+            return $"{identity} still running (stop {stop})";
 
-        ProcessOutcome outcome = process.Result;
-        if (outcome.Cancelled)
-            return "stopped";
-        if (outcome.Error is not null)
-            return $"failed: {outcome.Error.Message}";
-        return $"exit {outcome.ExitCode}";
+        ProcessOutcome outcome = completion.Result with { Stop = stop, TaskPending = false };
+        string state = outcome.Cancelled
+            ? "stopped"
+            : outcome.Error is not null
+                ? $"failed: {outcome.Error.Message}"
+                : $"exit {outcome.ExitCode}";
+        return $"pid {FormatPid(outcome.ProcessId)} started {FormatStart(outcome.StartTime)} "
+            + $"{state} (stop {outcome.Stop}, task {(outcome.TaskPending ? "pending" : "completed")})";
     }
 
-    private readonly record struct ProcessOutcome(int? ExitCode, Exception? Error, bool Cancelled);
+    private static string FormatPid(int? processId) => processId?.ToString() ?? "unknown";
 
-    private enum ProcessStop
-    {
-        AlreadyStopped,
-        Graceful,
-        Forced,
-        TimedOut,
-    }
+    private static string FormatStart(DateTime? startTime) =>
+        startTime?.ToString("O") ?? "unknown";
 }
