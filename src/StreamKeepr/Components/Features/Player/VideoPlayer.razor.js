@@ -22,6 +22,17 @@ export const HLS_CONFIG = Object.freeze({
   liveSyncDurationCount: 1,
   liveMaxLatencyDurationCount: Infinity,
   maxLiveSyncPlaybackRate: 1,
+  maxBufferLength: 60,
+  // hls.js replaces default load policies instead of deep-merging them, so the retry fields
+  // must repeat the defaults (2/0/0 and 2/1000/8000) to keep them.
+  playlistLoadPolicy: {
+    default: {
+      maxTimeToFirstByteMs: 30000,
+      maxLoadTimeMs: 30000,
+      timeoutRetry: { maxNumRetry: 2, retryDelayMs: 0, maxRetryDelayMs: 0 },
+      errorRetry: { maxNumRetry: 2, retryDelayMs: 1000, maxRetryDelayMs: 8000 },
+    },
+  },
 });
 
 const NETWORK_RETRY_MS = [1000, 2000, 4000];

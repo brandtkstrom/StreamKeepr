@@ -241,14 +241,31 @@ describe("VideoPlayer.razor.js", () => {
 
       expect(loadHls).toHaveBeenCalledOnce();
       const [instance] = hls.instances;
-      expect(instance.config).toMatchObject({
+      expect(instance.config).toEqual({
         enableWorker: true,
         lowLatencyMode: false,
         backBufferLength: 90,
         liveSyncDurationCount: 1,
         liveMaxLatencyDurationCount: Infinity,
         maxLiveSyncPlaybackRate: 1,
+        maxBufferLength: 60,
+        playlistLoadPolicy: {
+          default: {
+            maxTimeToFirstByteMs: 30000,
+            maxLoadTimeMs: 30000,
+            timeoutRetry: { maxNumRetry: 2, retryDelayMs: 0, maxRetryDelayMs: 0 },
+            errorRetry: { maxNumRetry: 2, retryDelayMs: 1000, maxRetryDelayMs: 8000 },
+          },
+        },
       });
+      // Buffer ceilings, per-type load timeouts, and legacy retry keys stay at hls.js defaults.
+      for (const key of [
+        "maxMaxBufferLength", "maxBufferSize", "levelLoadingTimeOut",
+        "manifestLoadingTimeOut", "fragLoadingTimeOut",
+        "levelLoadingMaxRetry", "manifestLoadingMaxRetry", "fragLoadingMaxRetry",
+      ]) {
+        expect(HLS_CONFIG).not.toHaveProperty(key);
+      }
       expect(HLS_CONFIG.liveSyncDurationCount).toBe(1);
       expect(instance.attachMedia).toHaveBeenCalledWith(hook("video"));
       expect(instance.loadSource).toHaveBeenCalledWith("/media/ann/r1/index.m3u8");

@@ -66,7 +66,11 @@ The stitched `index.m3u8` is a **single media playlist**, not a multi-variant ma
   - `liveSyncDurationCount: 1`
   - `liveMaxLatencyDurationCount: Infinity`
   - `maxLiveSyncPlaybackRate: 1`
+  - `maxBufferLength: 60`
+  - `playlistLoadPolicy.default` with `maxTimeToFirstByteMs: 30000` and `maxLoadTimeMs: 30000`
+- The playlist policy repeats hls.js's default retries (`timeoutRetry` 2/0/0, `errorRetry` 2/1000/8000) because hls.js replaces the policy object rather than merging it. `maxMaxBufferLength`, `maxBufferSize`, and the deprecated per-type `*LoadingTimeOut` keys stay at hls.js defaults.
 - The playlist target duration is 12 s, so the live sync position is about one target duration behind the true end. This is the player's **live edge** and avoids a guaranteed stall at the last segment.
+- The 60 s forward buffer keeps playback running while a slow live playlist is fetched; it does not move the live edge.
 - The red live tick marks the seekable end (`seekable.end`), not the sync position. The **Live edge** button seeks to `hls.liveSyncPosition` and enables following.
 - Following: while Recording/Reconnecting, playing, and following is on, the player keeps the playhead within roughly one target duration of the sync position; if it falls more than 2 s behind `liveSyncPosition`, it seeks forward to it. A manual seek more than 2 s behind the sync position, or a pause, turns following off. Pressing **Live edge**, seeking to within 2 s of the sync position, or seeking to the red tick (within 2 s of `seekable.end`) turns it on; a seek to the true end snaps back to `liveSyncPosition` so playback starts buffered. Each such return by the viewer clears the recording's resume position, once per return; opening at the live edge does not, and staying at the edge does not keep clearing, so a position another viewer saves meanwhile survives until someone next returns.
 - A Recording/Reconnecting recording without a resume position opens at `hls.liveSyncPosition` (or `seekable.end - 1`, clamped, before hls.js reports a position), following. With a resume position it opens there, paused and not following; **Live edge** is the viewer's to press.
@@ -222,6 +226,7 @@ The chat pane's behaviour (windows, polling, sync, backfill, emotes) is unchange
 
 - On load the poster shows; `aria-busy` is set until metadata and the first buffered range exist. A spinner appears after 500 ms of loading, with a visually hidden “Loading video”.
 - While Recording/Reconnecting and the playlist is missing, empty, or has no complete segment, show “Waiting for the first segment…” with the spinner and retry the manifest every 3 s. This is not an error and has no timeout. It becomes an error only if the session is Complete.
+- hls.js allows 30 s to first byte and 30 s total per live playlist request (raised from its 10 s/20 s defaults). It still retries at the defaults: two timeout retries at 0 ms and two error retries at 1 s/8 s. The 60 s forward buffer keeps playback running while a slow playlist is fetched; the fatal-error retries below are separate.
 - Fatal network errors retry `hls.startLoad()` after 1 s, 2 s, and 4 s (three attempts). Fatal media errors call `recoverMediaError()` twice, then `swapAudioCodec()`. A successful `FRAG_LOADED` resets the attempt count. After three fatal attempts, show the error overlay.
 - Non-fatal errors are counted for stats and never show the overlay. `bufferStalledError` while live is a spinner, not an error.
 - The overlay is `role="alert"`, focuses Retry, and offers Retry plus a link back to `/`. Retry reloads at the last known position (live and following: the live edge) and resets attempts. A Complete recording whose playlist stays 404 reads as unavailable; the Home deletion path may already be navigating away.
