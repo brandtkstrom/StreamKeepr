@@ -139,7 +139,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
             () => {
               const group = [...document.querySelectorAll("nav[aria-label=Library] [data-streamer-group]")]
                 .find(g => g.querySelector("[aria-current='true']"));
-              const avatar = group?.querySelector(".sk-group-head .mud-avatar");
+              const avatar = group?.querySelector("[role='treeitem'][aria-level='1'] [role='img']");
               if (!group || !avatar) return [];
               const g = group.getBoundingClientRect();
               const a = avatar.getBoundingClientRect();
