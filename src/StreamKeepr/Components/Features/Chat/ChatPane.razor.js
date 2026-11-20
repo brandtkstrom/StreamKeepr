@@ -278,6 +278,16 @@ export function createChatPane(root, {
   let following = true;
   let newCount = 0;
   let lastRenderKey = "";
+  // The log's row and gap elements by key. Renders keep them, so new chat appends instead of
+  // rebuilding the log, which would jump the scroll position and lose the browser's anchor.
+  let rowNodes = new Map();
+  // What every row's markup depends on (state, emote catalog, background); a change redraws.
+  let shellKey = "";
+  // A fresh window replaces the log and lands at its end without animating.
+  let freshLog = true;
+  // The pane's own smooth scroll to the end is under way. Scroll events it causes pass rows
+  // short of the bottom; they must not read as the viewer scrolling away.
+  let autoScrolling = false;
   let pollTimer = 0;
   // The backfill in progress, if any. It has its own request so polls never abort it.
   let backfill = null;
@@ -437,6 +447,7 @@ export function createChatPane(root, {
     windowFrom = 0;
     windowTo = 0;
     lastRenderKey = "";
+    freshLog = true;
     following = true;
     newCount = 0;
   }
@@ -696,13 +707,55 @@ export function createChatPane(root, {
       : "Jump to current time";
   }
 
+  function nearBottom() {
+    const log = el["chat-log"];
+    return log.scrollHeight - log.scrollTop - log.clientHeight < 24;
+  }
+
   function onScroll() {
-    const nearBottom = el["chat-log"].scrollHeight - el["chat-log"].scrollTop -
-      el["chat-log"].clientHeight < 24;
-    if (nearBottom !== following) {
-      following = nearBottom;
+    if (autoScrolling) {
+      // Only the viewer's own input (onScrollIntent) stops following mid-animation.
+      if (nearBottom()) autoScrolling = false;
+      return;
+    }
+    const atBottom = nearBottom();
+    if (atBottom !== following) {
+      following = atBottom;
       if (following) newCount = 0;
       updateJump();
+    }
+  }
+
+  /** Wheel up, touch, pointer or key input on the log hands scrolling back to the viewer. */
+  function onScrollIntent(event) {
+    if (event.type === "wheel" && event.deltaY >= 0) return;
+    autoScrolling = false;
+  }
+
+  /** A smooth scroll whose target was read before later rows grew the log chases the end. */
+  function onScrollEnd() {
+    if (!autoScrolling) return;
+    autoScrolling = false;
+    if (following && !nearBottom()) scrollToEnd("smooth");
+  }
+
+  function prefersReducedMotion() {
+    return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+  }
+
+  /**
+   * Scrolls the log to its newest row. "smooth" animates unless the viewer prefers reduced
+   * motion; "instant" is for a fresh window, where an animation would sweep through old chat.
+   */
+  function scrollToEnd(behavior) {
+    const log = el["chat-log"];
+    if (!log) return;
+    const smooth = behavior === "smooth" && !prefersReducedMotion();
+    autoScrolling = smooth;
+    if (typeof log.scrollTo === "function") {
+      log.scrollTo({ top: log.scrollHeight, behavior: smooth ? "smooth" : "instant" });
+    } else {
+      log.scrollTop = log.scrollHeight;
     }
   }
 
@@ -710,11 +763,12 @@ export function createChatPane(root, {
     following = true;
     newCount = 0;
     updateJump();
-    if (el["chat-log"]) el["chat-log"].scrollTop = el["chat-log"].scrollHeight;
+    scrollToEnd("smooth");
   }
 
   function render() {
-    if (!el["chat-log"]) return;
+    const log = el["chat-log"];
+    if (!log) return;
     let visible = [...messages.values()]
       .filter((message) => Number(message.mt) <= currentTime + 0.5)
       .sort((a, b) => a.mt - b.mt || String(a.id).localeCompare(String(b.id)));
@@ -733,10 +787,18 @@ export function createChatPane(root, {
     if (key === lastRenderKey) return;
     lastRenderKey = key;
 
-    const log = el["chat-log"];
     ground = opaqueGround(root);
-    log.replaceChildren();
+    const shell = `${view?.state ?? ""}|${view?.hasChat}|${emoteVersion}|${ground ?? ""}`;
+    const rebuild = freshLog || shell !== shellKey || rowNodes.size === 0;
+    freshLog = false;
+    shellKey = shell;
+    if (rebuild) {
+      rowNodes = new Map();
+      log.replaceChildren();
+    }
+
     if (visible.length === 0) {
+      rowNodes = new Map();
       if (view?.state === "starting" || (liveState() && view?.hasChat === false)) {
         log.textContent = "Waiting for the first chat message…";
       } else if (view?.hasChat === false) {
@@ -747,29 +809,53 @@ export function createChatPane(root, {
       return;
     }
 
+    // The log in order, as [key, create] pairs; gaps sit where they fall among the messages.
+    const items = [];
+    const pushGap = (gap) => items.push([`g:${gap.from}:${gap.to}`, () => renderGap(gap)]);
     const gapQueue = [...gaps];
     for (const message of visible) {
-      while (gapQueue.length > 0 && gapQueue[0].to <= message.mt) {
-        appendGap(gapQueue.shift());
-      }
-      if (gapQueue.length > 0 && gapQueue[0].from <= message.mt) {
-        appendGap(gapQueue.shift());
-      }
-      log.append(renderMessage(message));
+      while (gapQueue.length > 0 && gapQueue[0].to <= message.mt) pushGap(gapQueue.shift());
+      if (gapQueue.length > 0 && gapQueue[0].from <= message.mt) pushGap(gapQueue.shift());
+      items.push([`m:${messageKey(message)}`, () => renderMessage(message)]);
     }
-    while (gapQueue.length > 0) appendGap(gapQueue.shift());
+    while (gapQueue.length > 0) pushGap(gapQueue.shift());
 
-    if (following) log.scrollTop = log.scrollHeight;
+    const wanted = new Set(items.map(([itemKey]) => itemKey));
+    for (const [itemKey, node] of rowNodes) {
+      if (!wanted.has(itemKey)) {
+        node.remove();
+        rowNodes.delete(itemKey);
+      }
+    }
+    // Walk the log once: kept nodes in place are skipped, so playing on only appends at the end
+    // and drops pruned rows from the top. `appended` is a new row after every kept one.
+    let cursor = log.firstChild;
+    let appended = false;
+    for (const [itemKey, create] of items) {
+      let node = rowNodes.get(itemKey);
+      if (!node) {
+        node = create();
+        rowNodes.set(itemKey, node);
+        if (cursor === null) appended = true;
+      }
+      if (node === cursor) {
+        cursor = cursor.nextSibling;
+      } else {
+        log.insertBefore(node, cursor);
+      }
+    }
+
+    if (following && (rebuild || appended)) scrollToEnd(rebuild ? "instant" : "smooth");
     updateJump();
   }
 
-  function appendGap(gap) {
+  function renderGap(gap) {
     // `seconds` is wall-clock time; a gap between parts is a single point on the media timeline.
     const seconds = Math.max(1, Math.round(Number(gap.seconds)));
     const row = document.createElement("div");
     row.className = "sk-chat-gap";
     row.textContent = `Chat unavailable for ${seconds}s`;
-    el["chat-log"].append(row);
+    return row;
   }
 
   function renderMessage(message) {
@@ -968,6 +1054,10 @@ export function createChatPane(root, {
 
   on(el["chat-toggle"], "click", toggleAndPersist);
   on(el["chat-log"], "scroll", onScroll, { passive: true });
+  on(el["chat-log"], "scrollend", onScrollEnd, { passive: true });
+  for (const type of ["wheel", "touchstart", "pointerdown", "keydown"]) {
+    on(el["chat-log"], type, onScrollIntent, { passive: true });
+  }
   // Image errors do not bubble, so capture them at the log.
   on(el["chat-log"], "error", onEmoteError, { capture: true });
   on(el["chat-jump"], "click", jumpToCurrent);
@@ -1003,6 +1093,7 @@ export function createChatPane(root, {
       stopPolling();
       listeners.abort();
       announce(false);
+      rowNodes = new Map();
       if (el["chat-log"]) el["chat-log"].replaceChildren();
     },
   };

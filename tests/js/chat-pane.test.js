@@ -789,6 +789,154 @@ describe("chat replay pane", () => {
       pane.dispose();
     });
   });
+
+  describe("smooth scrolling", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    // One message a second from 0 s, so a playhead at t reveals m0 … m(t).
+    const steady = Array.from({ length: 30 }, (_, i) =>
+      ({ ...message, id: `m${i}`, mt: i, text: `message ${i}`, emotes: [] }));
+
+    /**
+     * Gives the log a layout jsdom lacks: 20 px rows in a 40 px viewport. An instant scrollTo
+     * lands at once; a smooth one is recorded but left running, as a browser animates it.
+     */
+    function layout(log) {
+      let top = 0;
+      Object.defineProperty(log, "clientHeight", { configurable: true, get: () => 40 });
+      Object.defineProperty(log, "scrollHeight", {
+        configurable: true, get: () => log.children.length * 20,
+      });
+      Object.defineProperty(log, "scrollTop", {
+        configurable: true, get: () => top, set: (value) => { top = value; },
+      });
+      log.scrollTo = vi.fn(({ top: target, behavior }) => {
+        if (behavior !== "smooth") top = target;
+      });
+      return log;
+    }
+
+    async function openPane(messages = steady) {
+      document.body.innerHTML = MARKUP;
+      const log = layout(document.querySelector("[data-sk='chat-log']"));
+      const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+        { fetch: windowFetch(messages), storage: storage() });
+      await pane.load({ ...VIEW });
+      await flush();
+      return { pane, log };
+    }
+
+    const rows = (log) => [...log.querySelectorAll(".sk-chat-row")];
+    const lastScroll = (log) => log.scrollTo.mock.calls.at(-1)?.[0];
+
+    it("keeps rendered rows and appends new ones as playback runs on", async () => {
+      const { pane, log } = await openPane();
+      playhead(2);
+      const before = rows(log);
+      expect(before.map((row) => row.dataset.messageId)).toEqual(["m0", "m1", "m2"]);
+
+      playhead(4);
+      const after = rows(log);
+      expect(after.map((row) => row.dataset.messageId)).toEqual(["m0", "m1", "m2", "m3", "m4"]);
+      // The same elements, not a rebuild: a rebuilt log jumps and drops the browser's anchor.
+      for (const [index, row] of before.entries()) expect(after[index]).toBe(row);
+
+      pane.dispose();
+    });
+
+    it("jumps instantly on a fresh window and scrolls new rows in smoothly", async () => {
+      const { pane, log } = await openPane();
+      expect(lastScroll(log)).toEqual({ top: 20, behavior: "instant" });
+
+      playhead(3);
+      expect(lastScroll(log)).toEqual({ top: 80, behavior: "smooth" });
+
+      pane.dispose();
+    });
+
+    it("scrolls new rows in instantly when the viewer prefers reduced motion", async () => {
+      vi.stubGlobal("matchMedia", (query) =>
+        ({ matches: query === "(prefers-reduced-motion: reduce)" }));
+      const { pane, log } = await openPane();
+
+      playhead(3);
+      expect(lastScroll(log)).toEqual({ top: 80, behavior: "instant" });
+
+      pane.dispose();
+    });
+
+    it("keeps following while its own smooth scroll is under way", async () => {
+      const { pane, log } = await openPane();
+      playhead(5);
+      // Mid-animation the log is still well above the bottom; that is not the viewer leaving.
+      log.scrollTop = 30;
+      log.dispatchEvent(new Event("scroll"));
+      playhead(6);
+      expect(lastScroll(log)).toEqual({ top: 140, behavior: "smooth" });
+      expect(document.querySelector("[data-sk='chat-jump']").hidden).toBe(true);
+
+      pane.dispose();
+    });
+
+    it("stops following when the viewer scrolls up during a smooth scroll", async () => {
+      const { pane, log } = await openPane();
+      playhead(5);
+      const calls = log.scrollTo.mock.calls.length;
+
+      log.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 }));
+      log.scrollTop = 0;
+      log.dispatchEvent(new Event("scroll"));
+      playhead(7);
+
+      expect(log.scrollTo.mock.calls).toHaveLength(calls);
+      expect(log.scrollTop).toBe(0);
+
+      pane.dispose();
+    });
+
+    it("chases the bottom again when a smooth scroll ends short of it", async () => {
+      const { pane, log } = await openPane();
+      playhead(5);
+      // The animation's target was read before later rows grew the log.
+      log.scrollTop = 40;
+      const calls = log.scrollTo.mock.calls.length;
+      log.dispatchEvent(new Event("scrollend"));
+      expect(log.scrollTo.mock.calls).toHaveLength(calls + 1);
+      expect(lastScroll(log)).toEqual({ top: 120, behavior: "smooth" });
+
+      pane.dispose();
+    });
+
+    it("places gap rows among kept rows as later chat arrives", async () => {
+      document.body.innerHTML = MARKUP;
+      const log = layout(document.querySelector("[data-sk='chat-log']"));
+      const fetch = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          v: 1, recordingId: "r1", state: "complete", hasChat: true, source: "mock",
+          leadInSec: 0, fromSec: 0, toSec: 120, syncOffsetSec: 0,
+          gaps: [{ from: 2.5, to: 2.5, seconds: 40 }],
+          hasMoreBefore: false, hasMoreAfter: false, messages: steady,
+        }),
+      }));
+      const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+        { fetch, storage: storage() });
+      await pane.load({ ...VIEW });
+      await flush();
+
+      playhead(2);
+      const kept = rows(log)[0];
+      playhead(4);
+      const order = [...log.children].map((child) =>
+        child.classList.contains("sk-chat-gap") ? "gap" : child.dataset.messageId);
+      expect(order).toEqual(["m0", "m1", "m2", "gap", "m3", "m4"]);
+      expect(rows(log)[0]).toBe(kept);
+
+      pane.dispose();
+    });
+  });
 });
 
 describe("third-party emotes in the pane", () => {
