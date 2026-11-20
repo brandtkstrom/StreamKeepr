@@ -251,7 +251,7 @@ public sealed class LiveIndexEndpointTests
     }
 
     [Fact]
-    public async Task Finalize_switches_to_the_index_with_endlist()
+    public async Task Finalize_switches_from_live_snapshot_to_index_with_endlist()
     {
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
@@ -274,7 +274,7 @@ public sealed class LiveIndexEndpointTests
     }
 
     [Fact]
-    public async Task Loaded_library_refuses_a_session_removed_from_it()
+    public async Task Deleted_session_is_404_immediately()
     {
         using var factory = CreateFactory();
         using var client = factory.CreateClient();

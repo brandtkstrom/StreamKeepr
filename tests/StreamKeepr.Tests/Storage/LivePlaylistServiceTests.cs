@@ -35,6 +35,120 @@ public sealed class LivePlaylistServiceTests
     }
 
     [Fact]
+    public async Task Refresh_reads_only_the_changed_last_part()
+    {
+        using var context = new SessionStoreTestContext();
+        context.WritePart(
+            1, PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
+        context.WritePart(
+            2, PlaylistTestData.Segment("p002_00001.m4s", "2026-11-10T18:30:06Z", 6));
+        await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
+        context.Library.MarkLoaded();
+        var cache = new LivePlaylistCache();
+        LivePlaylistService service = NewService(context, cache, RealIo(context));
+        await service.RefreshAllAsync(CancellationToken.None);
+
+        // p001 is closed while a higher part exists. Changing it on disk must not change the
+        // body because only the active last part is re-read.
+        await File.WriteAllTextAsync(
+            context.PartPath(1),
+            PlaylistTestData.Playlist(
+                6,
+                "init_001.mp4",
+                PlaylistTestData.Segment(
+                    "p001_99999.m4s", "2026-11-10T18:30:00Z", 6)));
+        context.WritePart(
+            2,
+            PlaylistTestData.Segment("p002_00002.m4s", "2026-11-10T18:30:12Z", 6),
+            PlaylistTestData.Segment("p002_00003.m4s", "2026-11-10T18:30:18Z", 6));
+
+        await service.RefreshAllAsync(CancellationToken.None);
+
+        LivePlaylistSnapshot snapshot = Assert.IsType<LivePlaylistSnapshot>(
+            cache.Find(context.Session.Id));
+        Assert.Contains("p001_00001.m4s", snapshot.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain("p001_99999.m4s", snapshot.Body, StringComparison.Ordinal);
+        Assert.Contains("p002_00002.m4s", snapshot.Body, StringComparison.Ordinal);
+        Assert.Contains("p002_00003.m4s", snapshot.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain("p002_00001.m4s", snapshot.Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Refresh_rebuilds_when_a_part_disappears()
+    {
+        using var context = new SessionStoreTestContext();
+        context.WritePart(
+            1, PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
+        context.WritePart(
+            2, PlaylistTestData.Segment("p002_00001.m4s", "2026-11-10T18:30:06Z", 6));
+        await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
+        context.Library.MarkLoaded();
+        var cache = new LivePlaylistCache();
+        LivePlaylistService service = NewService(context, cache, RealIo(context));
+        await service.RefreshAllAsync(CancellationToken.None);
+        Assert.NotNull(cache.Find(context.Session.Id));
+
+        File.Delete(context.PartPath(1));
+        await service.RefreshAllAsync(CancellationToken.None);
+
+        LivePlaylistSnapshot snapshot = Assert.IsType<LivePlaylistSnapshot>(
+            cache.Find(context.Session.Id));
+        Assert.Contains("p002_00001.m4s", snapshot.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain("p001_00001.m4s", snapshot.Body, StringComparison.Ordinal);
+        Assert.Equal(0, SessionStoreTestContext.Occurrences(snapshot.Body, "#EXT-X-DISCONTINUITY"));
+    }
+
+    [Fact]
+    public async Task Refresh_does_not_take_the_manifest_lock()
+    {
+        using var context = new SessionStoreTestContext();
+        context.WritePart(
+            1, PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
+        await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
+        context.Library.MarkLoaded();
+        var cache = new LivePlaylistCache();
+        LivePlaylistService service = NewService(context, cache, RealIo(context));
+
+        var gate = context.Store.LockFor(context.Directory);
+        await gate.WaitAsync();
+        try
+        {
+            await service.RefreshAllAsync(CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(2));
+
+            Assert.NotNull(cache.Find(context.Session.Id));
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    [Fact]
+    public async Task Complete_session_publishes_nothing()
+    {
+        using var context = new SessionStoreTestContext();
+        context.WritePart(
+            1, PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
+        await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
+        context.Library.MarkLoaded();
+        RecordingSummary stale = RecordingSummary(context);
+        await context.Store.FinalizeAsync(context.Session, CancellationToken.None);
+        var cache = new LivePlaylistCache();
+        var io = new FakeLivePlaylistIo
+        {
+            Handler = static (_, _) => Task.FromResult(
+                LivePlaylistRead.Live(PlaylistBody("p001_00002.m4s"))),
+        };
+        LivePlaylistService service = NewService(context, cache, io);
+
+        string? body = await service.RefreshOneAsync(stale, CancellationToken.None);
+
+        Assert.Null(body);
+        Assert.Null(cache.Find(stale.Id));
+    }
+
+    [Fact]
     public async Task Refresh_publishes_a_new_version_when_a_part_is_added()
     {
         using var context = new SessionStoreTestContext();
@@ -64,7 +178,7 @@ public sealed class LivePlaylistServiceTests
     }
 
     [Fact]
-    public async Task Refresh_failure_keeps_the_last_known_good_body()
+    public async Task Refresh_failure_keeps_the_previous_snapshot()
     {
         using var context = new SessionStoreTestContext();
         await OpenAndLoadAsync(context);

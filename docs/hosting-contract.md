@@ -74,7 +74,7 @@ ADR-0002 applies.
   - `.png` → `image/png`
 - Cache headers: `.m3u8` → `no-cache`; segments, init files, and thumbnails → `public, max-age=31536000, immutable`.
 - Static files handle GET/HEAD and Range requests. No directory listing; a missing file is 404, never a 500.
-- `index.m3u8`: a Complete session serves the physical finalized file with HEAD and Range. A Recording session serves the immutable snapshot from `LivePlaylistCache`; the request performs no session-folder I/O. Every index response sets `Cache-Control: no-cache`. An unloaded library or a cold live cache returns 503 with `Retry-After: 1`; an unknown session or channel mismatch returns 404. A Complete session must return a playlist with exactly one `#EXT-X-ENDLIST`.
+- `index.m3u8`: a Complete session serves the physical finalized file with HEAD and Range. A Recording session serves the immutable snapshot from `LivePlaylistCache`; the request performs no session-folder I/O and takes neither the session manifest lock nor the live refresh gate. `RecordingLibrary` is the authority for Recording/Complete/removed: finalize, reopen, and delete do not invalidate the cache, so a finalized session switches to the index immediately and a deleted session returns 404 immediately; the background refresher prunes on its next tick. Every index response sets `Cache-Control: no-cache`. An unloaded library or a cold live cache returns 503 with `Retry-After: 1`; an unknown session or channel mismatch returns 404. A Complete session must return a playlist with exactly one `#EXT-X-ENDLIST`.
 - The chat endpoint is public, returns `Cache-Control: no-store`, bounds its window and result limit, and returns 400/404/200-with-`hasChat:false` as defined in `docs/backend-ui-contract.md`.
 - The media root is created at startup. An unwritable root fails startup with the UID 1654 guidance.
 - Deletion races return 404/410, never a 500.
@@ -166,8 +166,9 @@ Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6
 | Missing media file | 404 |
 | Unknown session/channel | 404 |
 | Live index with an unloaded library or cold cache | 503 + `Retry-After: 1` |
-| Live playlist refresh failure | Last-known-good snapshot keeps serving; host stays up |
-| Delete/live-request race | 404/410; the library entry is removed first |
+| Live playlist refresh failure | Last-known-good snapshot keeps serving; host stays up; a failed read publishes nothing |
+| Refresh/finalize race | The library becomes Complete; the refresher publishes nothing and the endpoint serves the finalized index |
+| Delete/live-request race | 404/410 immediately; the library entry is removed first; the refresher prunes later |
 | Stuck poller | `/health/live` unhealthy after the push-aware budget |
 | Stuck channel loop or stalled media | `/health/live` unhealthy |
 | Disk below `MinFreeGb` | `/health/ready` unhealthy; recording stops |
@@ -187,7 +188,7 @@ Host and media:
 - Middleware order, auth challenge, antiforgery, forwarded headers.
 - Allowed media types served with correct content types and cache headers.
 - `.json`, `.tmp`, dot-folders, encoded traversal, unknown sessions/channels → 404.
-- GET/HEAD and Range; finalized index has exactly one ENDLIST; live index serves the cached snapshot with no session I/O; cold cache is 503; HEAD matches GET's content length; a client abort is not a 500.
+- GET/HEAD and Range; finalized index has exactly one ENDLIST; live index serves the cached snapshot with no session I/O and no session lock; finalize switches to the index immediately; a deleted session is 404 immediately; cold cache is 503; HEAD matches GET's content length; a client abort is not a 500.
 - Export download requires sign-in; progress is public; delete/settings require sign-in.
 
 Health:
