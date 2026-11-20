@@ -17,6 +17,8 @@ public sealed class RecorderOptions
     // Optional: subscriber-only streams.
     public string? TwitchUserOAuthToken { get; set => field = value?.Trim(); }
 
+    // The stitched playlist advertises twice this as its target duration (12 s by default);
+    // the player's live-edge offset and 60 s forward buffer are measured against that cadence.
     [Range(2, 10)] public int SegmentSeconds { get; set; } = 6;
 
     [Range(1, 20)] public int HlsLiveEdge { get; set; } = 6;
