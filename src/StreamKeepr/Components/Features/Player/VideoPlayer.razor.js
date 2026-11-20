@@ -45,10 +45,17 @@ const IDLE_MS = 3000;
 // Following keeps the playhead within this much of the live sync position (contract §4).
 const LIVE_SLACK_SEC = 2;
 const WAITING_RETRY_MS = 3000;
-// hls.js error details that mean a live capture has no playable playlist yet.
+// hls.js error details that mean a live capture's playlist could not be loaded. These are a
+// waiting state, never the error overlay: first load shows the first-segment state; once a
+// playlist with segments has loaded they show a reconnect state while the buffer drains.
 const WAITING_DETAILS = new Set([
   "manifestLoadError", "manifestParsingError", "levelLoadError", "levelEmptyError",
+  "levelLoadTimeOut", "levelParsingError",
 ]);
+const FIRST_SEGMENT_MESSAGE = "Waiting for the first segment…";
+const RECONNECTING_MESSAGE = "Reconnecting…";
+// Below this much contiguous buffer the decoder is about to stall again.
+const PLAYABLE_BUFFER_SEC = 0.5;
 const LIVE_EDGE = Symbol("live edge");
 const NATIVE_HLS = "application/vnd.apple.mpegurl";
 
@@ -118,8 +125,11 @@ export function createPlayer(
   let hlsClass = null; // imported once per player, on the first load that needs it
   let live = false; // Recording/Reconnecting until the playlist reports ENDLIST
   let following = false; // live only: keep the playhead at the sync position
-  let waiting = false; // live only: no playable playlist yet
+  let waiting = false; // live only: a first-load wait or mid-stream reconnect is active
   let waitingTimer = 0;
+  let hadPlaylist = false; // a live playlist with fragments has loaded since the source started
+  let networkUnhealthy = false; // a live playlist refresh failed and has not recovered
+  let chipState = null; // the state currently drawn in the chip
   let resumePlaying = false; // VOD→live reload keeps playing if it was
   let prefs = readPlayerPrefs(storage); // read once; applied on every load
   let theater = false;
@@ -140,6 +150,18 @@ export function createPlayer(
     const ranges = video.seekable;
     return ranges?.length ? ranges.end(ranges.length - 1) : NaN;
   }
+
+  /** Seconds of contiguous buffered media ahead of the playhead; 0 when it is not buffered. */
+  function bufferedAhead() {
+    const ranges = video.buffered;
+    const time = video.currentTime;
+    for (let i = 0; i < (ranges?.length ?? 0); i++) {
+      if (ranges.start(i) <= time && ranges.end(i) >= time) return ranges.end(i) - time;
+    }
+    return 0;
+  }
+
+  const hasPlayableBuffer = () => bufferedAhead() > PLAYABLE_BUFFER_SEC;
 
   // The timeline length: the media duration, or the seekable end while native HLS reports a
   // live stream as Infinity.
@@ -259,12 +281,34 @@ export function createPlayer(
     }
   }
 
-  function enterWaiting() {
-    if (!waiting) {
-      waiting = true;
+  function showWaiting(message, spin) {
+    waiting = true;
+    el.waiting.textContent = message;
+    el.waiting.hidden = false;
+    if (spin) {
       clearTimeout(spinnerTimer);
       setSpinner(true);
-      el.waiting.hidden = false;
+    }
+  }
+
+  /** First load: no playlist with segments has arrived yet. */
+  function enterWaiting() {
+    if (hadPlaylist) return;
+    showWaiting(FIRST_SEGMENT_MESSAGE, true);
+  }
+
+  /** A live playlist refresh failed after an earlier playlist with segments loaded. */
+  function enterReconnecting() {
+    if (!hadPlaylist) {
+      enterWaiting();
+      return;
+    }
+    const spin = !hasPlayableBuffer();
+    showWaiting(RECONNECTING_MESSAGE, spin);
+    // Buffered media keeps playing: the capture chip carries the reconnect status.
+    if (!spin) {
+      clearTimeout(spinnerTimer);
+      setSpinner(false);
     }
   }
 
@@ -276,12 +320,25 @@ export function createPlayer(
     el.waiting.hidden = true;
   }
 
+  /** The state chip, showing the viewer's reconnect status while a live playlist is unhealthy. */
+  function renderChip() {
+    if (!view) return;
+    const state = hadPlaylist && networkUnhealthy ? "reconnecting" : view.state;
+    // Reconnection is cleared on every fragment and playlist load; only redraw real changes so
+    // the capture chip's pulse is not restarted every few seconds.
+    if (state === chipState) return;
+    chipState = state;
+    el.chip.innerHTML = CHIPS[state] ?? "";
+  }
+
   /** ENDLIST (or the circuit's finished state): the capture is now an ordinary recording. */
   function becameFinished() {
     if (!live) return;
     live = false;
     following = false;
+    networkUnhealthy = false;
     renderLive();
+    renderChip();
     renderTicks();
     renderPosition();
     if (!video.paused && !video.ended) progress.playing();
@@ -321,7 +378,7 @@ export function createPlayer(
   function renderView() {
     el.title.textContent = view.title ?? "";
     el.streamer.textContent = view.streamerLogin ?? "";
-    el.chip.innerHTML = CHIPS[view.state] ?? "";
+    renderChip();
     video.setAttribute("aria-label", view.title ?? "Recording");
     if (view.thumbnailUrl) video.setAttribute("poster", view.thumbnailUrl);
     else video.removeAttribute("poster");
@@ -579,14 +636,25 @@ export function createPlayer(
     following = false;
     networkAttempts = 0;
     mediaAttempts = 0;
+    hadPlaylist = false;
+    networkUnhealthy = false;
     el.buffered.style.width = "0%";
   }
 
   function onHlsError(Hls, data) {
-    // A live capture without a playable playlist is waiting, not failing: retry the manifest
-    // quietly every 3 s with no limit (contract §13).
+    // A playback stall is not a failure: spin only when nothing can play, and never overlay.
+    if (data?.details === "bufferStalledError") {
+      if (!hasPlayableBuffer()) setSpinner(true);
+      return;
+    }
+
+    // A live playlist refresh failure is waiting, not failing: keep buffered playback going
+    // and retry the manifest quietly every 3 s with no limit (contract §13).
     if (live && WAITING_DETAILS.has(data?.details)) {
-      enterWaiting();
+      networkUnhealthy = true;
+      renderChip();
+      if (hadPlaylist) enterReconnecting();
+      else enterWaiting();
       if (data.fatal) {
         clearTimeout(waitingTimer);
         waitingTimer = setTimeout(() => {
@@ -646,13 +714,25 @@ export function createPlayer(
       hls.on(Hls.Events.FRAG_LOADED, () => {
         networkAttempts = 0;
         mediaAttempts = 0;
+        networkUnhealthy = false;
         leaveWaiting();
+        renderChip();
       });
       hls.on(Hls.Events.LEVEL_LOADED, (_event, data) => {
         const details = data?.details;
         if (!details) return;
-        if (details.live === false) becameFinished();
-        else if (live && !details.fragments?.length) enterWaiting();
+        if (details.live === false) {
+          if (hadPlaylist) leaveWaiting();
+          becameFinished();
+        } else if (live && details.fragments?.length) {
+          hadPlaylist = true;
+          networkUnhealthy = false;
+          leaveWaiting();
+          renderChip();
+        } else if (live && !hadPlaylist) {
+          // An empty playlist before the first segment is the first-load wait, not a failure.
+          enterWaiting();
+        }
         renderLive();
       });
       hls.attachMedia(video);
@@ -774,7 +854,11 @@ export function createPlayer(
   });
   on(video, "volumechange", renderVolume);
   on(video, "ratechange", renderSpeed);
-  on(video, "waiting", () => setSpinner(true));
+  on(video, "waiting", () => {
+    // A seek or a gap can stop playback with media still buffered; only spin when it cannot
+    // continue without data.
+    if (!hasMetadata() || !hasPlayableBuffer()) setSpinner(true);
+  });
   for (const ready of ["canplay", "playing", "seeked", "loadeddata"]) {
     on(video, ready, () => {
       clearTimeout(spinnerTimer);
@@ -1051,10 +1135,14 @@ export function createPlayer(
         resumePlaying = !video.paused && !video.ended;
         void start(video.currentTime);
       } else if (!nowLive && live) {
-        if (waiting) {
+        networkUnhealthy = false;
+        if (waiting && !hadPlaylist) {
           // The capture finished without ever producing a segment.
           leaveWaiting();
           showOverlay(UNAVAILABLE_MESSAGE, true);
+        } else {
+          // A mid-stream reconnect is not a session that never produced a segment.
+          leaveWaiting();
         }
         becameFinished();
       }

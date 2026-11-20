@@ -743,6 +743,23 @@ describe("VideoPlayer.razor.js", () => {
       expect(hook("overlay").hidden).toBe(true);
     });
 
+    it("treats a buffer stall as a spinner only when the buffer is empty", async () => {
+      await start();
+      const [instance] = hls.instances;
+
+      instance.emit("hlsError", { fatal: false, type: "mediaError", details: "bufferStalledError" });
+      expect(hook("spinner").hidden).toBe(false);
+      expect(hook("overlay").hidden).toBe(true);
+
+      media.metadata(100);
+      media.ranges = [[0, 10]];
+      hook("video").dispatchEvent(new Event("canplay"));
+      instance.emit("hlsError", { fatal: true, type: "mediaError", details: "bufferStalledError" });
+
+      expect(hook("spinner").hidden).toBe(true);
+      expect(hook("overlay").hidden).toBe(true);
+    });
+
     it("Retry reloads at the last position and resets attempts", async () => {
       await start();
       media.metadata(100);
@@ -1040,6 +1057,149 @@ describe("VideoPlayer.razor.js", () => {
 
       expect(hook("waiting").hidden).toBe(true);
       expect(hook("overlay").hidden).toBe(false);
+    });
+
+    it("waits with the spinner and retries a first-load playlist timeout", async () => {
+      await start(view({ state: "recording" }));
+      const [instance] = hls.instances;
+
+      instance.emit("hlsError", { type: "networkError", details: "levelLoadTimeOut", fatal: true });
+
+      expect(hook("waiting").hidden).toBe(false);
+      expect(hook("waiting").textContent).toBe("Waiting for the first segment…");
+      expect(hook("spinner").hidden).toBe(false);
+      expect(hook("overlay").hidden).toBe(true);
+
+      vi.advanceTimersByTime(3_000);
+      expect(instance.loadSource).toHaveBeenCalledTimes(2);
+      expect(hook("overlay").hidden).toBe(true);
+    });
+
+    it("waits on a first-load playlist parse error", async () => {
+      await start(view({ state: "recording" }));
+      hls.instances[0].emit("hlsError", { type: "otherError", details: "levelParsingError", fatal: true });
+
+      expect(hook("waiting").hidden).toBe(false);
+      expect(hook("waiting").textContent).toBe("Waiting for the first segment…");
+      expect(hook("spinner").hidden).toBe(false);
+      expect(hook("overlay").hidden).toBe(true);
+    });
+
+    it("shows Reconnecting without a spinner while buffered media remains", async () => {
+      const instance = await startLive();
+      media.ranges = [[0, 60]];
+      hook("video").dispatchEvent(new Event("canplay"));
+      hook("center").click();
+      expect(media.paused).toBe(false);
+
+      instance.emit("hlsError", { type: "networkError", details: "levelLoadError", fatal: true });
+
+      expect(hook("spinner").hidden).toBe(true);
+      expect(hook("overlay").hidden).toBe(true);
+      expect(media.paused).toBe(false);
+      expect(hook("waiting").textContent).toBe("Reconnecting…");
+      expect(hook("chip").textContent).toContain("Reconnecting");
+    });
+
+    it("shows the spinner and Reconnecting when a mid-stream playlist fails with an empty buffer", async () => {
+      const instance = await startLive();
+      hook("video").dispatchEvent(new Event("canplay"));
+
+      instance.emit("hlsError", { type: "networkError", details: "levelLoadError", fatal: true });
+
+      expect(hook("spinner").hidden).toBe(false);
+      expect(hook("waiting").hidden).toBe(false);
+      expect(hook("waiting").textContent).toBe("Reconnecting…");
+      expect(hook("waiting").textContent).not.toContain("first segment");
+      expect(hook("overlay").hidden).toBe(true);
+    });
+
+    it("clears reconnect once a fragment loads and restores the capture chip", async () => {
+      const instance = await startLive();
+      media.ranges = [[0, 60]];
+      hook("video").dispatchEvent(new Event("canplay"));
+      instance.emit("hlsError", { type: "networkError", details: "levelLoadError", fatal: true });
+      expect(hook("chip").textContent).toContain("Reconnecting");
+
+      instance.emit("hlsFragLoaded", {});
+
+      expect(hook("waiting").hidden).toBe(true);
+      expect(hook("chip").textContent).toContain("Rec");
+    });
+
+    it("clears reconnect after a live playlist loads with fragments", async () => {
+      const instance = await startLive();
+      media.ranges = [[0, 60]];
+      hook("video").dispatchEvent(new Event("canplay"));
+      instance.emit("hlsError", { type: "networkError", details: "levelLoadError", fatal: true });
+      expect(hook("chip").textContent).toContain("Reconnecting");
+
+      instance.emit("hlsLevelLoaded", { details: { live: true, fragments: [{}] } });
+
+      expect(hook("waiting").hidden).toBe(true);
+      expect(hook("chip").textContent).toContain("Rec");
+    });
+
+    it("reconnects on a mid-stream playlist timeout without the first-segment text", async () => {
+      const instance = await startLive();
+      hook("video").dispatchEvent(new Event("canplay"));
+
+      instance.emit("hlsError", { type: "networkError", details: "levelLoadTimeOut", fatal: true });
+
+      expect(hook("waiting").textContent).toBe("Reconnecting…");
+      expect(hook("spinner").hidden).toBe(false);
+      expect(hook("overlay").hidden).toBe(true);
+    });
+
+    it("treats half a second at the playhead as an empty buffer", async () => {
+      const instance = await startLive();
+      media.ranges = [[0, 48.5]];
+      hook("video").dispatchEvent(new Event("canplay"));
+      instance.emit("hlsError", { type: "networkError", details: "levelLoadError", fatal: true });
+      expect(hook("spinner").hidden).toBe(false);
+
+      media.ranges = [[0, 48.6]];
+      hook("video").dispatchEvent(new Event("canplay"));
+      instance.emit("hlsError", { type: "networkError", details: "levelLoadError", fatal: true });
+      expect(hook("spinner").hidden).toBe(true);
+    });
+
+    it("does not mistake a mid-stream reconnect for a session that never produced a segment", async () => {
+      const instance = await startLive();
+      media.ranges = [[0, 60]];
+      hook("video").dispatchEvent(new Event("canplay"));
+      instance.emit("hlsError", { type: "networkError", details: "levelLoadError", fatal: true });
+
+      player.update(view({ state: "saved" }));
+
+      expect(hook("waiting").hidden).toBe(true);
+      expect(hook("overlay").hidden).toBe(true);
+      expect(hook("chip").textContent).not.toContain("Reconnecting");
+    });
+
+    it("spins on waiting only when the playhead has no buffered media", async () => {
+      await startLive();
+      media.ranges = [[0, 60]];
+      hook("video").dispatchEvent(new Event("canplay"));
+
+      hook("video").dispatchEvent(new Event("waiting"));
+      expect(hook("spinner").hidden).toBe(true);
+
+      media.ranges = [];
+      hook("video").dispatchEvent(new Event("waiting"));
+      expect(hook("spinner").hidden).toBe(false);
+    });
+
+    it("does not call a seek into an unbuffered region reconnecting", async () => {
+      await startLive();
+      media.ranges = [[0, 20], [50, 60]];
+
+      player.seek(30);
+      hook("video").dispatchEvent(new Event("waiting"));
+
+      expect(hook("spinner").hidden).toBe(false);
+      expect(hook("waiting").hidden).toBe(true);
+      expect(hook("chip").textContent).toContain("Rec");
     });
 
     describe("rejoining the live edge", () => {
