@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
 
@@ -9,17 +10,17 @@ namespace StreamKeepr.Infrastructure.Storage;
 /// </summary>
 public static class PlaylistStitcher
 {
-    private const string ExtM3uTag = "#EXTM3U";
+    internal const string ExtM3uTag = "#EXTM3U";
     private const string VersionTag = "#EXT-X-VERSION";
     private const string TargetDurationTag = "#EXT-X-TARGETDURATION";
     private const string MediaSequenceTag = "#EXT-X-MEDIA-SEQUENCE";
     private const string PlaylistTypeTag = "#EXT-X-PLAYLIST-TYPE";
     private const string IndependentSegmentsTag = "#EXT-X-INDEPENDENT-SEGMENTS";
     private const string EndListTag = "#EXT-X-ENDLIST";
-    private const string DiscontinuityTag = "#EXT-X-DISCONTINUITY";
     private const string ProgramDateTimeTag = "#EXT-X-PROGRAM-DATE-TIME:";
     private const string ExtInfTag = "#EXTINF:";
     private const string MapUriPrefix = "#EXT-X-MAP:URI=\"";
+    internal const string DiscontinuityLine = "#EXT-X-DISCONTINUITY\n";
 
     private static readonly string[] PartHeaderTags =
     [
@@ -48,8 +49,7 @@ public static class PlaylistStitcher
         ArgumentNullException.ThrowIfNull(parts);
         ArgumentOutOfRangeException.ThrowIfLessThan(minTargetDuration, 1);
 
-        int targetDuration = minTargetDuration;
-        var bodies = new List<List<string>>(parts.Count);
+        var parsed = new List<ParsedPart>(parts.Count);
         var partNumbers = new HashSet<int>();
 
         foreach (var part in parts.OrderBy(part => part.PartNumber))
@@ -62,12 +62,20 @@ public static class PlaylistStitcher
             if (part.Content is null)
                 throw new ArgumentException($"Part {part.PartNumber} has no playlist content.", nameof(parts));
 
-            targetDuration = Math.Max(targetDuration, TargetDurationOf(part.Content));
-
-            var body = BodyLines(part.Content);
-            if (body.Count > 0)
-                bodies.Add(body);
+            parsed.Add(ParsePart(part.PartNumber, part.Content));
         }
+
+        return StitchParsed(parsed, minTargetDuration, final);
+    }
+
+    /// <summary>
+    /// Stitches already parsed parts. Callers must pass parts in ascending part order.
+    /// </summary>
+    internal static string StitchParsed(
+        IReadOnlyList<ParsedPart> parts, int minTargetDuration, bool final)
+    {
+        int targetDuration = EffectiveTargetDuration(
+            parts.Select(part => part.TargetDuration), minTargetDuration);
 
         var playlist = new StringBuilder()
             .Append(ExtM3uTag).Append('\n')
@@ -78,19 +86,77 @@ public static class PlaylistStitcher
             .Append(PlaylistTypeTag).Append(":EVENT\n")
             .Append(IndependentSegmentsTag).Append('\n');
 
-        for (int i = 0; i < bodies.Count; i++)
+        bool hasBody = false;
+        foreach (ParsedPart part in parts)
         {
-            if (i > 0)
-                playlist.Append(DiscontinuityTag).Append('\n');
+            if (part.BodyLines.IsDefaultOrEmpty)
+                continue;
 
-            foreach (var line in bodies[i])
+            if (hasBody)
+                playlist.Append(DiscontinuityLine);
+
+            foreach (string line in part.BodyLines)
                 playlist.Append(line).Append('\n');
+
+            hasBody = true;
         }
 
         if (final)
             playlist.Append(EndListTag).Append('\n');
 
         return playlist.ToString();
+    }
+
+    /// <summary>
+    /// The effective <c>#EXT-X-TARGETDURATION</c>: the caller's floor raised by any part's
+    /// declared target. Shared so the full and incremental paths cannot drift.
+    /// </summary>
+    internal static int EffectiveTargetDuration(
+        IEnumerable<int> partTargets, int minTargetDuration)
+    {
+        int targetDuration = minTargetDuration;
+        foreach (int partTarget in partTargets)
+            targetDuration = Math.Max(targetDuration, partTarget);
+        return targetDuration;
+    }
+
+    /// <summary>
+    /// Parses one part playlist through the same rules <see cref="Stitch"/> uses. A final line
+    /// without a line feed is still being written and is never exposed; body lines stop at the
+    /// last complete segment URI, so a trailing <c>#EXTINF</c> is dropped as well.
+    /// </summary>
+    internal static ParsedPart ParsePart(int partNumber, string content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+
+        var lines = new List<string>();
+        int targetDuration = 0;
+        int lastSegmentIndex = 0;
+
+        string[] rawLines = content.Split('\n');
+        int completeLines = content.EndsWith('\n') ? rawLines.Length : rawLines.Length - 1;
+
+        for (int i = 0; i < completeLines; i++)
+        {
+            string line = rawLines[i].Trim();
+            if (line.Length == 0)
+                continue;
+
+            if (TryParseTargetDuration(line, out int partTarget))
+                targetDuration = Math.Max(targetDuration, partTarget);
+
+            if (IsPartHeader(line))
+                continue;
+
+            lines.Add(line);
+            if (line[0] != '#')
+                lastSegmentIndex = lines.Count;
+        }
+
+        return new ParsedPart(
+            partNumber,
+            lines.GetRange(0, lastSegmentIndex).ToImmutableArray(),
+            targetDuration);
     }
 
     /// <summary>Sum of every <c>#EXTINF</c> duration in the playlist, in seconds.</summary>
@@ -206,48 +272,18 @@ public static class PlaylistStitcher
     private static bool IsPlainFileName(string name) =>
         name.Length > 0 && Path.GetFileName(name) == name && name is not ("." or "..");
 
-    // Keeps every line through the last segment URI, so a half-written trailing #EXTINF is dropped.
-    private static List<string> BodyLines(string playlist)
+    private static bool TryParseTargetDuration(string line, out int targetDuration)
     {
-        var lines = new List<string>();
-        int lastSegmentIndex = 0;
+        targetDuration = 0;
+        if (!line.StartsWith(TargetDurationTag, StringComparison.Ordinal))
+            return false;
 
-        foreach (var raw in playlist.Split('\n'))
-        {
-            var line = raw.Trim();
-            if (line.Length == 0 || IsPartHeader(line))
-                continue;
+        var value = line.AsSpan(TargetDurationTag.Length);
+        if (value.Length > 0 && value[0] == ':')
+            value = value[1..];
 
-            lines.Add(line);
-            if (line[0] != '#')
-                lastSegmentIndex = lines.Count;
-        }
-
-        return lines.GetRange(0, lastSegmentIndex);
-    }
-
-    private static int TargetDurationOf(string playlist)
-    {
-        int targetDuration = 0;
-
-        foreach (var raw in playlist.Split('\n'))
-        {
-            var line = raw.Trim();
-            if (!line.StartsWith(TargetDurationTag, StringComparison.Ordinal))
-                continue;
-
-            var value = line.AsSpan(TargetDurationTag.Length);
-            if (value.Length > 0 && value[0] == ':')
-                value = value[1..];
-
-            if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
-                && parsed > targetDuration)
-            {
-                targetDuration = parsed;
-            }
-        }
-
-        return targetDuration;
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out targetDuration)
+            && targetDuration > 0;
     }
 
     private static bool TryParseSegments(string playlist, out List<Segment> segments)

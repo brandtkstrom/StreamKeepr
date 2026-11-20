@@ -17,9 +17,11 @@ The storage volume is the primary fault. The app's request path, stitching algor
 
 ## 2. Request path and locks
 
-### 2.1 Current path
+### 2.1 Path at incident time
 
-`LiveIndexEndpoint.HandleAsync` calls `SessionStore.TryLoadAsync` and `SessionStore.StitchLiveAsync` on every GET/HEAD. `StitchLiveAsync`:
+This section records the pre-fix request path. #241/#242 replaced it with the `LivePlaylistService` snapshot cache described in §2.2, so `SessionStore.StitchLiveAsync` no longer exists; #243 then made the per-part build incremental (§3). The diagnosis below explains why the cache and the lock split were needed.
+
+`LiveIndexEndpoint.HandleAsync` called `SessionStore.TryLoadAsync` and `SessionStore.StitchLiveAsync` on every GET/HEAD. `StitchLiveAsync`:
 
 1. Enumerates `p*.m3u8` and stats the last part to form a cache key (`SessionStore.cs:251`).
 2. On a miss, takes the per-session `SemaphoreSlim` and holds it across `TryLoadAsync`, `ReadPartsAsync` (every part), and `PlaylistStitcher.Stitch` (`:255-286`).
@@ -51,7 +53,7 @@ The manifest lock protects read-modify-write of `session.json`; a read-only play
 
 `SemaphoreSlim.WaitAsync(ct)` cancels only the wait; it cannot abort the holder's I/O. On Unix, async file I/O is a blocking syscall on the thread pool; an in-flight read is not cancellable ([File I/O improvements in .NET 6](https://devblogs.microsoft.com/dotnet/file-io-improvements-in-dotnet-6/), [dotnet/runtime#51985](https://github.com/dotnet/runtime/issues/51985)). Holding a lock across that read turns every waiter into a queue.
 
-Part playlists must be opened with `FileShare.ReadWrite | FileShare.Delete`. `File.ReadAllTextAsync` uses `FileShare.Read` ([dotnet/runtime `File.cs`](https://github.com/dotnet/runtime/blob/main/src/libraries/System.Private.CoreLib/src/System/IO/File.cs#L1106-L1109)), and a reader holding a part playlist can block FFmpeg's `MoveFileEx` rename on Windows. The existing `OpenSharedRead` already uses the shared flags; `ReadPartsAsync` does not.
+Part playlists must be opened with `FileShare.ReadWrite | FileShare.Delete`. `File.ReadAllTextAsync` uses `FileShare.Read` ([dotnet/runtime `File.cs`](https://github.com/dotnet/runtime/blob/main/src/libraries/System.Private.CoreLib/src/System/IO/File.cs#L1106-L1109)), and a reader holding a part playlist can block FFmpeg's `MoveFileEx` rename on Windows. The old `ReadPartsAsync` used it; the shared `PartPlaylistReader` (`OpenSharedRead`) now backs both the live path and the finalize/summarize path.
 
 ## 3. Incremental stitching
 

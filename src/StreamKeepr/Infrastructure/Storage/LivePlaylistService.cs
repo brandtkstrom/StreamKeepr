@@ -64,7 +64,7 @@ public sealed class LivePlaylistService(
         foreach (string id in cache.Ids)
         {
             if (!liveIds.Contains(id))
-                cache.Remove(id);
+                Invalidate(id);
         }
 
         await Task.WhenAll(live.Select(summary => RefreshOneAsync(summary, ct)))
@@ -81,7 +81,7 @@ public sealed class LivePlaylistService(
 
         if (!summary.IsRecording)
         {
-            cache.Remove(summary.Id);
+            Invalidate(summary.Id);
             return null;
         }
 
@@ -103,14 +103,14 @@ public sealed class LivePlaylistService(
                     .ConfigureAwait(false);
                 if (read.Kind == LivePlaylistKind.Complete)
                 {
-                    cache.Remove(summary.Id);
+                    Invalidate(summary.Id);
                     state.Succeed();
                     return read.Body;
                 }
 
                 if (read.Kind != LivePlaylistKind.Live || read.Body is null)
                 {
-                    cache.Remove(summary.Id);
+                    Invalidate(summary.Id);
                     state.Succeed();
                     return null;
                 }
@@ -120,7 +120,7 @@ public sealed class LivePlaylistService(
                 // Recording. The endpoint already serves the finalized index.
                 if (library.Find(summary.Id) is not { IsRecording: true })
                 {
-                    cache.Remove(summary.Id);
+                    Invalidate(summary.Id);
                     state.Succeed();
                     return null;
                 }
@@ -179,6 +179,17 @@ public sealed class LivePlaylistService(
         }
 
         return await RefreshOneAsync(summary, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Drops the service snapshot and releases any IO-side parsed parts for a session that is no
+    /// longer live. Safe to call more than once.
+    /// </summary>
+    private void Invalidate(string id)
+    {
+        cache.Remove(id);
+        if (io is ILivePlaylistSnapshotInvalidator invalidator)
+            invalidator.Remove(id);
     }
 
     private void Fail(

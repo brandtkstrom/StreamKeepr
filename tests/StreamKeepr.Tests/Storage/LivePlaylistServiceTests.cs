@@ -265,6 +265,40 @@ public sealed class LivePlaylistServiceTests
     }
 
     [Fact]
+    public async Task Finalize_prunes_the_io_snapshot_so_reopen_rebuilds_from_disk()
+    {
+        using var context = new SessionStoreTestContext();
+        context.WritePart(
+            1, PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
+        await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
+        context.Library.MarkLoaded();
+        var source = new RecordingSource();
+        var io = new SessionStoreLivePlaylistIo(
+            context.Store,
+            Options.Create(new StreamKeepr.Configuration.StorageOptions
+            {
+                RecordingsRoot = context.Root,
+            }),
+            source);
+        var cache = new LivePlaylistCache();
+        LivePlaylistService service = NewService(context, cache, io);
+
+        await service.RefreshAllAsync(CancellationToken.None);
+        Assert.NotEmpty(source.Reads);
+
+        await context.Store.FinalizeAsync(context.Session, CancellationToken.None);
+        await service.RefreshAllAsync(CancellationToken.None);
+        Assert.Null(cache.Find(context.Session.Id));
+
+        source.Reset();
+        await context.Store.ReopenAsync(context.Session, CancellationToken.None);
+        await service.RefreshAllAsync(CancellationToken.None);
+
+        Assert.NotEmpty(source.Reads);
+        Assert.NotNull(cache.Find(context.Session.Id));
+    }
+
+    [Fact]
     public async Task Prune_removes_sessions_no_longer_in_the_library()
     {
         using var context = new SessionStoreTestContext();
@@ -632,6 +666,20 @@ public sealed class LivePlaylistServiceTests
     {
         await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
         context.Library.MarkLoaded();
+    }
+
+
+    private sealed class RecordingSource : IPartPlaylistSource
+    {
+        public List<string> Reads { get; } = [];
+
+        public void Reset() => Reads.Clear();
+
+        public Task<string> ReadAsync(string path, CancellationToken ct)
+        {
+            Reads.Add(path);
+            return PartPlaylistReader.ReadAllTextAsync(path, ct);
+        }
     }
 
     private sealed class FakeLivePlaylistIo : ILivePlaylistIo
