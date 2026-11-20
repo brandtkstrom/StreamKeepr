@@ -76,7 +76,7 @@ The `chat/` sidecar holds `meta.json` (advisory status, counts, lead-in, bucket 
 | `FinalizeAsync` | yes | Writes index and manifest and updates the library; the live refresher prunes the snapshot on its next pass. |
 | `DeleteAsync` | yes | Removes the library entry first; deletes files; the endpoint returns 404 and the live refresher prunes the snapshot; removes the lock entry. |
 | Recovery finalize | yes | Calls `FinalizeAsync`. |
-| `StitchLiveAsync` (refresher only) | cache miss only | The live playlist refresher and thumbnail path build through the store. The live index endpoint never calls it. A cache hit is lock-free; a miss takes the lock, reads the part playlists, and rebuilds the store's build cache. |
+| `StitchLiveAsync` (refresher and thumbnail fallback) | cache miss only | The live playlist refresher and the Complete-thumbnail fallback build through the store. The live index endpoint never calls it. A cache hit is lock-free; a miss takes the lock, reads the part playlists, and rebuilds the store's build cache. |
 | `TryLoadAsync` | startup only | Recovery runs before channel loops; no contention. |
 | `SaveThumbnailAsync` | yes | Checks the manifest still exists, renames the image to `thumb.jpg` without overwrite, updates the library. Never modifies the manifest. |
 
@@ -116,9 +116,11 @@ Live snapshot:
 - `LivePlaylistCache` is a singleton keyed by session id. Each entry is an immutable `LivePlaylistSnapshot` (`Id`, `Version`, `Body`, pre-encoded UTF-8 `Utf8`, `SegmentCount`, `RefreshedAt`). Publishing swaps the reference atomically; a reader never observes a partial body.
 - `LivePlaylistService` is a hosted `BackgroundService`. After the supervisor's recovery has loaded the library, it refreshes immediately and then every `LivePlaylist:RefreshSeconds` (default 1). Each session has a single-flight gate: a busy session skips the tick rather than queueing.
 - The refresher caches only `Recording` sessions. It prunes a snapshot when its summary leaves the library or is no longer `Recording`.
+- A refresh whose body is unchanged does not publish a new version or re-encode the body.
+- Refreshes for different sessions run concurrently; a slow session does not delay the others.
 - A refresh failure (`IOException`, `UnauthorizedAccessException`, corrupt/unreadable manifest, format error, or timeout) keeps the last-known-good body, logs with a per-session backoff, and never stops the host. One session's failure does not block another's refresh.
 - The live index endpoint is a pure cache read. A Recording session with no snapshot returns 503 with `Retry-After: 1`. `Cache-Control: no-cache` is set on every index response, including 404 and 503.
-- `ThumbnailService` calls `LivePlaylistService.GetOrRefreshAsync`: a live recording refreshes through the same gate and returns the current snapshot; a Complete recording reads the finalized index once and is not cached.
+- `ThumbnailService` calls `LivePlaylistService.GetOrRefreshAsync`: a live recording refreshes through the same gate and returns the current snapshot; a Complete recording reads the finalized index once and is not cached. If the session finalizes during a live refresh, the finalized body is returned instead of being discarded.
 - `SessionStore.StitchLiveAsync` remains the build path in #241. Its own cache key (last part path, last-write time, length) and the manifest lock are implementation details; #242 separates the lock and #243 makes the build incremental.
 - If the library summary is `Complete`, the endpoint serves the finalized `index.m3u8` file with HEAD and Range; never a live stitch without ENDLIST.
 

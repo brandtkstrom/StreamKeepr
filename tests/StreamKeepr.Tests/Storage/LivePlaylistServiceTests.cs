@@ -373,6 +373,120 @@ public sealed class LivePlaylistServiceTests
         }
     }
 
+    [Fact]
+    public async Task Refresh_skips_unchanged_bodies()
+    {
+        using var context = new SessionStoreTestContext();
+        context.WritePart(
+            1, PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
+        await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
+        context.Library.MarkLoaded();
+        var cache = new LivePlaylistCache();
+        LivePlaylistService service = NewService(context, cache, RealIo(context));
+
+        await service.RefreshAllAsync(CancellationToken.None);
+        LivePlaylistSnapshot first = Assert.IsType<LivePlaylistSnapshot>(
+            cache.Find(context.Session.Id));
+
+        await service.RefreshAllAsync(CancellationToken.None);
+
+        Assert.Same(first, cache.Find(context.Session.Id));
+        Assert.Equal(1, first.Version);
+    }
+
+    [Fact]
+    public async Task Refresh_treats_a_timeout_exception_as_a_failure()
+    {
+        using var context = new SessionStoreTestContext();
+        await OpenAndLoadAsync(context);
+        var cache = new LivePlaylistCache();
+        var io = new FakeLivePlaylistIo
+        {
+            Handler = static (_, _) => Task.FromResult(
+                LivePlaylistRead.Live(PlaylistBody("p001_00001.m4s"))),
+        };
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggers = TestLogging.Factory(logs);
+        LivePlaylistService service = NewService(context, cache, io, loggers: loggers);
+        await service.RefreshAllAsync(CancellationToken.None);
+        LivePlaylistSnapshot published = Assert.IsType<LivePlaylistSnapshot>(
+            cache.Find(context.Session.Id));
+
+        io.Handler = static (_, _) =>
+            Task.FromException<LivePlaylistRead>(new TimeoutException("slow"));
+        await service.RefreshAllAsync(CancellationToken.None);
+
+        Assert.Same(published, cache.Find(context.Session.Id));
+        Assert.Contains(
+            logs.Entries,
+            entry => entry.Level == LogLevel.Warning
+                && entry.Message.Contains(context.Session.Id, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Get_or_refresh_returns_the_complete_body_when_a_recording_races_finalize()
+    {
+        using var context = new SessionStoreTestContext();
+        await OpenAndLoadAsync(context);
+        var cache = new LivePlaylistCache();
+        string complete = PlaylistBody("p001_00001.m4s") + "#EXT-X-ENDLIST\n";
+        var io = new FakeLivePlaylistIo
+        {
+            Handler = (_, _) => Task.FromResult(LivePlaylistRead.Complete(complete)),
+        };
+        LivePlaylistService service = NewService(context, cache, io);
+        RecordingSummary summary = RecordingSummary(context);
+
+        string? result = await service.GetOrRefreshAsync(summary, CancellationToken.None);
+
+        Assert.Equal(complete, result);
+        Assert.Null(cache.Find(summary.Id));
+    }
+
+    [Fact]
+    public async Task Slow_session_does_not_block_another_session()
+    {
+        using var context = new SessionStoreTestContext();
+        await OpenAndLoadAsync(context);
+        RecordingSummary slow = RecordingSummary(context);
+        RecordingSummary fast = slow with
+        {
+            Id = "20260101T000000Z_000000002",
+            StartedAt = slow.StartedAt.AddMinutes(1),
+        };
+        context.Library.Upsert(fast);
+        var cache = new LivePlaylistCache();
+        var slowStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSlow = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fastPublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int calls = 0;
+        var io = new FakeLivePlaylistIo
+        {
+            Handler = async (_, ct) =>
+            {
+                if (Interlocked.Increment(ref calls) == 1)
+                {
+                    slowStarted.TrySetResult();
+                    await releaseSlow.Task.WaitAsync(ct);
+                    return LivePlaylistRead.Live(PlaylistBody("p001_00001.m4s"));
+                }
+
+                fastPublished.TrySetResult();
+                return LivePlaylistRead.Live(PlaylistBody("p002_00001.m4s"));
+            },
+        };
+        LivePlaylistService service = NewService(context, cache, io);
+
+        Task refresh = service.RefreshAllAsync(CancellationToken.None);
+        await slowStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await fastPublished.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Single(cache.Ids);
+
+        releaseSlow.SetResult();
+        await refresh.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(2, cache.Ids.Count);
+    }
+
     private static LivePlaylistService NewService(
         SessionStoreTestContext context,
         LivePlaylistCache cache,

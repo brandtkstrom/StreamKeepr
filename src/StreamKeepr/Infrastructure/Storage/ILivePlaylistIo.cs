@@ -16,9 +16,17 @@ public sealed record LivePlaylistRead(LivePlaylistKind Kind, string? Body = null
 {
     public static LivePlaylistRead Missing { get; } = new(LivePlaylistKind.Missing);
 
-    public static LivePlaylistRead Live(string body) => new(LivePlaylistKind.Live, body);
+    public static LivePlaylistRead Live(string body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        return new(LivePlaylistKind.Live, body);
+    }
 
-    public static LivePlaylistRead Complete(string? body) => new(LivePlaylistKind.Complete, body);
+    public static LivePlaylistRead Complete(string body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        return new(LivePlaylistKind.Complete, body);
+    }
 }
 
 /// <summary>

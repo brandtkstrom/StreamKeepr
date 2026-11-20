@@ -326,6 +326,56 @@ public sealed class LiveIndexEndpointTests
         Assert.Equal("no-cache", badId.Headers.CacheControl?.ToString());
     }
 
+    [Fact]
+    public async Task Concurrent_requests_never_see_a_torn_snapshot()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        Session session = await OpenSessionAsync(factory, "943456789");
+        string bodyA = LiveBody("p001_00001.m4s");
+        string bodyB = LiveBody("p001_00002.m4s");
+        LivePlaylistCache cache = factory.Services.GetRequiredService<LivePlaylistCache>();
+        cache.Publish(LivePlaylistSnapshot.Create(
+            session.Id, 1, bodyA, PlaylistStitcher.SegmentCount(bodyA), StartedAt));
+        using var stop = new CancellationTokenSource();
+        Task writer = Task.Run(async () =>
+        {
+            long version = 1;
+            while (!stop.IsCancellationRequested)
+            {
+                cache.Publish(LivePlaylistSnapshot.Create(
+                    session.Id,
+                    ++version,
+                    bodyA,
+                    PlaylistStitcher.SegmentCount(bodyA),
+                    StartedAt));
+                await Task.Yield();
+                cache.Publish(LivePlaylistSnapshot.Create(
+                    session.Id,
+                    ++version,
+                    bodyB,
+                    PlaylistStitcher.SegmentCount(bodyB),
+                    StartedAt));
+                await Task.Yield();
+            }
+        });
+        try
+        {
+            string url = $"/media/{session.Channel}/{session.Id}/index.m3u8";
+            string[] bodies = await Task.WhenAll(
+                Enumerable.Range(0, 50).Select(_ => client.GetStringAsync(url)));
+
+            Assert.All(bodies, body => Assert.True(
+                body == bodyA || body == bodyB,
+                "A response contained a body that was neither published version."));
+        }
+        finally
+        {
+            stop.Cancel();
+            await writer;
+        }
+    }
+
     private static StreamKeeprAppFactory CreateFactory(
         Action<IServiceCollection>? configure = null) =>
         new(

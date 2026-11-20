@@ -67,36 +67,33 @@ public sealed class LivePlaylistService(
                 cache.Remove(id);
         }
 
-        foreach (RecordingSummary summary in live)
-        {
-            ct.ThrowIfCancellationRequested();
-            await RefreshOneAsync(summary, ct).ConfigureAwait(false);
-        }
+        await Task.WhenAll(live.Select(summary => RefreshOneAsync(summary, ct)))
+            .ConfigureAwait(false);
     }
 
     /// <summary>
     /// Refreshes one live session. Returns immediately when the session's gate is busy or its
     /// previous failure is still backing off.
     /// </summary>
-    public async Task RefreshOneAsync(RecordingSummary summary, CancellationToken ct)
+    public async Task<string?> RefreshOneAsync(RecordingSummary summary, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(summary);
 
         if (!summary.IsRecording)
         {
             cache.Remove(summary.Id);
-            return;
+            return null;
         }
 
         SessionState state = _sessions.GetOrAdd(summary.Id, static _ => new SessionState());
         if (!await state.Gate.WaitAsync(0, ct).ConfigureAwait(false))
-            return;
+            return cache.Find(summary.Id)?.Body;
 
         try
         {
             DateTimeOffset now = clock.GetUtcNow();
             if (state.NextAttemptUtcTicks > now.UtcTicks)
-                return;
+                return cache.Find(summary.Id)?.Body;
 
             using var timeout = new CancellationTokenSource(_refreshTimeout, clock);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
@@ -104,11 +101,26 @@ public sealed class LivePlaylistService(
             {
                 LivePlaylistRead read = await io.ReadAsync(summary, linked.Token)
                     .ConfigureAwait(false);
+                if (read.Kind == LivePlaylistKind.Complete)
+                {
+                    cache.Remove(summary.Id);
+                    state.Succeed();
+                    return read.Body;
+                }
+
                 if (read.Kind != LivePlaylistKind.Live || read.Body is null)
                 {
                     cache.Remove(summary.Id);
                     state.Succeed();
-                    return;
+                    return null;
+                }
+
+                LivePlaylistSnapshot? current = cache.Find(summary.Id);
+                if (current is not null
+                    && string.Equals(current.Body, read.Body, StringComparison.Ordinal))
+                {
+                    state.Succeed();
+                    return current.Body;
                 }
 
                 cache.Publish(LivePlaylistSnapshot.Create(
@@ -118,6 +130,7 @@ public sealed class LivePlaylistService(
                     PlaylistStitcher.SegmentCount(read.Body),
                     clock.GetUtcNow()));
                 state.Succeed();
+                return read.Body;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -126,10 +139,12 @@ public sealed class LivePlaylistService(
             catch (OperationCanceledException ex)
             {
                 Fail(state, summary, now, ex, "timed out");
+                return cache.Find(summary.Id)?.Body;
             }
             catch (Exception ex) when (IsRefreshFailure(ex))
             {
                 Fail(state, summary, now, ex, "failed");
+                return cache.Find(summary.Id)?.Body;
             }
         }
         finally
@@ -153,8 +168,7 @@ public sealed class LivePlaylistService(
             return read.Kind == LivePlaylistKind.Complete ? read.Body : null;
         }
 
-        await RefreshOneAsync(summary, ct).ConfigureAwait(false);
-        return cache.Find(summary.Id)?.Body;
+        return await RefreshOneAsync(summary, ct).ConfigureAwait(false);
     }
 
     private void Fail(
@@ -176,6 +190,7 @@ public sealed class LivePlaylistService(
     private static bool IsRefreshFailure(Exception ex) =>
         ex is IOException
             or UnauthorizedAccessException
+            or TimeoutException
             or InvalidDataException
             or NotSupportedException
             or FormatException

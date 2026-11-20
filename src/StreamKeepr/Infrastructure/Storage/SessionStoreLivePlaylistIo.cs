@@ -37,8 +37,11 @@ public sealed class SessionStoreLivePlaylistIo(
         }
 
         string? body = await store.StitchLiveAsync(directory, ct).ConfigureAwait(false);
+        if (body is null)
+            return LivePlaylistRead.Missing;
+
         return manifest.Status == SessionStatus.Complete
             ? LivePlaylistRead.Complete(body)
-            : body is null ? LivePlaylistRead.Missing : LivePlaylistRead.Live(body);
+            : LivePlaylistRead.Live(body);
     }
 }
