@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Hosting;
@@ -121,7 +122,7 @@ public sealed class LiveIndexEndpointTests
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.Equal("1", response.Headers.RetryAfter?.ToString());
-        Assert.Equal("no-cache", response.Headers.CacheControl?.ToString());
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
     }
 
     [Fact]
@@ -137,12 +138,15 @@ public sealed class LiveIndexEndpointTests
             context,
             library,
             new LivePlaylistCache(),
-            Options.Create(new StorageOptions { RecordingsRoot = Path.GetTempPath() }));
+            Options.Create(new StorageOptions { RecordingsRoot = Path.GetTempPath() }),
+            Options.Create(new LivePlaylistOptions()),
+            TimeProvider.System,
+            NullLoggerFactory.Instance);
         await result.ExecuteAsync(context);
 
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
         Assert.Equal("1", context.Response.Headers.RetryAfter);
-        Assert.Equal("no-cache", context.Response.Headers.CacheControl);
+        Assert.Equal("no-store", context.Response.Headers.CacheControl);
     }
 
     [Fact]
@@ -178,7 +182,7 @@ public sealed class LiveIndexEndpointTests
         using var response = await client.GetAsync(
             $"/media/{session.Channel}/{session.Id}/index.m3u8");
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal((HttpStatusCode)StatusCodes.Status499ClientClosedRequest, response.StatusCode);
         Assert.DoesNotContain(factory.Logs.Entries, entry => entry.Level == LogLevel.Error);
     }
 
@@ -196,7 +200,7 @@ public sealed class LiveIndexEndpointTests
             1,
             StartedAt);
 
-        await new LivePlaylistResult(snapshot).ExecuteAsync(context);
+        await new LivePlaylistResult(snapshot, stale: false).ExecuteAsync(context);
 
         Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
         Assert.Equal(snapshot.Utf8.Length, context.Response.ContentLength);
@@ -374,6 +378,181 @@ public sealed class LiveIndexEndpointTests
             stop.Cancel();
             await writer;
         }
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(9, false)]
+    [InlineData(10, true)]
+    [InlineData(3600, true)]
+    public async Task Snapshot_age_selects_the_last_known_good_stale_marker(
+        int ageSeconds, bool stale)
+    {
+        DateTimeOffset now = StartedAt.AddHours(1);
+        RecordingLibrary library = LoadedRecordingLibrary(now);
+        var cache = new LivePlaylistCache();
+        string body = LiveBody("p001_00001.m4s");
+        cache.Publish(LivePlaylistSnapshot.Create(
+            SessionId,
+            1,
+            body,
+            PlaylistStitcher.SegmentCount(body),
+            now.AddSeconds(-ageSeconds)));
+
+        DefaultHttpContext context = await HandleAsync(library, cache, now);
+
+        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+        Assert.Equal("no-cache", context.Response.Headers.CacheControl);
+        Assert.Equal(stale, context.Response.Headers.ContainsKey(LiveIndexEndpoint.StaleHeaderName));
+        if (stale)
+            Assert.Equal("true", context.Response.Headers[LiveIndexEndpoint.StaleHeaderName]);
+        Assert.Equal(body, await ReadBodyAsync(context));
+        Assert.DoesNotContain("#EXT-X-ENDLIST", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Head_matches_the_last_known_good_content_length()
+    {
+        DateTimeOffset now = StartedAt.AddHours(1);
+        RecordingLibrary library = LoadedRecordingLibrary(now);
+        var cache = new LivePlaylistCache();
+        string body = LiveBody("p001_00001.m4s");
+        LivePlaylistSnapshot snapshot = LivePlaylistSnapshot.Create(
+            SessionId,
+            1,
+            body,
+            PlaylistStitcher.SegmentCount(body),
+            now.AddMinutes(-1));
+        cache.Publish(snapshot);
+
+        DefaultHttpContext context = await HandleAsync(
+            library, cache, now, method: HttpMethods.Head);
+
+        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+        Assert.Equal(snapshot.Utf8.Length, context.Response.ContentLength);
+        Assert.Equal("true", context.Response.Headers[LiveIndexEndpoint.StaleHeaderName]);
+        Assert.Empty(await ReadBodyBytesAsync(context));
+    }
+
+    [Fact]
+    public async Task An_already_aborted_request_is_499_without_a_body_or_a_warning()
+    {
+        DateTimeOffset now = StartedAt.AddHours(1);
+        RecordingLibrary library = LoadedRecordingLibrary(now);
+        var cache = new LivePlaylistCache();
+        string body = LiveBody("p001_00001.m4s");
+        cache.Publish(LivePlaylistSnapshot.Create(
+            SessionId, 1, body, PlaylistStitcher.SegmentCount(body), now));
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggers = TestLogging.Factory(logs);
+
+        DefaultHttpContext context = await HandleAsync(
+            library,
+            cache,
+            now,
+            requestAborted: new CancellationToken(canceled: true),
+            loggers: loggers);
+
+        Assert.Equal(StatusCodes.Status499ClientClosedRequest, context.Response.StatusCode);
+        Assert.Empty(await ReadBodyBytesAsync(context));
+        Assert.DoesNotContain(logs.Entries, entry => entry.Level >= LogLevel.Warning);
+        Assert.Contains(
+            logs.Entries,
+            entry => entry.Level == LogLevel.Debug
+                && entry.Message.Contains(SessionId, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Three_hundred_twenty_warm_requests_never_return_a_server_error()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        Session session = await OpenSessionAsync(factory, "103456789");
+        Publish(factory, session.Id, LiveBody("p001_00001.m4s"));
+        string url = $"/media/{session.Channel}/{session.Id}/index.m3u8";
+
+        HttpResponseMessage[] responses = await Task.WhenAll(
+            Enumerable.Range(0, 320).Select(_ => client.GetAsync(url)));
+        try
+        {
+            Assert.All(responses, response => Assert.True(
+                response.StatusCode is HttpStatusCode.OK or HttpStatusCode.ServiceUnavailable,
+                $"Unexpected status {(int)response.StatusCode}."));
+            Assert.DoesNotContain(responses, response => (int)response.StatusCode >= 500);
+            Assert.Equal(320, responses.Count(response => response.StatusCode == HttpStatusCode.OK));
+        }
+        finally
+        {
+            foreach (HttpResponseMessage response in responses)
+                response.Dispose();
+        }
+    }
+
+    private const string SessionId = "20260101T000000Z_000000001";
+
+    private static RecordingLibrary LoadedRecordingLibrary(DateTimeOffset startedAt)
+    {
+        var library = new RecordingLibrary(
+            TimeProvider.System, NullLogger<RecordingLibrary>.Instance);
+        library.Upsert(new RecordingSummary(
+            SessionId,
+            "streamer",
+            "Title",
+            "Game",
+            startedAt,
+            EndedAt: null,
+            IsRecording: true,
+            DurationSeconds: null,
+            SizeBytes: null,
+            PartCount: 1,
+            SegmentCount: 1,
+            HasThumbnail: false,
+            Chapters: []));
+        library.MarkLoaded();
+        return library;
+    }
+
+    private static async Task<DefaultHttpContext> HandleAsync(
+        RecordingLibrary library,
+        LivePlaylistCache cache,
+        DateTimeOffset now,
+        string method = "GET",
+        CancellationToken requestAborted = default,
+        ILoggerFactory? loggers = null,
+        LivePlaylistOptions? options = null)
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Method = method;
+        context.RequestAborted = requestAborted;
+        context.Response.Body = new MemoryStream();
+
+        IResult result = await LiveIndexEndpoint.HandleAsync(
+            "streamer",
+            SessionId,
+            context,
+            library,
+            cache,
+            Options.Create(new StorageOptions { RecordingsRoot = Path.GetTempPath() }),
+            Options.Create(options ?? new LivePlaylistOptions()),
+            new FakeTimeProvider(now),
+            loggers ?? NullLoggerFactory.Instance);
+        await result.ExecuteAsync(context);
+        return context;
+    }
+
+    private static async Task<string> ReadBodyAsync(HttpContext context)
+    {
+        context.Response.Body.Position = 0;
+        using var reader = new StreamReader(context.Response.Body, leaveOpen: true);
+        return await reader.ReadToEndAsync();
+    }
+
+    private static async Task<byte[]> ReadBodyBytesAsync(HttpContext context)
+    {
+        context.Response.Body.Position = 0;
+        using var buffer = new MemoryStream();
+        await context.Response.Body.CopyToAsync(buffer);
+        return buffer.ToArray();
     }
 
     private static StreamKeeprAppFactory CreateFactory(

@@ -199,12 +199,18 @@ public sealed class LivePlaylistService(
         Exception exception,
         string outcome)
     {
-        TimeSpan delay = state.Fail(now, _refreshInterval);
-        logger.LogWarning(
+        (int failures, TimeSpan delay) = state.Fail(now, _refreshInterval);
+
+        // One Warning per failure window keeps a failing disk visible without flooding the log;
+        // later failures in the same window are detail for diagnostics.
+        LogLevel level = failures == 1 ? LogLevel.Warning : LogLevel.Debug;
+        logger.Log(
+            level,
             exception,
-            "Live playlist refresh {Outcome} for session {SessionId}; keeping the last-known-good body and retrying in {RetrySeconds:0.#} s.",
+            "Live playlist refresh {Outcome} for session {SessionId} (failure {FailureCount} in this window); keeping the last-known-good body and retrying in {RetrySeconds:0.#} s.",
             outcome,
             summary.Id,
+            failures,
             delay.TotalSeconds);
     }
 
@@ -236,13 +242,13 @@ public sealed class LivePlaylistService(
             Volatile.Write(ref _nextAttemptUtcTicks, 0);
         }
 
-        public TimeSpan Fail(DateTimeOffset now, TimeSpan baseDelay)
+        public (int Failures, TimeSpan Delay) Fail(DateTimeOffset now, TimeSpan baseDelay)
         {
             int failures = Interlocked.Increment(ref _failures);
             double seconds = baseDelay.TotalSeconds * Math.Pow(2, Math.Min(failures - 1, 5));
             TimeSpan delay = TimeSpan.FromSeconds(Math.Min(seconds, MaxBackoffSeconds));
             Volatile.Write(ref _nextAttemptUtcTicks, now.Add(delay).UtcTicks);
-            return delay;
+            return (failures, delay);
         }
     }
 }

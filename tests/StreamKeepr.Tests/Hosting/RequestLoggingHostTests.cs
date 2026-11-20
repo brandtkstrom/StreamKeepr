@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -111,8 +112,39 @@ public sealed class RequestLoggingHostTests
         Assert.Equal(500, request.Properties["StatusCode"]);
     }
 
-    private static StreamKeeprAppFactory CreateFactory(Action<IServiceCollection>? configure = null) =>
-        new(configureTestServices: services =>
+    [Fact]
+    public async Task An_aborted_live_index_request_logs_debug_not_error()
+    {
+        using var factory = CreateFactory(
+            services => services.AddSingleton<IStartupFilter, CancelingMediaStartupFilter>(),
+            new Dictionary<string, string?>
+            {
+                ["Serilog:MinimumLevel:Default"] = "Debug",
+                ["LivePlaylist:RefreshSeconds"] = "3600",
+            });
+        using HttpClient client = factory.CreateClient();
+        factory.Services.GetRequiredService<RecordingLibrary>().Upsert(new RecordingSummary(
+            "r1", "ann", "Title", "Game", StartedAt, EndedAt: null, IsRecording: true,
+            DurationSeconds: null, SizeBytes: null, PartCount: 1, SegmentCount: 1,
+            HasThumbnail: false, Chapters: []));
+        factory.Services.GetRequiredService<LivePlaylistCache>().Publish(
+            LivePlaylistSnapshot.Create(
+                "r1", 1, "#EXTM3U\n#EXTINF:6,\np001_00001.m4s\n", 1, StartedAt));
+
+        using HttpResponseMessage response = await client.GetAsync("/media/ann/r1/index.m3u8");
+        _ = await response.Content.ReadAsByteArrayAsync();
+
+        Assert.Equal(StatusCodes.Status499ClientClosedRequest, (int)response.StatusCode);
+        CapturedLogEntry request = Assert.Single(RequestEvents(factory));
+        Assert.Equal(LogLevel.Debug, request.Level);
+        Assert.Equal(StatusCodes.Status499ClientClosedRequest, request.Properties["StatusCode"]);
+        Assert.DoesNotContain(factory.Logs.Entries, entry => entry.Level == LogLevel.Error);
+    }
+
+    private static StreamKeeprAppFactory CreateFactory(
+        Action<IServiceCollection>? configure = null,
+        IReadOnlyDictionary<string, string?>? settings = null) =>
+        new(settings, configureTestServices: services =>
         {
             services.AddSingleton<IStartupFilter, KestrelRawTargetFilter>();
             configure?.Invoke(services);
@@ -137,6 +169,28 @@ public sealed class RequestLoggingHostTests
         using HttpResponseMessage response = await client.GetAsync(uri);
         _ = await response.Content.ReadAsByteArrayAsync();
         return response.StatusCode;
+    }
+
+    /// <summary>
+    /// Marks a media request as client-aborted before the pipeline runs, so the endpoint sees a
+    /// canceled <see cref="HttpContext.RequestAborted"/> and the request log sees a 499.
+    /// </summary>
+    private sealed class CancelingMediaStartupFilter : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use((context, nextMiddleware) =>
+            {
+                if (context.Request.Path.Value?.EndsWith(
+                        "/index.m3u8", StringComparison.Ordinal) == true)
+                {
+                    context.RequestAborted = new CancellationToken(canceled: true);
+                }
+
+                return nextMiddleware(context);
+            });
+            next(app);
+        };
     }
 
     /// <summary>

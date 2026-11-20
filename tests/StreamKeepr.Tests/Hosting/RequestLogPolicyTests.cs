@@ -72,6 +72,25 @@ public sealed class RequestLogPolicyTests
     }
 
     [Theory]
+    [InlineData("/media/ann/r1/index.m3u8")]
+    [InlineData("/media/ann/r1/p001_00001.m4s")]
+    public void A_client_closed_media_request_is_debug(string path)
+    {
+        Assert.Equal(
+            LogEventLevel.Debug,
+            RequestLogPolicy.GetLevel(path, StatusCodes.Status499ClientClosedRequest, exception: null));
+    }
+
+    [Fact]
+    public void A_client_closed_request_outside_media_is_still_a_warning()
+    {
+        Assert.Equal(
+            LogEventLevel.Warning,
+            RequestLogPolicy.GetLevel(
+                "/recordings/r1", StatusCodes.Status499ClientClosedRequest, exception: null));
+    }
+
+    [Theory]
     [InlineData("/health/ready", 503)]
     [InlineData("/media/ann/r1/index.m3u8", 500)]
     [InlineData("/_blazor", 500)]

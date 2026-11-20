@@ -635,6 +635,47 @@ public sealed class LivePlaylistServiceTests
         Assert.Equal(2, cache.Ids.Count);
     }
 
+    [Fact]
+    public async Task Failures_log_one_warning_per_window_and_debug_afterwards()
+    {
+        using var context = new SessionStoreTestContext();
+        await OpenAndLoadAsync(context);
+        var cache = new LivePlaylistCache();
+        var io = new FakeLivePlaylistIo
+        {
+            Handler = static (_, _) => Task.FromResult(
+                LivePlaylistRead.Live(PlaylistBody("p001_00001.m4s"))),
+        };
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggers = TestLogging.Factory(logs);
+        LivePlaylistService service = NewService(context, cache, io, loggers: loggers);
+        RecordingSummary summary = RecordingSummary(context);
+
+        await service.RefreshAllAsync(CancellationToken.None);
+
+        io.Handler = static (_, _) =>
+            Task.FromException<LivePlaylistRead>(new IOException("EIO"));
+        await service.RefreshAllAsync(CancellationToken.None);
+        context.Clock.Advance(TimeSpan.FromSeconds(2));
+        await service.RefreshAllAsync(CancellationToken.None);
+
+        context.Clock.Advance(TimeSpan.FromSeconds(3));
+        io.Handler = static (_, _) => Task.FromResult(
+            LivePlaylistRead.Live(PlaylistBody("p001_00001.m4s")));
+        await service.RefreshAllAsync(CancellationToken.None);
+
+        io.Handler = static (_, _) =>
+            Task.FromException<LivePlaylistRead>(new IOException("EIO"));
+        await service.RefreshAllAsync(CancellationToken.None);
+
+        IReadOnlyList<CapturedLogEntry> sessionLogs = logs.Entries
+            .Where(entry => entry.Message.Contains(summary.Id, StringComparison.Ordinal))
+            .ToArray();
+        Assert.Equal(2, sessionLogs.Count(entry => entry.Level == LogLevel.Warning));
+        Assert.Equal(1, sessionLogs.Count(entry => entry.Level == LogLevel.Debug));
+        Assert.DoesNotContain(sessionLogs, entry => entry.Level == LogLevel.Error);
+    }
+
     private static LivePlaylistService NewService(
         SessionStoreTestContext context,
         LivePlaylistCache cache,
