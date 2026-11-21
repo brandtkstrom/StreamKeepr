@@ -1029,6 +1029,8 @@ body:has([data-bottom-nav]) .mud-snackbar-location-bottom-left {
 .sk-channel-row .grow { flex: 1; }
 .sk-channel-row .sk-field-error { flex-basis: 100%; }
 .sk-channel-busy { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); font: var(--text-body2); }
+/* The add field and its error lead the Channels section, set off from the list by a divider. */
+.sk-channel-adder { display: flex; flex-direction: column; gap: var(--space-2); padding-bottom: var(--space-3); border-bottom: 1px solid var(--divider); }
 .sk-channel-add { display: flex; align-items: center; gap: var(--space-2); }
 .sk-channel-add .mud-input-control { flex: 1; min-width: 0; margin: 0; }
 /* Add errors render below as their own role="alert" paragraph, so the field's empty helper row goes. */

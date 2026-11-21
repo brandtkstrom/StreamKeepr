@@ -169,6 +169,20 @@ public sealed class SettingsPageTests
     }
 
     [Fact]
+    public async Task The_add_field_comes_before_the_channel_list()
+    {
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected")];
+        IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
+
+        string markup = cut.Markup;
+        int add = markup.IndexOf("data-channel-add", StringComparison.Ordinal);
+        int list = markup.IndexOf("data-channel-list", StringComparison.Ordinal);
+
+        Assert.InRange(add, 0, list - 1);
+    }
+
+    [Fact]
     public async Task Add_trims_and_lowercases_shows_busy_then_clears_and_announces()
     {
         await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
