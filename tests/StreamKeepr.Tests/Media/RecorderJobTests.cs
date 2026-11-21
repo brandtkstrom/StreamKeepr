@@ -488,7 +488,7 @@ public sealed class RecorderJobTests : IDisposable
     }
 
     [Fact]
-    public async Task A_worst_case_stop_fits_inside_the_35_second_job_budget()
+    public async Task A_worst_case_stop_fits_inside_the_job_stop_budget()
     {
         using var forceKills = new MetricCollector<long>(
             _telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.force_kills");
@@ -532,10 +532,29 @@ public sealed class RecorderJobTests : IDisposable
         Assert.True(
             clock.RequestedWaits.Count(wait => wait == TimeSpan.FromSeconds(5)) >= 2,
             "both processes must have taken the graceful stop path");
-        Assert.True(
-            clock.RequestedWaits.Sum(wait => wait.TotalSeconds) <= 35,
-            $"recorder requested {clock.RequestedWaits.Sum(wait => wait.TotalSeconds)} s of waits");
-        Assert.True(elapsed < TimeSpan.FromSeconds(35), $"stop took {elapsed}");
+        TimeSpan waits = TimeSpan.FromSeconds(clock.RequestedWaits.Sum(wait => wait.TotalSeconds));
+        TimeSpan budget = RecorderJob.StopBudgetFor(options);
+        Assert.True(waits < budget, $"recorder requested {waits} of waits against a {budget} budget");
+        Assert.True(elapsed < budget, $"stop took {elapsed}");
+    }
+
+    [Theory]
+    [InlineData(5, 30)]
+    [InlineData(10, 35)]
+    [InlineData(15, 40)]
+    public void The_stop_budget_is_every_shutdown_wait_plus_a_five_second_margin(
+        int finalizeSeconds, int budgetSeconds)
+    {
+        RecorderOptions options = FakeOptions();
+        options.FinalizeTimeoutSeconds = finalizeSeconds;
+        var job = new RecorderJob(
+            Options.Create(options),
+            TimeProvider.System,
+            NullLogger<RecorderJob>.Instance,
+            _telemetry.Value);
+
+        Assert.Equal(TimeSpan.FromSeconds(budgetSeconds), job.StopBudget);
+        Assert.Equal(job.StopBudget, RecorderJob.StopBudgetFor(options));
     }
 
     [Fact]

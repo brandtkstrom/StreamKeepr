@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
-using StreamKeepr.Infrastructure.Runtime;
+using StreamKeepr.Infrastructure.Media;
 
 namespace StreamKeepr.Tests.Hosting;
 
@@ -58,10 +58,23 @@ public sealed class WebAppSmokeTests
 
         HostOptions options = factory.Services.GetRequiredService<IOptions<HostOptions>>().Value;
 
-        Assert.True(options.ShutdownTimeout > ChannelCoordinator.JobStopBudget);
-        Assert.Equal(
-            ChannelCoordinator.JobStopBudget + TimeSpan.FromSeconds(5),
-            options.ShutdownTimeout);
+        RecorderOptions recorder = factory.Services.GetRequiredService<IOptions<RecorderOptions>>().Value;
+        Assert.Equal(TimeSpan.FromSeconds(40), options.ShutdownTimeout);
+        Assert.Equal(RecorderJob.StopBudgetFor(recorder) + TimeSpan.FromSeconds(5), options.ShutdownTimeout);
+    }
+
+    [Fact]
+    public void Host_shutdown_timeout_follows_the_configured_finalize_wait()
+    {
+        using var factory = new StreamKeeprAppFactory(new Dictionary<string, string?>
+        {
+            [$"{RecorderOptions.SectionName}:FinalizeTimeoutSeconds"] = "15",
+        });
+
+        HostOptions options = factory.Services.GetRequiredService<IOptions<HostOptions>>().Value;
+
+        // 40 s stop budget at the 15 s cap, plus 5 s headroom; still inside Compose's 50 s grace.
+        Assert.Equal(TimeSpan.FromSeconds(45), options.ShutdownTimeout);
     }
 
     [Fact]

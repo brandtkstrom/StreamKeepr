@@ -52,6 +52,26 @@ public sealed class RecorderJob(
     private static readonly TimeSpan GracefulStopTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ForceStopTimeout = TimeSpan.FromSeconds(5);
 
+    /// <summary>Headroom over the waits, so the guard never races a stop still inside them.</summary>
+    private static readonly TimeSpan StopBudgetMargin = TimeSpan.FromSeconds(5);
+
+    public TimeSpan StopBudget => StopBudgetFor(options.Value);
+
+    /// <summary>
+    /// The longest a requested stop may take: Streamlink's graceful and force waits, FFmpeg's
+    /// finalize wait and its own graceful and force waits, plus a margin. 35 s with the default
+    /// 10 s finalize and 40 s at the 15 s cap.
+    /// </summary>
+    public static TimeSpan StopBudgetFor(RecorderOptions recorder)
+    {
+        ArgumentNullException.ThrowIfNull(recorder);
+        TimeSpan streamlink = GracefulStopTimeout + ForceStopTimeout;
+        TimeSpan ffmpeg = TimeSpan.FromSeconds(recorder.FinalizeTimeoutSeconds)
+            + GracefulStopTimeout
+            + ForceStopTimeout;
+        return streamlink + ffmpeg + StopBudgetMargin;
+    }
+
     /// <summary>
     /// Records the job's part into <see cref="Session.Directory"/>. A part that already has any
     /// file is never overwritten; the job returns an outcome without starting either process.

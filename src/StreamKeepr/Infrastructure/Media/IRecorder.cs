@@ -12,6 +12,12 @@ namespace StreamKeepr.Infrastructure.Media;
 /// </summary>
 public interface IRecorder
 {
+    /// <summary>
+    /// The longest a requested stop may take before the coordinator must assume the writer is
+    /// still alive. Derived from the recorder's own waits, never guessed by the caller.
+    /// </summary>
+    TimeSpan StopBudget { get; }
+
     Task<PartOutcome> RunAsync(
         Session session,
         JobId job,

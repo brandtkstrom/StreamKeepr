@@ -412,7 +412,7 @@ public sealed class ChannelCoordinatorTests
                     .AsTask()
                     .WaitAsync(TimeSpan.FromSeconds(5));
             }
-            while (dueTime < ChannelCoordinator.JobStopBudget);
+            while (dueTime != context.Recorder.StopBudget);
 
             context.Clock.Advance(dueTime);
 

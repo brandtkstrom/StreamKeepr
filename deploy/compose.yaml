@@ -24,7 +24,8 @@ services:
     # Forwards SIGTERM to the app so active recordings finalize on stop.
     init: true
 
-    # Longer than the app's 40 s shutdown budget, so an active part can finalize
+    # Longer than the app's shutdown timeout (40 s by default, 45 s at the 15 s finalize
+    # cap), so an active part can finalize
     # before Docker kills the container.
     stop_grace_period: 50s
 

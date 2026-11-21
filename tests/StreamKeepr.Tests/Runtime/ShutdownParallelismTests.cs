@@ -70,6 +70,8 @@ public sealed class ShutdownParallelismTests
 
         public int MaxConcurrentStops => Volatile.Read(ref _maxConcurrent);
 
+        public TimeSpan StopBudget => TimeSpan.FromSeconds(35);
+
         public async Task<PartOutcome> RunAsync(
             Session session,
             JobId job,

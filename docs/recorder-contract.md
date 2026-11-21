@@ -81,7 +81,7 @@ Order, with every wait bounded:
 4. Wait `FinalizeTimeoutSeconds` for FFmpeg to finish on EOF. Then send exactly one SIGINT (graceful token), wait 5 s, force-kill, wait 5 s.
 5. Complete the pipe reader. If no media was produced, delete the part files.
 
-`FinalizeTimeoutSeconds` is capped at 15 s and defaults to 10 s. Worst case is `20 s + FinalizeTimeoutSeconds`: 30 s by default, 35 s at the cap, inside the 35 s job / 40 s host / 50 s Compose budgets. Do not send repeated SIGINTs; more than three can make FFmpeg hard-exit without a trailer. Never write `q\n` into FFmpeg's stdin.
+`FinalizeTimeoutSeconds` is capped at 15 s and defaults to 10 s. Worst case is `20 s + FinalizeTimeoutSeconds`: 30 s by default, 35 s at the cap. `IRecorder.StopBudget` is that worst case plus a 5 s margin (35 s by default, 40 s at the cap); the coordinator reads it rather than keeping its own figure, and the host timeout is the budget plus 5 s, inside Compose's 50 s grace. Do not send repeated SIGINTs; more than three can make FFmpeg hard-exit without a trailer. Never write `q\n` into FFmpeg's stdin.
 
 ### Unverified shutdown
 
@@ -206,7 +206,7 @@ Integration with real FFmpeg and the fake Streamlink fixtures:
 
 - Normal stream end: part playlist, init, segments, media event before exit event, playable output.
 - User stop: graceful order, `Stopped`, `ENDLIST`, playable output.
-- Worst-case stop with tools that ignore their graceful signal fits the 35 s job budget.
+- Worst-case stop with tools that ignore their graceful signal fits the job's stop budget; the budget is every shutdown wait plus 5 s for each finalize setting.
 - The bounded pipe backpressures a source that is not being drained.
 - MPEG-TS/AAC input succeeds with `-bsf:a aac_adtstoasc`.
 - HEVC/AV1 argument path records successfully (playback support is a separate test).

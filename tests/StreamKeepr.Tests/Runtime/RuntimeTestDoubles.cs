@@ -20,6 +20,9 @@ internal sealed class FakeRecorder : IRecorder
 
     public ChannelReader<RecorderCall> Started => _started.Reader;
 
+    /// <summary>Short and distinct from any retry delay, so a test can pick out the budget timer.</summary>
+    public TimeSpan StopBudget { get; set; } = TimeSpan.FromSeconds(7);
+
     public async Task<PartOutcome> RunAsync(
         Session session,
         JobId job,

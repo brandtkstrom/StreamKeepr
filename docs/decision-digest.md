@@ -103,7 +103,7 @@ This is the single handoff for the full application specification. It records th
 - One `RecorderJob` records one part: Streamlink `--stdout` piped to FFmpeg `pipe:0` through a 4 MiB bounded `System.IO.Pipelines.Pipe` (resume at 2 MiB).
 - Part files: `pNNN.m3u8`, `init_NNN.mp4`, `pNNN_%05d.m4s`; titles never enter paths; no overwrite; empty parts are removed.
 - FFmpeg: fMP4 HLS, EVENT playlist, `+temp_file+independent_segments+program_date_time`, `-c copy`, always `-bsf:a aac_adtstoasc`; Streamlink codecs `h264,h265,av1`.
-- Shutdown is bounded: graceful stop, then force kill; `FinalizeTimeoutSeconds` is capped at 15 s (default 10 s); host 40 s, Compose 50 s. `Stopped`/`Killed`/`Exited` drive the reducer.
+- Shutdown is bounded: graceful stop, then force kill; `FinalizeTimeoutSeconds` is capped at 15 s (default 10 s); the recorder's stop budget is its waits + 5 s (35 s default, 40 s at the cap); host = budget + 5 s (40 s default, 45 s at the cap), Compose 50 s. `Stopped`/`Killed`/`Exited` drive the reducer.
 - Byte/media progress comes from files and the progress pipe; stalls and media-producing thresholds are detected; `PartProducingMedia` is published once per part.
 - Linux behavior (research #5): CliWrap signals one PID, FFmpeg finalizes on stdin EOF, Streamlink exits 130 on signals, `-progress` has no byte totals.
 

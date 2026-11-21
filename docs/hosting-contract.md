@@ -160,7 +160,7 @@ Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6
 ## 9. Shutdown
 
 - Docker sends SIGTERM to the app (tini forwards to the main process, not the process group).
-- The app cancels channel loops; each recorder stops gracefully within the 35 s job budget; the host timeout is 40 s; Compose grace is 50 s.
+- The app cancels channel loops; each recorder stops gracefully within its stop budget (35 s by default, 40 s at the 15 s finalize cap); the host timeout is that budget plus 5 s (40 s by default, 45 s at the cap); Compose grace is 50 s.
 - If the host timeout fires, the container kills the children and recovery repairs the parts on the next start.
 - `stop_grace_period` must remain above the host timeout.
 - Lifecycle breadcrumbs (#198, `HostLifecycleLog`): once the host has started it logs one `Information` summary (environment, watched-channel count, recordings root, EventSub transport, chat capture on/off); when shutdown begins (SIGTERM, `docker compose stop`) it logs one `Information` stopping line. The summary names safe values only and never an options object, so the Twitch client secret and chat token cannot appear. The Critical supervisor/fatal-host logs and the Data Protection key-ring logs keep their own levels.
