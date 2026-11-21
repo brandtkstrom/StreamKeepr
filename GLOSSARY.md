@@ -48,6 +48,18 @@ _Avoid_: Finished session, finalized session, done session
 One recorder run's media within a session, stored as `pNNN` files.
 _Avoid_: Segment, chunk, file
 
+**Part playlist**:
+The HLS playlist FFmpeg writes for one part (`pNNN.m3u8`). It counts as having segments only when it holds at least one complete segment line.
+_Avoid_: Part index, sub-playlist
+
+**Session index**:
+The one playlist for a whole Complete session (`index.m3u8`): every part playlist that has segments, stitched in part order and closed with `#EXT-X-ENDLIST`.
+_Avoid_: Final playlist, master playlist
+
+**Live index**:
+The stitched playlist served while a session is Recording. It is built by the same rules as the session index but never ends with `#EXT-X-ENDLIST`.
+_Avoid_: Live playlist, live stitch
+
 **Job**:
 One recorder execution for one part, identified by `JobId` (session + part number).
 _Avoid_: Task, process (unless referring to the OS process)
