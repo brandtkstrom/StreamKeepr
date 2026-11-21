@@ -1,4 +1,4 @@
-"Stats for nerds": a collapsible panel under Recording details with playback (video) and network statistics side by side, and the stream's viewer count over time below them. A JS-owned island.
+"Stats for nerds": a collapsible panel under Chapters (or under the title block when a recording has no chapters) with playback (video) and network statistics side by side, and the stream's viewer count over time below them. A JS-owned island.
 
 ## Build it from
 

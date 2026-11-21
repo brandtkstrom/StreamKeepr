@@ -9,8 +9,8 @@ The layout below MudBlazor's `Breakpoint.Md` (960px), phones and tablets: a dens
 - **Watching:**
   1. The player, edge to edge with square corners, at 16:9. On phones (Xs) it is `position: sticky` under the top bar, so it stays in view while the tabs scroll.
   2. The title in `h6`, then the meta line (streamer, `Event` start, `Timer` duration).
-  3. One row of actions: the REC chip, then small buttons (Copy URL, Export) and a `MoreVert` menu for Stop recording and Delete.
-  4. `MudTabs` (`Color.Primary`, full width, `KeepPanelsAlive`), with **Chat** (`Chat`), **Details** (`Info`) and **Stats** (`QueryStats`). Chat comes first and is selected when the recording has chat; otherwise Details is. Each panel gets at least half the viewport, and the main column scrolls under the sticky player.
+  3. One row of actions: the REC chip, then small buttons (Copy URL, Export) and a `MoreVert` menu for Stop recording and Delete. The vertical action stack is desktop only. An export's progress row follows.
+  4. `MudTabs` (`Color.Primary`, full width, `KeepPanelsAlive`), with **Chat** (`Chat`), **Chapters** (`Toc`) and **Stats** (`QueryStats`). Chapters is left out when the recording has no chapters. Chat comes first and is selected when the recording has chat; otherwise Chapters is, or Stats when there are no chapters either. Each panel gets at least half the viewport, and the main column scrolls under the sticky player.
 - **Phone landscape** (height below 500px): the top bar hides and the player fills the screen, with its controls overlaid. Rotating back restores the layout.
 
 ## Rules
@@ -18,4 +18,4 @@ The layout below MudBlazor's `Breakpoint.Md` (960px), phones and tablets: a dens
 - Touch targets are 40px or more: 48px in the bottom bar and the tabs.
 - Player controls: the existing container queries leave play, back 10 s, timecode and fullscreen below Md; the Chat and Stats player buttons are hidden because the tabs own them, and theater is not available. A `MoreVert` menu holding speed, stats and PiP is deferred because this slice does not change the player island's markup.
 - Theater mode doesn't exist here. Fullscreen replaces it.
-- Nothing scrolls sideways except the Home rows and the chapter strip.
+- Nothing scrolls sideways except the Home rows.
