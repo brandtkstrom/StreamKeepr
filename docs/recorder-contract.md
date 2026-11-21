@@ -85,11 +85,11 @@ Order, with every wait bounded:
 
 ### Unverified shutdown
 
-A stop is verified only when the bounded wait completes, both streams reach EOF (the CliWrap task completes), and, after a force kill, the captured PID is gone or reused. If the force wait expires with the task still pending, or the captured PID still resolves to the captured start time, or the identity cannot be read, `RecorderJob.StopAsync` throws `RecorderShutdownException`.
+A stop is verified only when the bounded wait completes, both streams reach EOF (the CliWrap task completes), and, after a force kill, the captured PID is gone or reused. If the force wait expires with the task still pending, or the captured PID still resolves to the captured start time, or the identity cannot be read (including a probe that throws), the stop is an unverified shutdown. Nothing is thrown: the job returns a `PartOutcome` with `Kind = Killed` and `Fault` set to an `UnverifiedShutdown`.
 
-The exception carries the job, tool, PID, captured start time, stop result, task-pending flag, and observed process state. The job must not publish `RecorderExited(Exited, ...)` for it: the previous process tree may still be writing. Before the exception leaves the job, the job force-cancels both tools, counts the part as `Killed` with one force kill in telemetry, and writes the finish log with the exception's diagnostic text; it never deletes part files on this path. Diagnostic text includes the tool, PID, start time, task state, and observed state; it never includes the OAuth token or the raw Streamlink command line.
+`UnverifiedShutdown` carries the tool, PID, captured start time, stop result, task-pending flag, and observed process state. The job force-cancels both tools, never finalizes FFmpeg after an unverified Streamlink stop, never deletes part files on this path, counts the part as `Killed` with one force kill in telemetry, and writes the finish log with the fault's diagnostic text. Diagnostic text includes the tool, PID, start time, task state, and observed state; it never includes the OAuth token or the raw Streamlink command line.
 
-The coordinator responds as follows:
+The coordinator responds to an outcome with a fault as follows:
 
 1. Publish exactly one `RecorderExited(Killed, detail)` for the failed part, so status and the failure streak stay accurate.
 2. Record a durable shutdown fault and retain the active job; do not treat the recorder task as a verified stop.
@@ -142,7 +142,9 @@ Precedence when more than one applies: `Killed` > `Stopped` > `Exited`. A reques
 ## 8. Boundary and cleanup
 
 - The recorder writes only part files. It never writes the session manifest, the stitched index, progress, or library state.
-- It publishes exactly one `RecorderExited`. If an unexpected exception escapes, the coordinator synthesizes a `RecorderExited(Exited, detail)`; the event count stays one. The sole exception is `RecorderShutdownException`: the coordinator publishes exactly one `RecorderExited(Killed, detail)` and then fails the channel loop, because the previous writer may still be alive.
+- `IRecorder.RunAsync` returns one `PartOutcome` (kind, detail, part size or null, duration, a failed flag, and an optional unverified-shutdown fault) on every path and never publishes `RecorderExited`. The coordinator publishes exactly one `RecorderExited` per part from the outcome, so `PartProducingMedia` always precedes it.
+- An unexpected exception after the tools start is reported, not thrown: the job force-kills each tool still running, verifies each stop exactly as the bounded shutdown does, finalizes and reports the part, and returns an outcome with `Failed = true` and the error in the detail. If a forced stop cannot be verified, the outcome carries the fault and is fatal.
+- An exception before any tool starts escapes the job; the coordinator turns it into a failed `RecorderExited(Exited, detail)` with no recorder metric, because no tool ran. A failed outcome sets the channel's last error.
 - If no media was produced, delete every part file including `.tmp` and init temp files before returning.
 - If the part already exists, return `RecorderExited` immediately; do not overwrite.
 - `RecorderExited.Detail` carries the reason, exit codes, process identity, stop result, and the last stderr lines. It is diagnostic; the reducer uses `RecorderExitKind`, never the detail string.
@@ -157,7 +159,7 @@ Precedence when more than one applies: `Killed` > `Stopped` > `Exited`. A reques
 | User stop | Stop Streamlink, EOF FFmpeg, finalize, return | `Stopped` |
 | Stall watchdog | Stop both processes with the bounded shutdown; return | `Killed` |
 | Force kill verified (PID gone or reused, task complete) | Return; the part may lack a trailer and is retryable | `Killed` |
-| Force kill timed out (task still pending) | Raise `RecorderShutdownException`; the coordinator publishes one `Killed`, faults the channel loop, and the host stops; no second writer starts | `Killed` (fatal) |
+| Force kill timed out (task still pending) | Return an outcome with an `UnverifiedShutdown` fault; the coordinator publishes one `Killed`, faults the channel loop, and the host stops; no second writer starts | `Killed` (fatal) |
 | Captured PID still alive after the force kill | Same fail-closed path | `Killed` (fatal) |
 | PID identity unreadable after the force kill | Same fail-closed path; never assume the process is gone | `Killed` (fatal) |
 | No media | Delete part files, return | `Exited` |
@@ -176,7 +178,7 @@ Unit:
 - `StderrTail` capacity and ordering.
 - Ad-break regex and grace calculation.
 - PID identity: missing process is gone; the same start time is alive; a different start time is a reused PID; an unreadable identity is unknown and fails closed.
-- Coordinator shutdown fault: a `RecorderShutdownException` publishes one `Killed` exit, faults the loop, retains the active job, blocks a second `StartRecorder`, and is observed even when the reducer enters `CoolingDown` with no retry command.
+- Coordinator shutdown fault: an outcome with an `UnverifiedShutdown` publishes one `Killed` exit, faults the loop, retains the active job, blocks a second `StartRecorder`, and is observed even when the reducer enters `CoolingDown` with no retry command.
 
 Recorder job through the process seam. `IRecorderProcessRunner.Start` takes a `ToolLaunch` (tool name, path, arguments, working directory, and optional stdin/stdout byte streams) plus stdout and stderr line callbacks; no CliWrap type crosses it. The fake runner scripts output lines, file writes, and exits, honours the stop tokens like the real tools (Streamlink exits on its graceful signal, FFmpeg on stdin EOF), and runs callbacks in the starting context as CliWrap does. With an injected identity probe and part-size scan, no child process is needed:
 
@@ -190,7 +192,8 @@ Recorder job through the process seam. `IRecorderProcessRunner.Start` takes a `T
 - Stall watchdog: `Killed`, stall counted, media event before exit, graceful Streamlink stop and FFmpeg finish on EOF.
 - Ad-break line: the watchdog does not fire during the grace.
 - Progress bytes never decrease and the final sample equals the on-disk total; an unreadable playlist keeps the last total and never fails the part.
-- A never-completing tool with the captured PID alive raises `RecorderShutdownException`.
+- A never-completing tool with the captured PID alive returns a `Killed` outcome with an `UnverifiedShutdown` fault; an identity probe that throws fails closed the same way.
+- An unexpected error after the tools start force-stops and verifies both tools and returns a failed outcome; if a forced stop cannot be verified, the outcome is fatal.
 - A verified force-kill (task completed, PID gone or reused) remains `Killed`.
 - A force kill whose captured PID is still alive, or whose identity is unreadable, fails closed.
 - A clean stream end remains `Exited` and never inspects process identity.

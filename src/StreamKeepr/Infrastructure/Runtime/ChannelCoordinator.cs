@@ -43,7 +43,7 @@ public sealed class ChannelCoordinator
 
     // Durable after an unverified shutdown: no later StartJob, StopJob, or ScheduleRetry may
     // start another writer while the previous process tree may still be writing.
-    private RecorderShutdownException? _shutdownFault;
+    private ShutdownFault? _shutdownFault;
     private readonly TaskCompletionSource _faultSignal =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -125,9 +125,8 @@ public sealed class ChannelCoordinator
 
         throw new ChannelFatalException(
             $"{_channel}: recorder {fault.Job} shutdown could not be verified "
-            + $"({fault.Tool}, pid {fault.ProcessId?.ToString() ?? "unknown"}); "
-            + "refusing to start another writer.",
-            fault);
+            + $"({fault.Shutdown.Tool}, pid {fault.Shutdown.ProcessId?.ToString() ?? "unknown"}); "
+            + "refusing to start another writer.");
     }
 
     public async Task RunAsync(CancellationToken ct)
@@ -354,53 +353,60 @@ public sealed class ChannelCoordinator
 
     private async Task RecordPartAsync(Session session, JobId job, CancellationToken stopRequested)
     {
+        PartOutcome outcome;
         try
         {
             // The disk probe is inside the failure boundary: an I/O error here must still
             // become one visible RecorderExited instead of a dead job with no event.
-            if (!_disk.HasRoomToRecord())
-            {
-                await FailPartAsync(job, "not enough free disk space");
-                return;
-            }
-
-            await _recorder.RunAsync(
-                session,
-                job,
-                PublishAsync,
-                stopRequested,
-                ReportProgress);
-        }
-        catch (RecorderShutdownException ex)
-        {
-            // The previous writer may still be alive. Publish exactly one Killed exit for status
-            // and streak, make the fault durable, and fail the loop; never synthesize Exited.
-            Volatile.Write(ref _shutdownFault, ex);
-            _logger.LogError(
-                ex, "{Channel}: recorder {Job} shutdown could not be verified", _channel, job);
-            _status.Failed(_channel, ex.Message);
-            await PublishAsync(new DvrEvent.RecorderExited(
-                job, _clock.GetUtcNow(), RecorderExitKind.Killed, ex.Message));
-            _faultSignal.TrySetResult();
-            throw;
+            outcome = _disk.HasRoomToRecord()
+                ? await _recorder.RunAsync(session, job, PublishAsync, stopRequested, ReportProgress)
+                : new PartOutcome(RecorderExitKind.Exited, "not enough free disk space", Failed: true);
         }
         catch (OperationCanceledException) when (stopRequested.IsCancellationRequested)
         {
-            await PublishAsync(new DvrEvent.RecorderExited(
-                job, _clock.GetUtcNow(), RecorderExitKind.Stopped, "recorder canceled"));
+            outcome = new PartOutcome(RecorderExitKind.Stopped, "recorder canceled");
         }
         catch (Exception ex)
         {
+            // The recorder reports every failure after its tools start; this covers a failure
+            // before any tool ran, so there is no writer to verify.
             _logger.LogError(ex, "{Channel}: recorder {Job} failed", _channel, job);
-            await FailPartAsync(job, ex.Message);
+            outcome = new PartOutcome(RecorderExitKind.Exited, ex.Message, Failed: true);
         }
+
+        await CompletePartAsync(job, outcome);
     }
 
-    private async Task FailPartAsync(JobId job, string detail)
+    /// <summary>
+    /// The single place a part's <see cref="DvrEvent.RecorderExited"/> is published. An unverified
+    /// shutdown publishes one Killed exit for status and streak, makes the fault durable, and
+    /// fails the job task so the active job is retained and no second writer can start.
+    /// </summary>
+    private async Task CompletePartAsync(JobId job, PartOutcome outcome)
     {
-        _status.Failed(_channel, detail);
+        if (outcome.Fault is { } shutdown)
+        {
+            Volatile.Write(ref _shutdownFault, new ShutdownFault(job, shutdown));
+            _logger.LogError(
+                "{Channel}: recorder {Job} shutdown could not be verified: {Fault}",
+                _channel,
+                job,
+                shutdown);
+            _status.Failed(_channel, shutdown.ToString());
+        }
+        else if (outcome.Failed)
+        {
+            _status.Failed(_channel, outcome.Detail);
+        }
+
         await PublishAsync(new DvrEvent.RecorderExited(
-            job, _clock.GetUtcNow(), RecorderExitKind.Exited, detail));
+            job, _clock.GetUtcNow(), outcome.Kind, outcome.Detail));
+
+        if (outcome.Fault is not null)
+        {
+            _faultSignal.TrySetResult();
+            ThrowIfShutdownFault();
+        }
     }
 
     private void ReportProgress(JobId job, long bytes, TimeSpan mediaTime) =>
@@ -535,6 +541,9 @@ public sealed class ChannelCoordinator
 }
 
 /// <summary>A channel loop fault that must stop the host rather than risk a second writer.</summary>
+/// <summary>An unverified shutdown and the Job whose writer may still be alive.</summary>
+internal sealed record ShutdownFault(JobId Job, UnverifiedShutdown Shutdown);
+
 public sealed class ChannelFatalException : Exception
 {
     public ChannelFatalException(string message) : base(message)

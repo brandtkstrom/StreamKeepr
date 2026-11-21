@@ -37,8 +37,7 @@ public sealed class ChannelCoordinatorTests
             {
             }
 
-            await call.PublishAsync(new DvrEvent.RecorderExited(
-                call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Stopped, "stopped"));
+            return new PartOutcome(RecorderExitKind.Stopped, "stopped");
         };
 
         await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
@@ -74,8 +73,7 @@ public sealed class ChannelCoordinatorTests
             WritePart(call.Session, 1);
             await call.PublishAsync(new DvrEvent.PartProducingMedia(
                 call.Job, context.Clock.GetUtcNow()));
-            await call.PublishAsync(new DvrEvent.RecorderExited(
-                call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Exited, "stream ended"));
+            return new PartOutcome(RecorderExitKind.Exited, "stream ended");
         };
 
         await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
@@ -160,9 +158,7 @@ public sealed class ChannelCoordinatorTests
         {
             if (Interlocked.Increment(ref run) == 1)
             {
-                await call.PublishAsync(new DvrEvent.RecorderExited(
-                    call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Exited, "no media"));
-                return;
+                return new PartOutcome(RecorderExitKind.Exited, "no media");
             }
 
             secondStarted.TrySetResult(call);
@@ -174,8 +170,7 @@ public sealed class ChannelCoordinatorTests
             {
             }
 
-            await call.PublishAsync(new DvrEvent.RecorderExited(
-                call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Stopped, "stopped"));
+            return new PartOutcome(RecorderExitKind.Stopped, "stopped");
         };
 
         await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
@@ -267,6 +262,49 @@ public sealed class ChannelCoordinatorTests
     }
 
     [Fact]
+    public async Task A_recorder_that_throws_before_its_tools_start_publishes_one_failed_exit()
+    {
+        using var context = new Context();
+        context.Recorder.OnRun = (_, _) =>
+            throw new IOException("could not create the part directory");
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
+
+        DvrSnapshot snapshot = await RuntimeTestWait.ForStatusAsync(
+            context.Status, Channel, status => status.State is DvrState.WaitingToRetry);
+
+        Assert.Contains("could not create the part directory", snapshot.LastError, StringComparison.Ordinal);
+        Assert.Contains("could not create the part directory", snapshot.LastDetail, StringComparison.Ordinal);
+
+        await context.StopAsync();
+    }
+
+    [Fact]
+    public async Task A_failed_outcome_becomes_the_channel_last_error_and_a_normal_one_does_not()
+    {
+        using var context = new Context();
+        int runs = 0;
+        context.Recorder.OnRun = (_, _) => Task.FromResult(Interlocked.Increment(ref runs) == 1
+            ? new PartOutcome(RecorderExitKind.Exited, "stream ended")
+            : new PartOutcome(RecorderExitKind.Exited, "recorder failed: pipe broke", Failed: true));
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
+        DvrSnapshot first = await RuntimeTestWait.ForStatusAsync(
+            context.Status, Channel, status => status.LastDetail == "stream ended");
+        Assert.Null(first.LastError);
+
+        await context.Coordinator.PublishAsync(new DvrEvent.RetryTimerElapsed(
+            Assert.IsType<DvrState.WaitingToRetry>(first.State).Next));
+        DvrSnapshot second = await RuntimeTestWait.ForStatusAsync(
+            context.Status, Channel, status => status.LastDetail?.Contains("pipe broke") == true);
+        Assert.Contains("pipe broke", second.LastError, StringComparison.Ordinal);
+
+        await context.StopAsync();
+    }
+
+    [Fact]
     public async Task A_failed_finalize_is_surfaced_and_leaves_the_session_recoverable()
     {
         using var context = new Context();
@@ -275,8 +313,7 @@ public sealed class ChannelCoordinatorTests
             WritePart(call.Session, 1);
             await call.PublishAsync(new DvrEvent.PartProducingMedia(
                 call.Job, context.Clock.GetUtcNow()));
-            await call.PublishAsync(new DvrEvent.RecorderExited(
-                call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Exited, "stream ended"));
+            return new PartOutcome(RecorderExitKind.Exited, "stream ended");
         };
 
         await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
@@ -317,8 +354,7 @@ public sealed class ChannelCoordinatorTests
         context.Recorder.OnRun = async (call, _) =>
         {
             Interlocked.Increment(ref runs);
-            await call.PublishAsync(new DvrEvent.RecorderExited(
-                call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Exited, "no media"));
+            return new PartOutcome(RecorderExitKind.Exited, "no media");
         };
 
         string sessionId = Path.GetFileName(context.SessionDirectory);
@@ -354,7 +390,11 @@ public sealed class ChannelCoordinatorTests
         using var context = new Context();
         var release = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        context.Recorder.OnRun = async (_, _) => await release.Task;
+        context.Recorder.OnRun = async (_, _) =>
+        {
+            await release.Task;
+            return new PartOutcome(RecorderExitKind.Stopped, "released");
+        };
 
         await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
             new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
@@ -389,9 +429,8 @@ public sealed class ChannelCoordinatorTests
     public async Task A_retry_that_cannot_be_scheduled_faults_the_channel_loop()
     {
         using var context = new Context(jitter: new ThrowingRetryJitter());
-        context.Recorder.OnRun = async (call, _) =>
-            await call.PublishAsync(new DvrEvent.RecorderExited(
-                call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Exited, "no media"));
+        context.Recorder.OnRun = (call, _) =>
+            Task.FromResult(new PartOutcome(RecorderExitKind.Exited, "no media"));
 
         await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
             new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
@@ -404,9 +443,8 @@ public sealed class ChannelCoordinatorTests
     public async Task A_retry_with_an_invalid_delay_faults_the_channel_loop()
     {
         using var context = new Context(jitter: new InvalidDelayRetryJitter());
-        context.Recorder.OnRun = async (call, _) =>
-            await call.PublishAsync(new DvrEvent.RecorderExited(
-                call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Exited, "no media"));
+        context.Recorder.OnRun = (call, _) =>
+            Task.FromResult(new PartOutcome(RecorderExitKind.Exited, "no media"));
 
         await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
             new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
@@ -478,8 +516,7 @@ public sealed class ChannelCoordinatorTests
             WritePart(call.Session, 1);
             await call.PublishAsync(new DvrEvent.PartProducingMedia(
                 call.Job, context.Clock.GetUtcNow()));
-            await call.PublishAsync(new DvrEvent.RecorderExited(
-                call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Exited, "stream ended"));
+            return new PartOutcome(RecorderExitKind.Exited, "stream ended");
         };
         DateTimeOffset first = Context.StartedAt.AddSeconds(60);
 
@@ -540,14 +577,10 @@ public sealed class ChannelCoordinatorTests
             WritePart(call.Session, 1);
             await call.PublishAsync(new DvrEvent.PartProducingMedia(
                 call.Job, context.Clock.GetUtcNow()));
-            throw new RecorderShutdownException(
-                call.Job,
-                "streamlink",
-                4321,
-                captured,
-                ProcessStop.TimedOut,
-                taskPending: true,
-                "PID 4321 is still alive");
+            var shutdown = new UnverifiedShutdown(
+                "streamlink", 4321, captured, ProcessStop.TimedOut, TaskPending: true, "PID 4321 is still alive");
+            return new PartOutcome(
+                RecorderExitKind.Killed, shutdown.ToString(), Failed: true, Fault: shutdown);
         };
 
         await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
@@ -581,14 +614,10 @@ public sealed class ChannelCoordinatorTests
             WritePart(call.Session, 1);
             await call.PublishAsync(new DvrEvent.PartProducingMedia(
                 call.Job, context.Clock.GetUtcNow()));
-            throw new RecorderShutdownException(
-                call.Job,
-                "ffmpeg",
-                4322,
-                captured,
-                ProcessStop.Unverified,
-                taskPending: false,
-                "PID 4322 is still alive");
+            var shutdown = new UnverifiedShutdown(
+                "ffmpeg", 4322, captured, ProcessStop.Unverified, TaskPending: false, "PID 4322 is still alive");
+            return new PartOutcome(
+                RecorderExitKind.Killed, shutdown.ToString(), Failed: true, Fault: shutdown);
         };
 
         await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
@@ -602,7 +631,7 @@ public sealed class ChannelCoordinatorTests
         Assert.Contains("4322", context.Status.Current[Channel].LastError, StringComparison.Ordinal);
     }
 
-    private static Func<RecorderCall, CancellationToken, Task> RecordUntilStopped(Context context) =>
+    private static Func<RecorderCall, CancellationToken, Task<PartOutcome>> RecordUntilStopped(Context context) =>
         async (call, stopRequested) =>
         {
             WritePart(call.Session, 1);
@@ -617,8 +646,7 @@ public sealed class ChannelCoordinatorTests
             {
             }
 
-            await call.PublishAsync(new DvrEvent.RecorderExited(
-                call.Job, context.Clock.GetUtcNow(), RecorderExitKind.Stopped, "stopped"));
+            return new PartOutcome(RecorderExitKind.Stopped, "stopped");
         };
 
     private static void WritePart(Session session, int part)

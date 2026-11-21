@@ -77,7 +77,7 @@ A command failure other than the fatal cases is logged and surfaced through `Dvr
 - `JobStopBudget` is 35 s, matching the recorder contract’s worst case (20 s + 15 s finalize cap).
 - If the job does not stop within the budget, the coordinator throws a fatal supervisor fault. The channel loop faults; the supervisor’s fault handler logs critical and stops the host. Recovery runs on restart. Never start a second job while the first may still write.
 - `RecordPartAsync` checks `DiskGuard.HasRoomToRecord()` before starting. A full disk produces a `RecorderExited` without launching the recorder.
-- `RecordPartAsync` catches every recorder exception and always publishes exactly one `RecorderExited` with the detail. `RecorderJob` itself returns one; the coordinator synthesizes only when the job throws or is skipped.
+- `RecordPartAsync` turns every part into one `PartOutcome` (from the recorder, or built when the disk check fails or the recorder throws before its tools start) and publishes exactly one `RecorderExited` from it. A failed outcome sets the channel's last error; an outcome with an unverified-shutdown fault records the durable fault and faults the loop (see `docs/recorder-contract.md` §5).
 - A channel loop that faults for any reason stops the host. A channel loop is not restarted in-process: its state may be inconsistent.
 - The poller and EventSub are supervised with exponential backoff (5 s, doubling to 5 min). Polling is the fallback whenever EventSub is unavailable.
 - Stale job events are filtered by the reducer; the coordinator does not need a separate job-generation check beyond the `JobId`.

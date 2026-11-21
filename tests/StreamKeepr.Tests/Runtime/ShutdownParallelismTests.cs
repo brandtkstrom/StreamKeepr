@@ -70,7 +70,7 @@ public sealed class ShutdownParallelismTests
 
         public int MaxConcurrentStops => Volatile.Read(ref _maxConcurrent);
 
-        public async Task RunAsync(
+        public async Task<PartOutcome> RunAsync(
             Session session,
             JobId job,
             Func<DvrEvent, CancellationToken, ValueTask> publish,
@@ -93,10 +93,7 @@ public sealed class ShutdownParallelismTests
             await Task.Delay(StopDelay);
             Interlocked.Decrement(ref _active);
 
-            await publish(
-                new DvrEvent.RecorderExited(
-                    job, DateTimeOffset.UtcNow, RecorderExitKind.Stopped, "stopped"),
-                CancellationToken.None);
+            return new PartOutcome(RecorderExitKind.Stopped, "stopped");
         }
 
         private void RecordMaximum(int active)
