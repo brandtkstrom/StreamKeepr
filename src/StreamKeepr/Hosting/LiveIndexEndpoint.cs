@@ -1,14 +1,13 @@
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Storage;
 
 namespace StreamKeepr.Hosting;
 
 /// <summary>
-/// Serves the playlist for a recording session. A finalized index is returned as a
-/// physical file so HEAD and Range keep their static-file semantics; a recording
-/// session returns the stitched live playlist without ENDLIST.
+/// Serves the playlist for a recording session. <see cref="LiveIndex.Lookup"/> decides what to
+/// serve; this endpoint only maps that decision to HTTP. A session index is returned as a
+/// physical file so HEAD and Range keep their static-file semantics; a recording session
+/// returns its published live index without ENDLIST.
 /// </summary>
 public static class LiveIndexEndpoint
 {
@@ -23,11 +22,7 @@ public static class LiveIndexEndpoint
         string channel,
         string id,
         HttpContext context,
-        RecordingLibrary library,
         LiveIndex liveIndex,
-        IOptions<StorageOptions> storage,
-        IOptions<LivePlaylistOptions> liveOptions,
-        TimeProvider clock,
         ILoggerFactory loggers)
     {
         ILogger logger = loggers.CreateLogger(LoggerCategory);
@@ -47,53 +42,31 @@ public static class LiveIndexEndpoint
         // Playlists change while recording; this applies to 404s as well.
         context.Response.Headers.CacheControl = "no-cache";
 
-        // Recovery marks the library loaded before the host accepts requests. Before that,
-        // nothing may fall back to a disk scan.
-        if (!library.IsLoaded)
-            return Task.FromResult(Unavailable(context, logger, id, "the recording library is not loaded"));
-
-        RecordingSummary? summary = library.Find(id);
-        if (summary is null
-            || !string.Equals(summary.Channel, channel, StringComparison.Ordinal))
+        IResult result = liveIndex.Lookup(channel, id) switch
         {
-            return Task.FromResult<IResult>(Results.NotFound());
-        }
+            LiveIndexLookup.NotFound => Results.NotFound(),
+            LiveIndexLookup.Unavailable unavailable =>
+                Unavailable(context, logger, id, unavailable.Reason),
+            LiveIndexLookup.SessionIndex index => Results.File(
+                index.Path, RecordingsMedia.PlaylistContentType, enableRangeProcessing: true),
+            LiveIndexLookup.Live live => Serve(logger, id, live),
+            _ => throw new InvalidOperationException("Unknown live index lookup."),
+        };
+        return Task.FromResult(result);
+    }
 
-        if (!summary.IsRecording)
-        {
-            if (!RecordingsPath.TryResolve(
-                    storage.Value.RecordingsRoot,
-                    [summary.Channel, summary.Id],
-                    out string directory))
-            {
-                return Task.FromResult<IResult>(Results.NotFound());
-            }
-
-            string indexPath = Path.Combine(directory, SessionStore.IndexFileName);
-            return Task.FromResult<IResult>(
-                File.Exists(indexPath)
-                    ? Results.File(
-                        indexPath, RecordingsMedia.PlaylistContentType, enableRangeProcessing: true)
-                    : Results.NotFound());
-        }
-
-        LiveIndexSnapshot? snapshot = liveIndex.Find(summary.Id);
-        if (snapshot is null)
-            return Task.FromResult(Unavailable(context, logger, id, "no live snapshot is cached"));
-
-        // RefreshedAt is the cached-at timestamp of the current body. The snapshot itself is
-        // the last-known-good body; a stale one still plays, so it stays a 200.
-        TimeSpan age = clock.GetUtcNow() - snapshot.RefreshedAt;
-        bool stale = age >= TimeSpan.FromSeconds(liveOptions.Value.StaleAfterSeconds);
-        if (stale)
+    private static IResult Serve(ILogger logger, string id, LiveIndexLookup.Live live)
+    {
+        // The snapshot is the last-known-good body; a stale one still plays, so it stays a 200.
+        if (live.Stale)
         {
             logger.LogDebug(
                 "Live index for session {SessionId} is {AgeSeconds:0.#} s old; serving the last-known-good body.",
                 id,
-                age.TotalSeconds);
+                live.Age.TotalSeconds);
         }
 
-        return Task.FromResult<IResult>(new LivePlaylistResult(snapshot, stale));
+        return new LivePlaylistResult(live.Snapshot, live.Stale);
     }
 
     private static IResult Unavailable(

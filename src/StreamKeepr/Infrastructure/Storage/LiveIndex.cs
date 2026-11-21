@@ -33,6 +33,7 @@ public sealed class LiveIndex
     private readonly ILogger<LiveIndex> _logger;
     private readonly TimeSpan _refreshInterval;
     private readonly TimeSpan _refreshTimeout;
+    private readonly TimeSpan _staleAfter;
 
     public LiveIndex(
         RecordingLibrary library,
@@ -63,6 +64,7 @@ public sealed class LiveIndex
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _refreshInterval = TimeSpan.FromSeconds(options.Value.RefreshSeconds);
         _refreshTimeout = TimeSpan.FromSeconds(options.Value.RefreshTimeoutSeconds);
+        _staleAfter = TimeSpan.FromSeconds(options.Value.StaleAfterSeconds);
     }
 
     /// <summary>The interval between refresh ticks.</summary>
@@ -76,6 +78,47 @@ public sealed class LiveIndex
     {
         ArgumentNullException.ThrowIfNull(id);
         return _entries.TryGetValue(id, out Entry? entry) ? entry.Published : null;
+    }
+
+    /// <summary>
+    /// Decides what the live index endpoint serves for <paramref name="channel"/> and
+    /// <paramref name="id"/>, without waiting on a refresh or reading a playlist. The library is
+    /// the authority: a Complete session serves its session index even while its live entry still
+    /// exists, and a Recording session serves only its published body, however old.
+    /// </summary>
+    public LiveIndexLookup Lookup(string channel, string id)
+    {
+        ArgumentNullException.ThrowIfNull(channel);
+        ArgumentNullException.ThrowIfNull(id);
+
+        // Recovery marks the library loaded before the host accepts requests. Before that,
+        // nothing may fall back to a disk scan.
+        if (!_library.IsLoaded)
+            return new LiveIndexLookup.Unavailable("the recording library is not loaded");
+
+        RecordingSummary? summary = _library.Find(id);
+        if (summary is null || !string.Equals(summary.Channel, channel, StringComparison.Ordinal))
+            return new LiveIndexLookup.NotFound();
+
+        if (!summary.IsRecording)
+        {
+            if (!RecordingsPath.TryResolve(
+                    _storage.Value.RecordingsRoot, [summary.Channel, summary.Id], out string directory))
+            {
+                return new LiveIndexLookup.NotFound();
+            }
+
+            string indexPath = Path.Combine(directory, SessionStore.IndexFileName);
+            return File.Exists(indexPath)
+                ? new LiveIndexLookup.SessionIndex(indexPath)
+                : new LiveIndexLookup.NotFound();
+        }
+
+        if (Find(summary.Id) is not { } snapshot)
+            return new LiveIndexLookup.Unavailable("no live snapshot is cached");
+
+        TimeSpan age = _clock.GetUtcNow() - snapshot.RefreshedAt;
+        return new LiveIndexLookup.Live(snapshot, age, Stale: age >= _staleAfter);
     }
 
     /// <summary>
@@ -158,12 +201,7 @@ public sealed class LiveIndex
                     return current.Body;
                 }
 
-                entry.Published = LiveIndexSnapshot.Create(
-                    summary.Id,
-                    entry.NextVersion(),
-                    body,
-                    PlaylistTimeline.Parse(body).SegmentCount,
-                    _clock.GetUtcNow());
+                entry.Published = LiveIndexSnapshot.Create(summary.Id, body, _clock.GetUtcNow());
                 entry.Succeed();
                 return body;
             }
@@ -311,7 +349,6 @@ public sealed class LiveIndex
     private sealed class Entry
     {
         private LiveIndexSnapshot? _published;
-        private long _version;
         private int _failures;
         private long _nextAttemptUtcTicks;
 
@@ -326,8 +363,6 @@ public sealed class LiveIndex
         }
 
         public long NextAttemptUtcTicks => Volatile.Read(ref _nextAttemptUtcTicks);
-
-        public long NextVersion() => Interlocked.Increment(ref _version);
 
         public void Succeed()
         {

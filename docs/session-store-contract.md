@@ -90,7 +90,7 @@ Rules:
 
 - One-way lock ordering: never acquire `LockFor` while holding the refresh gate, and never acquire the refresh gate while holding `LockFor`. `SemaphoreSlim` is not reentrant; a nested acquire deadlocks.
 - Hold at most one manifest lock at a time. Never acquire a second session's manifest lock while holding one.
-- The live index endpoint takes neither lock and reads no session file. `RecordingLibrary` decides known/Recording/Complete; `LiveIndex` supplies a Recording session's published body.
+- The live index endpoint takes neither lock and reads no session file. `LiveIndex.Lookup(channel, id)` decides once what it serves (`NotFound`, `Unavailable`, `SessionIndex(path)`, or `Live(snapshot, age, stale)`), with `RecordingLibrary` as the authority for known/Recording/Complete; the endpoint only maps that to HTTP.
 - The cached snapshot is the last-known-good (LKG) body. `LiveIndexSnapshot.RefreshedAt` is its cached-at timestamp; the endpoint computes the age with `TimeProvider` and, at or above `LivePlaylist:StaleAfterSeconds`, still returns `200` with `X-StreamKeepr-Stale: true`. A cold cache is `503` + `Retry-After: 1` + `no-store`; the request never waits on the refresh gate, rebuilds, or reads the session folder. A client abort is `499` and is logged at `Debug`.
 - Cache invalidation is library-driven: finalize, reopen, and delete do not mutate the cache from the lifecycle path. The endpoint switches to the finalized index or `404` immediately, and the refresher prunes the snapshot on its next tick; a session that is no longer Recording never serves its cached live body.
 - A live refresh reads the manifest and part playlists through `PartPlaylistReader`, which does not take `LockFor`. Requests and refreshes never wait on manifest/lifecycle I/O.
@@ -128,7 +128,7 @@ Timeline:
 
 Live snapshot:
 
-- `LiveIndex` is a singleton with one entry per live session id: a single-flight refresh gate, the `LiveComposition` the last build produced, the published immutable `LiveIndexSnapshot` (`Id`, `Version`, `Body`, pre-encoded UTF-8 `Utf8`, `SegmentCount`, `RefreshedAt`), and the refresh backoff. Publishing swaps the snapshot reference atomically; a reader never observes a partial body.
+- `LiveIndex` is a singleton with one entry per live session id: a single-flight refresh gate, the `LiveComposition` the last build produced, the published immutable `LiveIndexSnapshot` (`Id`, `Body`, pre-encoded UTF-8 `Utf8`, `RefreshedAt`), and the refresh backoff. Publishing swaps the snapshot reference atomically; a reader never observes a partial body.
 - `LiveIndexRefresher` is a hosted `BackgroundService`. After the supervisor's recovery has loaded the library, it calls `LiveIndex.RefreshAllAsync` immediately and then every `LivePlaylist:RefreshSeconds` (default 1). A busy session skips the tick rather than queueing.
 - `IPartPlaylistSource` (one part's text) is the module's only internal seam; production reads through `PartPlaylistReader`, and tests count, fail, or hold reads with one shared double. Everything else is tested against real session folders.
 - A refresh reads the manifest and part playlists through `PartPlaylistReader` (read/write/delete sharing, `FileOptions.Asynchronous`, `StreamReader` and the token) without the manifest lock. `SessionStore.StitchLiveAsync` no longer exists.
@@ -144,10 +144,10 @@ Live snapshot:
 - A refresh constructs the new composition and snapshot off to the side and publishes the snapshot atomically. A failed or timed-out read publishes nothing and keeps the last-known-good body.
 - The refresher caches only `Recording` sessions. It prunes a snapshot when its summary leaves the library or is no longer `Recording`, and it re-checks the library before publishing: a refresh that races finalize never publishes a body for a Complete session.
 - Finalize, reopen, and delete do not touch the cache from the lifecycle path. `RecordingLibrary` is the authority: finalize records Complete, the endpoint switches to the physical index immediately, and the next refresh removes the session's live entry. Recording-admin delete removes the library entry first, so the endpoint returns 404 immediately.
-- A refresh whose body is unchanged does not publish a new version or re-encode the body.
+- A refresh whose body is unchanged keeps the published snapshot instance: it does not re-encode the body or move `RefreshedAt`. Publishing never re-parses the body.
 - Refreshes for different sessions run concurrently; a slow session does not delay the others.
 - A refresh failure (`IOException`, `UnauthorizedAccessException`, corrupt/unreadable manifest, format error, or timeout) keeps the last-known-good body, logs one `Warning` on the first failure of a window and `Debug` for later failures in that window (reset on success), backs off per session, and never stops the host. One session's failure does not block another's refresh.
-- The live index endpoint is a pure cache read. A Recording session with no snapshot returns 503 with `Retry-After: 1` and `Cache-Control: no-store`; a warm snapshot returns 200 with `no-cache`, and one at or above `LivePlaylist:StaleAfterSeconds` adds `X-StreamKeepr-Stale: true`. `Cache-Control: no-cache` is set on 200 and 404 index responses. The endpoint never waits for a refresh, and no live/LKG body contains `#EXT-X-ENDLIST`.
+- The live index endpoint is a pure cache read through `LiveIndex.Lookup`. A Recording session with no snapshot returns 503 with `Retry-After: 1` and `Cache-Control: no-store`; a warm snapshot returns 200 with `no-cache`, and one at or above `LivePlaylist:StaleAfterSeconds` adds `X-StreamKeepr-Stale: true`. `Cache-Control: no-cache` is set on 200 and 404 index responses. The endpoint never waits for a refresh, and no live/LKG body contains `#EXT-X-ENDLIST`.
 - RefreshedAt is updated only when a new body is published. An unchanged body keeps its cached-at time; the stale marker therefore reports how long the current body has been served, not whether the last refresh succeeded.
 - `ThumbnailService` calls `LiveIndex.GetOrRefreshAsync`: a live recording refreshes through the same gate and returns the current snapshot; a Complete recording reads the finalized index once and is not cached. If the session finalizes during a live refresh, the finalized body is returned instead of being discarded. The refresh gate is released before `SaveThumbnailAsync` takes the manifest lock.
 - If the library summary is `Complete`, the endpoint serves the finalized `index.m3u8` file with HEAD and Range; never a live stitch without ENDLIST.
@@ -285,7 +285,8 @@ Writes and locks:
 - Part reads share read/write/delete and use asynchronous options; a writer and a delete are not blocked by a live read.
 - `LiveIndex` publish/find replaces a whole immutable snapshot; concurrent readers see one valid version.
 - A session that finalizes, leaves the library, or loses its folder has no live entry left; a reopened session starts without the old failure backoff.
-- The refresher publishes the stitched body, version, and segment count; a new part updates the body.
+- The refresher publishes the stitched body and its UTF-8 bytes; a new part updates the body.
+- `Lookup` is unavailable before the library loads or before a Recording session's first publish, not found for an unknown session or another channel, the session index path once the library records Complete (even while the live entry remains), and live with `Stale` at or above `StaleAfterSeconds`.
 - A warm refresh performs zero part-content reads and returns the cached body; `.tmp` is never read.
 - A grown last part is the only part read, and the live index equals a full stitch.
 - A new part adds one discontinuity before its map; a header-only new part adds nothing.

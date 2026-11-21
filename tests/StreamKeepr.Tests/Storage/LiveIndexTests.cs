@@ -17,7 +17,7 @@ namespace StreamKeepr.Tests.Storage;
 public sealed class LiveIndexTests
 {
     [Fact]
-    public async Task Refresh_publishes_the_stitched_body_and_counts_segments()
+    public async Task Refresh_publishes_the_stitched_body_with_its_utf8_bytes()
     {
         using var context = new SessionStoreTestContext();
         context.WritePart(1, Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
@@ -27,8 +27,6 @@ public sealed class LiveIndexTests
         await index.RefreshAllAsync(CancellationToken.None);
 
         LiveIndexSnapshot snapshot = Assert.IsType<LiveIndexSnapshot>(index.Find(context.Session.Id));
-        Assert.Equal(1, snapshot.Version);
-        Assert.Equal(1, snapshot.SegmentCount);
         Assert.Contains("p001_00001.m4s", snapshot.Body, StringComparison.Ordinal);
         Assert.DoesNotContain("#EXT-X-ENDLIST", snapshot.Body, StringComparison.Ordinal);
         Assert.DoesNotContain('\r', snapshot.Body);
@@ -126,8 +124,6 @@ public sealed class LiveIndexTests
         Assert.True(
             second.Body.IndexOf("#EXT-X-DISCONTINUITY", StringComparison.Ordinal)
             < second.Body.IndexOf("#EXT-X-MAP:URI=\"init_002.mp4\"", StringComparison.Ordinal));
-        Assert.Equal(2, second.Version);
-        Assert.Equal(2, second.SegmentCount);
         Assert.NotSame(first, second);
     }
 
@@ -223,8 +219,9 @@ public sealed class LiveIndexTests
 
         await index.RefreshAllAsync(CancellationToken.None);
 
-        Assert.Same(first, index.Find(context.Session.Id));
-        Assert.Equal(1, first.Version);
+        LiveIndexSnapshot current = Assert.IsType<LiveIndexSnapshot>(index.Find(context.Session.Id));
+        Assert.Same(first, current);
+        Assert.Equal(context.Clock.GetUtcNow().AddSeconds(-5), current.RefreshedAt);
     }
 
     [Fact]
@@ -649,6 +646,106 @@ public sealed class LiveIndexTests
         {
             await refresher.StopAsync(CancellationToken.None);
         }
+    }
+
+    [Fact]
+    public void Lookup_is_unavailable_until_the_library_is_loaded()
+    {
+        using var context = new SessionStoreTestContext();
+        LiveIndex index = NewIndex(context);
+
+        LiveIndexLookup lookup = index.Lookup("streamer", "20260101T000000Z_000000001");
+
+        Assert.IsType<LiveIndexLookup.Unavailable>(lookup);
+    }
+
+    [Theory]
+    [InlineData("streamer", "20260101T000000Z_999999999")]
+    [InlineData("missing", null)]
+    [InlineData("Streamer", null)]
+    [InlineData("streamer", "not-a-session")]
+    public async Task Lookup_is_not_found_for_an_unknown_session_or_another_channel(
+        string channel, string? id)
+    {
+        using var context = new SessionStoreTestContext();
+        context.WritePart(1, Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
+        await OpenAndLoadAsync(context);
+        LiveIndex index = NewIndex(context);
+        await index.RefreshAllAsync(CancellationToken.None);
+
+        LiveIndexLookup lookup = index.Lookup(channel, id ?? context.Session.Id);
+
+        Assert.IsType<LiveIndexLookup.NotFound>(lookup);
+    }
+
+    [Fact]
+    public async Task Lookup_is_unavailable_for_a_recording_session_with_no_published_body()
+    {
+        using var context = new SessionStoreTestContext();
+        context.WritePart(1, Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
+        await OpenAndLoadAsync(context);
+        LiveIndex index = NewIndex(context);
+
+        LiveIndexLookup lookup = index.Lookup(context.Session.Channel, context.Session.Id);
+
+        Assert.Equal("no live snapshot is cached",
+            Assert.IsType<LiveIndexLookup.Unavailable>(lookup).Reason);
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(9, false)]
+    [InlineData(10, true)]
+    [InlineData(3600, true)]
+    public async Task Lookup_serves_the_published_body_and_marks_it_stale_by_age(
+        int ageSeconds, bool stale)
+    {
+        using var context = new SessionStoreTestContext();
+        context.WritePart(1, Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
+        await OpenAndLoadAsync(context);
+        LiveIndex index = NewIndex(context);
+        LiveIndexSnapshot published = await RefreshAsync(index, context);
+        context.Clock.Advance(TimeSpan.FromSeconds(ageSeconds));
+
+        LiveIndexLookup lookup = index.Lookup(context.Session.Channel, context.Session.Id);
+
+        var live = Assert.IsType<LiveIndexLookup.Live>(lookup);
+        Assert.Same(published, live.Snapshot);
+        Assert.Equal(TimeSpan.FromSeconds(ageSeconds), live.Age);
+        Assert.Equal(stale, live.Stale);
+    }
+
+    [Fact]
+    public async Task Lookup_serves_the_session_index_as_soon_as_the_library_records_complete()
+    {
+        using var context = new SessionStoreTestContext();
+        context.WritePart(1, Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
+        await OpenAndLoadAsync(context);
+        LiveIndex index = NewIndex(context);
+        await index.RefreshAllAsync(CancellationToken.None);
+
+        // The live entry is still there until the next refresh; the library decides.
+        await context.Store.FinalizeAsync(context.Session, CancellationToken.None);
+        Assert.NotNull(index.Find(context.Session.Id));
+
+        LiveIndexLookup lookup = index.Lookup(context.Session.Channel, context.Session.Id);
+
+        Assert.Equal(context.IndexPath, Assert.IsType<LiveIndexLookup.SessionIndex>(lookup).Path);
+    }
+
+    [Fact]
+    public async Task Lookup_is_not_found_for_a_complete_session_without_an_index()
+    {
+        using var context = new SessionStoreTestContext();
+        context.WritePart(1, Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
+        await OpenAndLoadAsync(context);
+        await context.Store.FinalizeAsync(context.Session, CancellationToken.None);
+        File.Delete(context.IndexPath);
+        LiveIndex index = NewIndex(context);
+
+        LiveIndexLookup lookup = index.Lookup(context.Session.Channel, context.Session.Id);
+
+        Assert.IsType<LiveIndexLookup.NotFound>(lookup);
     }
 
     internal static LiveIndex NewIndex(

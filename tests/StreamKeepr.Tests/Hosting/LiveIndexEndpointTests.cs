@@ -6,8 +6,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Hosting;
@@ -114,30 +112,7 @@ public sealed class LiveIndexEndpointTests
         using var session = await LiveSessionAsync();
         LiveIndex index = LiveIndexTests.NewIndex(session);
 
-        DefaultHttpContext context = await HandleAsync(session, index, session.Clock.GetUtcNow());
-
-        Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
-        Assert.Equal("1", context.Response.Headers.RetryAfter);
-        Assert.Equal("no-store", context.Response.Headers.CacheControl);
-    }
-
-    [Fact]
-    public async Task Unloaded_library_returns_503_with_retry_after()
-    {
-        using var session = new SessionStoreTestContext();
-        var context = new DefaultHttpContext();
-
-        IResult result = await LiveIndexEndpoint.HandleAsync(
-            "streamer",
-            "20260101T000000Z_000000001",
-            context,
-            session.Library,
-            LiveIndexTests.NewIndex(session),
-            Options.Create(new StorageOptions { RecordingsRoot = Path.GetTempPath() }),
-            Options.Create(new LivePlaylistOptions()),
-            TimeProvider.System,
-            NullLoggerFactory.Instance);
-        await result.ExecuteAsync(context);
+        DefaultHttpContext context = await HandleAsync(session, index);
 
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
         Assert.Equal("1", context.Response.Headers.RetryAfter);
@@ -188,11 +163,7 @@ public sealed class LiveIndexEndpointTests
         context.RequestAborted = new CancellationToken(canceled: true);
         context.Response.Body = new AbortingStream(ioException: true);
         LiveIndexSnapshot snapshot = LiveIndexSnapshot.Create(
-            "20260101T000000Z_000000001",
-            1,
-            LiveBody("p001_00001.m4s"),
-            1,
-            StartedAt);
+            "20260101T000000Z_000000001", LiveBody("p001_00001.m4s"), StartedAt);
 
         await new LivePlaylistResult(snapshot, stale: false).ExecuteAsync(context);
 
@@ -288,42 +259,6 @@ public sealed class LiveIndexEndpointTests
     }
 
     [Fact]
-    public async Task Unknown_channel_or_session_returns_404()
-    {
-        using var factory = CreateFactory();
-        using var client = factory.CreateClient();
-        Session session = await OpenSessionAsync(factory, "923456789");
-
-        using var unknownSession = await client.GetAsync(
-            $"/media/{session.Channel}/20260101T000000Z_999999999/index.m3u8");
-        using var unknownChannel = await client.GetAsync(
-            $"/media/missing/{session.Id}/index.m3u8");
-
-        Assert.Equal(HttpStatusCode.NotFound, unknownSession.StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, unknownChannel.StatusCode);
-        Assert.Equal("no-cache", unknownSession.Headers.CacheControl?.ToString());
-        Assert.Equal("no-cache", unknownChannel.Headers.CacheControl?.ToString());
-    }
-
-    [Fact]
-    public async Task Invalid_channel_or_session_id_returns_404()
-    {
-        using var factory = CreateFactory();
-        using var client = factory.CreateClient();
-        Session session = await OpenSessionAsync(factory, "133456789");
-
-        using var uppercaseChannel = await client.GetAsync(
-            $"/media/Streamer/{session.Id}/index.m3u8");
-        using var badId = await client.GetAsync(
-            $"/media/{session.Channel}/not-a-session/index.m3u8");
-
-        Assert.Equal(HttpStatusCode.NotFound, uppercaseChannel.StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, badId.StatusCode);
-        Assert.Equal("no-cache", uppercaseChannel.Headers.CacheControl?.ToString());
-        Assert.Equal("no-cache", badId.Headers.CacheControl?.ToString());
-    }
-
-    [Fact]
     public async Task Concurrent_requests_never_see_a_torn_snapshot()
     {
         using var factory = CreateFactory();
@@ -367,17 +302,14 @@ public sealed class LiveIndexEndpointTests
 
     [Theory]
     [InlineData(0, false)]
-    [InlineData(9, false)]
-    [InlineData(10, true)]
     [InlineData(3600, true)]
-    public async Task Snapshot_age_selects_the_last_known_good_stale_marker(
-        int ageSeconds, bool stale)
+    public async Task A_stale_live_lookup_adds_the_stale_marker_to_a_200(int ageSeconds, bool stale)
     {
         using var session = await LiveSessionAsync();
         (LiveIndex index, string body) = await PublishedIndexAsync(session);
-        DateTimeOffset now = session.Clock.GetUtcNow().AddSeconds(ageSeconds);
+        session.Clock.Advance(TimeSpan.FromSeconds(ageSeconds));
 
-        DefaultHttpContext context = await HandleAsync(session, index, now);
+        DefaultHttpContext context = await HandleAsync(session, index);
 
         Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
         Assert.Equal("no-cache", context.Response.Headers.CacheControl);
@@ -394,10 +326,9 @@ public sealed class LiveIndexEndpointTests
         using var session = await LiveSessionAsync();
         (LiveIndex index, _) = await PublishedIndexAsync(session);
         LiveIndexSnapshot snapshot = Assert.IsType<LiveIndexSnapshot>(index.Find(session.Session.Id));
-        DateTimeOffset now = session.Clock.GetUtcNow().AddMinutes(1);
+        session.Clock.Advance(TimeSpan.FromMinutes(1));
 
-        DefaultHttpContext context = await HandleAsync(
-            session, index, now, method: HttpMethods.Head);
+        DefaultHttpContext context = await HandleAsync(session, index, method: HttpMethods.Head);
 
         Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
         Assert.Equal(snapshot.Utf8.Length, context.Response.ContentLength);
@@ -416,7 +347,6 @@ public sealed class LiveIndexEndpointTests
         DefaultHttpContext context = await HandleAsync(
             session,
             index,
-            session.Clock.GetUtcNow(),
             requestAborted: new CancellationToken(canceled: true),
             loggers: loggers);
 
@@ -480,11 +410,9 @@ public sealed class LiveIndexEndpointTests
     private static async Task<DefaultHttpContext> HandleAsync(
         SessionStoreTestContext session,
         LiveIndex index,
-        DateTimeOffset now,
         string method = "GET",
         CancellationToken requestAborted = default,
-        ILoggerFactory? loggers = null,
-        LivePlaylistOptions? options = null)
+        ILoggerFactory? loggers = null)
     {
         var context = new DefaultHttpContext();
         context.Request.Method = method;
@@ -495,11 +423,7 @@ public sealed class LiveIndexEndpointTests
             session.Session.Channel,
             session.Session.Id,
             context,
-            session.Library,
             index,
-            Options.Create(new StorageOptions { RecordingsRoot = session.Root }),
-            Options.Create(options ?? new LivePlaylistOptions()),
-            new FakeTimeProvider(now),
             loggers ?? NullLoggerFactory.Instance);
         await result.ExecuteAsync(context);
         return context;
