@@ -270,10 +270,11 @@ public sealed class SessionStore(
         var latest = manifest.Metadata.Count > 0
             ? manifest.Metadata[^1]
             : throw new InvalidDataException($"Session manifest in {directory} has no metadata.");
+        PlaylistTimeline timeline = PlaylistTimeline.Parse(playlist);
 
         double? duration = manifest.Status == SessionStatus.Complete
             ? (File.Exists(Path.Combine(directory, IndexFileName))
-                ? PlaylistStitcher.TotalDuration(playlist)
+                ? timeline.Duration
                 : manifest.DurationSeconds)
             : null;
 
@@ -288,9 +289,9 @@ public sealed class SessionStore(
             duration,
             mediaSize,
             PartCount: parts.Count,
-            SegmentCount: PlaylistStitcher.SegmentCount(playlist),
+            SegmentCount: timeline.SegmentCount,
             HasThumbnail: File.Exists(Path.Combine(directory, ThumbnailFileName)),
-            Chapters: PlaylistStitcher.Chapters(playlist, manifest.Metadata),
+            Chapters: timeline.Chapters(manifest.Metadata),
             HasChat: ChatLogLayout.HasChat(directory, logger));
     }
 
@@ -361,7 +362,7 @@ public sealed class SessionStore(
         {
             Status = SessionStatus.Complete,
             EndedAt = manifest.EndedAt ?? clock.GetUtcNow(),
-            DurationSeconds = PlaylistStitcher.TotalDuration(index),
+            DurationSeconds = PlaylistTimeline.Parse(index).Duration,
             SizeBytes = sizeBytes,
         };
         await WriteManifestAsync(directory, complete, ct);

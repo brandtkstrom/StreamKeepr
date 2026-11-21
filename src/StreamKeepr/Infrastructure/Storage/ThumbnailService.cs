@@ -107,10 +107,11 @@ public sealed class ThumbnailService(
             if (await livePlaylists.GetOrRefreshAsync(summary, stoppingToken) is not { } playlist)
                 return;
 
-            if (FrameOffset(PlaylistStitcher.TotalDuration(playlist), summary.IsRecording) is not { } offset)
+            PlaylistTimeline timeline = PlaylistTimeline.Parse(playlist);
+            if (FrameOffset(timeline.Duration, summary.IsRecording) is not { } offset)
                 return;
 
-            SegmentFiles files = PlaylistStitcher.SegmentAt(playlist, offset)
+            SegmentFiles files = timeline.SegmentAt(offset)
                 ?? throw new InvalidDataException("No usable segment covers the thumbnail position.");
 
             Directory.CreateDirectory(TempDirectory);

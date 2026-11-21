@@ -62,7 +62,7 @@ public sealed class LivePlaylistConcurrencyTests
                 {
                     Assert.StartsWith("#EXTM3U", body, StringComparison.Ordinal);
                     Assert.DoesNotContain("#EXT-X-ENDLIST", body, StringComparison.Ordinal);
-                    int count = PlaylistStitcher.SegmentCount(body);
+                    int count = PlaylistTimeline.Parse(body).SegmentCount;
                     Assert.True(
                         count >= lastCount,
                         $"segment count went from {lastCount} to {count}");
@@ -81,7 +81,7 @@ public sealed class LivePlaylistConcurrencyTests
         Assert.Equal(
             PlaylistStitcher.Stitch([new PartPlaylist(1, finalContent)], 12, final: false),
             final);
-        Assert.Equal(totalSegments, PlaylistStitcher.SegmentCount(final));
+        Assert.Equal(totalSegments, PlaylistTimeline.Parse(final).SegmentCount);
     }
 
     /// <summary>

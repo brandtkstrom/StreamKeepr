@@ -43,7 +43,7 @@ public sealed record SessionManifest(
 - `Title` and `Game`: latest `Metadata` entry.
 - `PartCount`: number of non-empty `pNNN.m3u8` files.
 - `SegmentCount`: number of segment URI lines across the part playlists (or the final index).
-- `DurationSeconds`: `PlaylistStitcher.TotalDuration` of the final index; null while recording.
+- `DurationSeconds`: `PlaylistTimeline.Duration` of the session index; null while recording.
 - `SizeBytes`: sum of `init_*.mp4`, `*.m4s`, and `index.m3u8`; excludes `session.json`, `thumb.jpg`, and part playlists.
 - `EndedAt`: manifest value; null while recording.
 - `HasThumbnail`: `thumb.jpg` exists.
@@ -120,7 +120,12 @@ Chapters:
 
 - Skip the initial metadata entry; chapters begin at the first title/game change.
 - Place each change at the start of the segment where `change.At <= segmentStart + segmentDuration`; offset is cumulative duration.
-- A null or unparseable playlist yields no chapters.
+
+Timeline:
+
+- `PlaylistTimeline` reads one playlist (part playlist, live index, or session index) once and answers `Duration`, `SegmentCount`, `FirstProgramDateTime`, `Chapters(metadata)`, and `SegmentAt(offset)` from that parse. `PlaylistStitcher` only parses part playlists and renders indexes.
+- A segment is a URI line preceded by `#EXTINF`; a trailing `#EXTINF` without a URI is not a segment. A URI without `#EXTINF`, a negative or unreadable duration, or an unreadable `#EXT-X-PROGRAM-DATE-TIME` makes the playlist malformed: `Parse` throws `FormatException` and `TryParse` returns null. A program-date-time without an offset is read as UTC.
+- The summary, finalize, recovery, chat timeline, and thumbnail paths use `Parse`, so a malformed playlist is a read failure there, as before.
 
 Live snapshot:
 
@@ -190,7 +195,7 @@ The supervisor maps `Unfinished` to `Idle.Resume` and `Finished` to `Idle.Finish
 
 - `ThumbnailService` is a singleton `BackgroundService` registered after the supervisor. At start it clears `.streamkeepr/thumbnails/`, then sweeps the library once it is loaded and every minute after that. Sweeps never overlap; one FFmpeg runs at a time.
 - Each recording without a thumbnail is a candidate. A finished recording uses the frame at `min(5 min, duration / 2)`. A recording still in progress waits until it has more than 5 minutes of media, then uses 5 minutes.
-- The position is mapped onto the playlist obtained from `LivePlaylistService.GetOrRefreshAsync` with `PlaylistStitcher.SegmentAt`, which returns that segment's `#EXT-X-MAP` init file and media file as plain names in the session folder.
+- The position is mapped onto the playlist obtained from `LivePlaylistService.GetOrRefreshAsync` with `PlaylistTimeline.SegmentAt`, which returns that segment's `#EXT-X-MAP` init file and media file as plain names in the session folder.
 - FFmpeg decodes the first video frame of `concat:init_NNN.mp4|pNNN_XXXXX.m4s` (no HLS demuxing or seeking), scales it to at most 640 px wide without upscaling, and writes a JPEG. Recorded segments are independent, so the first frame is a keyframe. One grab is capped at 30 s.
 - A grab failure is logged and retried on the next sweep, up to 3 attempts per recording per process lifetime.
 

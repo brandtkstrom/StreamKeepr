@@ -27,7 +27,7 @@ public sealed class PlaylistChapterTests
             new MetadataChange(SessionStart.AddSeconds(3), "Start", "Game"),
         };
 
-        Assert.Empty(PlaylistStitcher.Chapters(playlist, metadata));
+        Assert.Empty(PlaylistTimeline.Parse(playlist).Chapters(metadata));
     }
 
     [Fact]
@@ -43,7 +43,7 @@ public sealed class PlaylistChapterTests
             new MetadataChange(SessionStart.AddSeconds(8), "Changed", "New Game"),
         };
 
-        var chapter = Assert.Single(PlaylistStitcher.Chapters(playlist, metadata));
+        var chapter = Assert.Single(PlaylistTimeline.Parse(playlist).Chapters(metadata));
         Assert.Equal(6, chapter.StartSeconds, precision: 10);
         Assert.Equal("Changed", chapter.Title);
         Assert.Equal("New Game", chapter.Game);
@@ -65,7 +65,7 @@ public sealed class PlaylistChapterTests
             new MetadataChange(SessionStart.AddSeconds(13), "Third", "Game 3"),
         };
 
-        var chapters = PlaylistStitcher.Chapters(playlist, metadata);
+        var chapters = PlaylistTimeline.Parse(playlist).Chapters(metadata);
 
         Assert.Equal(3, chapters.Count);
         Assert.Equal(new double[] { 0, 6, 12 }, chapters.Select(chapter => chapter.StartSeconds));
@@ -87,7 +87,7 @@ public sealed class PlaylistChapterTests
             new MetadataChange(SessionStart.AddSeconds(6.001), "After boundary", "Game 2"),
         };
 
-        var chapters = PlaylistStitcher.Chapters(playlist, metadata);
+        var chapters = PlaylistTimeline.Parse(playlist).Chapters(metadata);
 
         Assert.Equal(2, chapters.Count);
         Assert.Equal(0, chapters[0].StartSeconds, precision: 10);
@@ -110,38 +110,11 @@ public sealed class PlaylistChapterTests
             new MetadataChange(SessionStart.AddSeconds(2), "Two", "Game 2"),
         };
 
-        var chapters = PlaylistStitcher.Chapters(playlist, metadata);
+        var chapters = PlaylistTimeline.Parse(playlist).Chapters(metadata);
 
         Assert.Equal(2, chapters.Count);
         Assert.All(chapters, chapter => Assert.Equal(0, chapter.StartSeconds, precision: 10));
         Assert.Equal(new[] { "One", "Two" }, chapters.Select(chapter => chapter.Title));
-    }
-
-    [Fact]
-    public void Chapters_return_nothing_for_a_null_playlist()
-    {
-        var metadata = new[]
-        {
-            new MetadataChange(SessionStart, "Start", "Game"),
-            new MetadataChange(SessionStart.AddSeconds(1), "Changed", "New Game"),
-        };
-
-        Assert.Empty(PlaylistStitcher.Chapters(null, metadata));
-    }
-
-    [Theory]
-    [InlineData("#EXTM3U\n#EXTINF:not-a-number,\nsegment.m4s")]
-    [InlineData("#EXTM3U\nsegment.m4s")]
-    [InlineData("#EXTM3U\n#EXT-X-PROGRAM-DATE-TIME:not-a-date\n#EXTINF:6,\nsegment.m4s")]
-    public void Chapters_return_nothing_for_an_unparseable_playlist(string playlist)
-    {
-        var metadata = new[]
-        {
-            new MetadataChange(SessionStart, "Start", "Game"),
-            new MetadataChange(SessionStart.AddSeconds(1), "Changed", "New Game"),
-        };
-
-        Assert.Empty(PlaylistStitcher.Chapters(playlist, metadata));
     }
 
     [Fact]
@@ -158,7 +131,7 @@ public sealed class PlaylistChapterTests
             new MetadataChange(DateTimeOffset.Parse("2026-01-15T08:00:12Z", CultureInfo.InvariantCulture), "Second", "Game 2"),
         };
 
-        var chapters = PlaylistStitcher.Chapters(playlist, metadata);
+        var chapters = PlaylistTimeline.Parse(playlist).Chapters(metadata);
 
         Assert.Equal(2, chapters.Count);
         Assert.Equal(0, chapters[0].StartSeconds, precision: 10);
@@ -188,7 +161,7 @@ public sealed class PlaylistChapterTests
                 "Game 1"),
         };
 
-        var chapter = Assert.Single(PlaylistStitcher.Chapters(playlist, metadata));
+        var chapter = Assert.Single(PlaylistTimeline.Parse(playlist).Chapters(metadata));
 
         Assert.Equal(3600, chapter.StartSeconds, precision: 10);
         Assert.Equal("After fall back", chapter.Title);
@@ -219,7 +192,7 @@ public sealed class PlaylistChapterTests
                 "Game 2"),
         };
 
-        var chapters = PlaylistStitcher.Chapters(playlist, metadata);
+        var chapters = PlaylistTimeline.Parse(playlist).Chapters(metadata);
 
         Assert.Equal(2, chapters.Count);
         Assert.Equal(0, chapters[0].StartSeconds, precision: 10);
@@ -243,7 +216,7 @@ public sealed class PlaylistChapterTests
             new MetadataChange(SessionStart.AddHours(1).AddSeconds(1), "After the gap", "Game 1"),
         };
 
-        var chapter = Assert.Single(PlaylistStitcher.Chapters(playlist, metadata));
+        var chapter = Assert.Single(PlaylistTimeline.Parse(playlist).Chapters(metadata));
 
         Assert.Equal(6, chapter.StartSeconds, precision: 10);
         Assert.Equal("After the gap", chapter.Title);

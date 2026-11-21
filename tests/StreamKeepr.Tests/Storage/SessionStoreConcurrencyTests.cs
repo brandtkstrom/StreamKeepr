@@ -57,7 +57,7 @@ public sealed class SessionStoreConcurrencyTests
         string index = await File.ReadAllTextAsync(context.IndexPath);
         Assert.Equal(1, SessionStoreTestContext.Occurrences(index, "#EXT-X-ENDLIST"));
         Assert.Equal(1, SessionStoreTestContext.Occurrences(index, "#EXT-X-DISCONTINUITY"));
-        Assert.Equal(12.0, PlaylistStitcher.TotalDuration(index));
+        Assert.Equal(12.0, PlaylistTimeline.Parse(index).Duration);
 
         Assert.False(File.Exists(context.ManifestPath + ".tmp"));
         Assert.False(File.Exists(context.IndexPath + ".tmp"));

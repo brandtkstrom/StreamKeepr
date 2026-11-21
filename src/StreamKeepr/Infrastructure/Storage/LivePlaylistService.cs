@@ -137,7 +137,7 @@ public sealed class LivePlaylistService(
                     summary.Id,
                     state.NextVersion(),
                     read.Body,
-                    PlaylistStitcher.SegmentCount(read.Body),
+                    PlaylistTimeline.Parse(read.Body).SegmentCount,
                     clock.GetUtcNow()));
                 state.Succeed();
                 return read.Body;

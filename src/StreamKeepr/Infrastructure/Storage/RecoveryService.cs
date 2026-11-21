@@ -291,7 +291,7 @@ public sealed class RecoveryService(
             try
             {
                 string content = await File.ReadAllTextAsync(path, ct);
-                int segments = PlaylistStitcher.SegmentCount(content);
+                int segments = PlaylistTimeline.Parse(content).SegmentCount;
                 parts.Add(new ScannedPart(new PartPlaylist(part, content), segments));
             }
             catch (Exception ex) when (IsReadFailure(ex))
@@ -316,7 +316,7 @@ public sealed class RecoveryService(
         try
         {
             string index = await File.ReadAllTextAsync(path, ct);
-            return PlaylistStitcher.SegmentCount(index) > 0
+            return PlaylistTimeline.Parse(index).SegmentCount > 0
                 && index.Contains("#EXT-X-ENDLIST", StringComparison.Ordinal);
         }
         catch (Exception ex) when (IsReadFailure(ex))

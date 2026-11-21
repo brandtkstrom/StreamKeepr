@@ -340,7 +340,7 @@ public sealed class LiveIndexEndpointTests
         string bodyB = LiveBody("p001_00002.m4s");
         LivePlaylistCache cache = factory.Services.GetRequiredService<LivePlaylistCache>();
         cache.Publish(LivePlaylistSnapshot.Create(
-            session.Id, 1, bodyA, PlaylistStitcher.SegmentCount(bodyA), StartedAt));
+            session.Id, 1, bodyA, PlaylistTimeline.Parse(bodyA).SegmentCount, StartedAt));
         using var stop = new CancellationTokenSource();
         Task writer = Task.Run(async () =>
         {
@@ -351,14 +351,14 @@ public sealed class LiveIndexEndpointTests
                     session.Id,
                     ++version,
                     bodyA,
-                    PlaylistStitcher.SegmentCount(bodyA),
+                    PlaylistTimeline.Parse(bodyA).SegmentCount,
                     StartedAt));
                 await Task.Yield();
                 cache.Publish(LivePlaylistSnapshot.Create(
                     session.Id,
                     ++version,
                     bodyB,
-                    PlaylistStitcher.SegmentCount(bodyB),
+                    PlaylistTimeline.Parse(bodyB).SegmentCount,
                     StartedAt));
                 await Task.Yield();
             }
@@ -396,7 +396,7 @@ public sealed class LiveIndexEndpointTests
             SessionId,
             1,
             body,
-            PlaylistStitcher.SegmentCount(body),
+            PlaylistTimeline.Parse(body).SegmentCount,
             now.AddSeconds(-ageSeconds)));
 
         DefaultHttpContext context = await HandleAsync(library, cache, now);
@@ -421,7 +421,7 @@ public sealed class LiveIndexEndpointTests
             SessionId,
             1,
             body,
-            PlaylistStitcher.SegmentCount(body),
+            PlaylistTimeline.Parse(body).SegmentCount,
             now.AddMinutes(-1));
         cache.Publish(snapshot);
 
@@ -442,7 +442,7 @@ public sealed class LiveIndexEndpointTests
         var cache = new LivePlaylistCache();
         string body = LiveBody("p001_00001.m4s");
         cache.Publish(LivePlaylistSnapshot.Create(
-            SessionId, 1, body, PlaylistStitcher.SegmentCount(body), now));
+            SessionId, 1, body, PlaylistTimeline.Parse(body).SegmentCount, now));
         var logs = new ListLoggerProvider();
         using ILoggerFactory loggers = TestLogging.Factory(logs);
 
@@ -568,7 +568,7 @@ public sealed class LiveIndexEndpointTests
         StreamKeeprAppFactory factory, string sessionId, string body)
     {
         LivePlaylistSnapshot snapshot = LivePlaylistSnapshot.Create(
-            sessionId, 1, body, PlaylistStitcher.SegmentCount(body), StartedAt);
+            sessionId, 1, body, PlaylistTimeline.Parse(body).SegmentCount, StartedAt);
         factory.Services.GetRequiredService<LivePlaylistCache>().Publish(snapshot);
         return snapshot;
     }

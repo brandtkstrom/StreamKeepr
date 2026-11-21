@@ -5,8 +5,10 @@ using System.Text;
 namespace StreamKeepr.Infrastructure.Storage;
 
 /// <summary>
-/// Pure HLS playlist stitching and timeline helpers for one session. Callers read the part
-/// playlists and persist the returned playlist; this type performs no I/O and uses no clock.
+/// Pure HLS stitching for one session: parses part playlists and renders the live index and
+/// the session index from them. Callers read the part playlists and persist the result; this
+/// type performs no I/O and uses no clock. Reading a playlist's timeline is
+/// <see cref="PlaylistTimeline"/>.
 /// </summary>
 public static class PlaylistStitcher
 {
@@ -17,9 +19,6 @@ public static class PlaylistStitcher
     private const string PlaylistTypeTag = "#EXT-X-PLAYLIST-TYPE";
     private const string IndependentSegmentsTag = "#EXT-X-INDEPENDENT-SEGMENTS";
     private const string EndListTag = "#EXT-X-ENDLIST";
-    private const string ProgramDateTimeTag = "#EXT-X-PROGRAM-DATE-TIME:";
-    private const string ExtInfTag = "#EXTINF:";
-    private const string MapUriPrefix = "#EXT-X-MAP:URI=\"";
     internal const string DiscontinuityLine = "#EXT-X-DISCONTINUITY\n";
 
     private static readonly string[] PartHeaderTags =
@@ -159,119 +158,6 @@ public static class PlaylistStitcher
             targetDuration);
     }
 
-    /// <summary>Sum of every <c>#EXTINF</c> duration in the playlist, in seconds.</summary>
-    public static double TotalDuration(string playlist)
-    {
-        ArgumentNullException.ThrowIfNull(playlist);
-        if (!TryParseSegments(playlist, out var segments))
-            throw new FormatException("The playlist contains a malformed segment entry.");
-
-        double total = 0;
-        foreach (var segment in segments)
-            total += segment.Duration;
-        return total;
-    }
-
-    /// <summary>Number of segment URI lines in the playlist; tag and init-map lines do not count.</summary>
-    public static int SegmentCount(string playlist)
-    {
-        ArgumentNullException.ThrowIfNull(playlist);
-        if (!TryParseSegments(playlist, out var segments))
-            throw new FormatException("The playlist contains a malformed segment entry.");
-
-        return segments.Count;
-    }
-
-    /// <summary>The first <c>#EXT-X-PROGRAM-DATE-TIME</c> in a playlist, if present.</summary>
-    public static DateTimeOffset? FirstProgramDateTime(string playlist)
-    {
-        ArgumentNullException.ThrowIfNull(playlist);
-        foreach (string raw in playlist.Split('\n'))
-        {
-            string line = raw.Trim();
-            if (!line.StartsWith(ProgramDateTimeTag, StringComparison.Ordinal))
-                continue;
-
-            return DateTimeOffset.TryParse(
-                line.AsSpan(ProgramDateTimeTag.Length),
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal,
-                out DateTimeOffset parsed)
-                ? parsed
-                : null;
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Positions title/game changes on the stitched timeline. The first metadata entry describes
-    /// the session start and is not a chapter; every later change begins at the first segment whose
-    /// program-date-time window contains it. A null or unparseable playlist yields no chapters.
-    /// </summary>
-    public static IReadOnlyList<Chapter> Chapters(string? playlist, IReadOnlyList<MetadataChange> metadata)
-    {
-        ArgumentNullException.ThrowIfNull(metadata);
-        if (playlist is null || metadata.Count <= 1)
-            return [];
-        if (!TryParseSegments(playlist, out var segments))
-            return [];
-
-        var chapters = new List<Chapter>();
-        int nextChange = 1;
-        double offset = 0;
-
-        foreach (var segment in segments)
-        {
-            if (segment.Start is { } segmentStart)
-            {
-                var segmentEnd = segmentStart.AddSeconds(segment.Duration);
-                while (nextChange < metadata.Count && metadata[nextChange].At <= segmentEnd)
-                {
-                    var change = metadata[nextChange];
-                    chapters.Add(new Chapter(offset, change.Title, change.Game));
-                    nextChange++;
-                }
-            }
-
-            offset += segment.Duration;
-        }
-
-        return chapters;
-    }
-
-    /// <summary>
-    /// The init segment and media segment that cover <paramref name="offsetSeconds"/> on the
-    /// playlist timeline. Returns null when the offset is negative or past the last segment, the
-    /// playlist is malformed, the segment has no <c>#EXT-X-MAP</c>, or either name is not a plain
-    /// file name next to the playlist (a playlist never points a reader elsewhere).
-    /// </summary>
-    public static SegmentFiles? SegmentAt(string playlist, double offsetSeconds)
-    {
-        ArgumentNullException.ThrowIfNull(playlist);
-        if (!double.IsFinite(offsetSeconds) || offsetSeconds < 0)
-            return null;
-        if (!TryParseSegments(playlist, out var segments))
-            return null;
-
-        double end = 0;
-        foreach (var segment in segments)
-        {
-            end += segment.Duration;
-            if (offsetSeconds >= end)
-                continue;
-
-            return segment.Map is { } map && IsPlainFileName(map) && IsPlainFileName(segment.Uri)
-                ? new SegmentFiles(map, segment.Uri)
-                : null;
-        }
-
-        return null;
-    }
-
-    private static bool IsPlainFileName(string name) =>
-        name.Length > 0 && Path.GetFileName(name) == name && name is not ("." or "..");
-
     private static bool TryParseTargetDuration(string line, out int targetDuration)
     {
         targetDuration = 0;
@@ -286,70 +172,7 @@ public static class PlaylistStitcher
             && targetDuration > 0;
     }
 
-    private static bool TryParseSegments(string playlist, out List<Segment> segments)
-    {
-        segments = [];
-        double? duration = null;
-        DateTimeOffset? start = null;
-        string? map = null;
-
-        foreach (var raw in playlist.Split('\n'))
-        {
-            var line = raw.Trim();
-            if (line.Length == 0)
-                continue;
-
-            if (line.StartsWith(MapUriPrefix, StringComparison.Ordinal))
-            {
-                int close = line.IndexOf('"', MapUriPrefix.Length);
-                map = close > MapUriPrefix.Length ? line[MapUriPrefix.Length..close] : null;
-            }
-            else if (line.StartsWith(ProgramDateTimeTag, StringComparison.Ordinal))
-            {
-                if (!DateTimeOffset.TryParse(
-                        line.AsSpan(ProgramDateTimeTag.Length),
-                        CultureInfo.InvariantCulture,
-                        DateTimeStyles.AssumeUniversal,
-                        out var parsed))
-                {
-                    return false;
-                }
-
-                start = parsed;
-            }
-            else if (line.StartsWith(ExtInfTag, StringComparison.Ordinal))
-            {
-                var value = line.AsSpan(ExtInfTag.Length);
-                int comma = value.IndexOf(',');
-                if (comma >= 0)
-                    value = value[..comma];
-
-                if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed)
-                    || parsed < 0)
-                {
-                    return false;
-                }
-
-                duration = parsed;
-            }
-            else if (line[0] != '#')
-            {
-                if (duration is not { } segmentDuration)
-                    return false;
-
-                segments.Add(new Segment(segmentDuration, start, line, map));
-                duration = null;
-            }
-        }
-
-        return true;
-    }
-
     private static bool IsPartHeader(string line) =>
         PartHeaderTags.Any(tag => line.StartsWith(tag, StringComparison.Ordinal));
-
-    private readonly record struct Segment(double Duration, DateTimeOffset? Start, string Uri, string? Map);
 }
 
-/// <summary>An init segment and one media segment, as plain file names in the session folder.</summary>
-public sealed record SegmentFiles(string Init, string Media);
