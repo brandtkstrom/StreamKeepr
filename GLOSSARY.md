@@ -88,6 +88,14 @@ _Avoid_: Error, offline
 Why a recorder process ended: `Exited` (on its own), `Stopped` (coordinator requested), or `Killed` (watchdog or force kill).
 _Avoid_: Exit code, status
 
+**Part outcome**:
+The result of one Job, built on every path: exit kind, the part's size on disk (or unknown), duration, diagnostic detail, and an unverified shutdown if one occurred. The Recorder exit kind and all recorder metrics derive from it.
+_Avoid_: Job result, exit status
+
+**Unverified shutdown**:
+A Job end where Stream Keepr cannot prove the recorder processes stopped writing. It is fatal: the channel keeps the Job and the host stops, so no second writer starts.
+_Avoid_: Hung recorder, zombie, failed stop
+
 **Session recovery**:
 The startup reconstruction of the newest session for a channel as resumable or complete.
 _Avoid_: Rebuild, restore
