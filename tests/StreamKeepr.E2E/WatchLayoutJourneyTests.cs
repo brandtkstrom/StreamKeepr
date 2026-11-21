@@ -152,6 +152,13 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
         ILocator details = page.Locator("[data-slot='details'] [data-recording-details]");
         LocatorBoundingBoxResult detailsBox = (await details.BoundingBoxAsync())!;
         Assert.True(detailsBox.Y >= full.Y + full.Height - 1, "details sit below the player");
+        // A closed pane is not shown, so open it with the player's Chat button to place it.
+        if (await page.Locator("[data-sk-chat]").GetAttributeAsync("data-open") != "true")
+        {
+            await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
+            await page.WaitForFunctionAsync(
+                "() => document.querySelector('[data-sk-chat]').dataset.open === 'true'");
+        }
         ILocator chat = page.Locator("[data-watch-chat]");
         LocatorBoundingBoxResult chatBox = (await chat.BoundingBoxAsync())!;
         Assert.True(chatBox.Y >= full.Y + full.Height - 1, "chat sits below the player");
@@ -170,7 +177,7 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
         await SettleAsync(page, compact: false);
 
         ILocator pane = page.Locator("[data-sk-chat]");
-        ILocator toggle = page.Locator("[data-sk='chat-toggle']");
+        ILocator toggle = page.Locator("[data-sk-player] [data-sk='chat']");
         if (await pane.GetAttributeAsync("data-open") != "true")
         {
             await toggle.ClickAsync();

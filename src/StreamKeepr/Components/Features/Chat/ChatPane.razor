@@ -9,10 +9,12 @@
 @using StreamKeepr.Infrastructure.Storage
 
 @* Rendered once. ChatPane.razor.js owns the log, polling, sync controls, and auto-scroll;
-   Blazor never re-renders the pane after init. The toggle is JS-owned for the same reason.
+   Blazor never re-renders the pane after init, so the open state is JS-owned too. The pane has
+   no toggle of its own: the player's Chat button and C open and close it (sk:chat-toggle), and
+   closed it is not shown at all.
    No MudBlazor components: it is drawn like an outlined MudPaper with plain markup.
    HideHeader renders the phone Chat tab (#175): the tab owns the disclosure, so the pane is
-   always open and the header's toggle and state are left out. *@
+   always open and the header is left out. *@
 <aside class="sk-chat"
        data-sk-chat
        data-open="@(_open ? "true" : "false")"
@@ -21,16 +23,8 @@
     @if (!HideHeader)
     {
         <header class="sk-chat-head">
-            <button type="button"
-                    class="sk-chat-toggle"
-                    data-sk="chat-toggle"
-                    aria-expanded="@(Open ? "true" : "false")"
-                    aria-keyshortcuts="C"
-                    aria-controls="@_bodyId"
-                    aria-label="@(Open ? "Collapse chat" : "Open chat")">
-                @IslandIcon.Svg("Chat")
-                <span class="sk-chat-title" aria-hidden="true">Chat</span>
-            </button>
+            @IslandIcon.Svg("Chat")
+            <span class="sk-chat-title" data-sk="chat-title">Chat</span>
             <span class="sk-chat-state" data-sk="chat-state" role="status" aria-live="polite">Loading chat…</span>
         </header>
     }

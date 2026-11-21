@@ -22,7 +22,7 @@ const emoteCodes = (segments) =>
 const MARKUP = `
   <aside class="sk-chat" data-sk-chat data-open="true">
     <header class="sk-chat-head">
-      <button type="button" data-sk="chat-toggle" aria-expanded="true" aria-label="Collapse chat">Chat</button>
+      <span class="sk-chat-title">Chat</span>
       <span data-sk="chat-state" role="status"></span>
     </header>
     <div data-sk="chat-body">
@@ -157,7 +157,7 @@ describe("chat replay pane", () => {
     pane.dispose();
   });
 
-  it("toggles open state and notifies Blazor", async () => {
+  it("toggles open state with C and notifies Blazor", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
     const invokeMethodAsync = vi.fn().mockResolvedValue(undefined);
@@ -168,10 +168,9 @@ describe("chat replay pane", () => {
     });
     pane.setOpen(true);
 
-    document.querySelector("[data-sk='chat-toggle']").click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "c", bubbles: true }));
     expect(root.dataset.open).toBe("false");
-    expect(document.querySelector("[data-sk='chat-toggle']").getAttribute("aria-expanded"))
-      .toBe("false");
+    expect(root.querySelector("[data-sk='chat-body']").inert).toBe(true);
     expect(invokeMethodAsync).toHaveBeenCalledWith("SetChatOpen", false);
 
     pane.dispose();
@@ -186,7 +185,7 @@ describe("chat replay pane", () => {
 
     const pane = createChatPane(root, { fetch: fakeFetch(), storage: storage() });
     pane.setOpen(true);
-    document.querySelector("[data-sk='chat-toggle']").click();
+    document.dispatchEvent(new CustomEvent("sk:chat-toggle"));
     pane.dispose();
     document.removeEventListener("sk:chat", listen);
 

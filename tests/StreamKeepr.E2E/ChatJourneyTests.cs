@@ -23,7 +23,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await page.Locator("[data-sk='seek'][aria-disabled='false']")
             .WaitForAsync(new() { Timeout = 20_000 });
 
-        await page.Locator("[data-sk='chat-toggle']").ClickAsync();
+        await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
         await page.WaitForFunctionAsync(
             "() => document.querySelector('[data-sk-chat]').dataset.open === 'true'");
 
@@ -40,8 +40,8 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await page.Locator("[data-sk='seek'][aria-disabled='false']")
             .WaitForAsync(new() { Timeout = 20_000 });
         Assert.Equal("true", await page.Locator("[data-sk-chat]").GetAttributeAsync("data-open"));
-        Assert.Equal("true", await page.Locator("[data-sk='chat-toggle']")
-            .GetAttributeAsync("aria-expanded"));
+        Assert.Equal("true", await page.Locator("[data-sk-player] [data-sk='chat']")
+            .GetAttributeAsync("aria-pressed"));
     }
 
     [Fact]
@@ -137,7 +137,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             .WaitForAsync(new() { Timeout = 20_000 });
         ILocator pane = page.Locator("[data-sk-chat]");
         if (await pane.GetAttributeAsync("data-open") != "true")
-            await page.Locator("[data-sk='chat-toggle']").ClickAsync();
+            await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
 
         ILocator slider = pane.GetByRole(AriaRole.Slider, new() { Name = "Chat sync", Exact = true });
         ILocator readout = pane.Locator("[data-sk='chat-sync-value']");
@@ -227,7 +227,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
 
         ILocator pane = page.Locator("[data-sk-chat]");
         if (await pane.GetAttributeAsync("data-open") != "true")
-            await page.Locator("[data-sk='chat-toggle']").ClickAsync();
+            await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
         await page.Locator("[data-sk='live']").ClickAsync();
         await page.Locator("[data-sk='video']").EvaluateAsync(
             "v => { v.muted = true; return v.play(); }");
@@ -263,7 +263,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
 
         ILocator pane = page.Locator("[data-sk-chat]");
         if (await pane.GetAttributeAsync("data-open") != "true")
-            await page.Locator("[data-sk='chat-toggle']").ClickAsync();
+            await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
         await page.Locator("[data-sk='live']").ClickAsync();
         await page.Locator("[data-sk='video']").EvaluateAsync(
             "v => { v.muted = true; return v.play(); }");
@@ -330,7 +330,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
 
         ILocator pane = page.Locator("[data-sk-chat]");
         if (await pane.GetAttributeAsync("data-open") != "true")
-            await page.Locator("[data-sk='chat-toggle']").ClickAsync();
+            await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
 
         ILocator seek = page.Locator("[data-sk='seek']");
         await seek.FocusAsync();

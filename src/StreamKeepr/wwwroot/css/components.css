@@ -437,9 +437,9 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-watch-player { flex: 1 1 auto; min-width: 0; }
 .sk-watch-player > .sk-player { width: 100%; }
 /* The sidecar: flex 0 1 400px with a 320px minimum, so it widens into the space a wide
-   screen leaves. Collapsed it is the 44px strip. */
+   screen leaves. Closed it is not shown: the player's Chat button and C reopen it. */
 .sk-watch-chat { display: flex; flex: 0 1 400px; min-width: var(--chat-width); min-height: 0; }
-.sk-watch-chat:has(.sk-chat[data-open="false"]) { flex: 0 0 44px; min-width: 44px; }
+.sk-watch-chat:has(.sk-chat[data-open="false"]) { display: none; }
 .sk-watch-chat > .sk-chat { width: 100%; }
 
 @media (min-width: 960px) {
@@ -467,7 +467,6 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
     grid-area: chat; align-self: start; flex: none; min-width: 0; padding-right: var(--space-4);
   }
   .sk-shell[data-theater-mode] .sk-watch-chat:has(.sk-chat[data-open="true"]) { width: 400px; }
-  .sk-shell[data-theater-mode] .sk-watch-chat:has(.sk-chat[data-open="false"]) { width: 44px; }
   .sk-shell[data-theater-mode] .sk-watch-chat .sk-chat[data-open="true"] { height: 260px; min-height: 0; }
   .sk-shell[data-theater-mode] [data-slot="stats"] { grid-area: stats; padding: 0 var(--space-4); }
 }
@@ -524,34 +523,27 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
    the player's height and the log scrolls; without it every new message grows the pane and
    pushes the sync footer down the page. */
 .sk-chat {
-  width: 44px; flex: none; display: flex; flex-direction: column; min-height: 0; overflow: hidden; contain: size;
+  width: 100%; flex: none; display: flex; flex-direction: column; min-height: 0; overflow: hidden; contain: size;
   background: var(--drawer-background); border: 1px solid var(--lines-default); border-radius: var(--radius-lg); color: var(--text-primary);
 }
 /* Open, the pane fills its sidecar; the watch layout owns the 400px/320px basis. As tall as
    the player, so a narrow desktop player keeps a few rows. */
-.sk-chat[data-open="true"] { width: 100%; min-height: 240px; }
+.sk-chat[data-open="true"] { min-height: 240px; }
 .sk-chat svg[data-icon] { display: block; width: 24px; height: 24px; fill: currentColor; flex: none; }
 .sk-chat [hidden] { display: none !important; }
 .sk-chat :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-.sk-chat-head { display: flex; align-items: center; gap: var(--space-2); min-height: 48px; padding: 0 var(--space-3) 0 var(--space-1); border-bottom: 1px solid var(--divider); }
-.sk-chat-toggle {
-  display: flex; align-items: center; gap: var(--space-2); flex: 1; min-width: 0; height: 40px; padding: 0 var(--space-2);
-  justify-content: flex-start; border: 0; border-radius: var(--radius-full); background: transparent; color: var(--text-primary);
-  cursor: pointer; font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing); text-align: left;
+.sk-chat-head { display: flex; align-items: center; gap: var(--space-2); min-height: 48px; padding: 0 var(--space-3); border-bottom: 1px solid var(--divider); }
+.sk-chat-head svg[data-icon] { color: var(--action-default); }
+.sk-chat-title {
+  flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing);
 }
-.sk-chat-toggle svg[data-icon] { color: var(--action-default); }
-.sk-chat-toggle:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
-.sk-chat-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sk-chat-state { flex: none; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; }
 .sk-chat-state[data-state="live"] { color: var(--primary); }
 .sk-chat-state[data-state="unavailable"] { color: var(--error); }
-/* Collapsed: a 44px strip with only the chat icon. */
-.sk-chat[data-open="false"] .sk-chat-title,
-.sk-chat[data-open="false"] .sk-chat-state { display: none; }
-.sk-chat[data-open="false"] .sk-chat-head { justify-content: center; padding: var(--space-1) 0; border-bottom: 0; }
-.sk-chat[data-open="false"] .sk-chat-toggle { flex: none; width: 40px; padding: 0; justify-content: center; }
+/* Closed, the pane is not shown at all; it has no toggle of its own to leave behind. */
+.sk-chat[data-open="false"] { display: none; }
 .sk-chat-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.sk-chat[data-open="false"] .sk-chat-body { display: none; }
 .sk-chat-log {
   flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; padding: var(--space-2) var(--space-3);
   display: flex; flex-direction: column; gap: var(--space-1);
@@ -640,8 +632,6 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 @media (max-width: 959.98px) {
   /* Stacked under the player, the pane sizes to its content up to half the viewport. */
   .sk-chat, .sk-chat[data-open="true"] { width: 100%; max-height: 50vh; min-height: 0; contain: none; }
-  .sk-chat[data-open="false"] { max-height: 50px; }
-  .sk-chat[data-open="false"] .sk-chat-head { justify-content: flex-start; padding: var(--space-1); }
 }
 
 /* ---------- stats for nerds (design system: StatsPanel; JS island, #180) ----------

@@ -3,7 +3,7 @@
 import { shortcutBlocked } from "/js/player-keys.js";
 
 const HOOKS = [
-  "chat-toggle", "chat-state", "chat-body", "chat-log", "chat-sync", "chat-sync-value",
+  "chat-state", "chat-body", "chat-log", "chat-sync", "chat-sync-value",
   "chat-sync-range", "chat-sync-reset", "chat-jump", "chat-notice",
 ];
 
@@ -325,8 +325,6 @@ export function createChatPane(root, {
   function applyOpen() {
     if (!root) return;
     root.dataset.open = open ? "true" : "false";
-    el["chat-toggle"]?.setAttribute("aria-expanded", open ? "true" : "false");
-    el["chat-toggle"]?.setAttribute("aria-label", open ? "Collapse chat" : "Open chat");
     if (el["chat-body"]) el["chat-body"].inert = !open;
     announce();
     if (open) {
@@ -1080,7 +1078,6 @@ export function createChatPane(root, {
     loadCurrentWindow({ replace: true });
   }
 
-  on(el["chat-toggle"], "click", toggleAndPersist);
   on(el["chat-log"], "scroll", onScroll, { passive: true });
   on(el["chat-log"], "scrollend", onScrollEnd, { passive: true });
   for (const type of ["wheel", "touchmove", "pointerdown", "keydown"]) {

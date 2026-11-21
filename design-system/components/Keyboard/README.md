@@ -25,5 +25,5 @@ Focus rings on every ground, and the keyboard shortcuts StreamKeepr already defi
 ## Rules
 
 - Single-letter keys never fire while typing in a field, while a menu or dialog is open (`[role=menu]`, `dialog[open]`, and MudBlazor popovers once migrated), or with a modifier held. Keep that guard when menus move to `MudMenu`. Its popover must still match the selectors, or the guard needs Mud's `.mud-popover-open`.
-- Name the shortcut in the control's tooltip ("Theater mode (T)") and in `aria-keyshortcuts`. *As built in #180 the player's controls have no tooltips yet; only the two Chat toggles (the player's and the pane's) carry `aria-keyshortcuts="C"`.*
+- Name the shortcut in the control's tooltip ("Theater mode (T)") and in `aria-keyshortcuts`. *As built in #180 the player's controls have no tooltips yet; only the player's Chat toggle carries `aria-keyshortcuts="C"`.*
 - Key caps in documentation use `timecode` type on `surface-raised` with a `lines-inputs` border, at `radius-sm`.

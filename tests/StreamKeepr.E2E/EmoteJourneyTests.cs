@@ -55,7 +55,7 @@ public sealed class EmoteJourneyTests(MockAppFixture app)
         await page.Locator("[data-sk='seek'][aria-disabled='false']")
             .WaitForAsync(new() { Timeout = 20_000 });
 
-        await page.Locator("[data-sk='chat-toggle']").ClickAsync();
+        await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
         await page.WaitForFunctionAsync(
             "() => document.querySelector('[data-sk-chat]').dataset.open === 'true'");
 

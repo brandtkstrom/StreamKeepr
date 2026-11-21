@@ -29,7 +29,8 @@ public sealed class ChatPaneTests
             .Add(component => component.Open, false));
 
         Assert.Equal("false", cut.Find("[data-sk-chat]").GetAttribute("data-open"));
-        Assert.Equal("false", cut.Find("[data-sk='chat-toggle']").GetAttribute("aria-expanded"));
+        // The player's Chat button and C open the pane; it has no toggle of its own.
+        Assert.Empty(cut.FindAll("[data-sk='chat-toggle']"));
         Assert.Equal("log", cut.Find("[data-sk='chat-log']").GetAttribute("role"));
         Assert.Equal("off", cut.Find("[data-sk='chat-log']").GetAttribute("aria-live"));
         Assert.True(cut.Find("[data-sk='chat-body']").HasAttribute("inert"));
@@ -144,7 +145,7 @@ public sealed class ChatPaneTests
     }
 
     [Fact]
-    public async Task The_header_toggle_draws_the_chat_glyph()
+    public async Task The_header_is_a_plain_title_with_a_decorative_chat_glyph()
     {
         await using BunitContext context = HomePlayerTests.CreateContext(
             out BunitJSModuleInterop module, out TestLibraryView _);
@@ -154,7 +155,11 @@ public sealed class ChatPaneTests
             .Add(c => c.Recording, WithChat())
             .Add(c => c.Open, true));
 
-        Assert.Equal("Chat", cut.Find("[data-sk='chat-toggle'] > svg").GetAttribute("data-icon"));
+        IElement head = cut.Find("[data-sk-chat] > header");
+        Assert.Empty(head.QuerySelectorAll("button"));
+        Assert.Equal("Chat", head.QuerySelector("svg")!.GetAttribute("data-icon"));
+        Assert.Equal("true", head.QuerySelector("svg")!.GetAttribute("aria-hidden"));
+        Assert.Equal("Chat", head.QuerySelector("[data-sk='chat-title']")!.TextContent.Trim());
     }
 
     [Fact]
