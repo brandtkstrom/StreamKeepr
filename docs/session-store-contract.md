@@ -104,7 +104,7 @@ Rules:
 
 - Header: `#EXTM3U`, `#EXT-X-VERSION:7`, `#EXT-X-TARGETDURATION`, `#EXT-X-MEDIA-SEQUENCE:0`, `#EXT-X-PLAYLIST-TYPE:EVENT`, `#EXT-X-INDEPENDENT-SEGMENTS`.
 - For each part in ascending numeric part order, strip the part header tags (`#EXTM3U`, version, target duration, media sequence, playlist type, independent segments, ENDLIST) and keep the body, including the part's `#EXT-X-MAP` and `#EXT-X-PROGRAM-DATE-TIME`.
-- A part has segments only when `PlaylistStitcher.ParsePart` finds at least one complete segment line (`ParsedPart.HasSegments`); this is the one definition the store, finalize, and the live index use. Insert `#EXT-X-DISCONTINUITY` between parts that have segments; a part without segments adds no body and no discontinuity.
+- A part has segments only when `PlaylistStitcher.ParsePart` finds at least one complete segment line (`ParsedPart.HasSegments`); this is the one definition the store, finalize, recovery, and the live index use. Insert `#EXT-X-DISCONTINUITY` between parts that have segments; a part without segments adds no body and no discontinuity.
 - Keep every line through the last segment URI; drop a trailing `#EXTINF` without a URI.
 - Append `#EXT-X-ENDLIST` only when `final` is true.
 - Use `\n` line endings and invariant formatting.
@@ -138,7 +138,7 @@ Live snapshot:
 - Any change (a grown, truncated, or rewritten last part, a new, deleted, or inserted part, or a target-duration change) renders `Body` from the parsed parts in memory with `PlaylistStitcher.Render`, the same renderer the session index uses, never by re-reading closed parts. The live index therefore equals a full stitch of the same parts by construction. Rendering the whole body is cheap next to publishing it, which already encodes the whole body; #243's cost was disk I/O and the session lock, which these read rules avoid.
 - A new last part with segments adds exactly one `#EXT-X-DISCONTINUITY` before its `#EXT-X-MAP`/body. A header-only new part adds nothing and contributes no discontinuity.
 - `PlaylistStitcher.ParsePart` is the single part parser used by both `Stitch` and the live index. It requires a terminating line feed before accepting the last line, so a trailing `#EXTINF` or an unterminated URI is never exposed.
-- A changed part that is unreadable or is not a complete playlist (`PlaylistStitcher.IsCompletePart`: `#EXTM3U` plus a terminating line feed) keeps the last good snapshot; no partial or corrupt body is published. `LiveIndex` independently keeps its last-known-good body on any refresh failure.
+- A changed part that is unreadable or is not a complete playlist (`PlaylistStitcher.IsCompletePart`: `#EXTM3U` plus a terminating line feed) fails the build with `InvalidDataException`. FFmpeg renames whole part playlists into place, so this is a recorder-contract violation: `LiveIndex` treats it as a refresh failure (logged, backed off) and keeps its last-known-good body; no partial or corrupt body is published.
 - A target-duration raise changes the header of the next rendered body.
 - When a session leaves the live set (finalize or delete), its entry is removed, including its failure backoff. Reopen starts a new entry from a Recording summary and rebuilds from disk.
 - A refresh constructs the new composition and snapshot off to the side and publishes the snapshot atomically. A failed or timed-out read publishes nothing and keeps the last-known-good body.
@@ -163,13 +163,13 @@ For each `recordingsRoot/{channel}/{session}`:
 3. Read the manifest. If corrupt or empty: log and skip; leave media untouched.
 4. If `Status == Complete`:
    - If `index.m3u8` is a final index (`PlaylistStitcher.IsFinalIndex`: it parses, has at least one segment, and has an `#EXT-X-ENDLIST` line), add `Resumable(Session, LastPart + 1, Complete: true)` to finished.
-   - If the index is missing but part playlists exist, re-finalize (stitch, atomic index, manifest complete, library upsert), then add to finished.
-   - If there are no parts, log and skip; do not serve.
+   - If the index is missing but a part playlist has segments (`ParsedPart.HasSegments`), re-finalize (stitch, atomic index, manifest complete, library upsert), then add to finished.
+   - If no part has segments, log and skip; do not serve, and leave media untouched (finalize would delete the folder as empty).
 5. If `Status == Recording`:
    - Delete stale `*.tmp` files.
    - Ignore `chat/`; chat recovery is independent and append-only.
    - Parse every part playlist. If any parse fails, log and skip the session; leave media untouched.
-   - Delete `*.m4s` and `init_*.mp4` not referenced by any part playlist (`PlaylistStitcher.ReferencedMedia`). This set is deliberately looser than `ParsePart`: an unterminated last line still counts, so media whose playlist line was still being written is never deleted.
+   - Delete `*.m4s` and `init_*.mp4` not referenced by any part playlist (`PlaylistStitcher.ReferencedMedia`). Init files come from `PlaylistTimeline.TryReadMapUri`, the same `#EXT-X-MAP` rule thumbnails use, so a map with trailing attributes such as `BYTERANGE` still names its file. The set is deliberately looser than `ParsePart`: an unterminated last line still counts, so media whose playlist line was still being written is never deleted.
    - Part playlists and the index are read through `PartPlaylistReader`.
    - Add `Resumable(Session, LastPart + 1, Complete: false)` to unfinished.
 6. Per watched channel:
@@ -292,7 +292,7 @@ Writes and locks:
 - A new part adds one discontinuity before its map; a header-only new part adds nothing.
 - Truncate, deletion, insertion, and target-duration change render from the parts in memory and equal a full stitch; an earlier part that changes is never re-read.
 - Finalize deletes a session whose only segment line is unterminated; recovery never deletes media named by an unterminated line.
-- An unterminated tail, a changed part that is not a complete playlist, and a failed read keep the last good body and never publish a partial or corrupt playlist.
+- An unterminated tail, a changed part that is not a complete playlist, and a failed read are logged refresh failures that keep the last good body and never publish a partial or corrupt playlist.
 - A concurrent temp-file writer and many readers see only complete, parseable playlists whose segment count never decreases; the final body equals a full stitch.
 - The refresher is single-flight per session; a busy session skips the tick.
 - A failed or timed-out refresh, including an unreadable manifest, keeps the last-known-good body and backs off; one `Warning` per failure window, `Debug` after that, reset on success.

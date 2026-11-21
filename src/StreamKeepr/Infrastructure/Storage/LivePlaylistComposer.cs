@@ -80,9 +80,11 @@ internal static class LivePlaylistComposer
             string content = await source.ReadAsync(file.Path, ct).ConfigureAwait(false);
             if (!PlaylistStitcher.IsCompletePart(content))
             {
-                // A partial or malformed replace must not shrink or corrupt the live body.
-                // Keep the last good composition and retry on the next refresh.
-                return previous ?? LiveComposition.Empty(minTargetDuration);
+                // FFmpeg renames whole part playlists into place, so a partial or malformed one
+                // breaks the recorder contract. Fail the build: the caller keeps its last good
+                // body, reports the failure, and retries after its backoff.
+                throw new InvalidDataException(
+                    $"Part playlist {file.Path} is incomplete or is not an HLS playlist.");
             }
 
             next.Add(new PartSnapshot(

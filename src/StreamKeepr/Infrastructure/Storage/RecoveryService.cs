@@ -178,7 +178,7 @@ public sealed class RecoveryService(
                 return Inspection.Skipped;
             }
 
-            if (parts.Count == 0 || parts.All(part => part.SegmentCount == 0))
+            if (!parts.Any(part => part.HasSegments))
             {
                 logger.LogWarning(
                     "Skipping complete session without an index or media parts at {Directory}.",
@@ -273,8 +273,12 @@ public sealed class RecoveryService(
             try
             {
                 string content = await PartPlaylistReader.ReadAllTextAsync(path, ct);
-                int segments = PlaylistTimeline.Parse(content).SegmentCount;
-                parts.Add(new ScannedPart(new PartPlaylist(part, content), segments));
+                // The strict timeline parse validates the whole set before anything is
+                // deleted; whether the part has segments uses the one stitcher definition.
+                _ = PlaylistTimeline.Parse(content);
+                parts.Add(new ScannedPart(
+                    new PartPlaylist(part, content),
+                    PlaylistStitcher.ParsePart(part, content).HasSegments));
             }
             catch (Exception ex) when (IsReadFailure(ex))
             {
@@ -333,5 +337,5 @@ public sealed class RecoveryService(
         exception is FormatException or IOException or UnauthorizedAccessException
             or InvalidDataException or NotSupportedException;
 
-    private sealed record ScannedPart(PartPlaylist Playlist, int SegmentCount);
+    private sealed record ScannedPart(PartPlaylist Playlist, bool HasSegments);
 }

@@ -332,6 +332,29 @@ public sealed class LiveIndexTests
     }
 
     [Fact]
+    public async Task An_incomplete_part_is_a_logged_failure_that_keeps_the_last_good_body()
+    {
+        using var context = new SessionStoreTestContext();
+        context.WriteLivePart(1, Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
+        await OpenAndLoadAsync(context);
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggers = TestLogging.Factory(logs);
+        LiveIndex index = NewIndex(context, loggers: loggers);
+        LiveIndexSnapshot published = await RefreshAsync(index, context);
+
+        // A part playlist cut off mid-line breaks the recorder contract (FFmpeg renames whole
+        // files into place). It must not replace the body, and it must not pass silently.
+        await File.AppendAllTextAsync(context.PartPath(1), "#EXTINF:6,\np001_000");
+        await index.RefreshAllAsync(CancellationToken.None);
+
+        Assert.Same(published, index.Find(context.Session.Id));
+        Assert.Contains(
+            logs.Entries,
+            entry => entry.Level == LogLevel.Warning
+                && entry.Message.Contains(context.Session.Id, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Refresh_treats_a_timeout_exception_as_a_failure()
     {
         using var context = new SessionStoreTestContext();

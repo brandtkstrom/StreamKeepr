@@ -19,7 +19,6 @@ public static class PlaylistStitcher
     private const string PlaylistTypeTag = "#EXT-X-PLAYLIST-TYPE";
     private const string IndependentSegmentsTag = "#EXT-X-INDEPENDENT-SEGMENTS";
     private const string EndListTag = "#EXT-X-ENDLIST";
-    private const string MapUriPrefix = "#EXT-X-MAP:URI=\"";
     private const string DiscontinuityLine = "#EXT-X-DISCONTINUITY\n";
 
     private static readonly string[] PartHeaderTags =
@@ -183,7 +182,8 @@ public static class PlaylistStitcher
     }
 
     /// <summary>
-    /// Every media file a part playlist names: <c>#EXT-X-MAP</c> init files and segment URIs.
+    /// Every media file a part playlist names: <c>#EXT-X-MAP</c> init files (read by
+    /// <see cref="PlaylistTimeline.TryReadMapUri"/>, the same rule thumbnails use) and segment URIs.
     /// Deliberately looser than <see cref="ParsePart"/>: an unterminated last line still counts,
     /// because recovery deletes media that no playlist references, and a segment whose line was
     /// still being written must survive.
@@ -199,10 +199,9 @@ public static class PlaylistStitcher
             if (line.Length == 0)
                 continue;
 
-            if (line.StartsWith(MapUriPrefix, StringComparison.Ordinal))
+            if (PlaylistTimeline.TryReadMapUri(line, out string init))
             {
-                if (line.EndsWith('"') && line.Length > MapUriPrefix.Length)
-                    referenced.Add(line[MapUriPrefix.Length..^1]);
+                referenced.Add(init);
             }
             else if (line[0] != '#')
             {

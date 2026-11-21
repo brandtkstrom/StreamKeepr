@@ -45,7 +45,7 @@ public sealed class LivePlaylistComposerTests
     }
 
     [Fact]
-    public async Task An_unterminated_tail_is_never_exposed_and_keeps_the_last_good_body()
+    public async Task An_unterminated_tail_is_never_exposed_and_fails_the_build()
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
@@ -57,14 +57,14 @@ public sealed class LivePlaylistComposerTests
         source.Add(SourcePath(1), partial);
         source.Reset();
 
-        LiveComposition after = await BuildAsync(before, [Observe(1, partial, ticks: 2)], source);
-
-        Assert.Equal(before.Body, after.Body);
-        Assert.DoesNotContain("p001_00002.m4s", after.Body, StringComparison.Ordinal);
+        // The caller keeps its last good body (LiveIndexTests covers that and the log).
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => BuildAsync(before, [Observe(1, partial, ticks: 2)], source));
+        Assert.DoesNotContain("p001_00002.m4s", before.Body, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task A_part_cut_off_mid_write_never_shrinks_the_live_index()
+    public async Task A_part_cut_off_mid_write_fails_the_build_instead_of_shrinking_it()
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6),
@@ -76,10 +76,9 @@ public sealed class LivePlaylistComposerTests
         string cut = first[..first.IndexOf("p001_00002", StringComparison.Ordinal)] + "p001_0";
         source.Add(SourcePath(1), cut);
 
-        LiveComposition after = await BuildAsync(before, [Observe(1, cut, ticks: 2)], source);
-
-        Assert.Same(before, after);
-        Assert.Contains("p001_00002.m4s", after.Body, StringComparison.Ordinal);
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => BuildAsync(before, [Observe(1, cut, ticks: 2)], source));
+        Assert.Contains("p001_00002.m4s", before.Body, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -291,7 +290,7 @@ public sealed class LivePlaylistComposerTests
     }
 
     [Fact]
-    public async Task An_unreadable_part_keeps_the_last_good_body_for_a_thumbnail_read()
+    public async Task A_part_that_is_not_a_playlist_fails_the_build()
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
@@ -299,11 +298,9 @@ public sealed class LivePlaylistComposerTests
         LiveComposition before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
 
         source.Add(SourcePath(1), "<html>not a playlist</html>");
-        LiveComposition after = await BuildAsync(
-            before, [Observe(1, 99, ticks: 2)], source);
-
-        Assert.Equal(before.Body, after.Body);
-        Assert.DoesNotContain("<html>", after.Body, StringComparison.Ordinal);
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => BuildAsync(before, [Observe(1, 99, ticks: 2)], source));
+        Assert.DoesNotContain("<html>", before.Body, StringComparison.Ordinal);
     }
 
     [Fact]

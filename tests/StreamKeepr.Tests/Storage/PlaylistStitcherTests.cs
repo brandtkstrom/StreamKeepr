@@ -299,6 +299,20 @@ public sealed class PlaylistStitcherTests
     }
 
     [Fact]
+    public void Referenced_media_reads_an_init_map_that_carries_attributes()
+    {
+        string content = "#EXTM3U\n#EXT-X-MAP:URI=\"init_001.mp4\",BYTERANGE=\"3@0\"\n"
+            + "#EXTINF:6,\np001_00000.m4s\n";
+
+        Assert.Equal(
+            ["init_001.mp4", "p001_00000.m4s"],
+            PlaylistStitcher.ReferencedMedia(content).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            new SegmentFiles("init_001.mp4", "p001_00000.m4s"),
+            PlaylistTimeline.Parse(content).SegmentAt(1));
+    }
+
+    [Fact]
     public void Referenced_media_ignores_an_unclosed_init_map()
     {
         string content = "#EXTM3U\n#EXT-X-MAP:URI=\"init_001.mp4\n#EXTINF:6,\np001_00000.m4s\n";

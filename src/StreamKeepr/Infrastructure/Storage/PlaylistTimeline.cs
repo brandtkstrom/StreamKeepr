@@ -70,8 +70,7 @@ public sealed class PlaylistTimeline
 
             if (line.StartsWith(MapUriPrefix, StringComparison.Ordinal))
             {
-                int close = line.IndexOf('"', MapUriPrefix.Length);
-                map = close > MapUriPrefix.Length ? line[MapUriPrefix.Length..close] : null;
+                map = TryReadMapUri(line, out string uri) ? uri : null;
             }
             else if (line.StartsWith(ProgramDateTimeTag, StringComparison.Ordinal))
             {
@@ -173,6 +172,25 @@ public sealed class PlaylistTimeline
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The one rule for the file an <c>#EXT-X-MAP</c> line names: the quoted <c>URI</c> value
+    /// up to its closing quote, so trailing attributes such as <c>BYTERANGE</c> are allowed. A
+    /// line without a closing quote, or with an empty URI, names nothing.
+    /// </summary>
+    internal static bool TryReadMapUri(string line, out string uri)
+    {
+        uri = string.Empty;
+        if (!line.StartsWith(MapUriPrefix, StringComparison.Ordinal))
+            return false;
+
+        int close = line.IndexOf('"', MapUriPrefix.Length);
+        if (close <= MapUriPrefix.Length)
+            return false;
+
+        uri = line[MapUriPrefix.Length..close];
+        return true;
     }
 
     private static bool IsPlainFileName(string name) =>
