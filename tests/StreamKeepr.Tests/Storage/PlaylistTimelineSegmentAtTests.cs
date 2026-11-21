@@ -3,7 +3,7 @@ using static StreamKeepr.Tests.Storage.PlaylistTestData;
 
 namespace StreamKeepr.Tests.Storage;
 
-public sealed class PlaylistSegmentAtTests
+public sealed class PlaylistTimelineSegmentAtTests
 {
     private const string Pdt = "2026-11-10T18:30:00.000+00:00";
 

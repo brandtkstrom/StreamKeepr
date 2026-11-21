@@ -31,7 +31,7 @@ public sealed class LiveIndexTests
         Assert.DoesNotContain("#EXT-X-ENDLIST", snapshot.Body, StringComparison.Ordinal);
         Assert.DoesNotContain('\r', snapshot.Body);
         Assert.Equal(Encoding.UTF8.GetBytes(snapshot.Body), snapshot.Utf8.ToArray());
-        Assert.Equal(context.Clock.GetUtcNow(), snapshot.RefreshedAt);
+        Assert.Equal(context.Clock.GetUtcNow(), snapshot.PublishedAt);
     }
 
     [Fact]
@@ -221,7 +221,7 @@ public sealed class LiveIndexTests
 
         LiveIndexSnapshot current = Assert.IsType<LiveIndexSnapshot>(index.Find(context.Session.Id));
         Assert.Same(first, current);
-        Assert.Equal(context.Clock.GetUtcNow().AddSeconds(-5), current.RefreshedAt);
+        Assert.Equal(context.Clock.GetUtcNow().AddSeconds(-5), current.PublishedAt);
     }
 
     [Fact]

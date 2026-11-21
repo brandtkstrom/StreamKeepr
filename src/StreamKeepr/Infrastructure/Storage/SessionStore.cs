@@ -476,6 +476,24 @@ public sealed class SessionStore(
         }
     }
 
+    /// <summary>
+    /// Fresh length and last-write metadata for every valid part playlist, in ascending part
+    /// order. Cheap enough for every live refresh; reads no content and takes no lock.
+    /// </summary>
+    internal IReadOnlyList<PartFileObservation> ObservePartFiles(string directory)
+    {
+        List<(int Part, string Path)> files = PartPlaylistFiles(directory);
+        var observations = new PartFileObservation[files.Count];
+        for (int i = 0; i < files.Count; i++)
+        {
+            var info = new FileInfo(files[i].Path);
+            observations[i] = new PartFileObservation(
+                files[i].Part, files[i].Path, info.Length, info.LastWriteTimeUtc.Ticks);
+        }
+
+        return observations;
+    }
+
     private static bool IsSharingViolation(Exception exception) =>
         exception is UnauthorizedAccessException
         || (exception is IOException io

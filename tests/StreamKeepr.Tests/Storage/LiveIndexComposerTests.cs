@@ -4,7 +4,7 @@ using static StreamKeepr.Tests.Storage.PlaylistTestData;
 
 namespace StreamKeepr.Tests.Storage;
 
-public sealed class LivePlaylistComposerTests
+public sealed class LiveIndexComposerTests
 {
     private const int MinTarget = 12;
 
@@ -338,7 +338,7 @@ public sealed class LivePlaylistComposerTests
         LiveComposition? previous,
         PartFileObservation[] files,
         ScriptedPartSource source) =>
-        LivePlaylistComposer.BuildAsync(
+        LiveIndexComposer.BuildAsync(
             previous, files, MinTarget, source, CancellationToken.None);
 
     private static PartFileObservation Observe(int part, string content, long ticks = 1) =>

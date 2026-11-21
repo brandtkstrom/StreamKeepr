@@ -214,15 +214,8 @@ try
         _ => static (delay, ct) => Task.Delay(delay, ct));
     builder.Services.AddSingleton<SessionStore>();
     // The live index is refreshed off the request path; requests only read its published bodies.
-    // Tests may register their own part-playlist source to block or fail reads.
-    builder.Services.AddSingleton(services => new LiveIndex(
-        services.GetRequiredService<RecordingLibrary>(),
-        services.GetRequiredService<SessionStore>(),
-        services.GetRequiredService<IOptions<StorageOptions>>(),
-        services.GetRequiredService<IOptions<LivePlaylistOptions>>(),
-        services.GetRequiredService<TimeProvider>(),
-        services.GetRequiredService<ILogger<LiveIndex>>(),
-        services.GetService<IPartPlaylistSource>() ?? FilePartPlaylistSource.Instance));
+    builder.Services.AddSingleton<IPartPlaylistSource>(FilePartPlaylistSource.Instance);
+    builder.Services.AddSingleton<LiveIndex>();
     builder.Services.AddSingleton<LiveIndexRefresher>();
     builder.Services.AddSingleton<ChannelStore>();
     builder.Services.AddSingleton<ProgressStore>();

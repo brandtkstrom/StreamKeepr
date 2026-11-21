@@ -4,7 +4,7 @@ using static StreamKeepr.Tests.Storage.PlaylistTestData;
 
 namespace StreamKeepr.Tests.Storage;
 
-public sealed class PlaylistChapterTests
+public sealed class PlaylistTimelineChapterTests
 {
     private static readonly DateTimeOffset SessionStart =
         DateTimeOffset.Parse("2026-01-01T00:00:00+00:00", CultureInfo.InvariantCulture);

@@ -41,17 +41,6 @@ public sealed class LiveIndex
         IOptions<StorageOptions> storage,
         IOptions<LivePlaylistOptions> options,
         TimeProvider clock,
-        ILogger<LiveIndex> logger)
-        : this(library, store, storage, options, clock, logger, FilePartPlaylistSource.Instance)
-    {
-    }
-
-    internal LiveIndex(
-        RecordingLibrary library,
-        SessionStore store,
-        IOptions<StorageOptions> storage,
-        IOptions<LivePlaylistOptions> options,
-        TimeProvider clock,
         ILogger<LiveIndex> logger,
         IPartPlaylistSource source)
     {
@@ -102,11 +91,8 @@ public sealed class LiveIndex
 
         if (!summary.IsRecording)
         {
-            if (!RecordingsPath.TryResolve(
-                    _storage.Value.RecordingsRoot, [summary.Channel, summary.Id], out string directory))
-            {
+            if (!TryResolveDirectory(summary, out string directory))
                 return new LiveIndexLookup.NotFound();
-            }
 
             string indexPath = Path.Combine(directory, SessionStore.IndexFileName);
             return File.Exists(indexPath)
@@ -117,7 +103,7 @@ public sealed class LiveIndex
         if (Find(summary.Id) is not { } snapshot)
             return new LiveIndexLookup.Unavailable("no live snapshot is cached");
 
-        TimeSpan age = _clock.GetUtcNow() - snapshot.RefreshedAt;
+        TimeSpan age = _clock.GetUtcNow() - snapshot.PublishedAt;
         return new LiveIndexLookup.Live(snapshot, age, Stale: age >= _staleAfter);
     }
 
@@ -251,8 +237,7 @@ public sealed class LiveIndex
     private async Task<SessionRead> ReadAsync(
         RecordingSummary summary, Entry? entry, CancellationToken ct)
     {
-        if (!RecordingsPath.TryResolve(
-                _storage.Value.RecordingsRoot, [summary.Channel, summary.Id], out string directory)
+        if (!TryResolveDirectory(summary, out string directory)
             || !File.Exists(Path.Combine(directory, SessionStore.ManifestFileName)))
         {
             return SessionRead.Missing;
@@ -278,22 +263,23 @@ public sealed class LiveIndex
         if (entry is null)
             return SessionRead.Missing;
 
-        List<(int Part, string Path)> files = _store.PartPlaylistFiles(directory);
-        var observations = new PartFileObservation[files.Count];
-        for (int i = 0; i < files.Count; i++)
-        {
-            var info = new FileInfo(files[i].Path);
-            observations[i] = new PartFileObservation(
-                files[i].Part, files[i].Path, info.Length, info.LastWriteTimeUtc.Ticks);
-        }
-
         // The gate serializes builds for this entry, so the composition needs no lock.
-        LiveComposition built = await LivePlaylistComposer
-            .BuildAsync(entry.Composition, observations, _store.MinTargetDuration, _source, ct)
+        LiveComposition built = await LiveIndexComposer
+            .BuildAsync(
+                entry.Composition,
+                _store.ObservePartFiles(directory),
+                _store.MinTargetDuration,
+                _source,
+                ct)
             .ConfigureAwait(false);
         entry.Composition = built;
         return new SessionRead(SessionReadKind.Live, built.Body);
     }
+
+    /// <summary>The session's folder under the recordings root, refusing ids that would leave it.</summary>
+    private bool TryResolveDirectory(RecordingSummary summary, out string directory) =>
+        RecordingsPath.TryResolve(
+            _storage.Value.RecordingsRoot, [summary.Channel, summary.Id], out directory);
 
     /// <summary>Removes the entry only if it is still the one this refresh used.</summary>
     private void Remove(string id, Entry entry) =>
@@ -314,7 +300,7 @@ public sealed class LiveIndex
         _logger.Log(
             level,
             exception,
-            "Live playlist refresh {Outcome} for session {SessionId} (failure {FailureCount} in this window); keeping the last-known-good body and retrying in {RetrySeconds:0.#} s.",
+            "Live index refresh {Outcome} for session {SessionId} (failure {FailureCount} in this window); keeping the last-known-good body and retrying in {RetrySeconds:0.#} s.",
             outcome,
             summary.Id,
             failures,

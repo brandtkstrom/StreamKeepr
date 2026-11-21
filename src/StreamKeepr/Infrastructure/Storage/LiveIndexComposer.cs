@@ -16,7 +16,7 @@ internal readonly record struct PartFileObservation(
 /// parsed parts in memory through <see cref="PlaylistStitcher.Render"/>, the same renderer as
 /// the session index, so the live index always equals a full stitch of the same parts.
 /// </summary>
-internal static class LivePlaylistComposer
+internal static class LiveIndexComposer
 {
     public static async Task<LiveComposition> BuildAsync(
         LiveComposition? previous,

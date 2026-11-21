@@ -66,7 +66,7 @@ public static class LiveIndexEndpoint
                 live.Age.TotalSeconds);
         }
 
-        return new LivePlaylistResult(live.Snapshot, live.Stale);
+        return new LiveIndexResult(live.Snapshot, live.Stale);
     }
 
     private static IResult Unavailable(
@@ -88,7 +88,7 @@ public static class LiveIndexEndpoint
 /// Serves one immutable snapshot without re-encoding, re-stitching, or touching the session
 /// folder. A write that races the client disconnect is not an error.
 /// </summary>
-internal sealed class LivePlaylistResult(LiveIndexSnapshot snapshot, bool stale) : IResult
+internal sealed class LiveIndexResult(LiveIndexSnapshot snapshot, bool stale) : IResult
 {
     public async Task ExecuteAsync(HttpContext context)
     {

@@ -165,7 +165,7 @@ public sealed class LiveIndexEndpointTests
         LiveIndexSnapshot snapshot = LiveIndexSnapshot.Create(
             "20260101T000000Z_000000001", LiveBody("p001_00001.m4s"), StartedAt);
 
-        await new LivePlaylistResult(snapshot, stale: false).ExecuteAsync(context);
+        await new LiveIndexResult(snapshot, stale: false).ExecuteAsync(context);
 
         Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
         Assert.Equal(snapshot.Utf8.Length, context.Response.ContentLength);

@@ -3,7 +3,7 @@ using static StreamKeepr.Tests.Storage.PlaylistTestData;
 
 namespace StreamKeepr.Tests.Storage;
 
-public sealed class LivePlaylistConcurrencyTests
+public sealed class LiveIndexConcurrencyTests
 {
     [Fact]
     public async Task Concurrent_writer_and_readers_only_see_complete_growing_playlists()

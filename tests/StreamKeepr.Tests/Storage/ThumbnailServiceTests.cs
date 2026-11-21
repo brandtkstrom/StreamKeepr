@@ -28,7 +28,8 @@ public sealed class ThumbnailServiceTests : IDisposable
             Options.Create(new StorageOptions { RecordingsRoot = _context.Root }),
             Options.Create(new LivePlaylistOptions()),
             TimeProvider.System,
-            NullLogger<LiveIndex>.Instance);
+            NullLogger<LiveIndex>.Instance,
+            FilePartPlaylistSource.Instance);
         _service = new ThumbnailService(
             _context.Library,
             _context.Store,

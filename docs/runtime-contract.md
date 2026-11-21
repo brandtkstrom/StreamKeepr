@@ -137,7 +137,7 @@ A startup recovery failure stops the host with a clear error; do not start a par
 - The stopping token cancels every channel loop and the shared loops.
 - Each coordinator’s `finally` stops its active job gracefully; the recorder’s bounded shutdown finalizes the part.
 - The supervisor awaits all channel loops, then the poller/EventSub loops.
-- The live playlist refresher stops with the hosted services; it owns no durable state and does not block finalization.
+- The live index refresher stops with the hosted services; it owns no durable state and does not block finalization.
 - Channels stop in parallel; the recorder's stop budget and the host timeout (budget + 5 s) are the bounds. Compose’s 50 s grace is the backstop.
 - The host timeout is not a substitute for finalization: if it fires, the container kills the children and recovery repairs on the next start.
 

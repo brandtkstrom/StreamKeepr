@@ -5,8 +5,8 @@ namespace StreamKeepr.Tests.Storage;
 
 /// <summary>
 /// Duration, segment count, and program-date-time of a parsed playlist. Chapters and
-/// segment lookup have their own fixtures in <see cref="PlaylistChapterTests"/> and
-/// <see cref="PlaylistSegmentAtTests"/>.
+/// segment lookup have their own fixtures in <see cref="PlaylistTimelineChapterTests"/> and
+/// <see cref="PlaylistTimelineSegmentAtTests"/>.
 /// </summary>
 public sealed class PlaylistTimelineTests
 {
