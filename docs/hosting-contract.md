@@ -74,15 +74,15 @@ ADR-0002 applies.
   - `.png` → `image/png`
 - Cache headers: `.m3u8` → `no-cache`; segments, init files, and thumbnails → `public, max-age=31536000, immutable`.
 - Static files handle GET/HEAD and Range requests. No directory listing; a missing file is 404, never a 500.
-- `index.m3u8`: a Complete session serves the physical finalized file with HEAD and Range. A Recording session serves the immutable snapshot from `LivePlaylistCache`; the request performs no session-folder I/O and takes neither the session manifest lock nor the live refresh gate. `RecordingLibrary` is the authority for Recording/Complete/removed: finalize, reopen, and delete do not invalidate the cache, so a finalized session switches to the index immediately and a deleted session returns 404 immediately; the background refresher prunes on its next tick.
+- `index.m3u8`: `LiveIndex.Lookup` decides what to serve and the endpoint maps it to HTTP. A Complete session serves the physical finalized file with HEAD and Range. A Recording session serves the immutable snapshot published by `LiveIndex`; the request performs no session-folder I/O and takes neither the session manifest lock nor the live refresh gate. `RecordingLibrary` is the authority for Recording/Complete/removed: finalize, reopen, and delete do not invalidate the cache, so a finalized session switches to the index immediately and a deleted session returns 404 immediately; the background refresher prunes on its next tick.
 - Live index status policy:
   - Warm Recording snapshot: `200` with the cached body and `Cache-Control: no-cache`.
-  - Last-known-good (LKG): the cached snapshot is the LKG. When `TimeProvider.GetUtcNow() - LivePlaylistSnapshot.RefreshedAt` (the cached-at time) is at or above `LivePlaylist:StaleAfterSeconds` (validated 1–3600, default 10), the response is still `200` with `no-cache` plus `X-StreamKeepr-Stale: true`; a fresh snapshot omits the header. The request never waits on a refresh or rebuild for LKG.
+  - Last-known-good (LKG): the cached snapshot is the LKG. When `TimeProvider.GetUtcNow() - LiveIndexSnapshot.PublishedAt` (when the current body was first published) is at or above `LivePlaylist:StaleAfterSeconds` (validated 1–3600, default 10), the response is still `200` with `no-cache` plus `X-StreamKeepr-Stale: true`; a fresh snapshot omits the header. The request never waits on a refresh or rebuild for LKG.
   - Cold cache or an unloaded library: `503` with `Retry-After: 1` and `Cache-Control: no-store`. There is no request-time rebuild or disk fallback.
   - A client already aborted: `499` (or no response if the transport has closed) with no body; the request event is `Debug`, never `500`/`Error`.
   - Unknown session or channel mismatch: `404`.
 - A live or LKG body never contains `#EXT-X-ENDLIST`; a Complete session must return a playlist with exactly one. `200` and `404` index responses set `Cache-Control: no-cache`, and HEAD reports the same `Content-Length` as GET for fresh and LKG bodies.
-- The request path has no I/O, so there is no per-request deadline middleware. The server deadline is the background `LivePlaylist:RefreshTimeoutSeconds` bound on `LivePlaylistService`; a timed-out refresh keeps the LKG while the endpoint keeps serving from the cache without waiting.
+- The request path has no I/O, so there is no per-request deadline middleware. The server deadline is the background `LivePlaylist:RefreshTimeoutSeconds` bound on each `LiveIndex` refresh; a timed-out refresh keeps the LKG while the endpoint keeps serving from the cache without waiting.
 - The chat endpoint is public, returns `Cache-Control: no-store`, bounds its window and result limit, and returns 400/404/200-with-`hasChat:false` as defined in `docs/backend-ui-contract.md`.
 - The media root is created at startup. An unwritable root fails startup with the UID 1654 guidance.
 - Deletion races return 404/410, never a 500.
@@ -200,7 +200,7 @@ Host and media:
 - Allowed media types served with correct content types and cache headers.
 - `.json`, `.tmp`, dot-folders, encoded traversal, unknown sessions/channels → 404.
 - GET/HEAD and Range; finalized index has exactly one ENDLIST; live index serves the cached snapshot with no session I/O and no session lock; finalize switches to the index immediately; a deleted session is 404 immediately; cold cache is 503 + `Retry-After: 1` + `no-store`; a snapshot at the staleness threshold is 200 with `X-StreamKeepr-Stale: true` and a fresh one omits it; HEAD matches GET's content length for fresh and LKG bodies; a client abort is 499/empty and never a 500 or an `Error` request event; 320 concurrent warm requests return 200/503 only.
-- `RequestLogPolicy`: `/media` 499 is `Debug`; other 4xx are `Warning`; 5xx and unhandled exceptions are `Error`. `LivePlaylistService` logs one `Warning` per failure window and `Debug` after that, resetting on success.
+- `RequestLogPolicy`: `/media` 499 is `Debug`; other 4xx are `Warning`; 5xx and unhandled exceptions are `Error`. `LiveIndex` logs one `Warning` per failure window and `Debug` after that, resetting on success.
 - Export download requires sign-in; progress is public; delete/settings require sign-in.
 
 Health:

@@ -30,8 +30,8 @@ public sealed class MockChatSeeder(
             if (!File.Exists(playlist) || ChatLogLayout.HasChat(directory, logger))
                 continue;
 
-            DateTimeOffset? pdt = PlaylistStitcher.FirstProgramDateTime(
-                File.ReadAllText(playlist));
+            DateTimeOffset? pdt = PlaylistTimeline.TryParse(File.ReadAllText(playlist))
+                ?.FirstProgramDateTime;
             if (pdt is null)
                 continue;
 

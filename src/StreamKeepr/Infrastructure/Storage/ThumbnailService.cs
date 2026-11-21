@@ -16,7 +16,7 @@ namespace StreamKeepr.Infrastructure.Storage;
 public sealed class ThumbnailService(
     RecordingLibrary library,
     SessionStore store,
-    LivePlaylistService livePlaylists,
+    LiveIndex liveIndex,
     IOptions<StorageOptions> storage,
     IOptions<RecorderOptions> recorder,
     TimeProvider clock,
@@ -104,13 +104,14 @@ public sealed class ThumbnailService(
         try
         {
             // A deleted or unreadable session has no playlist; the library drops it separately.
-            if (await livePlaylists.GetOrRefreshAsync(summary, stoppingToken) is not { } playlist)
+            if (await liveIndex.GetOrRefreshAsync(summary, stoppingToken) is not { } playlist)
                 return;
 
-            if (FrameOffset(PlaylistStitcher.TotalDuration(playlist), summary.IsRecording) is not { } offset)
+            PlaylistTimeline timeline = PlaylistTimeline.Parse(playlist);
+            if (FrameOffset(timeline.Duration, summary.IsRecording) is not { } offset)
                 return;
 
-            SegmentFiles files = PlaylistStitcher.SegmentAt(playlist, offset)
+            SegmentFiles files = timeline.SegmentAt(offset)
                 ?? throw new InvalidDataException("No usable segment covers the thumbnail position.");
 
             Directory.CreateDirectory(TempDirectory);

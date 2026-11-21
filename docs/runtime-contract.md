@@ -13,8 +13,8 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 | `ChannelStore` | Singleton | `channels.json`, the watched-channel snapshot, pause flag, profile fields |
 | `SessionStore` | Singleton | `session.json`, `index.m3u8`, thumbnails, session locks |
 | `RecordingLibrary` | Singleton | In-memory recording summaries and `Changed` |
-| `LivePlaylistCache` | Singleton | Immutable per-session live playlist snapshots served by the live index endpoint |
-| `LivePlaylistService` | Singleton `BackgroundService` | Live playlist refresh, per-session last-known-good retention and pruning, and thumbnail playlist fallback |
+| `LiveIndex` | Singleton | The live index of every Recording session: one entry per session (refresh gate, parsed parts, published snapshot, backoff), last-known-good retention, eviction, and the thumbnail playlist read |
+| `LiveIndexRefresher` | Singleton `BackgroundService` | Ticks `LiveIndex.RefreshAllAsync` every `LivePlaylist:RefreshSeconds` |
 | `ThumbnailService` | Singleton `BackgroundService` | Thumbnail frame grabs (FFmpeg) and `.streamkeepr/thumbnails/` scratch files |
 | `DvrStatus` | Singleton | Read-only runtime snapshots for UI and health |
 | `RecorderJob` | Transient worker per part | Streamlink/FFmpeg processes and part files |
@@ -128,7 +128,7 @@ public sealed record DvrSnapshot(
    - Paused: `Paused(Finished)`.
    - Unpaused: `Idle(Finished)`; if an unfinished session exists, publish `SessionRecovered(Unfinished)`.
 6. Start the supervised poller and EventSub loops.
-7. Start `LivePlaylistService` after recovery has loaded the library and before `ThumbnailService`. It publishes the first live snapshots for Recording sessions; a live endpoint request before the first refresh returns `503` with `Retry-After: 1`.
+7. Start `LiveIndexRefresher` after recovery has loaded the library and before `ThumbnailService`. It publishes the first live snapshots for Recording sessions; a live endpoint request before the first refresh returns `503` with `Retry-After: 1`.
 
 A startup recovery failure stops the host with a clear error; do not start a partial set of channels.
 
@@ -137,7 +137,7 @@ A startup recovery failure stops the host with a clear error; do not start a par
 - The stopping token cancels every channel loop and the shared loops.
 - Each coordinator’s `finally` stops its active job gracefully; the recorder’s bounded shutdown finalizes the part.
 - The supervisor awaits all channel loops, then the poller/EventSub loops.
-- The live playlist refresher stops with the hosted services; it owns no durable state and does not block finalization.
+- The live index refresher stops with the hosted services; it owns no durable state and does not block finalization.
 - Channels stop in parallel; the recorder's stop budget and the host timeout (budget + 5 s) are the bounds. Compose’s 50 s grace is the backstop.
 - The host timeout is not a substitute for finalization: if it fires, the container kills the children and recovery repairs on the next start.
 

@@ -110,13 +110,14 @@ public sealed class MockChatSource(
                 return;
 
             string playlist = File.ReadAllText(Path.Combine(directory, PartFiles.Playlist(newest)));
-            DateTimeOffset? pdt = PlaylistStitcher.FirstProgramDateTime(playlist);
+            PlaylistTimeline timeline = PlaylistTimeline.Parse(playlist);
+            DateTimeOffset? pdt = timeline.FirstProgramDateTime;
             if (pdt is null)
                 return;
 
             _baseAt[channel] = pdt.Value.AddSeconds(-options.Value.LeadInSeconds)
                 .ToUnixTimeMilliseconds();
-            _partEnd[channel] = Math.Max(1, PlaylistStitcher.TotalDuration(playlist));
+            _partEnd[channel] = Math.Max(1, timeline.Duration);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException)
         {
