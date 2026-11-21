@@ -12,11 +12,18 @@ internal sealed class FakeRecorder : IRecorder
 {
     private readonly Channel<RecorderCall> _started = Channel.CreateUnbounded<RecorderCall>();
 
-    public Func<RecorderCall, CancellationToken, Task>? OnRun { get; set; }
+    /// <summary>
+    /// The scripted run. Without one, the fake records until it is stopped and returns
+    /// <see cref="RecorderExitKind.Stopped"/>.
+    /// </summary>
+    public Func<RecorderCall, CancellationToken, Task<PartOutcome>>? OnRun { get; set; }
 
     public ChannelReader<RecorderCall> Started => _started.Reader;
 
-    public async Task RunAsync(
+    /// <summary>Short and distinct from any retry delay, so a test can pick out the budget timer.</summary>
+    public TimeSpan StopBudget { get; set; } = TimeSpan.FromSeconds(7);
+
+    public async Task<PartOutcome> RunAsync(
         Session session,
         JobId job,
         Func<DvrEvent, CancellationToken, ValueTask> publish,
@@ -27,7 +34,17 @@ internal sealed class FakeRecorder : IRecorder
         _started.Writer.TryWrite(call);
 
         if (OnRun is { } onRun)
-            await onRun(call, stopRequested);
+            return await onRun(call, stopRequested);
+
+        try
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, stopRequested);
+        }
+        catch (OperationCanceledException) when (stopRequested.IsCancellationRequested)
+        {
+        }
+
+        return new PartOutcome(RecorderExitKind.Stopped, "stopped");
     }
 }
 

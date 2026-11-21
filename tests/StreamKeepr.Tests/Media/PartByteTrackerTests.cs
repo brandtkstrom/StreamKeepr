@@ -258,19 +258,18 @@ public sealed class PartByteTrackerTests : IDisposable
     }
 
     [Fact]
-    public void Reconcile_equals_the_authoritative_full_count()
+    public void An_unlisted_segment_is_missed_by_the_tracker_but_counted_by_the_full_scan()
     {
         Write(PartFiles.Init(1), "init");
         Write("p001_00000.m4s", "aaaa");
         Write(PartFiles.Playlist(1), Playlist("p001_00000.m4s"));
-        // An unlisted segment still counts on disk; reconcile is authoritative.
+        // An unlisted segment still counts on disk; the part-end scan is authoritative.
         Write("p001_00001.m4s", "bb");
 
         var tracker = new PartByteTracker(_directory, 1);
         Assert.Equal(8, tracker.Sample());
 
-        Assert.Equal(PartFiles.TotalBytes(_directory, 1), tracker.Reconcile());
-        Assert.Equal(10, tracker.Reconcile());
+        Assert.Equal(10, PartFiles.TotalBytes(_directory, 1));
     }
 
     [Fact]

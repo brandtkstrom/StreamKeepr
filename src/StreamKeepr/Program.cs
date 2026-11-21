@@ -148,10 +148,11 @@ try
         builder.Services.AddSingleton<StreamKeeprRuntimeMetrics>();
     }
 
-    // The host budget is the recorder job budget plus shutdown/cleanup headroom.
-    TimeSpan shutdownTimeout = ChannelCoordinator.JobStopBudget + TimeSpan.FromSeconds(5);
-    builder.Services.Configure<HostOptions>(options =>
-                                                options.ShutdownTimeout = shutdownTimeout);
+    // The host budget is the recorder's stop budget plus shutdown/cleanup headroom.
+    TimeSpan hostShutdownHeadroom = TimeSpan.FromSeconds(5);
+    builder.Services.AddOptions<HostOptions>()
+           .Configure<IRecorder>((host, recorder) =>
+               host.ShutdownTimeout = recorder.StopBudget + hostShutdownHeadroom);
 
     builder.Services.AddOptions<TwitchOptions>()
            .BindConfiguration(TwitchOptions.SectionName)
