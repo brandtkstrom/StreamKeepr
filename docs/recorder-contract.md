@@ -178,25 +178,33 @@ Unit:
 - PID identity: missing process is gone; the same start time is alive; a different start time is a reused PID; an unreadable identity is unknown and fails closed.
 - Coordinator shutdown fault: a `RecorderShutdownException` publishes one `Killed` exit, faults the loop, retains the active job, blocks a second `StartRecorder`, and is observed even when the reducer enters `CoolingDown` with no retry command.
 
-Recorder job seam (fake process runner and identity probe; no long-lived processes):
+Recorder job through the process seam. `IRecorderProcessRunner.Start` takes a `ToolLaunch` (tool name, path, arguments, working directory, and optional stdin/stdout byte streams) plus stdout and stderr line callbacks; no CliWrap type crosses it. The fake runner scripts output lines, file writes, and exits, honours the stop tokens like the real tools (Streamlink exits on its graceful signal, FFmpeg on stdin EOF), and runs callbacks in the starting context as CliWrap does. With an injected identity probe and part-size scan, no child process is needed:
 
-- A never-completing CliWrap task with the captured PID alive raises `RecorderShutdownException`.
+- Part already exists: immediate `RecorderExited`, no tool started, nothing overwritten.
+- No media: the part files FFmpeg opened are deleted and no media event is published.
+- FFmpeg ends first: Streamlink gets its graceful stop; `Exited`.
+- A failing Streamlink surfaces its stderr and exit code in the detail.
+- The subscriber token reaches Streamlink's arguments but never the detail or a log.
+- Start and finish logs carry the channel, session, and job scope; finish bytes equal the on-disk total.
+- Hostile tool output is logged only at debug, redacted, and escaped.
+- Stall watchdog: `Killed`, stall counted, media event before exit, graceful Streamlink stop and FFmpeg finish on EOF.
+- Ad-break line: the watchdog does not fire during the grace.
+- Progress bytes never decrease and the final sample equals the on-disk total; an unreadable playlist keeps the last total and never fails the part.
+- A never-completing tool with the captured PID alive raises `RecorderShutdownException`.
 - A verified force-kill (task completed, PID gone or reused) remains `Killed`.
 - A force kill whose captured PID is still alive, or whose identity is unreadable, fails closed.
 - A clean stream end remains `Exited` and never inspects process identity.
 - An unverified shutdown still counts the part as `Killed`, counts one force kill, and writes the finish log before raising.
 - A part whose size scan throws is counted with no size sample, logs null bytes, and warns.
 
-Integration with the fake Streamlink and a synthetic media fixture:
+Process runner adapter (`CliWrapProcessRunner`, real child processes): output lines reach their callbacks and the exit code and PID are reported; stdin and stdout streams carry bytes; a force kill ends a process that ignores its graceful signal; a missing executable completes with an error and no identity; standard output takes exactly one of a stream or a line callback.
 
-- Normal stream end: part playlist, init, segments, media event before exit event.
-- Streamlink ends first; FFmpeg ends first.
-- User stop: graceful order, `Stopped`.
-- Stall watchdog: `Killed`, bounded shutdown.
-- No media: files deleted.
-- Very short part with only the final progress block: media event still published.
-- Part already exists: immediate `RecorderExited`.
-- Ad-break log line: watchdog does not fire during the grace.
+Integration with real FFmpeg and the fake Streamlink fixtures:
+
+- Normal stream end: part playlist, init, segments, media event before exit event, playable output.
+- User stop: graceful order, `Stopped`, `ENDLIST`, playable output.
+- Worst-case stop with tools that ignore their graceful signal fits the 35 s job budget.
+- The bounded pipe backpressures a source that is not being drained.
 - MPEG-TS/AAC input succeeds with `-bsf:a aac_adtstoasc`.
 - HEVC/AV1 argument path records successfully (playback support is a separate test).
 

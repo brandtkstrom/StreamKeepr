@@ -65,13 +65,12 @@ tests/
 Commit executable scripts under `tests/fixtures/`:
 
 - `fake-streamlink` — generates a short test stream to stdout with ffmpeg (for example 5–10 s of `testsrc2` + sine, MPEG-TS). The plan's 10-minute script is for manual/soak runs; automated variants use short media.
-- `fake-streamlink-no-media` — exits without writing media.
-- `fake-streamlink-stall` — writes one segment and then sleeps; the stall watchdog must fire.
-- `fake-streamlink-adbreak` — writes the Streamlink ad-break log line and then continues.
+- `fake-live-streamlink` — streams until stopped, for user-stop, runtime, and Mock captures.
 - `fake-streamlink-broken` — answers `--version` but exits 1 otherwise, so preflight passes and recording fails.
 - `fake-streamlink-slow` — writes a partial source to exercise backpressure.
-- `fake-streamlink-token-echo` — echoes its arguments to stderr so the token-redaction test can prove the subscriber header reached Streamlink without leaking it.
-- `fake-streamlink-hostile-output` — writes one stderr line with the token, ANSI escapes, and a U+2028 separator so the recorder test can prove raw tool output is logged at Debug only, redacted, and escaped.
+- `fake-hanging-streamlink` / `fake-hanging-ffmpeg` — ignore their graceful signal, for the worst-case stop budget and the process runner's force kill.
+
+Recorder job scenarios that only need tool output (no media, stall, ad break, a failing Streamlink, token echo, and hostile stderr) run through the fake process runner, not shell scripts; see `docs/recorder-contract.md` §10.
 
 Rules:
 

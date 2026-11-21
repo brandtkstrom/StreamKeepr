@@ -21,27 +21,74 @@ internal readonly record struct ProcessOutcome(
     ProcessStop Stop,
     bool TaskPending);
 
-/// <summary>Starts a tool command. Tests substitute a fake to drive shutdown deterministically.</summary>
+/// <summary>
+/// One tool process for a recorder job. <paramref name="Tool"/> names it in diagnostics
+/// (<c>streamlink</c> or <c>ffmpeg</c>). Standard output goes either to
+/// <paramref name="StandardOutput"/> as bytes or to a line callback, never both.
+/// </summary>
+internal sealed record ToolLaunch(
+    string Tool,
+    string FilePath,
+    IReadOnlyList<string> Arguments,
+    string WorkingDirectory,
+    Stream? StandardInput = null,
+    Stream? StandardOutput = null);
+
+/// <summary>
+/// Starts one tool process and reports its output lines. Production runs real processes through
+/// CliWrap; tests substitute a fake that scripts output lines and completion, so progress,
+/// ad-break, stall, and shutdown scenarios run without child processes.
+/// </summary>
 internal interface IRecorderProcessRunner
 {
+    /// <summary>
+    /// Starts <paramref name="launch"/>. <paramref name="onStdoutLine"/> is required exactly when
+    /// <see cref="ToolLaunch.StandardOutput"/> is null. Callbacks may run concurrently with each
+    /// other and with the caller. <paramref name="gracefulStop"/> asks the process to exit;
+    /// <paramref name="forceKill"/> kills it. The returned completion never faults.
+    /// </summary>
     RunningProcess Start(
-        Command command,
+        ToolLaunch launch,
+        Func<string, ValueTask>? onStdoutLine,
+        Action<string> onStderrLine,
         CancellationToken forceKill,
         CancellationToken gracefulStop);
 }
 
 /// <summary>
-/// Starts a CliWrap command and captures the direct PID and its start time before waiting. The
-/// CliWrap task completes only after the direct process exits and both streams reach EOF; a
+/// Starts a tool through CliWrap and captures the direct PID and its start time before waiting.
+/// The CliWrap task completes only after the direct process exits and both streams reach EOF; a
 /// descendant can therefore hold the task open after the direct PID is gone.
 /// </summary>
 internal sealed class CliWrapProcessRunner : IRecorderProcessRunner
 {
     public RunningProcess Start(
-        Command command,
+        ToolLaunch launch,
+        Func<string, ValueTask>? onStdoutLine,
+        Action<string> onStderrLine,
         CancellationToken forceKill,
         CancellationToken gracefulStop)
     {
+        ArgumentNullException.ThrowIfNull(launch);
+        ArgumentNullException.ThrowIfNull(onStderrLine);
+        if ((launch.StandardOutput is null) == (onStdoutLine is null))
+        {
+            throw new ArgumentException(
+                "Standard output needs exactly one of a stream or a line callback.",
+                nameof(onStdoutLine));
+        }
+
+        Command command = Cli.Wrap(launch.FilePath)
+            .WithWorkingDirectory(launch.WorkingDirectory)
+            .WithArguments(launch.Arguments)
+            .WithValidation(CommandResultValidation.None)
+            .WithStandardOutputPipe(launch.StandardOutput is { } output
+                ? PipeTarget.ToStream(output)
+                : PipeTarget.ToDelegate(line => onStdoutLine!(line).AsTask()))
+            .WithStandardErrorPipe(PipeTarget.ToDelegate(onStderrLine));
+        if (launch.StandardInput is { } input)
+            command = command.WithStandardInputPipe(PipeSource.FromStream(input));
+
         CommandTask<CommandResult> task;
         try
         {

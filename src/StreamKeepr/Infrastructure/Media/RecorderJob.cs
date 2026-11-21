@@ -1,5 +1,4 @@
 using System.IO.Pipelines;
-using CliWrap;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
@@ -132,78 +131,86 @@ public sealed class RecorderJob(
         using var streamlinkGraceful = new CancellationTokenSource();
         using var streamlinkForce = new CancellationTokenSource();
 
-        Command ffmpegCommand = Cli.Wrap(recorder.FfmpegPath)
-            .WithWorkingDirectory(session.Directory)
-            .WithArguments(FfmpegArgs.ForPart(session.Directory, job.Part, recorder.SegmentSeconds))
-            .WithValidation(CommandResultValidation.None)
-            .WithStandardInputPipe(PipeSource.FromStream(pipe.Reader.AsStream()))
-            .WithStandardOutputPipe(PipeTarget.ToDelegate(async line =>
+        async ValueTask OnFfmpegStdout(string line)
+        {
+            if (parser.Feed(line) is not { } sample)
+                return;
+
+            // total_size is N/A for the HLS muxer. The tracker reads the part playlist
+            // incrementally, so a progress sample never enumerates the part directory.
+            long bytes = byteTracker.Sample();
+            logger.LogDebug(
+                "Recorder {Job} progress: {Bytes} bytes, media {MediaTime}",
+                job,
+                bytes,
+                sample.MediaTime);
+            reportProgress?.Invoke(job, bytes, sample.MediaTime);
+
+            if (!sample.Advanced)
+                return;
+
+            DateTimeOffset advancedAt = clock.GetUtcNow();
+            Interlocked.Exchange(ref lastMediaAdvanceTicks, advancedAt.UtcTicks);
+            if (Interlocked.Exchange(ref producing, 1) == 0)
             {
-                if (parser.Feed(line) is not { } sample)
-                    return;
+                await publish(
+                    new DvrEvent.PartProducingMedia(job, advancedAt),
+                    CancellationToken.None);
+            }
+        }
 
-                // total_size is N/A for the HLS muxer. The tracker reads the part playlist
-                // incrementally, so a progress sample never enumerates the part directory.
-                long bytes = byteTracker.Sample();
-                logger.LogDebug(
-                    "Recorder {Job} progress: {Bytes} bytes, media {MediaTime}",
-                    job,
-                    bytes,
-                    sample.MediaTime);
-                reportProgress?.Invoke(job, bytes, sample.MediaTime);
+        void OnFfmpegStderr(string line)
+        {
+            string safe = ForLog(line);
+            tail.Add("ffmpeg", safe);
+            logger.LogDebug("[ffmpeg {Job}] {Line}", job, safe);
+        }
 
-                if (!sample.Advanced)
-                    return;
+        void OnStreamlinkStderr(string line)
+        {
+            string safe = ForLog(line);
 
-                DateTimeOffset advancedAt = clock.GetUtcNow();
-                Interlocked.Exchange(ref lastMediaAdvanceTicks, advancedAt.UtcTicks);
-                if (Interlocked.Exchange(ref producing, 1) == 0)
+            // Streamlink announces skipped ads before it starves FFmpeg of media. Extend the
+            // grace window before logging so a later stall check observes the new deadline.
+            if (StreamlinkAdBreak.TryGetGraceUntil(line, clock.GetUtcNow(), out DateTimeOffset graceUntil))
+            {
+                long candidate = graceUntil.UtcTicks;
+                long current = Interlocked.Read(ref adGraceUntilTicks);
+                while (candidate > current)
                 {
-                    await publish(
-                        new DvrEvent.PartProducingMedia(job, advancedAt),
-                        CancellationToken.None);
+                    long seen = Interlocked.CompareExchange(
+                        ref adGraceUntilTicks, candidate, current);
+                    if (seen == current)
+                        break;
+                    current = seen;
                 }
-            }))
-            .WithStandardErrorPipe(PipeTarget.ToDelegate(line =>
-            {
-                string safe = ForLog(line);
-                tail.Add("ffmpeg", safe);
-                logger.LogDebug("[ffmpeg {Job}] {Line}", job, safe);
-            }));
+            }
 
-        Command streamlinkCommand = Cli.Wrap(recorder.StreamlinkPath)
-            .WithWorkingDirectory(session.Directory)
-            .WithArguments(StreamlinkArgs.For(session.Channel, recorder))
-            .WithValidation(CommandResultValidation.None)
-            .WithStandardOutputPipe(PipeTarget.ToStream(pipe.Writer.AsStream()))
-            .WithStandardErrorPipe(PipeTarget.ToDelegate(line =>
-            {
-                string safe = ForLog(line);
+            tail.Add("streamlink", safe);
+            logger.LogDebug("[streamlink {Job}] {Line}", job, safe);
+        }
 
-                // Streamlink announces skipped ads before it starves FFmpeg of media. Extend the
-                // grace window before logging so a later stall check observes the new deadline.
-                if (StreamlinkAdBreak.TryGetGraceUntil(line, clock.GetUtcNow(), out DateTimeOffset graceUntil))
-                {
-                    long candidate = graceUntil.UtcTicks;
-                    long current = Interlocked.Read(ref adGraceUntilTicks);
-                    while (candidate > current)
-                    {
-                        long seen = Interlocked.CompareExchange(
-                            ref adGraceUntilTicks, candidate, current);
-                        if (seen == current)
-                            break;
-                        current = seen;
-                    }
-                }
-
-                tail.Add("streamlink", safe);
-                logger.LogDebug("[streamlink {Job}] {Line}", job, safe);
-            }));
+        var ffmpegLaunch = new ToolLaunch(
+            "ffmpeg",
+            recorder.FfmpegPath,
+            FfmpegArgs.ForPart(session.Directory, job.Part, recorder.SegmentSeconds),
+            session.Directory,
+            StandardInput: pipe.Reader.AsStream());
+        var streamlinkLaunch = new ToolLaunch(
+            "streamlink",
+            recorder.StreamlinkPath,
+            StreamlinkArgs.For(session.Channel, recorder),
+            session.Directory,
+            StandardOutput: pipe.Writer.AsStream());
 
         RunningProcess ffmpeg = _processRunner.Start(
-            ffmpegCommand, ffmpegForce.Token, ffmpegGraceful.Token);
+            ffmpegLaunch, OnFfmpegStdout, OnFfmpegStderr, ffmpegForce.Token, ffmpegGraceful.Token);
         RunningProcess streamlink = _processRunner.Start(
-            streamlinkCommand, streamlinkForce.Token, streamlinkGraceful.Token);
+            streamlinkLaunch,
+            onStdoutLine: null,
+            OnStreamlinkStderr,
+            streamlinkForce.Token,
+            streamlinkGraceful.Token);
         Task<ProcessOutcome> ffmpegTask = ffmpeg.Completion;
         Task<ProcessOutcome> streamlinkTask = streamlink.Completion;
 
