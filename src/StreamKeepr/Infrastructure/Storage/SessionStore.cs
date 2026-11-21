@@ -488,7 +488,7 @@ public sealed class SessionStore(
         foreach (var (number, path) in PartPlaylistFiles(directory))
         {
             string content = await PartPlaylistReader.ReadAllTextAsync(path, ct);
-            if (HasSegments(content))
+            if (PlaylistStitcher.ParsePart(number, content).HasSegments)
                 parts.Add(new PartPlaylist(number, content));
         }
 
@@ -523,18 +523,6 @@ public sealed class SessionStore(
 
         parts.Sort((left, right) => left.Part.CompareTo(right.Part));
         return parts;
-    }
-
-    private static bool HasSegments(string playlist)
-    {
-        foreach (string raw in playlist.Split('\n'))
-        {
-            string line = raw.Trim();
-            if (line.Length > 0 && line[0] != '#')
-                return true;
-        }
-
-        return false;
     }
 
     private static Task<string?> TryReadFileAsync(string path, CancellationToken ct) =>

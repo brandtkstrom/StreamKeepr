@@ -20,8 +20,6 @@ public sealed class RecoveryService(
     TimeProvider clock,
     ILogger<RecoveryService> logger)
 {
-    private const string MapPrefix = "#EXT-X-MAP:URI=\"";
-
     public async Task<IReadOnlyDictionary<string, RecoveredChannel>> RecoverAsync(
         IReadOnlyList<ChannelEntry> channels, CancellationToken ct)
     {
@@ -238,23 +236,7 @@ public sealed class RecoveryService(
         foreach (ScannedPart scanned in parts)
         {
             lastPart = Math.Max(lastPart, scanned.Playlist.PartNumber);
-
-            foreach (string raw in scanned.Playlist.Content.Split('\n'))
-            {
-                string line = raw.Trim();
-                if (line.Length == 0)
-                    continue;
-
-                if (line.StartsWith(MapPrefix, StringComparison.Ordinal))
-                {
-                    if (line.EndsWith('"') && line.Length > MapPrefix.Length)
-                        referenced.Add(line[MapPrefix.Length..^1]);
-                }
-                else if (line[0] != '#')
-                {
-                    referenced.Add(line);
-                }
-            }
+            referenced.UnionWith(PlaylistStitcher.ReferencedMedia(scanned.Playlist.Content));
         }
 
         int removed = 0;
@@ -290,7 +272,7 @@ public sealed class RecoveryService(
         {
             try
             {
-                string content = await File.ReadAllTextAsync(path, ct);
+                string content = await PartPlaylistReader.ReadAllTextAsync(path, ct);
                 int segments = PlaylistTimeline.Parse(content).SegmentCount;
                 parts.Add(new ScannedPart(new PartPlaylist(part, content), segments));
             }
@@ -315,9 +297,8 @@ public sealed class RecoveryService(
 
         try
         {
-            string index = await File.ReadAllTextAsync(path, ct);
-            return PlaylistTimeline.Parse(index).SegmentCount > 0
-                && index.Contains("#EXT-X-ENDLIST", StringComparison.Ordinal);
+            string index = await PartPlaylistReader.ReadAllTextAsync(path, ct);
+            return PlaylistStitcher.IsFinalIndex(index);
         }
         catch (Exception ex) when (IsReadFailure(ex))
         {

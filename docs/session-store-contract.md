@@ -41,7 +41,7 @@ public sealed record SessionManifest(
 `RecordingSummary` adds `PartCount`, `SegmentCount`, and `EndedAt`. Derive, do not store:
 
 - `Title` and `Game`: latest `Metadata` entry.
-- `PartCount`: number of non-empty `pNNN.m3u8` files.
+- `PartCount`: number of `pNNN.m3u8` files that have segments (`ParsedPart.HasSegments`: at least one complete segment line).
 - `SegmentCount`: number of segment URI lines across the part playlists (or the final index).
 - `DurationSeconds`: `PlaylistTimeline.Duration` of the session index; null while recording.
 - `SizeBytes`: sum of `init_*.mp4`, `*.m4s`, and `index.m3u8`; excludes `session.json`, `thumb.jpg`, and part playlists.
@@ -105,7 +105,7 @@ Rules:
 
 - Header: `#EXTM3U`, `#EXT-X-VERSION:7`, `#EXT-X-TARGETDURATION`, `#EXT-X-MEDIA-SEQUENCE:0`, `#EXT-X-PLAYLIST-TYPE:EVENT`, `#EXT-X-INDEPENDENT-SEGMENTS`.
 - For each part in ascending numeric part order, strip the part header tags (`#EXTM3U`, version, target duration, media sequence, playlist type, independent segments, ENDLIST) and keep the body, including the part's `#EXT-X-MAP` and `#EXT-X-PROGRAM-DATE-TIME`.
-- Insert `#EXT-X-DISCONTINUITY` between non-empty parts.
+- A part has segments only when `PlaylistStitcher.ParsePart` finds at least one complete segment line (`ParsedPart.HasSegments`); this is the one definition the store, finalize, and the live index use. Insert `#EXT-X-DISCONTINUITY` between parts that have segments; a part without segments adds no body and no discontinuity.
 - Keep every line through the last segment URI; drop a trailing `#EXTINF` without a URI.
 - Append `#EXT-X-ENDLIST` only when `final` is true.
 - Use `\n` line endings and invariant formatting.
@@ -132,15 +132,14 @@ Live snapshot:
 - `LivePlaylistCache` is a singleton keyed by session id. Each entry is an immutable `LivePlaylistSnapshot` (`Id`, `Version`, `Body`, pre-encoded UTF-8 `Utf8`, `SegmentCount`, `RefreshedAt`). Publishing swaps the reference atomically; a reader never observes a partial body.
 - `LivePlaylistService` is a hosted `BackgroundService`. After the supervisor's recovery has loaded the library, it refreshes immediately and then every `LivePlaylist:RefreshSeconds` (default 1). Each session has a single-flight refresh gate: a busy session skips the tick rather than queueing.
 - A refresh reads the manifest and part playlists through `PartPlaylistReader` (read/write/delete sharing, `FileOptions.Asynchronous`, `StreamReader` and the token) without the manifest lock. `SessionStore.StitchLiveAsync` no longer exists.
-- Per session, `SessionStoreLivePlaylistIo` keeps an immutable `LiveSnapshot(ImmutableArray<PartSnapshot> Parts, string Body, int TargetDuration)`. A `PartSnapshot` holds the part number, length, last-write ticks, raw content, parsed body lines, and declared target duration. The refresh gate serializes builds; publishing swaps the whole snapshot reference.
+- Per session, `SessionStoreLivePlaylistIo` keeps an immutable `LiveSnapshot(ImmutableArray<PartSnapshot> Parts, string Body)`. A `PartSnapshot` holds the `ParsedPart` plus the file length and last-write ticks. The refresh gate serializes builds; publishing swaps the whole snapshot reference.
 - A refresh enumerates only `pNNN.m3u8` (never `*.tmp`) and stats every part. When every `(length, lastWriteUtc)` matches the snapshot, it returns the cached `Body` with zero part-content reads and without taking `LockFor`.
 - Only the active last part may still grow. It is read through `PartPlaylistReader`; once a new part appears, the previous last part is read once more in case it received its final segments. Every other closed part is served from the snapshot and is never re-read, even if its file changes.
-- A changed part is accepted as append-only only when its new length is greater, its content starts with the old content ordinally, it ends with a line feed, and its parsed body lines extend the old body lines with at least one new complete segment URI. An append-only last part appends only its new body lines.
-- A new last part with segments appends exactly one `#EXT-X-DISCONTINUITY` before its `#EXT-X-MAP`/body. A header-only new part adds nothing and contributes no discontinuity.
-- Any other change (truncate, rewrite, same-length content change, earlier-part append, deletion, reorder, or target-duration change) rebuilds `Body` from the parsed part bodies already in memory, never by re-reading closed parts. The rebuild uses the same parser and renderer as `PlaylistStitcher.Stitch`, so the incremental result equals a full stitch of the same inputs byte for byte.
-- `PlaylistStitcher.ParsePart` is the single part parser used by both `Stitch` and the incremental composer. It requires a terminating line feed before accepting the last line, so a trailing `#EXTINF` or an unterminated URI is never exposed.
-- A changed part that is unreadable or is not a complete playlist (`#EXTM3U` plus a terminating line feed) keeps the last good snapshot; no partial or corrupt body is published. `LivePlaylistService` independently keeps its last-known-good body on any refresh failure.
-- A target-duration raise rebuilds the header; the append path never edits the body under an unchanged target.
+- Any change (a grown, truncated, or rewritten last part, a new, deleted, or inserted part, or a target-duration change) renders `Body` from the parsed parts in memory with `PlaylistStitcher.Render`, the same renderer the session index uses, never by re-reading closed parts. The live index therefore equals a full stitch of the same parts by construction. Rendering the whole body is cheap next to publishing it, which already encodes the whole body; #243's cost was disk I/O and the session lock, which these read rules avoid.
+- A new last part with segments adds exactly one `#EXT-X-DISCONTINUITY` before its `#EXT-X-MAP`/body. A header-only new part adds nothing and contributes no discontinuity.
+- `PlaylistStitcher.ParsePart` is the single part parser used by both `Stitch` and the live index. It requires a terminating line feed before accepting the last line, so a trailing `#EXTINF` or an unterminated URI is never exposed.
+- A changed part that is unreadable or is not a complete playlist (`PlaylistStitcher.IsCompletePart`: `#EXTM3U` plus a terminating line feed) keeps the last good snapshot; no partial or corrupt body is published. `LivePlaylistService` independently keeps its last-known-good body on any refresh failure.
+- A target-duration raise changes the header of the next rendered body.
 - When a session leaves the live set (finalize or delete), the service drops its snapshot and calls the IO's invalidation hook, which bumps the per-session epoch and releases the parsed parts. Reopen republishes from a Recording summary. An in-flight build cannot publish after the epoch bump. The library/pruner behavior below is unchanged.
 - A refresh constructs the new `LiveSnapshot` off to the side and publishes it atomically. A failed or timed-out read publishes nothing and keeps the last-known-good body.
 - The refresher caches only `Recording` sessions. It prunes a snapshot when its summary leaves the library or is no longer `Recording`, and it re-checks the library before publishing: a refresh that races finalize never publishes a body for a Complete session.
@@ -163,14 +162,15 @@ For each `recordingsRoot/{channel}/{session}`:
 2. If `session.json` is missing: log and skip; leave media untouched.
 3. Read the manifest. If corrupt or empty: log and skip; leave media untouched.
 4. If `Status == Complete`:
-   - If `index.m3u8` exists and parses, add `Resumable(Session, LastPart + 1, Complete: true)` to finished.
+   - If `index.m3u8` is a final index (`PlaylistStitcher.IsFinalIndex`: it parses, has at least one segment, and has an `#EXT-X-ENDLIST` line), add `Resumable(Session, LastPart + 1, Complete: true)` to finished.
    - If the index is missing but part playlists exist, re-finalize (stitch, atomic index, manifest complete, library upsert), then add to finished.
    - If there are no parts, log and skip; do not serve.
 5. If `Status == Recording`:
    - Delete stale `*.tmp` files.
    - Ignore `chat/`; chat recovery is independent and append-only.
    - Parse every part playlist. If any parse fails, log and skip the session; leave media untouched.
-   - Delete `*.m4s` and `init_*.mp4` not referenced by any part playlist.
+   - Delete `*.m4s` and `init_*.mp4` not referenced by any part playlist (`PlaylistStitcher.ReferencedMedia`). This set is deliberately looser than `ParsePart`: an unterminated last line still counts, so media whose playlist line was still being written is never deleted.
+   - Part playlists and the index are read through `PartPlaylistReader`.
    - Add `Resumable(Session, LastPart + 1, Complete: false)` to unfinished.
 6. Per watched channel:
    - For watched, unpaused channels, keep the newest unfinished session as `Unfinished`.
@@ -186,7 +186,7 @@ The supervisor maps `Unfinished` to `Idle.Resume` and `Finished` to `Idle.Finish
 - `OpenAsync(session, live)`: under the lock, if `session.json` exists, reopen; otherwise create the directory, write manifest v1 with the first metadata entry, and upsert the library.
 - `ReopenAsync(session)`: under the lock, set `Status = Recording`, clear `EndedAt`/`DurationSeconds`/`SizeBytes`, delete `index.m3u8`, write the manifest, and upsert the library; the live refresher republishes from the new Recording summary on its next tick. The prior finalize/delete prune has already released the IO snapshot, so the republish rebuilds from the parts.
 - `AppendMetadataAsync(session, live)`: under the lock, read the manifest; if the latest title and game are unchanged, return. Otherwise append a metadata change, write the manifest, upsert the library with live counts and chapters.
-- `FinalizeAsync(session)`: under the lock, collect non-empty part playlists in numeric order. If none, delete the session directory and remove the library entry. Otherwise stitch final, write `index.m3u8` atomically, set `Status = Complete`, `EndedAt`, `DurationSeconds`, `SizeBytes`, write the manifest, and project the library summary from the manifest, parts, index, and one `MediaSize` pass already in memory instead of re-reading them under the lock. Finalize does not invalidate the cache directly; the endpoint switches to the index on the next request, and the next live refresh sees a Complete summary and prunes the service snapshot and the IO's parsed parts.
+- `FinalizeAsync(session)`: under the lock, collect the part playlists that have segments in numeric order. If none, delete the session directory and remove the library entry. Otherwise stitch final, write `index.m3u8` atomically, set `Status = Complete`, `EndedAt`, `DurationSeconds`, `SizeBytes`, write the manifest, and project the library summary from the manifest, parts, index, and one `MediaSize` pass already in memory instead of re-reading them under the lock. Finalize does not invalidate the cache directly; the endpoint switches to the index on the next request, and the next live refresh sees a Complete summary and prunes the service snapshot and the IO's parsed parts.
 - Recording-admin delete: take the manifest lock, remove the library entry, delete the directory, and remove the lock entry; the endpoint returns 404 immediately and the next live refresh prunes the service snapshot and releases the IO parsed parts. Export leases are checked by the caller. The session directory includes `chat/` and `viewers.jsonl`, so chat and viewer samples are deleted with the recording. `FinalizeAsync` does not rewrite chat; the chat writer closes and optionally purges deleted text on its own finalize path.
 - `LivePlaylistService.GetOrRefreshAsync(summary)`: returns a live snapshot for a Recording session or the finalized index for a Complete session (thumbnail path only). The refresh gate is released before the caller takes the manifest lock.
 - `SaveThumbnailAsync(dir, image)`: under the lock, if `session.json` is missing (deleted) or `thumb.jpg` exists, delete the image and return false; otherwise rename it to `thumb.jpg` and upsert the library.
@@ -286,9 +286,10 @@ Writes and locks:
 - `LivePlaylistCache` publish/read replaces a whole immutable snapshot; concurrent readers see one valid version.
 - The refresher publishes the stitched body, version, and segment count; a new part updates the body.
 - A warm refresh performs zero part-content reads and returns the cached body; `.tmp` is never read.
-- An append-only last part reads only that part, appends only its new lines, and equals a full stitch.
-- A new part appends one discontinuity before its map; a header-only new part adds nothing.
-- Truncate, rewrite, same-length change, earlier-part append, deletion, reorder, and target-duration change rebuild from cached parts and equal a full stitch.
+- A grown last part is the only part read, and the live index equals a full stitch.
+- A new part adds one discontinuity before its map; a header-only new part adds nothing.
+- Truncate, deletion, insertion, and target-duration change render from the parts in memory and equal a full stitch; an earlier part that changes is never re-read.
+- Finalize deletes a session whose only segment line is unterminated; recovery never deletes media named by an unterminated line.
 - An unterminated tail, a changed part that is not a complete playlist, and a failed read keep the last good body and never publish a partial or corrupt playlist.
 - A concurrent temp-file writer and many readers see only complete, parseable playlists whose segment count never decreases; the final body equals a full stitch.
 - The refresher is single-flight per session; a busy session skips the tick.

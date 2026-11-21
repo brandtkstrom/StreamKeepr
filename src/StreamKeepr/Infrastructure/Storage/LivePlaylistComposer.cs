@@ -1,6 +1,4 @@
 using System.Collections.Immutable;
-using System.Diagnostics.CodeAnalysis;
-using System.Text;
 
 namespace StreamKeepr.Infrastructure.Storage;
 
@@ -14,9 +12,9 @@ internal readonly record struct PartFileObservation(
 /// <summary>
 /// Builds a live snapshot from fresh part-file metadata. Only a part that may still be growing
 /// (the active last part, or the previous last part after a new part appears) is read; every
-/// other part comes from the previous snapshot. Composition either appends a suffix or rebuilds
-/// through <see cref="PlaylistStitcher.StitchParsed"/>, so an incremental body always equals a
-/// full stitch of the same parts.
+/// other part comes from the previous snapshot. Any change renders the live index from the
+/// parsed parts in memory through <see cref="PlaylistStitcher.Render"/>, the same renderer as
+/// the session index, so the live index always equals a full stitch of the same parts.
 /// </summary>
 internal static class LivePlaylistComposer
 {
@@ -80,54 +78,36 @@ internal static class LivePlaylistComposer
             }
 
             string content = await source.ReadAsync(file.Path, ct).ConfigureAwait(false);
-            if (!IsCompletePart(content))
+            if (!PlaylistStitcher.IsCompletePart(content))
             {
                 // A partial or malformed replace must not shrink or corrupt the live body.
                 // Keep the last good snapshot and retry on the next refresh.
                 return previous ?? LiveSnapshot.Empty(minTargetDuration);
             }
 
-            ParsedPart parsed = PlaylistStitcher.ParsePart(file.PartNumber, content);
             next.Add(new PartSnapshot(
-                file.PartNumber,
+                PlaylistStitcher.ParsePart(file.PartNumber, content),
                 file.Length,
-                file.LastWriteTicks,
-                content,
-                parsed.BodyLines,
-                parsed.TargetDuration));
+                file.LastWriteTicks));
             changed = true;
         }
 
         ImmutableArray<PartSnapshot> built = next.ToImmutable();
-        if (previous is null)
-            return Rebuild(built, minTargetDuration);
-
-        if (!changed && HasSameParts(previous, built))
+        if (previous is not null && !changed && HasSameParts(previous, built))
             return previous;
 
-        int targetDuration = PlaylistStitcher.EffectiveTargetDuration(
-            built.Select(part => part.TargetDuration), minTargetDuration);
-        if (targetDuration != previous.TargetDuration)
-            return Rebuild(built, minTargetDuration);
-
-        if (!TryAppend(previous, built, out string? body))
-            return Rebuild(built, minTargetDuration);
-
-        return new LiveSnapshot(built, body, previous.TargetDuration);
+        return Render(built, minTargetDuration);
     }
 
-    private static LiveSnapshot Rebuild(
+    private static LiveSnapshot Render(
         ImmutableArray<PartSnapshot> parts, int minTargetDuration)
     {
         var parsed = new ParsedPart[parts.Length];
         for (int i = 0; i < parts.Length; i++)
-            parsed[i] = parts[i].ToParsed();
+            parsed[i] = parts[i].Parsed;
 
         return new LiveSnapshot(
-            parts,
-            PlaylistStitcher.StitchParsed(parsed, minTargetDuration, final: false),
-            PlaylistStitcher.EffectiveTargetDuration(
-                parts.Select(part => part.TargetDuration), minTargetDuration));
+            parts, PlaylistStitcher.Render(parsed, minTargetDuration, final: false));
     }
 
     private static bool HasSameParts(
@@ -144,113 +124,4 @@ internal static class LivePlaylistComposer
 
         return true;
     }
-
-    /// <summary>
-    /// Appends the bytes that changed since <paramref name="previous"/> when the previous part
-    /// list is a prefix of the new one. Returns false when any body change is not append-only,
-    /// in which case the caller rebuilds from the parts already in memory.
-    /// </summary>
-    private static bool TryAppend(
-        LiveSnapshot previous,
-        ImmutableArray<PartSnapshot> next,
-        [NotNullWhen(true)] out string? body)
-    {
-        body = null;
-        if (next.Length < previous.Parts.Length)
-            return false;
-
-        for (int i = 0; i < previous.Parts.Length; i++)
-        {
-            if (next[i].PartNumber != previous.Parts[i].PartNumber)
-                return false;
-        }
-
-        var suffix = new StringBuilder();
-        bool hasPriorBody = false;
-
-        for (int i = 0; i < next.Length; i++)
-        {
-            PartSnapshot current = next[i];
-            if (i < previous.Parts.Length)
-            {
-                PartSnapshot prior = previous.Parts[i];
-                if (LinesEqual(current.BodyLines, prior.BodyLines))
-                {
-                    hasPriorBody |= !prior.BodyLines.IsDefaultOrEmpty;
-                    continue;
-                }
-
-                if (!CanAppendDelta(prior, current))
-                    return false;
-
-                if (prior.BodyLines.IsDefaultOrEmpty && hasPriorBody)
-                    suffix.Append(PlaylistStitcher.DiscontinuityLine);
-
-                foreach (string line in current.BodyLines[prior.BodyLines.Length..])
-                    suffix.Append(line).Append('\n');
-
-                hasPriorBody = true;
-            }
-            else
-            {
-                if (current.BodyLines.IsDefaultOrEmpty)
-                    continue;
-
-                if (hasPriorBody)
-                    suffix.Append(PlaylistStitcher.DiscontinuityLine);
-
-                foreach (string line in current.BodyLines)
-                    suffix.Append(line).Append('\n');
-
-                hasPriorBody = true;
-            }
-        }
-
-        body = previous.Body + suffix;
-        return true;
-    }
-
-    private static bool CanAppendDelta(PartSnapshot prior, PartSnapshot current) =>
-        current.Length > prior.Length
-        && current.Content.StartsWith(prior.Content, StringComparison.Ordinal)
-        && current.Content.EndsWith('\n')
-        && current.BodyLines.Length > prior.BodyLines.Length
-        && LinesStartWith(current.BodyLines, prior.BodyLines);
-
-    private static bool LinesStartWith(
-        ImmutableArray<string> lines, ImmutableArray<string> prefix)
-    {
-        if (lines.Length < prefix.Length)
-            return false;
-
-        for (int i = 0; i < prefix.Length; i++)
-        {
-            if (!string.Equals(lines[i], prefix[i], StringComparison.Ordinal))
-                return false;
-        }
-
-        return true;
-    }
-
-    private static bool LinesEqual(ImmutableArray<string> left, ImmutableArray<string> right)
-    {
-        if (left.Length != right.Length)
-            return false;
-
-        for (int i = 0; i < left.Length; i++)
-        {
-            if (!string.Equals(left[i], right[i], StringComparison.Ordinal))
-                return false;
-        }
-
-        return true;
-    }
-
-    /// <summary>
-    /// A complete FFmpeg part playlist ends with a line feed and starts with #EXTM3U. Anything
-    /// else is a partial write or a contract violation and must not replace the last good body.
-    /// </summary>
-    private static bool IsCompletePart(string content) =>
-        content.EndsWith('\n')
-        && content.StartsWith(PlaylistStitcher.ExtM3uTag, StringComparison.Ordinal);
 }

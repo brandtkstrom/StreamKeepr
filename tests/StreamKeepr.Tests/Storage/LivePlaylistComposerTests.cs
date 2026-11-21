@@ -25,7 +25,7 @@ public sealed class LivePlaylistComposerTests
     }
 
     [Fact]
-    public async Task Append_only_change_reads_only_the_changed_part_and_equals_a_full_stitch()
+    public async Task A_grown_last_part_is_the_only_part_read_and_equals_a_full_stitch()
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
@@ -42,7 +42,6 @@ public sealed class LivePlaylistComposerTests
         Assert.Equal([SourcePath(1)], source.Reads);
         Assert.Equal(Expected((1, appended)), after.Body);
         Assert.Contains("p001_00002.m4s", after.Body, StringComparison.Ordinal);
-        Assert.Equal(before.TargetDuration, after.TargetDuration);
     }
 
     [Fact]
@@ -65,6 +64,25 @@ public sealed class LivePlaylistComposerTests
     }
 
     [Fact]
+    public async Task A_part_cut_off_mid_write_never_shrinks_the_live_index()
+    {
+        string first = LivePlaylist(6, "init_001.mp4",
+            Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6),
+            Segment("p001_00002.m4s", "2026-11-10T18:30:06Z", 6));
+        var source = new RecordingSource().Add(1, first);
+        LiveSnapshot before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
+
+        // A read that raced a non-atomic write sees only a prefix of the file, cut mid-line.
+        string cut = first[..first.IndexOf("p001_00002", StringComparison.Ordinal)] + "p001_0";
+        source.Add(1, cut);
+
+        LiveSnapshot after = await BuildAsync(before, [Observe(1, cut, ticks: 2)], source);
+
+        Assert.Same(before, after);
+        Assert.Contains("p001_00002.m4s", after.Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_complete_but_tag_only_tail_changes_no_body_bytes()
     {
         string first = LivePlaylist(6, "init_001.mp4",
@@ -83,7 +101,7 @@ public sealed class LivePlaylistComposerTests
     }
 
     [Fact]
-    public async Task Truncating_the_last_part_rebuilds_from_the_truncated_content()
+    public async Task A_truncated_last_part_drops_its_removed_segments()
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6),
@@ -104,30 +122,7 @@ public sealed class LivePlaylistComposerTests
     }
 
     [Fact]
-    public async Task Rewriting_the_last_part_at_the_same_length_rebuilds()
-    {
-        string first = LivePlaylist(6, "init_001.mp4",
-            Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
-        var source = new RecordingSource().Add(1, first);
-        LiveSnapshot before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
-
-        string rewritten = LivePlaylist(6, "init_001.mp4",
-            Segment("p001_00009.m4s", "2026-11-10T18:30:00Z", 6));
-        Assert.Equal(
-            Encoding.UTF8.GetByteCount(first), Encoding.UTF8.GetByteCount(rewritten));
-        source.Add(1, rewritten);
-        source.Reset();
-
-        LiveSnapshot after = await BuildAsync(before, [Observe(1, rewritten, ticks: 2)], source);
-
-        Assert.Equal([SourcePath(1)], source.Reads);
-        Assert.Equal(Expected((1, rewritten)), after.Body);
-        Assert.Contains("p001_00009.m4s", after.Body, StringComparison.Ordinal);
-        Assert.DoesNotContain("p001_00001.m4s", after.Body, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task A_target_duration_change_rebuilds_the_header()
+    public async Task A_longer_part_target_raises_the_header_target()
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
@@ -142,13 +137,12 @@ public sealed class LivePlaylistComposerTests
         LiveSnapshot after = await BuildAsync(before, [Observe(1, longerTarget, ticks: 2)], source);
 
         Assert.Equal([SourcePath(1)], source.Reads);
-        Assert.Equal(20, after.TargetDuration);
         Assert.Contains("#EXT-X-TARGETDURATION:20", after.Body, StringComparison.Ordinal);
         Assert.Equal(Expected((1, longerTarget)), after.Body);
     }
 
     [Fact]
-    public async Task A_new_last_part_appends_one_discontinuity_before_its_map()
+    public async Task A_new_last_part_adds_one_discontinuity_before_its_map()
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
@@ -167,6 +161,29 @@ public sealed class LivePlaylistComposerTests
         Assert.True(
             after.Body.IndexOf("#EXT-X-DISCONTINUITY", StringComparison.Ordinal)
             < after.Body.IndexOf("#EXT-X-MAP:URI=\"init_002.mp4\"", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task The_previous_last_part_is_read_once_more_when_a_new_part_appears()
+    {
+        string first = LivePlaylist(6, "init_001.mp4",
+            Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
+        var source = new RecordingSource().Add(1, first);
+        LiveSnapshot before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
+
+        // Part 1 received its final segment just before it closed and part 2 opened.
+        string closed = Append(first,
+            Segment("p001_00002.m4s", "2026-11-10T18:30:06Z", 6));
+        string second = LivePlaylist(6, "init_002.mp4",
+            Segment("p002_00001.m4s", "2026-11-10T18:30:12Z", 6));
+        source.Add(1, closed).Add(2, second);
+        source.Reset();
+
+        LiveSnapshot after = await BuildAsync(
+            before, [Observe(1, closed, ticks: 2), Observe(2, second)], source);
+
+        Assert.Equal([SourcePath(1), SourcePath(2)], source.Reads);
+        Assert.Equal(Expected((1, closed), (2, second)), after.Body);
     }
 
     [Fact]
@@ -213,7 +230,7 @@ public sealed class LivePlaylistComposerTests
     }
 
     [Fact]
-    public async Task Deleting_a_part_rebuilds_from_the_cached_parts()
+    public async Task A_deleted_part_leaves_the_index_without_rereading_the_others()
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
@@ -233,7 +250,7 @@ public sealed class LivePlaylistComposerTests
     }
 
     [Fact]
-    public async Task Inserting_a_part_rebuilds_from_cached_and_new_parts()
+    public async Task An_inserted_part_is_read_and_the_others_come_from_memory()
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
@@ -290,7 +307,7 @@ public sealed class LivePlaylistComposerTests
     }
 
     [Fact]
-    public async Task A_sequence_of_incremental_changes_always_equals_a_full_stitch()
+    public async Task A_sequence_of_live_changes_always_equals_a_full_stitch()
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));

@@ -249,4 +249,60 @@ public sealed class PlaylistStitcherTests
 
         Assert.Throws<ArgumentException>(() => PlaylistStitcher.Stitch([first, duplicate], 12, final: false));
     }
+
+    [Fact]
+    public void A_stitched_final_index_is_final()
+    {
+        var part = new PartPlaylist(1, Playlist(6, "init_001.mp4",
+            Segment("p001_00001.m4s", "2026-01-01T00:00:00+00:00", 6)));
+
+        Assert.True(PlaylistStitcher.IsFinalIndex(PlaylistStitcher.Stitch([part], 12, final: true)));
+        Assert.False(PlaylistStitcher.IsFinalIndex(PlaylistStitcher.Stitch([part], 12, final: false)));
+    }
+
+    [Fact]
+    public void An_index_with_endlist_but_no_segments_is_not_final()
+    {
+        Assert.False(PlaylistStitcher.IsFinalIndex(PlaylistStitcher.Stitch([], 12, final: true)));
+    }
+
+    [Fact]
+    public void A_malformed_index_cannot_be_judged_final()
+    {
+        string index = Lines("#EXTM3U", "#EXTINF:abc,", "p001_00000.m4s", "#EXT-X-ENDLIST", "");
+
+        Assert.Throws<FormatException>(() => PlaylistStitcher.IsFinalIndex(index));
+    }
+
+    [Fact]
+    public void Referenced_media_lists_init_maps_and_segment_uris()
+    {
+        string content = Playlist(6, "init_001.mp4",
+            Segment("p001_00001.m4s", "2026-01-01T00:00:00+00:00", 6),
+            Segment("p001_00002.m4s", "2026-01-01T00:00:06+00:00", 6));
+
+        Assert.Equal(
+            ["init_001.mp4", "p001_00001.m4s", "p001_00002.m4s"],
+            PlaylistStitcher.ReferencedMedia(content).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void Referenced_media_keeps_an_unterminated_segment_line_so_recovery_never_deletes_it()
+    {
+        // Stricter than ParsePart on purpose: this set decides what recovery may delete, so a
+        // segment whose playlist line was still being written stays referenced.
+        string content = "#EXTM3U\n#EXT-X-MAP:URI=\"init_001.mp4\"\n#EXTINF:6,\np001_00000.m4s\n"
+            + "#EXTINF:6,\np001_00001.m4s";
+
+        Assert.Contains("p001_00001.m4s", PlaylistStitcher.ReferencedMedia(content));
+        Assert.Empty(PlaylistStitcher.ParsePart(1, content).BodyLines.Where(line => line == "p001_00001.m4s"));
+    }
+
+    [Fact]
+    public void Referenced_media_ignores_an_unclosed_init_map()
+    {
+        string content = "#EXTM3U\n#EXT-X-MAP:URI=\"init_001.mp4\n#EXTINF:6,\np001_00000.m4s\n";
+
+        Assert.Equal(["p001_00000.m4s"], PlaylistStitcher.ReferencedMedia(content));
+    }
 }

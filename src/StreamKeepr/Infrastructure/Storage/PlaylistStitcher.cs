@@ -12,14 +12,15 @@ namespace StreamKeepr.Infrastructure.Storage;
 /// </summary>
 public static class PlaylistStitcher
 {
-    internal const string ExtM3uTag = "#EXTM3U";
+    private const string ExtM3uTag = "#EXTM3U";
     private const string VersionTag = "#EXT-X-VERSION";
     private const string TargetDurationTag = "#EXT-X-TARGETDURATION";
     private const string MediaSequenceTag = "#EXT-X-MEDIA-SEQUENCE";
     private const string PlaylistTypeTag = "#EXT-X-PLAYLIST-TYPE";
     private const string IndependentSegmentsTag = "#EXT-X-INDEPENDENT-SEGMENTS";
     private const string EndListTag = "#EXT-X-ENDLIST";
-    internal const string DiscontinuityLine = "#EXT-X-DISCONTINUITY\n";
+    private const string MapUriPrefix = "#EXT-X-MAP:URI=\"";
+    private const string DiscontinuityLine = "#EXT-X-DISCONTINUITY\n";
 
     private static readonly string[] PartHeaderTags =
     [
@@ -64,13 +65,15 @@ public static class PlaylistStitcher
             parsed.Add(ParsePart(part.PartNumber, part.Content));
         }
 
-        return StitchParsed(parsed, minTargetDuration, final);
+        return Render(parsed, minTargetDuration, final);
     }
 
     /// <summary>
-    /// Stitches already parsed parts. Callers must pass parts in ascending part order.
+    /// Renders already parsed parts as the live index (<paramref name="final"/> false) or the
+    /// session index (true). Callers must pass parts in ascending part order. This is the one
+    /// place the header, the part order, and the discontinuity rule live.
     /// </summary>
-    internal static string StitchParsed(
+    internal static string Render(
         IReadOnlyList<ParsedPart> parts, int minTargetDuration, bool final)
     {
         int targetDuration = EffectiveTargetDuration(
@@ -88,7 +91,7 @@ public static class PlaylistStitcher
         bool hasBody = false;
         foreach (ParsedPart part in parts)
         {
-            if (part.BodyLines.IsDefaultOrEmpty)
+            if (!part.HasSegments)
                 continue;
 
             if (hasBody)
@@ -108,9 +111,9 @@ public static class PlaylistStitcher
 
     /// <summary>
     /// The effective <c>#EXT-X-TARGETDURATION</c>: the caller's floor raised by any part's
-    /// declared target. Shared so the full and incremental paths cannot drift.
+    /// declared target.
     /// </summary>
-    internal static int EffectiveTargetDuration(
+    private static int EffectiveTargetDuration(
         IEnumerable<int> partTargets, int minTargetDuration)
     {
         int targetDuration = minTargetDuration;
@@ -120,9 +123,9 @@ public static class PlaylistStitcher
     }
 
     /// <summary>
-    /// Parses one part playlist through the same rules <see cref="Stitch"/> uses. A final line
-    /// without a line feed is still being written and is never exposed; body lines stop at the
-    /// last complete segment URI, so a trailing <c>#EXTINF</c> is dropped as well.
+    /// Parses one part playlist. A final line without a line feed is still being written and is
+    /// never exposed; body lines stop at the last complete segment line, so a trailing
+    /// <c>#EXTINF</c> is dropped as well.
     /// </summary>
     internal static ParsedPart ParsePart(int partNumber, string content)
     {
@@ -156,6 +159,58 @@ public static class PlaylistStitcher
             partNumber,
             lines.GetRange(0, lastSegmentIndex).ToImmutableArray(),
             targetDuration);
+    }
+
+    /// <summary>
+    /// True when the content is a whole part playlist as FFmpeg renames it into place: it starts
+    /// with <c>#EXTM3U</c> and ends with a line feed. Anything else is a partial write or a
+    /// contract violation and must never replace a live index's last good body.
+    /// </summary>
+    internal static bool IsCompletePart(string content) =>
+        content.EndsWith('\n')
+        && content.StartsWith(ExtM3uTag, StringComparison.Ordinal);
+
+    /// <summary>
+    /// True when <paramref name="index"/> is a usable session index: it has at least one segment
+    /// and an <c>#EXT-X-ENDLIST</c> line. Throws <see cref="FormatException"/> when the playlist
+    /// is malformed, so the caller can report it.
+    /// </summary>
+    internal static bool IsFinalIndex(string index)
+    {
+        ArgumentNullException.ThrowIfNull(index);
+        return PlaylistTimeline.Parse(index).SegmentCount > 0
+            && index.Split('\n').Any(line => line.Trim() == EndListTag);
+    }
+
+    /// <summary>
+    /// Every media file a part playlist names: <c>#EXT-X-MAP</c> init files and segment URIs.
+    /// Deliberately looser than <see cref="ParsePart"/>: an unterminated last line still counts,
+    /// because recovery deletes media that no playlist references, and a segment whose line was
+    /// still being written must survive.
+    /// </summary>
+    internal static IReadOnlySet<string> ReferencedMedia(string content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+
+        var referenced = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string raw in content.Split('\n'))
+        {
+            string line = raw.Trim();
+            if (line.Length == 0)
+                continue;
+
+            if (line.StartsWith(MapUriPrefix, StringComparison.Ordinal))
+            {
+                if (line.EndsWith('"') && line.Length > MapUriPrefix.Length)
+                    referenced.Add(line[MapUriPrefix.Length..^1]);
+            }
+            else if (line[0] != '#')
+            {
+                referenced.Add(line);
+            }
+        }
+
+        return referenced;
     }
 
     private static bool TryParseTargetDuration(string line, out int targetDuration)
