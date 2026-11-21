@@ -248,8 +248,10 @@ public sealed class ChannelCoordinator
                     if (skipRecorder)
                     {
                         skipRecorder = false;
-                        await PublishAsync(new DvrEvent.RecorderExited(
-                            start.Job, _clock.GetUtcNow(), RecorderExitKind.Exited, "open failed"));
+
+                        // The open failure already set the last error; this only ends the part.
+                        await CompletePartAsync(
+                            start.Job, new PartOutcome(RecorderExitKind.Exited, "open failed"));
                         break;
                     }
 
@@ -526,7 +528,6 @@ public sealed class ChannelCoordinator
     private sealed record ViewerSampleMark(string SessionId, DateTimeOffset At);
 }
 
-/// <summary>A channel loop fault that must stop the host rather than risk a second writer.</summary>
 /// <summary>
 /// Why a channel's active Job may still have a live writer. Every cause is fatal for the channel
 /// loop and blocks any later writer; a new cause is a new case here, not a new flag.
@@ -550,6 +551,7 @@ internal abstract record WriterHazard(JobId Job)
     }
 }
 
+/// <summary>A channel loop fault that must stop the host rather than risk a second writer.</summary>
 public sealed class ChannelFatalException : Exception
 {
     public ChannelFatalException(string message) : base(message)

@@ -11,7 +11,7 @@ namespace StreamKeepr.Infrastructure.Media;
 /// <param name="Detail">Redacted diagnostic text; the reducer never parses it.</param>
 /// <param name="Bytes">The part's size on disk, or null when it could not be read or no tool ran.</param>
 /// <param name="Duration">How long the tools ran; zero when none started.</param>
-/// <param name="Failed">True when the part ended on an error that becomes the channel's last error.</param>
+/// <param name="Failed">True when the part ended on an error that becomes the channel's last error; always true when <paramref name="Fault"/> is set.</param>
 /// <param name="Fault">Set for an unverified shutdown: the writer may still be alive and the channel must stop.</param>
 public sealed record PartOutcome(
     RecorderExitKind Kind,
@@ -25,4 +25,6 @@ public sealed record PartOutcome(
         Fault is null || Kind == RecorderExitKind.Killed
             ? Kind
             : throw new ArgumentException("An unverified shutdown is always Killed.", nameof(Kind));
+
+    public bool Failed { get; init; } = Failed || Fault is not null;
 }

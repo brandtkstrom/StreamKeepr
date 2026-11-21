@@ -428,8 +428,16 @@ public sealed class RecorderJobTests : IDisposable
 
         // The same jump kills the run without an ad announcement. Here the announced break plus
         // its safety margin pushes the watchdog deadline past this point.
+        int reads = clock.UtcNowReads;
         clock.Advance(TimeSpan.FromSeconds(16));
-        await Task.Delay(TimeSpan.FromMilliseconds(500));
+        await WaitForAsync(() => clock.UtcNowReads > reads, "the watchdog check at 16 s");
+
+        // A stall at 16 s ends the watchdog loop, so only a watchdog that kept running checks again.
+        reads = clock.UtcNowReads;
+        clock.Advance(TimeSpan.FromSeconds(5));
+        await WaitForAsync(
+            () => clock.UtcNowReads > reads,
+            "a second watchdog check, which a stalled watchdog never makes");
         Assert.False(run.IsCompleted, "the stall watchdog fired during an announced ad break");
 
         WritePartMedia(session, "aaaa");
@@ -963,6 +971,75 @@ public sealed class RecorderJobTests : IDisposable
     }
 
     [Fact]
+    public async Task A_watchdog_failure_stops_both_tools_and_reports_a_failed_part()
+    {
+        using var parts = new MetricCollector<long>(
+            _telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.parts");
+        var clock = new ManualTimeProvider(StartedAt);
+        var tools = new FakeTools();
+        (Task<PartOutcome> run, _) = StartJob(
+            NewSession(),
+            FakeOptions(),
+            clock,
+            processRunner: tools.Runner,
+            identityProbe: (pid, at) =>
+                ProcessIdentityInspector.Inspect(pid, at, _ => throw new ArgumentException("gone")));
+        await tools.Started;
+        await WaitForAsync(() => clock.TimerCount > 0, "the stall watchdog");
+
+        // The watchdog's next check reads the clock and fails; without the watchdog no stall
+        // could ever be detected, so the job must stop both tools rather than wait on them.
+        clock.FailUtcNowReads = true;
+        clock.Advance(TimeSpan.FromSeconds(5));
+        await WaitForCompletionAsync(run, "watchdog failure");
+
+        PartOutcome outcome = await run;
+        Assert.True(outcome.Failed);
+        Assert.Null(outcome.Fault);
+        Assert.Contains("recorder failed: clock failed", outcome.Detail, StringComparison.Ordinal);
+        Assert.True(tools.Streamlink.Started.ForceKill.IsCancellationRequested);
+        Assert.True(tools.Ffmpeg.Started.ForceKill.IsCancellationRequested);
+        Assert.Single(parts.GetMeasurementSnapshot());
+    }
+
+    [Fact]
+    public async Task A_finalize_failure_after_the_tools_stop_still_reports_a_failed_part()
+    {
+        using var parts = new MetricCollector<long>(
+            _telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.parts");
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        Session session = NewSession();
+        var tools = new FakeTools();
+        (Task<PartOutcome> run, _) = StartJob(
+            session,
+            FakeOptions(),
+            logger: loggerFactory.CreateLogger<RecorderJob>(),
+            processRunner: tools.Runner,
+            beforePublish: dvrEvent =>
+            {
+                if (dvrEvent is DvrEvent.PartProducingMedia)
+                    throw new IOException("event queue closed");
+            });
+        await tools.Started;
+
+        // No progress line, so the media event is first published by the part-end check.
+        WritePartMedia(session, "aaaa");
+        tools.Streamlink.Exit();
+        await WaitForCompletionAsync(run, "finalize failure");
+
+        PartOutcome outcome = await run;
+        Assert.True(outcome.Failed);
+        Assert.Equal(RecorderExitKind.Exited, outcome.Kind);
+        Assert.Contains("finalize failed: event queue closed", outcome.Detail, StringComparison.Ordinal);
+        Assert.Equal(PartFiles.TotalBytes(session.Directory, 1), outcome.Bytes);
+        Assert.Single(parts.GetMeasurementSnapshot());
+        Assert.Single(
+            logs.Entries,
+            entry => entry.Message.Contains("finished", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task An_identity_probe_that_throws_fails_closed()
     {
         DateTime captured = ProcessStartedAt;
@@ -1213,11 +1290,13 @@ public sealed class RecorderJobTests : IDisposable
         Action<JobId, long, TimeSpan>? reportProgress = null,
         IRecorderProcessRunner? processRunner = null,
         Func<int?, DateTime?, ProcessIdentity>? identityProbe = null,
-        Func<string, int, long>? partBytesScan = null)
+        Func<string, int, long>? partBytesScan = null,
+        Action<DvrEvent>? beforePublish = null)
     {
         var events = new List<DvrEvent>();
         ValueTask Publish(DvrEvent dvrEvent, CancellationToken _)
         {
+            beforePublish?.Invoke(dvrEvent);
             lock (events)
                 events.Add(dvrEvent);
             return ValueTask.CompletedTask;
@@ -1451,11 +1530,34 @@ public sealed class RecorderJobTests : IDisposable
         private readonly List<ManualTimer> _timers = [];
         private DateTimeOffset _now = start;
         private bool _autoFireOneShot;
+        private int _utcNowReads;
+
+        /// <summary>When set, every later time read throws, as a failing clock would.</summary>
+        public bool FailUtcNowReads { get; set; }
 
         public override DateTimeOffset GetUtcNow()
         {
+            if (FailUtcNowReads)
+                throw new InvalidOperationException("clock failed");
+
             lock (_gate)
+            {
+                _utcNowReads++;
                 return _now;
+            }
+        }
+
+        /// <summary>
+        /// How often the time was read. While both fake tools are silent, only the stall watchdog
+        /// reads it, so a test can wait for each watchdog check instead of sleeping.
+        /// </summary>
+        public int UtcNowReads
+        {
+            get
+            {
+                lock (_gate)
+                    return _utcNowReads;
+            }
         }
 
         /// <summary>Timers created and not yet disposed, so a test can wait for the watchdog.</summary>

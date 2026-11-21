@@ -93,6 +93,14 @@ public sealed class CliWrapProcessRunnerTests : IDisposable
             graceful.Token);
 
         await WaitForFileAsync(Path.Combine(_root, "streamlink.started"));
+
+        // The identity is captured at start and matches the live process.
+        Assert.NotNull(process.ProcessId);
+        Assert.NotNull(process.StartTime);
+        Assert.Equal(
+            ProcessIdentityKind.Alive,
+            ProcessIdentityInspector.Inspect(process.ProcessId, process.StartTime).Kind);
+
         await graceful.CancelAsync();
         Task signalled = await Task.WhenAny(process.Completion, Task.Delay(TimeSpan.FromSeconds(1)));
         Assert.NotSame(process.Completion, signalled);
@@ -102,6 +110,88 @@ public sealed class CliWrapProcessRunnerTests : IDisposable
 
         Assert.True(outcome.Cancelled);
         Assert.Null(outcome.ExitCode);
+        Assert.True(
+            ProcessIdentityInspector.Inspect(process.ProcessId, process.StartTime).IsVerifiedGone,
+            "a force-killed process must no longer own its captured PID");
+    }
+
+    [Fact]
+    public async Task A_graceful_stop_ends_a_process_that_handles_its_signal()
+    {
+        string script = WriteScript(
+            "graceful",
+            "#!/bin/sh\ntrap 'echo graceful >&2; exit 0' INT\n: > graceful.started\n"
+            + "while :; do sleep 0.05; done\n");
+        var stderr = new List<string>();
+        using var graceful = new CancellationTokenSource();
+        using var force = new CancellationTokenSource();
+
+        RunningProcess process = _runner.Start(
+            new ToolLaunch("streamlink", script, [], _root),
+            _ => ValueTask.CompletedTask,
+            line =>
+            {
+                lock (stderr)
+                    stderr.Add(line);
+            },
+            force.Token,
+            graceful.Token);
+
+        await WaitForFileAsync(Path.Combine(_root, "graceful.started"));
+        await graceful.CancelAsync();
+
+        // CliWrap delivers the graceful signal as Ctrl+C, which needs an attachable console; a
+        // Windows test host has none, so there the stop must still end through the force kill.
+        if (OperatingSystem.IsWindows())
+            await force.CancelAsync();
+
+        ProcessOutcome outcome = await process.Completion.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.True(outcome.Cancelled);
+        if (!OperatingSystem.IsWindows())
+            Assert.Equal(["graceful"], stderr);
+    }
+
+    [Fact]
+    public async Task Completion_waits_for_a_descendant_that_still_holds_the_output_open()
+    {
+        string script = WriteScript(
+            "parent",
+            "#!/bin/sh\n"
+            + "( while [ ! -f release ]; do sleep 0.05; done; echo child-done ) &\n"
+            + "echo parent-done\n"
+            + ": > parent.ready\n"
+            + "while [ ! -f parent.go ]; do sleep 0.05; done\n");
+        var stdout = new List<string>();
+
+        RunningProcess process = _runner.Start(
+            new ToolLaunch("streamlink", script, [], _root),
+            line =>
+            {
+                lock (stdout)
+                    stdout.Add(line);
+                return ValueTask.CompletedTask;
+            },
+            _ => { },
+            CancellationToken.None,
+            CancellationToken.None);
+
+        await WaitForFileAsync(Path.Combine(_root, "parent.ready"));
+        Assert.NotNull(process.StartTime);
+        await File.WriteAllTextAsync(Path.Combine(_root, "parent.go"), string.Empty);
+        await WaitForAsync(
+            () => ProcessIdentityInspector.Inspect(process.ProcessId, process.StartTime).IsVerifiedGone,
+            "the direct process to exit");
+
+        // The direct PID is gone, but the descendant still holds stdout open: the task must stay
+        // pending, which is why a stop is verified by the task and not by the PID alone.
+        Assert.False(process.Completion.IsCompleted);
+
+        await File.WriteAllTextAsync(Path.Combine(_root, "release"), string.Empty);
+        ProcessOutcome outcome = await process.Completion.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(0, outcome.ExitCode);
+        Assert.Equal(["parent-done", "child-done"], stdout);
     }
 
     [Fact]
@@ -149,16 +239,19 @@ public sealed class CliWrapProcessRunnerTests : IDisposable
         return TestPaths.StartableScriptPath(path);
     }
 
-    private static async Task WaitForFileAsync(string path)
+    private static Task WaitForFileAsync(string path) =>
+        WaitForAsync(() => File.Exists(path), path);
+
+    private static async Task WaitForAsync(Func<bool> condition, string description)
     {
         for (int attempt = 0; attempt < 1000; attempt++)
         {
-            if (File.Exists(path))
+            if (condition())
                 return;
 
             await Task.Delay(10);
         }
 
-        throw new TimeoutException($"timed out waiting for {path}");
+        throw new TimeoutException($"timed out waiting for {description}");
     }
 }

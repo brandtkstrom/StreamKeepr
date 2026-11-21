@@ -149,9 +149,10 @@ try
     }
 
     // The host budget is the recorder's stop budget plus shutdown/cleanup headroom.
+    TimeSpan hostShutdownHeadroom = TimeSpan.FromSeconds(5);
     builder.Services.AddOptions<HostOptions>()
-           .Configure<IOptions<RecorderOptions>>((host, recorder) =>
-               host.ShutdownTimeout = RecorderJob.StopBudgetFor(recorder.Value) + TimeSpan.FromSeconds(5));
+           .Configure<IRecorder>((host, recorder) =>
+               host.ShutdownTimeout = recorder.StopBudget + hostShutdownHeadroom);
 
     builder.Services.AddOptions<TwitchOptions>()
            .BindConfiguration(TwitchOptions.SectionName)

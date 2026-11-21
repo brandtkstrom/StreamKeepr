@@ -58,9 +58,9 @@ public sealed class WebAppSmokeTests
 
         HostOptions options = factory.Services.GetRequiredService<IOptions<HostOptions>>().Value;
 
-        RecorderOptions recorder = factory.Services.GetRequiredService<IOptions<RecorderOptions>>().Value;
+        IRecorder recorder = factory.Services.GetRequiredService<IRecorder>();
         Assert.Equal(TimeSpan.FromSeconds(40), options.ShutdownTimeout);
-        Assert.Equal(RecorderJob.StopBudgetFor(recorder) + TimeSpan.FromSeconds(5), options.ShutdownTimeout);
+        Assert.Equal(recorder.StopBudget + TimeSpan.FromSeconds(5), options.ShutdownTimeout);
     }
 
     [Fact]

@@ -62,7 +62,7 @@ public sealed class RecorderJob(
     /// finalize wait and its own graceful and force waits, plus a margin. 35 s with the default
     /// 10 s finalize and 40 s at the 15 s cap.
     /// </summary>
-    public static TimeSpan StopBudgetFor(RecorderOptions recorder)
+    internal static TimeSpan StopBudgetFor(RecorderOptions recorder)
     {
         ArgumentNullException.ThrowIfNull(recorder);
         TimeSpan streamlink = GracefulStopTimeout + ForceStopTimeout;
@@ -221,20 +221,13 @@ public sealed class RecorderJob(
         Task<ProcessOutcome> ffmpegTask = ffmpeg.Completion;
         Task<ProcessOutcome> streamlinkTask = streamlink.Completion;
 
+        // Both tools are running from here on: every later failure, including in this setup, must
+        // still stop and verify them, finalize the part, and report it.
         var stopSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using CancellationTokenRegistration stopRegistration = stopRequested.Register(
-            static state => ((TaskCompletionSource)state!).TrySetResult(),
-            stopSignal);
-
         var stalled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var watchdog = new CancellationTokenSource();
-        Task watchdogTask = WatchForStallAsync(
-            () => Math.Max(
-                Interlocked.Read(ref lastMediaAdvanceTicks),
-                Interlocked.Read(ref adGraceUntilTicks)),
-            TimeSpan.FromSeconds(recorder.StallTimeoutSeconds),
-            stalled,
-            watchdog.Token);
+        CancellationTokenRegistration stopRegistration = default;
+        Task watchdogTask = Task.CompletedTask;
 
         // Assigned once the first task completes; the initial value names an earlier failure.
         string reason = "recorder failed before a tool ended";
@@ -243,6 +236,17 @@ public sealed class RecorderJob(
         bool stalledEnd = false;
         ProcessStop streamlinkStop = ProcessStop.AlreadyStopped;
         ProcessStop ffmpegStop = ProcessStop.AlreadyStopped;
+        UnverifiedShutdown? fault = null;
+        Exception? unexpected = null;
+
+        // Records one tool's stop: a forced stop counts as a force kill, and the first
+        // unverified stop is the part's fault.
+        ProcessStop Record(ToolStop stop)
+        {
+            forcedKill |= stop.Stop == ProcessStop.Forced;
+            fault ??= stop.Fault;
+            return stop.Stop;
+        }
 
         // One authoritative scan for telemetry, the finish log, and their equality. A metadata
         // error must never fail the recorder; the size is then unknown, never a guessed number.
@@ -295,12 +299,28 @@ public sealed class RecorderJob(
                 ProcessOutput.Sanitize(detail));
         }
 
-        UnverifiedShutdown? fault = null;
-        Exception? unexpected = null;
         try
         {
+            stopRegistration = stopRequested.Register(
+                static state => ((TaskCompletionSource)state!).TrySetResult(),
+                stopSignal);
+            watchdogTask = WatchForStallAsync(
+                () => Math.Max(
+                    Interlocked.Read(ref lastMediaAdvanceTicks),
+                    Interlocked.Read(ref adGraceUntilTicks)),
+                TimeSpan.FromSeconds(recorder.StallTimeoutSeconds),
+                stalled,
+                watchdog.Token);
+
+            // A failed watchdog ends the wait too: without it no stall could ever be detected.
             Task first = await Task.WhenAny(
-                streamlinkTask, ffmpegTask, stopSignal.Task, stalled.Task);
+                streamlinkTask, ffmpegTask, stopSignal.Task, stalled.Task, watchdogTask);
+            if (first == watchdogTask)
+            {
+                // The watchdog only returns before cancellation after a stall; a fault throws here.
+                await watchdogTask;
+                first = stalled.Task;
+            }
 
             stalledEnd = first == stalled.Task;
             reason = first == streamlinkTask ? "streamlink exited"
@@ -321,9 +341,8 @@ public sealed class RecorderJob(
             // process group and never use stdin EOF to stop it.
             if (!streamlinkTask.IsCompleted)
             {
-                (streamlinkStop, fault) = await StopAsync(
-                    "streamlink", streamlink, streamlinkGraceful, streamlinkForce);
-                forcedKill |= streamlinkStop == ProcessStop.Forced;
+                streamlinkStop = Record(await StopAsync(
+                    "streamlink", streamlink, streamlinkGraceful, streamlinkForce));
             }
 
             // After an unverified Streamlink stop, FFmpeg is force-cancelled below instead of
@@ -339,9 +358,8 @@ public sealed class RecorderJob(
                 {
                     reason = $"{reason}; ffmpeg did not finalize";
                     finalizeTimedOut = true;
-                    (ffmpegStop, fault) = await StopAsync(
-                        "ffmpeg", ffmpeg, ffmpegGraceful, ffmpegForce);
-                    forcedKill |= ffmpegStop == ProcessStop.Forced;
+                    ffmpegStop = Record(await StopAsync(
+                        "ffmpeg", ffmpeg, ffmpegGraceful, ffmpegForce));
                 }
 
                 if (!readerCompleted)
@@ -355,23 +373,22 @@ public sealed class RecorderJob(
             unexpected = ex;
             logger.LogError(ex, "Recorder {Job} failed; force-stopping both tools", job);
             if (!streamlinkTask.IsCompleted)
-            {
-                (streamlinkStop, fault) = await ForceStopAsync("streamlink", streamlink, streamlinkForce);
-                forcedKill |= streamlinkStop == ProcessStop.Forced;
-            }
-
+                streamlinkStop = Record(await ForceStopAsync("streamlink", streamlink, streamlinkForce));
             if (!ffmpegTask.IsCompleted)
-            {
-                (ffmpegStop, UnverifiedShutdown? ffmpegFault) =
-                    await ForceStopAsync("ffmpeg", ffmpeg, ffmpegForce);
-                fault ??= ffmpegFault;
-                forcedKill |= ffmpegStop == ProcessStop.Forced;
-            }
+                ffmpegStop = Record(await ForceStopAsync("ffmpeg", ffmpeg, ffmpegForce));
         }
         finally
         {
+            stopRegistration.Dispose();
             await watchdog.CancelAsync();
-            await watchdogTask;
+            await watchdogTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+
+        // A watchdog that failed after the wait above ended is reported here, never rethrown.
+        if (watchdogTask.Exception is { } watchdogError && unexpected is null)
+        {
+            logger.LogError(watchdogError, "Recorder {Job} stall watchdog failed", job);
+            unexpected = watchdogError.InnerException ?? watchdogError;
         }
 
         if (unexpected is not null)
@@ -391,23 +408,8 @@ public sealed class RecorderJob(
                 faultDetail,
                 faultBytes,
                 clock.GetElapsedTime(startedAt),
-                Failed: true,
                 Fault: fault);
         }
-
-        if (PartFiles.HasSegments(session.Directory, job.Part)
-            && Interlocked.Exchange(ref producing, 1) == 0)
-        {
-            // A very short part may produce only its final progress block, or no progress at all.
-            await publish(
-                new DvrEvent.PartProducingMedia(job, clock.GetUtcNow()),
-                CancellationToken.None);
-        }
-
-        if (Volatile.Read(ref producing) == 0)
-            PartFiles.Delete(session.Directory, job.Part);
-
-        long? bytes = ScanPartBytes();
 
         // The watchdog and force-kill paths beat a requested stop; an escalated finalize did not
         // end on its own, so it is reported as killed rather than as a self exit.
@@ -417,18 +419,39 @@ public sealed class RecorderJob(
                 ? RecorderExitKind.Stopped
                 : RecorderExitKind.Exited;
 
+        bool failed = unexpected is not null;
+        try
+        {
+            if (PartFiles.HasSegments(session.Directory, job.Part)
+                && Interlocked.Exchange(ref producing, 1) == 0)
+            {
+                // A very short part may produce only its final progress block, or no progress.
+                await publish(
+                    new DvrEvent.PartProducingMedia(job, clock.GetUtcNow()),
+                    CancellationToken.None);
+            }
+
+            if (Volatile.Read(ref producing) == 0)
+                PartFiles.Delete(session.Directory, job.Part);
+        }
+        catch (Exception ex)
+        {
+            // Both tools are stopped and verified; a failed media check, publish, or cleanup only
+            // fails the part. It never skips the report.
+            logger.LogError(ex, "Recorder {Job} could not finalize its part files", job);
+            reason = $"{reason}; finalize failed: {ex.Message}";
+            failed = true;
+        }
+
+        long? bytes = ScanPartBytes();
+
         // The detail is display text, and a newline in it is harmless.
         string detail = AppendTailAndRedact(
             $"{reason}; streamlink {Describe(streamlink, streamlinkStop)}, "
             + $"ffmpeg {Describe(ffmpeg, ffmpegStop)}");
 
         ReportPart(kind, stalledEnd, forcedKill || finalizeTimedOut, bytes, detail);
-        return new PartOutcome(
-            kind,
-            detail,
-            bytes,
-            clock.GetElapsedTime(startedAt),
-            Failed: unexpected is not null);
+        return new PartOutcome(kind, detail, bytes, clock.GetElapsedTime(startedAt), Failed: failed);
     }
 
     /// <summary>
@@ -464,18 +487,18 @@ public sealed class RecorderJob(
     /// Stops one process within the bounded graceful then force-kill budget. CliWrap's graceful
     /// token signals the single child PID; it never signals the process group.
     /// </summary>
-    private async Task<(ProcessStop Stop, UnverifiedShutdown? Fault)> StopAsync(
+    private async Task<ToolStop> StopAsync(
         string tool,
         RunningProcess process,
         CancellationTokenSource gracefulStop,
         CancellationTokenSource forceKill)
     {
         if (process.Completion.IsCompleted)
-            return (ProcessStop.AlreadyStopped, null);
+            return new ToolStop(ProcessStop.AlreadyStopped, null);
 
         await gracefulStop.CancelAsync();
         if (await CompletesWithinAsync(process.Completion, GracefulStopTimeout))
-            return (ProcessStop.Graceful, null);
+            return new ToolStop(ProcessStop.Graceful, null);
 
         return await ForceStopAsync(tool, process, forceKill);
     }
@@ -485,7 +508,7 @@ public sealed class RecorderJob(
     /// PID is gone or was reused; a pending task or an unreadable identity is an unverified
     /// shutdown, because a descendant may still be writing.
     /// </summary>
-    private async Task<(ProcessStop Stop, UnverifiedShutdown? Fault)> ForceStopAsync(
+    private async Task<ToolStop> ForceStopAsync(
         string tool,
         RunningProcess process,
         CancellationTokenSource forceKill)
@@ -493,21 +516,25 @@ public sealed class RecorderJob(
         await forceKill.CancelAsync();
         if (!await CompletesWithinAsync(process.Completion, ForceStopTimeout))
         {
-            ProcessIdentity observed = Probe(process);
-            return (ProcessStop.TimedOut, Unverified(tool, process, ProcessStop.TimedOut, true, observed));
+            ProcessIdentity observed = Probe(tool, process);
+            return new ToolStop(
+                ProcessStop.TimedOut,
+                Unverified(tool, process, ProcessStop.TimedOut, taskPending: true, observed));
         }
 
-        ProcessIdentity identity = Probe(process);
+        ProcessIdentity identity = Probe(tool, process);
         return identity.IsVerifiedGone
-            ? (ProcessStop.Forced, null)
-            : (ProcessStop.Unverified, Unverified(tool, process, ProcessStop.Unverified, false, identity));
+            ? new ToolStop(ProcessStop.Forced, null)
+            : new ToolStop(
+                ProcessStop.Unverified,
+                Unverified(tool, process, ProcessStop.Unverified, taskPending: false, identity));
     }
 
     /// <summary>
     /// Reads the captured PID's identity. A probe that throws proves nothing, so it is an
     /// unknown identity and the stop fails closed.
     /// </summary>
-    private ProcessIdentity Probe(RunningProcess process)
+    private ProcessIdentity Probe(string tool, RunningProcess process)
     {
         try
         {
@@ -515,6 +542,10 @@ public sealed class RecorderJob(
         }
         catch (Exception ex)
         {
+            logger.LogWarning(
+                ex,
+                "Could not read the {Tool} process identity; treating its stop as unverified.",
+                tool);
             return new ProcessIdentity(
                 ProcessIdentityKind.Unknown,
                 process.ProcessId,
@@ -523,6 +554,9 @@ public sealed class RecorderJob(
                 $"identity could not be read: {ex.Message}");
         }
     }
+
+    /// <summary>How one tool stopped, and the unverified shutdown when it could not be proven.</summary>
+    private readonly record struct ToolStop(ProcessStop Stop, UnverifiedShutdown? Fault);
 
     private static UnverifiedShutdown Unverified(
         string tool,

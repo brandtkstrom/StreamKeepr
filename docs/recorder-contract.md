@@ -27,7 +27,7 @@ One `RecorderJob` run records exactly one part of one session. It runs Streamlin
 
 - Titles never appear in paths.
 - `PartFiles.Delete` removes every `p{part:D3}*` and `init_{part:D3}*`, including `.tmp` files.
-- Before starting, if any file matching `p{part:D3}*` or `init_{part:D3}*` exists, return `RecorderExited` without overwriting. The reducer should have assigned the next part; this is a backstop.
+- Before starting, if any file matching `p{part:D3}*` or `init_{part:D3}*` exists, return an `Exited` outcome without overwriting. The reducer should have assigned the next part; this is a backstop.
 - FFmpeg's `+temp_file` writes segments and the EVENT playlist through `.tmp` + atomic rename. A hard kill may leave `.tmp` and orphan complete segments; recovery cleans them.
 
 ## 4. Arguments
@@ -143,10 +143,11 @@ Precedence when more than one applies: `Killed` > `Stopped` > `Exited`. A reques
 
 - The recorder writes only part files. It never writes the session manifest, the stitched index, progress, or library state.
 - `IRecorder.RunAsync` returns one `PartOutcome` (kind, detail, part size or null, duration, a failed flag, and an optional unverified-shutdown fault) on every path and never publishes `RecorderExited`. The coordinator publishes exactly one `RecorderExited` per part from the outcome, so `PartProducingMedia` always precedes it.
+- Everything after both tools start runs inside the job's failure boundary, including the stop registration and the stall watchdog. A watchdog that fails ends the wait like any other error, since no stall could be detected without it. A failure in the part-end media check, media publish, or cleanup, after both tools are stopped and verified, fails the outcome but never skips the report.
 - An unexpected exception after the tools start is reported, not thrown: the job force-kills each tool still running, verifies each stop exactly as the bounded shutdown does, finalizes and reports the part, and returns an outcome with `Failed = true` and the error in the detail. If a forced stop cannot be verified, the outcome carries the fault and is fatal.
 - An exception before any tool starts escapes the job; the coordinator turns it into a failed `RecorderExited(Exited, detail)` with no recorder metric, because no tool ran. A failed outcome sets the channel's last error.
 - If no media was produced, delete every part file including `.tmp` and init temp files before returning.
-- If the part already exists, return `RecorderExited` immediately; do not overwrite.
+- If the part already exists, return an `Exited` outcome immediately without starting either tool; do not overwrite.
 - `RecorderExited.Detail` carries the reason, exit codes, process identity, stop result, and the last stderr lines. It is diagnostic; the reducer uses `RecorderExitKind`, never the detail string.
 
 ## 9. Failure modes
@@ -182,7 +183,7 @@ Unit:
 
 Recorder job through the process seam. `IRecorderProcessRunner.Start` takes a `ToolLaunch` (tool name, path, arguments, working directory, and optional stdin/stdout byte streams) plus stdout and stderr line callbacks; no CliWrap type crosses it. The fake runner scripts output lines, file writes, and exits, honours the stop tokens like the real tools (Streamlink exits on its graceful signal, FFmpeg on stdin EOF), and runs callbacks in the starting context as CliWrap does. With an injected identity probe and part-size scan, no child process is needed:
 
-- Part already exists: immediate `RecorderExited`, no tool started, nothing overwritten.
+- Part already exists: an immediate `Exited` outcome, no tool started, nothing overwritten.
 - No media: the part files FFmpeg opened are deleted and no media event is published.
 - FFmpeg ends first: Streamlink gets its graceful stop; `Exited`.
 - A failing Streamlink surfaces its stderr and exit code in the detail.
@@ -193,14 +194,15 @@ Recorder job through the process seam. `IRecorderProcessRunner.Start` takes a `T
 - Ad-break line: the watchdog does not fire during the grace.
 - Progress bytes never decrease and the final sample equals the on-disk total; an unreadable playlist keeps the last total and never fails the part.
 - A never-completing tool with the captured PID alive returns a `Killed` outcome with an `UnverifiedShutdown` fault; an identity probe that throws fails closed the same way.
-- An unexpected error after the tools start force-stops and verifies both tools and returns a failed outcome; if a forced stop cannot be verified, the outcome is fatal.
+- An unexpected error after the tools start force-stops and verifies both tools and returns a failed outcome; if a forced stop cannot be verified, the outcome is fatal. A failing stall watchdog takes the same path.
+- A part-end failure after both tools stop (for example, the media event cannot be published) still reports the part and returns a failed outcome.
 - A verified force-kill (task completed, PID gone or reused) remains `Killed`.
 - A force kill whose captured PID is still alive, or whose identity is unreadable, fails closed.
 - A clean stream end remains `Exited` and never inspects process identity.
-- An unverified shutdown still counts the part as `Killed`, counts one force kill, and writes the finish log before raising.
+- An unverified shutdown still counts the part as `Killed`, counts one force kill, writes the finish log, and keeps the part files.
 - A part whose size scan throws is counted with no size sample, logs null bytes, and warns.
 
-Process runner adapter (`CliWrapProcessRunner`, real child processes): output lines reach their callbacks and the exit code and PID are reported; stdin and stdout streams carry bytes; a force kill ends a process that ignores its graceful signal; a missing executable completes with an error and no identity; standard output takes exactly one of a stream or a line callback.
+Process runner adapter (`CliWrapProcessRunner`, real child processes): output lines reach their callbacks and the exit code and PID are reported; stdin and stdout streams carry bytes; the captured PID and start time identify the live process and no longer do after a force kill; a graceful stop ends a process that handles its signal (on Windows, where CliWrap cannot deliver Ctrl+C, it ends through the force kill); a force kill ends a process that ignores its graceful signal; completion waits for a descendant that still holds the output open after the direct PID is gone; a missing executable completes with an error and no identity; standard output takes exactly one of a stream or a line callback.
 
 Integration with real FFmpeg and the fake Streamlink fixtures:
 
