@@ -24,7 +24,7 @@ public static class LiveIndexEndpoint
         string id,
         HttpContext context,
         RecordingLibrary library,
-        LivePlaylistCache cache,
+        LiveIndex liveIndex,
         IOptions<StorageOptions> storage,
         IOptions<LivePlaylistOptions> liveOptions,
         TimeProvider clock,
@@ -77,7 +77,7 @@ public static class LiveIndexEndpoint
                     : Results.NotFound());
         }
 
-        LivePlaylistSnapshot? snapshot = cache.Find(summary.Id);
+        LiveIndexSnapshot? snapshot = liveIndex.Find(summary.Id);
         if (snapshot is null)
             return Task.FromResult(Unavailable(context, logger, id, "no live snapshot is cached"));
 
@@ -115,7 +115,7 @@ public static class LiveIndexEndpoint
 /// Serves one immutable snapshot without re-encoding, re-stitching, or touching the session
 /// folder. A write that races the client disconnect is not an error.
 /// </summary>
-internal sealed class LivePlaylistResult(LivePlaylistSnapshot snapshot, bool stale) : IResult
+internal sealed class LivePlaylistResult(LiveIndexSnapshot snapshot, bool stale) : IResult
 {
     public async Task ExecuteAsync(HttpContext context)
     {

@@ -1,6 +1,3 @@
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
-using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Storage;
 using static StreamKeepr.Tests.Storage.PlaylistTestData;
 
@@ -17,16 +14,7 @@ public sealed class LivePlaylistConcurrencyTests
         await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
         context.Library.MarkLoaded();
 
-        var cache = new LivePlaylistCache();
-        var service = new LivePlaylistService(
-            context.Library,
-            cache,
-            new SessionStoreLivePlaylistIo(
-                context.Store,
-                Options.Create(new StorageOptions { RecordingsRoot = context.Root })),
-            Options.Create(new LivePlaylistOptions()),
-            context.Clock,
-            NullLogger<LivePlaylistService>.Instance);
+        LiveIndex service = LiveIndexTests.NewIndex(context);
         RecordingSummary summary = Assert.IsType<RecordingSummary>(
             context.Library.Find(context.Session.Id));
         Assert.NotNull(await service.RefreshOneAsync(summary, CancellationToken.None));

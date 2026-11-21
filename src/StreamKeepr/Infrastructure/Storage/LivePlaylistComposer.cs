@@ -10,16 +10,16 @@ internal readonly record struct PartFileObservation(
     long LastWriteTicks);
 
 /// <summary>
-/// Builds a live snapshot from fresh part-file metadata. Only a part that may still be growing
+/// Builds a live index from fresh part-file metadata. Only a part that may still be growing
 /// (the active last part, or the previous last part after a new part appears) is read; every
-/// other part comes from the previous snapshot. Any change renders the live index from the
+/// other part comes from the previous composition. Any change renders the live index from the
 /// parsed parts in memory through <see cref="PlaylistStitcher.Render"/>, the same renderer as
 /// the session index, so the live index always equals a full stitch of the same parts.
 /// </summary>
 internal static class LivePlaylistComposer
 {
-    public static async Task<LiveSnapshot> BuildAsync(
-        LiveSnapshot? previous,
+    public static async Task<LiveComposition> BuildAsync(
+        LiveComposition? previous,
         IReadOnlyList<PartFileObservation> files,
         int minTargetDuration,
         IPartPlaylistSource source,
@@ -30,7 +30,7 @@ internal static class LivePlaylistComposer
         ArgumentOutOfRangeException.ThrowIfLessThan(minTargetDuration, 1);
 
         if (files.Count == 0)
-            return LiveSnapshot.Empty(minTargetDuration);
+            return LiveComposition.Empty(minTargetDuration);
 
         var previousByNumber = new Dictionary<int, PartSnapshot>();
         if (previous is not null)
@@ -81,8 +81,8 @@ internal static class LivePlaylistComposer
             if (!PlaylistStitcher.IsCompletePart(content))
             {
                 // A partial or malformed replace must not shrink or corrupt the live body.
-                // Keep the last good snapshot and retry on the next refresh.
-                return previous ?? LiveSnapshot.Empty(minTargetDuration);
+                // Keep the last good composition and retry on the next refresh.
+                return previous ?? LiveComposition.Empty(minTargetDuration);
             }
 
             next.Add(new PartSnapshot(
@@ -99,19 +99,19 @@ internal static class LivePlaylistComposer
         return Render(built, minTargetDuration);
     }
 
-    private static LiveSnapshot Render(
+    private static LiveComposition Render(
         ImmutableArray<PartSnapshot> parts, int minTargetDuration)
     {
         var parsed = new ParsedPart[parts.Length];
         for (int i = 0; i < parts.Length; i++)
             parsed[i] = parts[i].Parsed;
 
-        return new LiveSnapshot(
+        return new LiveComposition(
             parts, PlaylistStitcher.Render(parsed, minTargetDuration, final: false));
     }
 
     private static bool HasSameParts(
-        LiveSnapshot previous, ImmutableArray<PartSnapshot> parts)
+        LiveComposition previous, ImmutableArray<PartSnapshot> parts)
     {
         if (parts.Length != previous.Parts.Length)
             return false;

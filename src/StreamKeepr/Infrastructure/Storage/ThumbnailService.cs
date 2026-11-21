@@ -16,7 +16,7 @@ namespace StreamKeepr.Infrastructure.Storage;
 public sealed class ThumbnailService(
     RecordingLibrary library,
     SessionStore store,
-    LivePlaylistService livePlaylists,
+    LiveIndex liveIndex,
     IOptions<StorageOptions> storage,
     IOptions<RecorderOptions> recorder,
     TimeProvider clock,
@@ -104,7 +104,7 @@ public sealed class ThumbnailService(
         try
         {
             // A deleted or unreadable session has no playlist; the library drops it separately.
-            if (await livePlaylists.GetOrRefreshAsync(summary, stoppingToken) is not { } playlist)
+            if (await liveIndex.GetOrRefreshAsync(summary, stoppingToken) is not { } playlist)
                 return;
 
             PlaylistTimeline timeline = PlaylistTimeline.Parse(playlist);

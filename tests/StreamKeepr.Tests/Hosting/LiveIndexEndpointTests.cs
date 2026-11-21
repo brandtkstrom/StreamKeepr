@@ -27,8 +27,8 @@ public sealed class LiveIndexEndpointTests
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
         Session session = await OpenSessionAsync(factory, "123456789");
-        string body = LiveBody("p001_00001.m4s");
-        LivePlaylistSnapshot snapshot = Publish(factory, session.Id, body);
+        LiveIndexSnapshot snapshot = await PublishAsync(factory, session, "p001_00001.m4s");
+        string body = snapshot.Body;
         Directory.Delete(session.Directory, recursive: true);
 
         using var get = await client.GetAsync(
@@ -47,17 +47,17 @@ public sealed class LiveIndexEndpointTests
     [Fact]
     public async Task Serving_a_snapshot_does_not_wait_for_a_blocked_refresh()
     {
-        var io = new BlockingLivePlaylistIo();
+        var io = new ScriptedPartSource();
         using var factory = CreateFactory(services =>
-            services.AddSingleton<ILivePlaylistIo>(io));
+            services.AddSingleton<IPartPlaylistSource>(io));
         using var client = factory.CreateClient();
         Session session = await OpenSessionAsync(factory, "923456789");
-        string body = LiveBody("p001_00001.m4s");
-        Publish(factory, session.Id, body);
-        io.Block = true;
+        string body = (await PublishAsync(factory, session, "p001_00001.m4s")).Body;
+        await WritePartAsync(session, "p001_00001.m4s", "p001_00002.m4s");
+        io.BlockAll();
         var summary = Assert.IsType<RecordingSummary>(
             factory.Services.GetRequiredService<RecordingLibrary>().Find(session.Id));
-        LivePlaylistService live = factory.Services.GetRequiredService<LivePlaylistService>();
+        LiveIndex live = factory.Services.GetRequiredService<LiveIndex>();
 
         Task refresh = live.RefreshOneAsync(summary, CancellationToken.None);
         await io.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
@@ -75,18 +75,18 @@ public sealed class LiveIndexEndpointTests
     [Fact]
     public async Task Concurrent_requests_serve_one_whole_snapshot_while_a_refresh_is_blocked()
     {
-        var io = new BlockingLivePlaylistIo();
+        var io = new ScriptedPartSource();
         using var factory = CreateFactory(services =>
-            services.AddSingleton<ILivePlaylistIo>(io));
+            services.AddSingleton<IPartPlaylistSource>(io));
         using var client = factory.CreateClient();
         Session session = await OpenSessionAsync(factory, "933456789");
-        string body = LiveBody("p001_00001.m4s");
-        Publish(factory, session.Id, body);
+        string body = (await PublishAsync(factory, session, "p001_00001.m4s")).Body;
         string url = $"/media/{session.Channel}/{session.Id}/index.m3u8";
-        io.Block = true;
+        await WritePartAsync(session, "p001_00001.m4s", "p001_00002.m4s");
+        io.BlockAll();
         var summary = Assert.IsType<RecordingSummary>(
             factory.Services.GetRequiredService<RecordingLibrary>().Find(session.Id));
-        LivePlaylistService live = factory.Services.GetRequiredService<LivePlaylistService>();
+        LiveIndex live = factory.Services.GetRequiredService<LiveIndex>();
         Task refresh = live.RefreshOneAsync(summary, CancellationToken.None);
         await io.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
@@ -109,35 +109,30 @@ public sealed class LiveIndexEndpointTests
     }
 
     [Fact]
-    public async Task Cold_live_cache_returns_503_with_retry_after()
+    public async Task Cold_live_index_returns_503_with_retry_after()
     {
-        using var factory = CreateFactory(services =>
-            services.AddSingleton<ILivePlaylistIo>(
-                new MissingLivePlaylistIo()));
-        using var client = factory.CreateClient();
-        Session session = await OpenSessionAsync(factory, "223456789");
+        using var session = await LiveSessionAsync();
+        LiveIndex index = LiveIndexTests.NewIndex(session);
 
-        using var response = await client.GetAsync(
-            $"/media/{session.Channel}/{session.Id}/index.m3u8");
+        DefaultHttpContext context = await HandleAsync(session, index, session.Clock.GetUtcNow());
 
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
-        Assert.Equal("1", response.Headers.RetryAfter?.ToString());
-        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
+        Assert.Equal("1", context.Response.Headers.RetryAfter);
+        Assert.Equal("no-store", context.Response.Headers.CacheControl);
     }
 
     [Fact]
     public async Task Unloaded_library_returns_503_with_retry_after()
     {
-        var library = new RecordingLibrary(
-            TimeProvider.System, NullLogger<RecordingLibrary>.Instance);
+        using var session = new SessionStoreTestContext();
         var context = new DefaultHttpContext();
 
         IResult result = await LiveIndexEndpoint.HandleAsync(
             "streamer",
             "20260101T000000Z_000000001",
             context,
-            library,
-            new LivePlaylistCache(),
+            session.Library,
+            LiveIndexTests.NewIndex(session),
             Options.Create(new StorageOptions { RecordingsRoot = Path.GetTempPath() }),
             Options.Create(new LivePlaylistOptions()),
             TimeProvider.System,
@@ -155,8 +150,7 @@ public sealed class LiveIndexEndpointTests
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
         Session session = await OpenSessionAsync(factory, "323456789");
-        string body = LiveBody("p001_00001.m4s");
-        LivePlaylistSnapshot snapshot = Publish(factory, session.Id, body);
+        LiveIndexSnapshot snapshot = await PublishAsync(factory, session, "p001_00001.m4s");
         string url = $"/media/{session.Channel}/{session.Id}/index.m3u8";
 
         using var get = await client.GetAsync(url);
@@ -177,7 +171,7 @@ public sealed class LiveIndexEndpointTests
             services.AddSingleton<IStartupFilter, AbortingBodyStartupFilter>());
         using var client = factory.CreateClient();
         Session session = await OpenSessionAsync(factory, "423456789");
-        Publish(factory, session.Id, LiveBody("p001_00001.m4s"));
+        await PublishAsync(factory, session, "p001_00001.m4s");
 
         using var response = await client.GetAsync(
             $"/media/{session.Channel}/{session.Id}/index.m3u8");
@@ -193,7 +187,7 @@ public sealed class LiveIndexEndpointTests
         context.Request.Method = HttpMethods.Get;
         context.RequestAborted = new CancellationToken(canceled: true);
         context.Response.Body = new AbortingStream(ioException: true);
-        LivePlaylistSnapshot snapshot = LivePlaylistSnapshot.Create(
+        LiveIndexSnapshot snapshot = LiveIndexSnapshot.Create(
             "20260101T000000Z_000000001",
             1,
             LiveBody("p001_00001.m4s"),
@@ -260,8 +254,7 @@ public sealed class LiveIndexEndpointTests
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
         Session session = await OpenSessionAsync(factory, "723456789");
-        await WritePartAsync(session, "p001_00001.m4s");
-        Publish(factory, session.Id, LiveBody("p001_00001.m4s"));
+        await PublishAsync(factory, session, "p001_00001.m4s");
 
         await factory.Services.GetRequiredService<SessionStore>()
             .FinalizeAsync(session, CancellationToken.None);
@@ -336,31 +329,23 @@ public sealed class LiveIndexEndpointTests
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
         Session session = await OpenSessionAsync(factory, "943456789");
-        string bodyA = LiveBody("p001_00001.m4s");
-        string bodyB = LiveBody("p001_00002.m4s");
-        LivePlaylistCache cache = factory.Services.GetRequiredService<LivePlaylistCache>();
-        cache.Publish(LivePlaylistSnapshot.Create(
-            session.Id, 1, bodyA, PlaylistTimeline.Parse(bodyA).SegmentCount, StartedAt));
+        LiveIndex live = factory.Services.GetRequiredService<LiveIndex>();
+        string bodyA = (await PublishAsync(factory, session, "p001_00001.m4s")).Body;
+        string bodyB = (await PublishAsync(factory, session, "p001_00001.m4s", "p001_00002.m4s")).Body;
+        RecordingSummary summary = Assert.IsType<RecordingSummary>(
+            factory.Services.GetRequiredService<RecordingLibrary>().Find(session.Id));
         using var stop = new CancellationTokenSource();
         Task writer = Task.Run(async () =>
         {
-            long version = 1;
+            bool grown = true;
             while (!stop.IsCancellationRequested)
             {
-                cache.Publish(LivePlaylistSnapshot.Create(
-                    session.Id,
-                    ++version,
-                    bodyA,
-                    PlaylistTimeline.Parse(bodyA).SegmentCount,
-                    StartedAt));
-                await Task.Yield();
-                cache.Publish(LivePlaylistSnapshot.Create(
-                    session.Id,
-                    ++version,
-                    bodyB,
-                    PlaylistTimeline.Parse(bodyB).SegmentCount,
-                    StartedAt));
-                await Task.Yield();
+                grown = !grown;
+                if (grown)
+                    await WritePartAsync(session, "p001_00001.m4s", "p001_00002.m4s");
+                else
+                    await WritePartAsync(session, "p001_00001.m4s");
+                await live.RefreshOneAsync(summary, CancellationToken.None);
             }
         });
         try
@@ -388,18 +373,11 @@ public sealed class LiveIndexEndpointTests
     public async Task Snapshot_age_selects_the_last_known_good_stale_marker(
         int ageSeconds, bool stale)
     {
-        DateTimeOffset now = StartedAt.AddHours(1);
-        RecordingLibrary library = LoadedRecordingLibrary(now);
-        var cache = new LivePlaylistCache();
-        string body = LiveBody("p001_00001.m4s");
-        cache.Publish(LivePlaylistSnapshot.Create(
-            SessionId,
-            1,
-            body,
-            PlaylistTimeline.Parse(body).SegmentCount,
-            now.AddSeconds(-ageSeconds)));
+        using var session = await LiveSessionAsync();
+        (LiveIndex index, string body) = await PublishedIndexAsync(session);
+        DateTimeOffset now = session.Clock.GetUtcNow().AddSeconds(ageSeconds);
 
-        DefaultHttpContext context = await HandleAsync(library, cache, now);
+        DefaultHttpContext context = await HandleAsync(session, index, now);
 
         Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
         Assert.Equal("no-cache", context.Response.Headers.CacheControl);
@@ -413,20 +391,13 @@ public sealed class LiveIndexEndpointTests
     [Fact]
     public async Task Head_matches_the_last_known_good_content_length()
     {
-        DateTimeOffset now = StartedAt.AddHours(1);
-        RecordingLibrary library = LoadedRecordingLibrary(now);
-        var cache = new LivePlaylistCache();
-        string body = LiveBody("p001_00001.m4s");
-        LivePlaylistSnapshot snapshot = LivePlaylistSnapshot.Create(
-            SessionId,
-            1,
-            body,
-            PlaylistTimeline.Parse(body).SegmentCount,
-            now.AddMinutes(-1));
-        cache.Publish(snapshot);
+        using var session = await LiveSessionAsync();
+        (LiveIndex index, _) = await PublishedIndexAsync(session);
+        LiveIndexSnapshot snapshot = Assert.IsType<LiveIndexSnapshot>(index.Find(session.Session.Id));
+        DateTimeOffset now = session.Clock.GetUtcNow().AddMinutes(1);
 
         DefaultHttpContext context = await HandleAsync(
-            library, cache, now, method: HttpMethods.Head);
+            session, index, now, method: HttpMethods.Head);
 
         Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
         Assert.Equal(snapshot.Utf8.Length, context.Response.ContentLength);
@@ -437,19 +408,15 @@ public sealed class LiveIndexEndpointTests
     [Fact]
     public async Task An_already_aborted_request_is_499_without_a_body_or_a_warning()
     {
-        DateTimeOffset now = StartedAt.AddHours(1);
-        RecordingLibrary library = LoadedRecordingLibrary(now);
-        var cache = new LivePlaylistCache();
-        string body = LiveBody("p001_00001.m4s");
-        cache.Publish(LivePlaylistSnapshot.Create(
-            SessionId, 1, body, PlaylistTimeline.Parse(body).SegmentCount, now));
+        using var session = await LiveSessionAsync();
+        (LiveIndex index, _) = await PublishedIndexAsync(session);
         var logs = new ListLoggerProvider();
         using ILoggerFactory loggers = TestLogging.Factory(logs);
 
         DefaultHttpContext context = await HandleAsync(
-            library,
-            cache,
-            now,
+            session,
+            index,
+            session.Clock.GetUtcNow(),
             requestAborted: new CancellationToken(canceled: true),
             loggers: loggers);
 
@@ -459,7 +426,7 @@ public sealed class LiveIndexEndpointTests
         Assert.Contains(
             logs.Entries,
             entry => entry.Level == LogLevel.Debug
-                && entry.Message.Contains(SessionId, StringComparison.Ordinal));
+                && entry.Message.Contains(session.Session.Id, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -468,7 +435,7 @@ public sealed class LiveIndexEndpointTests
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
         Session session = await OpenSessionAsync(factory, "103456789");
-        Publish(factory, session.Id, LiveBody("p001_00001.m4s"));
+        await PublishAsync(factory, session, "p001_00001.m4s");
         string url = $"/media/{session.Channel}/{session.Id}/index.m3u8";
 
         HttpResponseMessage[] responses = await Task.WhenAll(
@@ -488,33 +455,31 @@ public sealed class LiveIndexEndpointTests
         }
     }
 
-    private const string SessionId = "20260101T000000Z_000000001";
-
-    private static RecordingLibrary LoadedRecordingLibrary(DateTimeOffset startedAt)
+    /// <summary>A Recording session with one part on disk and a loaded library.</summary>
+    private static async Task<SessionStoreTestContext> LiveSessionAsync()
     {
-        var library = new RecordingLibrary(
-            TimeProvider.System, NullLogger<RecordingLibrary>.Instance);
-        library.Upsert(new RecordingSummary(
-            SessionId,
-            "streamer",
-            "Title",
-            "Game",
-            startedAt,
-            EndedAt: null,
-            IsRecording: true,
-            DurationSeconds: null,
-            SizeBytes: null,
-            PartCount: 1,
-            SegmentCount: 1,
-            HasThumbnail: false,
-            Chapters: []));
-        library.MarkLoaded();
-        return library;
+        var session = new SessionStoreTestContext();
+        session.WritePart(
+            1, PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T16:35:00Z", 6));
+        await session.Store.OpenAsync(session.Session, session.Live, CancellationToken.None);
+        session.Library.MarkLoaded();
+        return session;
+    }
+
+    /// <summary>A live index that published the session's body at the session clock's now.</summary>
+    private static async Task<(LiveIndex Index, string Body)> PublishedIndexAsync(
+        SessionStoreTestContext session)
+    {
+        LiveIndex index = LiveIndexTests.NewIndex(session);
+        RecordingSummary summary = Assert.IsType<RecordingSummary>(
+            session.Library.Find(session.Session.Id));
+        string? body = await index.RefreshOneAsync(summary, CancellationToken.None);
+        return (index, Assert.IsType<string>(body));
     }
 
     private static async Task<DefaultHttpContext> HandleAsync(
-        RecordingLibrary library,
-        LivePlaylistCache cache,
+        SessionStoreTestContext session,
+        LiveIndex index,
         DateTimeOffset now,
         string method = "GET",
         CancellationToken requestAborted = default,
@@ -527,12 +492,12 @@ public sealed class LiveIndexEndpointTests
         context.Response.Body = new MemoryStream();
 
         IResult result = await LiveIndexEndpoint.HandleAsync(
-            "streamer",
-            SessionId,
+            session.Session.Channel,
+            session.Session.Id,
             context,
-            library,
-            cache,
-            Options.Create(new StorageOptions { RecordingsRoot = Path.GetTempPath() }),
+            session.Library,
+            index,
+            Options.Create(new StorageOptions { RecordingsRoot = session.Root }),
             Options.Create(options ?? new LivePlaylistOptions()),
             new FakeTimeProvider(now),
             loggers ?? NullLoggerFactory.Instance);
@@ -564,13 +529,16 @@ public sealed class LiveIndexEndpointTests
             },
             configureTestServices: configure);
 
-    private static LivePlaylistSnapshot Publish(
-        StreamKeeprAppFactory factory, string sessionId, string body)
+    /// <summary>Writes part 1 with the given segments and refreshes the live index from disk.</summary>
+    private static async Task<LiveIndexSnapshot> PublishAsync(
+        StreamKeeprAppFactory factory, Session session, params string[] segments)
     {
-        LivePlaylistSnapshot snapshot = LivePlaylistSnapshot.Create(
-            sessionId, 1, body, PlaylistTimeline.Parse(body).SegmentCount, StartedAt);
-        factory.Services.GetRequiredService<LivePlaylistCache>().Publish(snapshot);
-        return snapshot;
+        await WritePartAsync(session, segments);
+        RecordingSummary summary = Assert.IsType<RecordingSummary>(
+            factory.Services.GetRequiredService<RecordingLibrary>().Find(session.Id));
+        LiveIndex live = factory.Services.GetRequiredService<LiveIndex>();
+        await live.RefreshOneAsync(summary, CancellationToken.None);
+        return Assert.IsType<LiveIndexSnapshot>(live.Find(session.Id));
     }
 
     private static string LiveBody(string segment)
@@ -592,50 +560,18 @@ public sealed class LiveIndexEndpointTests
         return session;
     }
 
-    private static Task WritePartAsync(Session session, string segment)
+    private static Task WritePartAsync(Session session, params string[] segments)
     {
         Directory.CreateDirectory(session.Directory);
         return File.WriteAllTextAsync(
             Path.Combine(session.Directory, "p001.m3u8"),
-            PlaylistTestData.Playlist(
+            PlaylistTestData.LivePlaylist(
                 6,
                 "init_001.mp4",
-                PlaylistTestData.Segment(segment, "2026-11-10T16:35:00Z", 6)));
-    }
-
-    private sealed class MissingLivePlaylistIo : ILivePlaylistIo
-    {
-        public Task<LivePlaylistRead> ReadAsync(
-            RecordingSummary summary, CancellationToken ct) =>
-            Task.FromResult(LivePlaylistRead.Missing);
-    }
-
-    private sealed class BlockingLivePlaylistIo : ILivePlaylistIo
-    {
-        public TaskCompletionSource Started { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public TaskCompletionSource Release { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        private volatile bool _block;
-
-        public bool Block
-        {
-            get => _block;
-            set => _block = value;
-        }
-
-        public async Task<LivePlaylistRead> ReadAsync(
-            RecordingSummary summary, CancellationToken ct)
-        {
-            if (!_block)
-                return LivePlaylistRead.Missing;
-
-            Started.TrySetResult();
-            await Release.Task.WaitAsync(ct);
-            return LivePlaylistRead.Missing;
-        }
+                segments
+                    .Select((segment, i) => PlaylistTestData.Segment(
+                        segment, $"2026-11-10T16:35:{i * 6:00}Z", 6))
+                    .ToArray()));
     }
 
     /// <summary>

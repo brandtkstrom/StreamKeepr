@@ -13,12 +13,12 @@ public sealed class LivePlaylistComposerTests
     {
         string part = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
-        var source = new RecordingSource().Add(1, part);
+        var source = new ScriptedPartSource().Add(SourcePath(1), part);
 
-        LiveSnapshot first = await BuildAsync(null, [Observe(1, part)], source);
+        LiveComposition first = await BuildAsync(null, [Observe(1, part)], source);
         source.Reset();
 
-        LiveSnapshot second = await BuildAsync(first, [Observe(1, part)], source);
+        LiveComposition second = await BuildAsync(first, [Observe(1, part)], source);
 
         Assert.Same(first, second);
         Assert.Empty(source.Reads);
@@ -29,15 +29,15 @@ public sealed class LivePlaylistComposerTests
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
-        var source = new RecordingSource().Add(1, first);
-        LiveSnapshot before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
+        var source = new ScriptedPartSource().Add(SourcePath(1), first);
+        LiveComposition before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
 
         string appended = Append(first,
             Segment("p001_00002.m4s", "2026-11-10T18:30:06Z", 6));
-        source.Add(1, appended);
+        source.Add(SourcePath(1), appended);
         source.Reset();
 
-        LiveSnapshot after = await BuildAsync(before, [Observe(1, appended, ticks: 2)], source);
+        LiveComposition after = await BuildAsync(before, [Observe(1, appended, ticks: 2)], source);
 
         Assert.Equal([SourcePath(1)], source.Reads);
         Assert.Equal(Expected((1, appended)), after.Body);
@@ -49,15 +49,15 @@ public sealed class LivePlaylistComposerTests
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
-        var source = new RecordingSource().Add(1, first);
-        LiveSnapshot before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
+        var source = new ScriptedPartSource().Add(SourcePath(1), first);
+        LiveComposition before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
 
         // A line feed has not arrived yet, so the URI/tag tail is still being written.
         string partial = first + "#EXTINF:6,\np001_00002.m4s";
-        source.Add(1, partial);
+        source.Add(SourcePath(1), partial);
         source.Reset();
 
-        LiveSnapshot after = await BuildAsync(before, [Observe(1, partial, ticks: 2)], source);
+        LiveComposition after = await BuildAsync(before, [Observe(1, partial, ticks: 2)], source);
 
         Assert.Equal(before.Body, after.Body);
         Assert.DoesNotContain("p001_00002.m4s", after.Body, StringComparison.Ordinal);
@@ -69,14 +69,14 @@ public sealed class LivePlaylistComposerTests
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6),
             Segment("p001_00002.m4s", "2026-11-10T18:30:06Z", 6));
-        var source = new RecordingSource().Add(1, first);
-        LiveSnapshot before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
+        var source = new ScriptedPartSource().Add(SourcePath(1), first);
+        LiveComposition before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
 
         // A read that raced a non-atomic write sees only a prefix of the file, cut mid-line.
         string cut = first[..first.IndexOf("p001_00002", StringComparison.Ordinal)] + "p001_0";
-        source.Add(1, cut);
+        source.Add(SourcePath(1), cut);
 
-        LiveSnapshot after = await BuildAsync(before, [Observe(1, cut, ticks: 2)], source);
+        LiveComposition after = await BuildAsync(before, [Observe(1, cut, ticks: 2)], source);
 
         Assert.Same(before, after);
         Assert.Contains("p001_00002.m4s", after.Body, StringComparison.Ordinal);
@@ -87,14 +87,14 @@ public sealed class LivePlaylistComposerTests
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
-        var source = new RecordingSource().Add(1, first);
-        LiveSnapshot before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
+        var source = new ScriptedPartSource().Add(SourcePath(1), first);
+        LiveComposition before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
 
         string tagOnly = first + "#EXTINF:6,\n";
-        source.Add(1, tagOnly);
+        source.Add(SourcePath(1), tagOnly);
         source.Reset();
 
-        LiveSnapshot after = await BuildAsync(before, [Observe(1, tagOnly, ticks: 2)], source);
+        LiveComposition after = await BuildAsync(before, [Observe(1, tagOnly, ticks: 2)], source);
 
         Assert.Equal(before.Body, after.Body);
         Assert.Equal(1, Occurrences(after.Body, "#EXTINF:"));
@@ -106,15 +106,15 @@ public sealed class LivePlaylistComposerTests
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6),
             Segment("p001_00002.m4s", "2026-11-10T18:30:06Z", 6));
-        var source = new RecordingSource().Add(1, first);
-        LiveSnapshot before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
+        var source = new ScriptedPartSource().Add(SourcePath(1), first);
+        LiveComposition before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
 
         string truncated = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
-        source.Add(1, truncated);
+        source.Add(SourcePath(1), truncated);
         source.Reset();
 
-        LiveSnapshot after = await BuildAsync(before, [Observe(1, truncated, ticks: 2)], source);
+        LiveComposition after = await BuildAsync(before, [Observe(1, truncated, ticks: 2)], source);
 
         Assert.Equal([SourcePath(1)], source.Reads);
         Assert.Equal(Expected((1, truncated)), after.Body);
@@ -126,15 +126,15 @@ public sealed class LivePlaylistComposerTests
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
-        var source = new RecordingSource().Add(1, first);
-        LiveSnapshot before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
+        var source = new ScriptedPartSource().Add(SourcePath(1), first);
+        LiveComposition before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
 
         string longerTarget = LivePlaylist(20, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
-        source.Add(1, longerTarget);
+        source.Add(SourcePath(1), longerTarget);
         source.Reset();
 
-        LiveSnapshot after = await BuildAsync(before, [Observe(1, longerTarget, ticks: 2)], source);
+        LiveComposition after = await BuildAsync(before, [Observe(1, longerTarget, ticks: 2)], source);
 
         Assert.Equal([SourcePath(1)], source.Reads);
         Assert.Contains("#EXT-X-TARGETDURATION:20", after.Body, StringComparison.Ordinal);
@@ -148,11 +148,11 @@ public sealed class LivePlaylistComposerTests
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
         string second = LivePlaylist(6, "init_002.mp4",
             Segment("p002_00001.m4s", "2026-11-10T18:30:06Z", 6));
-        var source = new RecordingSource().Add(1, first).Add(2, second);
-        LiveSnapshot before = await BuildAsync(null, [Observe(1, first)], source);
+        var source = new ScriptedPartSource().Add(SourcePath(1), first).Add(SourcePath(2), second);
+        LiveComposition before = await BuildAsync(null, [Observe(1, first)], source);
 
         source.Reset();
-        LiveSnapshot after = await BuildAsync(
+        LiveComposition after = await BuildAsync(
             before, [Observe(1, first), Observe(2, second)], source);
 
         Assert.Equal([SourcePath(2)], source.Reads);
@@ -168,18 +168,18 @@ public sealed class LivePlaylistComposerTests
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
-        var source = new RecordingSource().Add(1, first);
-        LiveSnapshot before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
+        var source = new ScriptedPartSource().Add(SourcePath(1), first);
+        LiveComposition before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
 
         // Part 1 received its final segment just before it closed and part 2 opened.
         string closed = Append(first,
             Segment("p001_00002.m4s", "2026-11-10T18:30:06Z", 6));
         string second = LivePlaylist(6, "init_002.mp4",
             Segment("p002_00001.m4s", "2026-11-10T18:30:12Z", 6));
-        source.Add(1, closed).Add(2, second);
+        source.Add(SourcePath(1), closed).Add(SourcePath(2), second);
         source.Reset();
 
-        LiveSnapshot after = await BuildAsync(
+        LiveComposition after = await BuildAsync(
             before, [Observe(1, closed, ticks: 2), Observe(2, second)], source);
 
         Assert.Equal([SourcePath(1), SourcePath(2)], source.Reads);
@@ -192,11 +192,11 @@ public sealed class LivePlaylistComposerTests
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
         string empty = LivePlaylist(6, "init_002.mp4");
-        var source = new RecordingSource().Add(1, first).Add(2, empty);
-        LiveSnapshot before = await BuildAsync(null, [Observe(1, first)], source);
+        var source = new ScriptedPartSource().Add(SourcePath(1), first).Add(SourcePath(2), empty);
+        LiveComposition before = await BuildAsync(null, [Observe(1, first)], source);
 
         source.Reset();
-        LiveSnapshot after = await BuildAsync(
+        LiveComposition after = await BuildAsync(
             before, [Observe(1, first), Observe(2, empty)], source);
 
         Assert.Equal([SourcePath(2)], source.Reads);
@@ -212,16 +212,16 @@ public sealed class LivePlaylistComposerTests
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
         string second = LivePlaylist(6, "init_002.mp4",
             Segment("p002_00001.m4s", "2026-11-10T18:30:06Z", 6));
-        var source = new RecordingSource().Add(1, first).Add(2, second);
-        LiveSnapshot before = await BuildAsync(
+        var source = new ScriptedPartSource().Add(SourcePath(1), first).Add(SourcePath(2), second);
+        LiveComposition before = await BuildAsync(
             null, [Observe(1, first), Observe(2, second)], source);
 
         string appended = Append(first,
             Segment("p001_99999.m4s", "2026-11-10T18:30:00Z", 6));
-        source.Add(1, appended);
+        source.Add(SourcePath(1), appended);
         source.Reset();
 
-        LiveSnapshot after = await BuildAsync(
+        LiveComposition after = await BuildAsync(
             before, [Observe(1, appended, ticks: 2), Observe(2, second)], source);
 
         Assert.Empty(source.Reads);
@@ -236,12 +236,12 @@ public sealed class LivePlaylistComposerTests
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
         string second = LivePlaylist(6, "init_002.mp4",
             Segment("p002_00001.m4s", "2026-11-10T18:30:06Z", 6));
-        var source = new RecordingSource().Add(1, first).Add(2, second);
-        LiveSnapshot before = await BuildAsync(
+        var source = new ScriptedPartSource().Add(SourcePath(1), first).Add(SourcePath(2), second);
+        LiveComposition before = await BuildAsync(
             null, [Observe(1, first), Observe(2, second)], source);
 
         source.Reset();
-        LiveSnapshot after = await BuildAsync(before, [Observe(2, second)], source);
+        LiveComposition after = await BuildAsync(before, [Observe(2, second)], source);
 
         Assert.Empty(source.Reads);
         Assert.Equal(Expected((2, second)), after.Body);
@@ -258,12 +258,12 @@ public sealed class LivePlaylistComposerTests
             Segment("p002_00001.m4s", "2026-11-10T18:30:06Z", 6));
         string third = LivePlaylist(6, "init_003.mp4",
             Segment("p003_00001.m4s", "2026-11-10T18:30:18Z", 6));
-        var source = new RecordingSource().Add(1, first).Add(2, second).Add(3, third);
-        LiveSnapshot before = await BuildAsync(
+        var source = new ScriptedPartSource().Add(SourcePath(1), first).Add(SourcePath(2), second).Add(SourcePath(3), third);
+        LiveComposition before = await BuildAsync(
             null, [Observe(1, first), Observe(2, second)], source);
 
         source.Reset();
-        LiveSnapshot after = await BuildAsync(
+        LiveComposition after = await BuildAsync(
             before, [Observe(1, first), Observe(3, third)], source);
 
         Assert.Equal([SourcePath(3)], source.Reads);
@@ -275,13 +275,13 @@ public sealed class LivePlaylistComposerTests
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
-        var source = new RecordingSource().Add(1, first);
-        LiveSnapshot before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
+        var source = new ScriptedPartSource().Add(SourcePath(1), first);
+        LiveComposition before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
 
-        source.ThrowOn(1, new IOException("EIO"));
+        source.ThrowOn(SourcePath(1), new IOException("EIO"));
         string appended = Append(first,
             Segment("p001_00002.m4s", "2026-11-10T18:30:06Z", 6));
-        source.Add(1, appended);
+        source.Add(SourcePath(1), appended);
 
         await Assert.ThrowsAsync<IOException>(() =>
             BuildAsync(before, [Observe(1, appended, ticks: 2)], source));
@@ -295,11 +295,11 @@ public sealed class LivePlaylistComposerTests
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
-        var source = new RecordingSource().Add(1, first);
-        LiveSnapshot before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
+        var source = new ScriptedPartSource().Add(SourcePath(1), first);
+        LiveComposition before = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
 
-        source.Add(1, "<html>not a playlist</html>");
-        LiveSnapshot after = await BuildAsync(
+        source.Add(SourcePath(1), "<html>not a playlist</html>");
+        LiveComposition after = await BuildAsync(
             before, [Observe(1, 99, ticks: 2)], source);
 
         Assert.Equal(before.Body, after.Body);
@@ -311,36 +311,36 @@ public sealed class LivePlaylistComposerTests
     {
         string first = LivePlaylist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
-        var source = new RecordingSource().Add(1, first);
-        LiveSnapshot snapshot = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
+        var source = new ScriptedPartSource().Add(SourcePath(1), first);
+        LiveComposition snapshot = await BuildAsync(null, [Observe(1, first, ticks: 1)], source);
         Assert.Equal(Expected((1, first)), snapshot.Body);
 
         string second = Append(first,
             Segment("p001_00002.m4s", "2026-11-10T18:30:06Z", 6));
-        source.Add(1, second);
+        source.Add(SourcePath(1), second);
         snapshot = await BuildAsync(snapshot, [Observe(1, second, ticks: 2)], source);
         Assert.Equal(Expected((1, second)), snapshot.Body);
 
         string newPart = LivePlaylist(6, "init_002.mp4",
             Segment("p002_00001.m4s", "2026-11-10T18:30:12Z", 6),
             Segment("p002_00002.m4s", "2026-11-10T18:30:18Z", 6));
-        source.Add(2, newPart);
+        source.Add(SourcePath(2), newPart);
         snapshot = await BuildAsync(
             snapshot, [Observe(1, second), Observe(2, newPart, ticks: 2)], source);
         Assert.Equal(Expected((1, second), (2, newPart)), snapshot.Body);
 
         string final = Append(newPart,
             Segment("p002_00003.m4s", "2026-11-10T18:30:24Z", 6));
-        source.Add(2, final);
+        source.Add(SourcePath(2), final);
         snapshot = await BuildAsync(
             snapshot, [Observe(1, second), Observe(2, final, ticks: 3)], source);
         Assert.Equal(Expected((1, second), (2, final)), snapshot.Body);
     }
 
-    private static Task<LiveSnapshot> BuildAsync(
-        LiveSnapshot? previous,
+    private static Task<LiveComposition> BuildAsync(
+        LiveComposition? previous,
         PartFileObservation[] files,
-        RecordingSource source) =>
+        ScriptedPartSource source) =>
         LivePlaylistComposer.BuildAsync(
             previous, files, MinTarget, source, CancellationToken.None);
 
@@ -368,32 +368,4 @@ public sealed class LivePlaylistComposerTests
 
     private static int Occurrences(string value, string token) =>
         SessionStoreTestContext.Occurrences(value, token);
-
-    private sealed class RecordingSource : IPartPlaylistSource
-    {
-        private readonly Dictionary<string, string> _contents = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, Exception> _errors = new(StringComparer.Ordinal);
-
-        public List<string> Reads { get; } = [];
-
-        public RecordingSource Add(int part, string content)
-        {
-            _contents[SourcePath(part)] = content;
-            return this;
-        }
-
-        public void ThrowOn(int part, Exception error) =>
-            _errors[SourcePath(part)] = error;
-
-        public void Reset() => Reads.Clear();
-
-        public Task<string> ReadAsync(string path, CancellationToken ct)
-        {
-            Reads.Add(path);
-            if (_errors.TryGetValue(path, out Exception? error))
-                return Task.FromException<string>(error);
-
-            return Task.FromResult(_contents[path]);
-        }
-    }
 }

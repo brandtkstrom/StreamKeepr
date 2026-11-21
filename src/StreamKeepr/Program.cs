@@ -213,10 +213,17 @@ try
     builder.Services.AddSingleton<Func<TimeSpan, CancellationToken, Task>>(
         _ => static (delay, ct) => Task.Delay(delay, ct));
     builder.Services.AddSingleton<SessionStore>();
-    // The live playlist is refreshed off the request path; requests only read this cache.
-    builder.Services.AddSingleton<LivePlaylistCache>();
-    builder.Services.AddSingleton<ILivePlaylistIo, SessionStoreLivePlaylistIo>();
-    builder.Services.AddSingleton<LivePlaylistService>();
+    // The live index is refreshed off the request path; requests only read its published bodies.
+    // Tests may register their own part-playlist source to block or fail reads.
+    builder.Services.AddSingleton(services => new LiveIndex(
+        services.GetRequiredService<RecordingLibrary>(),
+        services.GetRequiredService<SessionStore>(),
+        services.GetRequiredService<IOptions<StorageOptions>>(),
+        services.GetRequiredService<IOptions<LivePlaylistOptions>>(),
+        services.GetRequiredService<TimeProvider>(),
+        services.GetRequiredService<ILogger<LiveIndex>>(),
+        services.GetService<IPartPlaylistSource>() ?? FilePartPlaylistSource.Instance));
+    builder.Services.AddSingleton<LiveIndexRefresher>();
     builder.Services.AddSingleton<ChannelStore>();
     builder.Services.AddSingleton<ProgressStore>();
 
@@ -315,8 +322,8 @@ try
 
     // The supervisor starts only after preflight and the key-ring check have succeeded.
     builder.Services.AddHostedService(services => services.GetRequiredService<DvrSupervisor>());
-    // Refreshes live snapshots after the supervisor's recovery has loaded the library.
-    builder.Services.AddHostedService(services => services.GetRequiredService<LivePlaylistService>());
+    // Refreshes the live index after the supervisor's recovery has loaded the library.
+    builder.Services.AddHostedService(services => services.GetRequiredService<LiveIndexRefresher>());
     // Grabs thumbnails from recorded media; registered after the refresher it reads from.
     builder.Services.AddHostedService(services => services.GetRequiredService<ThumbnailService>());
 

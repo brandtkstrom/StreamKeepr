@@ -1,8 +1,5 @@
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
-using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Tests.Hosting;
@@ -73,8 +70,7 @@ public sealed class SessionStoreConcurrencyTests
         context.WriteSegment(1, 1, 10);
         await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
         context.Library.MarkLoaded();
-        var cache = new LivePlaylistCache();
-        LivePlaylistService service = NewService(context, cache);
+        LiveIndex service = LiveIndexTests.NewIndex(context);
 
         var gate = context.Store.LockFor(context.Directory);
         await gate.WaitAsync();
@@ -85,7 +81,7 @@ public sealed class SessionStoreConcurrencyTests
                 .WaitAsync(TimeSpan.FromSeconds(2));
 
             Assert.NotNull(body);
-            Assert.NotNull(cache.Find(summary.Id));
+            Assert.NotNull(service.Find(summary.Id));
             Assert.DoesNotContain("#EXT-X-ENDLIST", body, StringComparison.Ordinal);
         }
         finally
@@ -103,9 +99,9 @@ public sealed class SessionStoreConcurrencyTests
         context.WriteSegment(1, 1, 10);
         await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
         context.Library.MarkLoaded();
-        var cache = new LivePlaylistCache();
-        var io = new BlockingIo();
-        LivePlaylistService service = NewService(context, cache, io);
+        var io = new ScriptedPartSource();
+        io.BlockAll();
+        LiveIndex service = LiveIndexTests.NewIndex(context, io);
         RecordingSummary summary = RecordingSummary(context);
 
         Task refresh = service.RefreshOneAsync(summary, CancellationToken.None);
@@ -120,7 +116,7 @@ public sealed class SessionStoreConcurrencyTests
 
         io.Release.SetResult();
         await refresh.WaitAsync(TimeSpan.FromSeconds(2));
-        Assert.Null(cache.Find(context.Session.Id));
+        Assert.Null(service.Find(context.Session.Id));
     }
 
     [Fact]
@@ -132,9 +128,9 @@ public sealed class SessionStoreConcurrencyTests
         context.WriteSegment(1, 1, 10);
         await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
         context.Library.MarkLoaded();
-        var cache = new LivePlaylistCache();
-        var io = new BlockingIo();
-        LivePlaylistService service = NewService(context, cache, io);
+        var io = new ScriptedPartSource();
+        io.BlockAll();
+        LiveIndex service = LiveIndexTests.NewIndex(context, io);
         RecordingSummary summary = RecordingSummary(context);
 
         Task refresh = service.RefreshOneAsync(summary, CancellationToken.None);
@@ -145,7 +141,7 @@ public sealed class SessionStoreConcurrencyTests
         io.Release.SetResult();
         await refresh.WaitAsync(TimeSpan.FromSeconds(2));
 
-        Assert.Null(cache.Find(summary.Id));
+        Assert.Null(service.Find(summary.Id));
         Assert.Contains("p001_00001.m4s", await File.ReadAllTextAsync(context.IndexPath));
     }
 
@@ -175,7 +171,7 @@ public sealed class SessionStoreConcurrencyTests
         await store.OpenAsync(session, live, CancellationToken.None);
         RecordingSummary summary = Assert.IsType<RecordingSummary>(
             factory.Services.GetRequiredService<RecordingLibrary>().Find(session.Id));
-        LivePlaylistService service = factory.Services.GetRequiredService<LivePlaylistService>();
+        LiveIndex service = factory.Services.GetRequiredService<LiveIndex>();
         await service.RefreshOneAsync(summary, CancellationToken.None);
 
         string url = $"/media/{session.Channel}/{session.Id}/index.m3u8";
@@ -268,37 +264,6 @@ public sealed class SessionStoreConcurrencyTests
         }
     }
 
-    private static LivePlaylistService NewService(
-        SessionStoreTestContext context,
-        LivePlaylistCache cache,
-        ILivePlaylistIo? io = null) =>
-        new(
-            context.Library,
-            cache,
-            io ?? new SessionStoreLivePlaylistIo(
-                context.Store,
-                Options.Create(new StorageOptions { RecordingsRoot = context.Root })),
-            Options.Create(new LivePlaylistOptions()),
-            context.Clock,
-            NullLogger<LivePlaylistService>.Instance);
-
     private static RecordingSummary RecordingSummary(SessionStoreTestContext context) =>
         Assert.IsType<RecordingSummary>(context.Library.Find(context.Session.Id));
-
-    private sealed class BlockingIo : ILivePlaylistIo
-    {
-        public TaskCompletionSource Started { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public TaskCompletionSource Release { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public async Task<LivePlaylistRead> ReadAsync(
-            RecordingSummary summary, CancellationToken ct)
-        {
-            Started.TrySetResult();
-            await Release.Task.WaitAsync(ct);
-            return LivePlaylistRead.Live("#EXTM3U\n#EXT-X-VERSION:7\n");
-        }
-    }
 }
