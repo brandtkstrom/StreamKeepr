@@ -1,4 +1,4 @@
-The `/settings` page, for bookmarks and direct visits. The app's own Settings controls open the same sections in a sheet instead (`SettingsSheet`), so playback never stops. Signed in, it holds Twitch account, Channels and Connection status, stacked in a column capped at `form-max-width` (760px).
+The `/settings` page, for bookmarks and direct visits. The app's own Settings controls open the same sections in a sheet instead (`SettingsSheet`), so playback never stops. Signed in, it holds Twitch account, Channels, Chat and Connection status, stacked in a column capped at `form-max-width` (760px).
 
 ## Build it from
 
@@ -7,8 +7,9 @@ The `/settings` page, for bookmarks and direct visits. The app's own Settings co
 - Sections are `SettingsSection`s: `MudPaper Elevation="0" Outlined="true" Class="sk-panel"` holding a `section` labelled by its `h2` (`MudText Typo.h6`) after a meaningful icon, `gap-4` apart, in this order:
   1. **Twitch account** (`ManageAccounts`): the account's `ChannelAvatar` (`Size.Large`, its login's channel colour `channel-*`), the display name in `subtitle1`, the login in `caption`, a `success` dot with "Connected", and an outlined "Disconnect" (a real form post).
   2. **Channels** (`LiveTv`): `ChannelSettings`.
-  3. **Connection status** (`Wifi`): `ConnectionStatus`.
-- Signed out, a single panel remains: "Connect Twitch to manage channels" with the Twitch button (and the expired chip when the session lapsed).
+  3. **Chat** (`Chat`): `ChatSettings`.
+  4. **Connection status** (`Wifi`): `ConnectionStatus`.
+- Signed out, the "Connect Twitch to manage channels" panel with the Twitch button (and the expired chip when the session lapsed), then **Chat**, which is the viewer's own preference and needs no sign-in.
 - Render the note, the sections and the signed-out panel as one shared component (`SettingsSections`), so the page and the sheet never drift. Each section is its own component, so the sheet can place them.
 - Below `Breakpoint.Md`, Settings is current in the bottom bar, and the page pads its bottom by `bottom-bar-height`.
 

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.JSInterop;
@@ -122,6 +123,73 @@ public sealed class UiPreferencesTests
         preferences.SetCollapsed("pixelwren", false);
 
         Assert.Equal(7, changes);
+    }
+
+    [Fact]
+    public void Chat_sync_defaults_to_zero_and_reads_the_cookie()
+    {
+        Assert.Equal(0, Create().ChatSyncOffset);
+        Assert.Equal(-4.5, Create("""{"v":1,"chatSync":-4.5}""").ChatSyncOffset);
+    }
+
+    [Theory]
+    [InlineData(45, 30)]
+    [InlineData(-45, -30)]
+    [InlineData(1.3, 1.5)]
+    [InlineData(-1.2, -1)]
+    [InlineData(0.25, 0.5)]
+    public void Chat_sync_is_clamped_to_the_endpoint_limit_and_snapped_to_half_seconds(double value, double expected)
+    {
+        var preferences = Create();
+        preferences.SetChatSyncOffset(value);
+
+        Assert.Equal(expected, preferences.ChatSyncOffset);
+        string cookie = $$"""{"v":1,"chatSync":{{value.ToString(CultureInfo.InvariantCulture)}}}""";
+        Assert.Equal(expected, Create(cookie).ChatSyncOffset);
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void A_non_finite_chat_sync_is_ignored(double value)
+    {
+        var preferences = Create();
+        preferences.SetChatSyncOffset(2);
+        var changes = 0;
+        preferences.Changed += () => changes++;
+
+        preferences.SetChatSyncOffset(value);
+
+        Assert.Equal(2, preferences.ChatSyncOffset);
+        Assert.Equal(0, changes);
+    }
+
+    [Fact]
+    public void Chat_sync_raises_changed_only_when_the_snapped_value_changes()
+    {
+        var preferences = Create();
+        var changes = 0;
+        preferences.Changed += () => changes++;
+
+        preferences.SetChatSyncOffset(1.5);
+        preferences.SetChatSyncOffset(1.4);
+        preferences.SetChatSyncOffset(-2);
+
+        Assert.Equal(2, changes);
+    }
+
+    [Fact]
+    public async Task Persist_writes_the_chat_sync_offset()
+    {
+        var js = new RecordingJSRuntime();
+        var preferences = Create(js: js);
+        preferences.SetChatSyncOffset(-3.5);
+
+        await preferences.PersistAsync();
+
+        var state = Assert.IsType<UiPreferencesState>(Assert.Single(Assert.Single(js.Invocations).Arguments));
+        Assert.Equal(-3.5, state.ChatSync);
     }
 
     [Fact]

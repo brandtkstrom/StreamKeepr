@@ -8,7 +8,7 @@
 @* Spec: docs/details-auth-settings-contract.md §8; design system: SettingsPage. The sections
    the /settings page shows, shared so the settings sheet (F2) never drifts from the page.
    Signed out it never creates a ChannelsView, which is the server-side guard for channel data
-   and changes. *@
+   and changes; Chat is the viewer's own preference, so it shows either way. *@
 @if (HttpsRequired)
 {
     <MudBlazor.MudAlert Severity="MudBlazor.Severity.Info" Dense="true" role="note" data-https-note>
@@ -48,6 +48,7 @@
         </SettingsSection>
 
         <ChannelSettings />
+        <ChatSettings />
         <ConnectionStatusPanel />
     </Authorized>
     <NotAuthorized>
@@ -63,6 +64,8 @@
                 </a>
             </section>
         </MudBlazor.MudPaper>
+        @* The viewer's own preference: it needs no sign-in. *@
+        <ChatSettings />
     </NotAuthorized>
 </AuthorizeView>
 

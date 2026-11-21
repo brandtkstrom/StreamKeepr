@@ -1,4 +1,4 @@
-<!-- @dsCard group="Layout" height=1620 width=1280 subtitle="Settings opens over the page, never instead of it: a right side sheet on desktop, a full-screen dialog on phones; playback never stops" -->
+<!-- @dsCard group="Layout" height=1840 width=1280 subtitle="Settings opens over the page, never instead of it: a right side sheet on desktop, a full-screen dialog on phones; playback never stops" -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -103,6 +103,10 @@
           </ul>
           <div class="ds-row-flex" style="flex-wrap:nowrap;margin-top:var(--space-2)"><span class="ds-field ds-grow"><input placeholder="Add a Twitch login" aria-label="Add channel" spellcheck="false"></span><button class="ds-btn filled" disabled><i data-i="add"></i>Add</button></div>
         </section>
+        <section class="ds-sheet-sec" aria-labelledby="s-chat">
+          <h3 id="s-chat"><i data-i="chat"></i>Chat</h3>
+          <div class="ds-sync" role="group" aria-label="Chat sync"><div class="top"><i data-i="tune"></i><span class="lbl">Chat sync</span><span class="val" aria-hidden="true">−4.0 s</span><button class="ds-ibtn sm" aria-label="Reset chat sync to 0"><i data-i="restart"></i></button></div><div class="rail"><span class="end">Earlier</span><span class="ds-range-wrap"><input class="ds-range" type="range" min="-30" max="30" step="0.5" value="-4" style="--lo:43.33%;--hi:50%" aria-label="Chat sync" aria-valuetext="4 seconds earlier"></span><span class="end">Later</span></div></div>
+        </section>
         <section class="ds-sheet-sec" aria-labelledby="s-cs">
           <h3 id="s-cs"><i data-i="wifi"></i>Connection status</h3>
           <dl class="ds-kv" style="margin:0"><dt>Service health</dt><dd class="prose"><span class="ds-status success"><i data-i="checkcircle"></i>Healthy</span></dd><dt>Coverage</dt><dd class="prose"><span class="ds-status partial"><i data-i="warning"></i>1 of 2 channels</span></dd><dt>Last message</dt><dd>12 s ago</dd></dl>
@@ -126,6 +130,10 @@
             <li><span class="ds-avatar a3">C</span><span class="who ds-grow"><b>Copper Moth</b><span>coppermoth</span></span><span class="ds-status partial"><i data-i="schedule"></i>Polling</span><button class="ds-ibtn sm" aria-label="Actions for Copper Moth"><i data-i="more"></i></button></li>
           </ul>
           <div class="ds-row-flex" style="flex-wrap:nowrap;margin-top:var(--space-2)"><span class="ds-field ds-grow"><input placeholder="Add a Twitch login" aria-label="Add channel" spellcheck="false"></span><button class="ds-btn filled" disabled><i data-i="add"></i>Add</button></div>
+        </section>
+        <section class="ds-sheet-sec" aria-labelledby="s-chat">
+          <h3 id="s-chat"><i data-i="chat"></i>Chat</h3>
+          <div class="ds-sync" role="group" aria-label="Chat sync"><div class="top"><i data-i="tune"></i><span class="lbl">Chat sync</span><span class="val" aria-hidden="true">−4.0 s</span><button class="ds-ibtn sm" aria-label="Reset chat sync to 0"><i data-i="restart"></i></button></div><div class="rail"><span class="end">Earlier</span><span class="ds-range-wrap"><input class="ds-range" type="range" min="-30" max="30" step="0.5" value="-4" style="--lo:43.33%;--hi:50%" aria-label="Chat sync" aria-valuetext="4 seconds earlier"></span><span class="end">Later</span></div></div>
         </section>
         <section class="ds-sheet-sec" aria-labelledby="s-cs">
           <h3 id="s-cs"><i data-i="wifi"></i>Connection status</h3>

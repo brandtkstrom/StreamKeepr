@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Web;
 using Microsoft.Playwright;
 
@@ -114,7 +115,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
     }
 
     [Fact]
-    public async Task The_sync_slider_steps_by_key_persists_per_recording_and_resets()
+    public async Task Chat_sync_in_settings_applies_live_to_the_open_pane_and_persists()
     {
         await using LibraryJourneyTests.Session session =
             await LibraryJourneyTests.OpenAsync(app.BaseUrl);
@@ -138,9 +139,16 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         ILocator pane = page.Locator("[data-sk-chat]");
         if (await pane.GetAttributeAsync("data-open") != "true")
             await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
+        await WaitForOffsetAsync(offsets, "0.000");
+        // The pane holds no sync control of its own.
+        Assert.Equal(0, await pane.GetByRole(AriaRole.Slider).CountAsync());
 
-        ILocator slider = pane.GetByRole(AriaRole.Slider, new() { Name = "Chat sync", Exact = true });
-        ILocator readout = pane.Locator("[data-sk='chat-sync-value']");
+        // Settings opens over the recording; the pane stays behind it.
+        await page.GetByRole(AriaRole.Banner)
+            .GetByRole(AriaRole.Link, new() { Name = "Settings", Exact = true }).ClickAsync();
+        ILocator sheet = page.GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true });
+        ILocator slider = sheet.GetByRole(AriaRole.Slider, new() { Name = "Chat sync", Exact = true });
+        ILocator readout = sheet.Locator("[data-chat-sync-value]");
         await Assertions.Expect(slider).ToBeVisibleAsync(new() { Timeout = 20_000 });
 
         ILocator video = page.Locator("[data-sk='video']");
@@ -150,27 +158,18 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             await page.Keyboard.PressAsync("ArrowRight");
         await Assertions.Expect(readout).ToHaveTextAsync("+1.5 s");
         await Assertions.Expect(slider).ToHaveAttributeAsync("aria-valuetext", "1.5 seconds later");
+        // The open pane behind the sheet refetches with the new offset at once.
         await WaitForOffsetAsync(offsets, "1.500");
 
-        await page.Keyboard.PressAsync("PageDown");
-        await Assertions.Expect(readout).ToHaveTextAsync("\u22123.5 s");
-        await Assertions.Expect(slider).ToHaveAttributeAsync("aria-valuetext", "3.5 seconds earlier");
-        await WaitForOffsetAsync(offsets, "-3.500");
-        // The slider owns its arrows and Page keys: the playhead does not move with them.
+        for (int i = 0; i < 8; i++)
+            await page.Keyboard.PressAsync("ArrowLeft");
+        await Assertions.Expect(readout).ToHaveTextAsync("\u22122.5 s");
+        await Assertions.Expect(slider).ToHaveAttributeAsync("aria-valuetext", "2.5 seconds earlier");
+        await WaitForOffsetAsync(offsets, "-2.500");
+        // Focus in the sheet keeps the arrows from the player: the playhead does not move.
         Assert.Equal(playhead, await video.EvaluateAsync<double>("v => v.currentTime"));
 
-        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "chat-sync");
-
-        // The offset is saved for this recording and restored on the next visit.
-        await page.ReloadAsync();
-        await Assertions.Expect(slider).ToHaveValueAsync("-3.5", new() { Timeout = 20_000 });
-        await Assertions.Expect(readout).ToHaveTextAsync("\u22123.5 s");
-
-        await pane.GetByRole(AriaRole.Button, new() { Name = "Reset chat sync to 0", Exact = true }).ClickAsync();
-        await Assertions.Expect(slider).ToHaveValueAsync("0");
-        await Assertions.Expect(readout).ToHaveTextAsync("0.0 s");
-        await Assertions.Expect(slider).ToHaveAttributeAsync("aria-valuetext", "0 seconds");
-        await WaitForOffsetAsync(offsets, "0.000");
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "chat-sync-settings");
 
         // A pointer drag redraws as it goes and applies once, on release.
         while (offsets.TryDequeue(out _)) { }
@@ -180,16 +179,27 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await page.Mouse.DownAsync();
         await page.Mouse.MoveAsync(box.X + box.Width * 0.6f, y, new() { Steps = 4 });
         await page.Mouse.MoveAsync(box.X + box.Width * 0.75f, y, new() { Steps = 4 });
-        string dragged = (await readout.TextContentAsync())!;
-        Assert.StartsWith("+", dragged, StringComparison.Ordinal);
+        await Assertions.Expect(readout).ToHaveTextAsync(new Regex("^\\+"));
         // Proving that nothing is fetched mid-drag needs a quiet period; 300 ms is several
         // times a keyed fetch's round trip against the local Mock app.
         await page.WaitForTimeoutAsync(300);
         Assert.Empty(offsets);
         await page.Mouse.UpAsync();
         string value = await slider.InputValueAsync();
-        await WaitForOffsetAsync(offsets, double.Parse(value, CultureInfo.InvariantCulture)
-            .ToString("F3", CultureInfo.InvariantCulture));
+        string dragged = double.Parse(value, CultureInfo.InvariantCulture).ToString("F3", CultureInfo.InvariantCulture);
+        await WaitForOffsetAsync(offsets, dragged);
+
+        // The offset is the viewer's preference: a reload keeps it, for the pane and the sheet.
+        while (offsets.TryDequeue(out _)) { }
+        await page.ReloadAsync();
+        await WaitForOffsetAsync(offsets, dragged);
+        await Assertions.Expect(slider).ToHaveValueAsync(value, new() { Timeout = 20_000 });
+
+        await sheet.GetByRole(AriaRole.Button, new() { Name = "Reset chat sync to 0", Exact = true }).ClickAsync();
+        await Assertions.Expect(slider).ToHaveValueAsync("0");
+        await Assertions.Expect(readout).ToHaveTextAsync("0.0 s");
+        await Assertions.Expect(slider).ToHaveAttributeAsync("aria-valuetext", "0 seconds");
+        await WaitForOffsetAsync(offsets, "0.000");
     }
 
     private static async Task WaitForOffsetAsync(

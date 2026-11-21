@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.JSInterop;
+using StreamKeepr.Infrastructure.Storage;
 
 namespace StreamKeepr.Ui;
 
@@ -35,6 +36,7 @@ public sealed class UiPreferences
     private bool _statsOpen;
     private bool _detailsOpen = true;
     private bool _chatOpen;
+    private double _chatSync;
 
     public UiPreferences(IClientStateStore store, IJSRuntime js, ILogger<UiPreferences> logger)
     {
@@ -74,6 +76,10 @@ public sealed class UiPreferences
     public bool DetailsOpen => _detailsOpen;
 
     public bool ChatOpen => _chatOpen;
+
+    /// <summary>The viewer's chat sync offset in seconds, the same for every recording.
+    /// Positive shows chat later. Always within the chat endpoint's limit, in 0.5 s steps.</summary>
+    public double ChatSyncOffset => _chatSync;
 
     public IReadOnlyList<string> CollapsedStreamers => _collapsed.ToArray();
 
@@ -140,6 +146,21 @@ public sealed class UiPreferences
             return;
 
         _chatOpen = open;
+        OnChanged();
+    }
+
+    /// <summary>Sets the chat sync offset, clamped to the endpoint's limit and snapped to
+    /// 0.5 s. A non-finite value is ignored.</summary>
+    public void SetChatSyncOffset(double seconds)
+    {
+        if (!double.IsFinite(seconds))
+            return;
+
+        var value = SnapChatSync(seconds);
+        if (value == _chatSync)
+            return;
+
+        _chatSync = value;
         OnChanged();
     }
 
@@ -212,6 +233,7 @@ public sealed class UiPreferences
         _statsOpen = state.Stats ?? false;
         _detailsOpen = state.Details ?? true;
         _chatOpen = state.Chat ?? false;
+        _chatSync = state.ChatSync is { } sync && double.IsFinite(sync) ? SnapChatSync(sync) : 0;
 
         _collapsed.Clear();
         if (state.Collapsed is not null)
@@ -224,6 +246,14 @@ public sealed class UiPreferences
                 AddCollapsed(login.Trim());
             }
         }
+    }
+
+    private static double SnapChatSync(double seconds)
+    {
+        var limit = ChatReader.MaxSyncOffsetSeconds;
+        var snapped = Math.Round(Math.Clamp(seconds, -limit, limit) * 2, MidpointRounding.AwayFromZero) / 2;
+        // Never store -0, which would serialize as "-0".
+        return snapped == 0 ? 0 : snapped;
     }
 
     private static DrawerMode ParseDrawer(string? value, DrawerMode fallback) => value switch
@@ -274,7 +304,8 @@ public sealed class UiPreferences
         _statsOpen,
         _detailsOpen,
         _chatOpen,
-        _collapsed.ToArray());
+        _collapsed.ToArray(),
+        _chatSync);
 
     private string ToJson() => Serialize(CreateState());
 
@@ -297,6 +328,8 @@ public sealed class UiPreferences
 
         [JsonPropertyName("chat")] public bool? Chat { get; set; }
 
+        [JsonPropertyName("chatSync")] public double? ChatSync { get; set; }
+
         [JsonPropertyName("collapsed")] public List<string?>? Collapsed { get; set; }
     }
 }
@@ -310,4 +343,5 @@ public sealed record UiPreferencesState(
     [property: JsonPropertyName("stats")] bool Stats,
     [property: JsonPropertyName("details")] bool Details,
     [property: JsonPropertyName("chat")] bool Chat,
-    [property: JsonPropertyName("collapsed")] IReadOnlyList<string> Collapsed);
+    [property: JsonPropertyName("collapsed")] IReadOnlyList<string> Collapsed,
+    [property: JsonPropertyName("chatSync")] double ChatSync);

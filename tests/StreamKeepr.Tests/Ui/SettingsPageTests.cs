@@ -31,6 +31,8 @@ public sealed class SettingsPageTests
             cut.Find("[data-settings-signed-out] a[data-twitch-connect]").GetAttribute("href"));
         Assert.Empty(cut.FindAll("[data-channel-list]"));
         Assert.Equal(0, channels.AllReads);
+        // Chat sync is the viewer's own preference, so it needs no sign-in.
+        Assert.Single(cut.FindAll("[data-chat-settings]"));
     }
 
     [Fact]
@@ -396,7 +398,7 @@ public sealed class SettingsPageTests
     }
 
     [Fact]
-    public async Task Signed_in_sections_are_twitch_account_channels_then_connection_status()
+    public async Task Signed_in_sections_are_twitch_account_channels_chat_then_connection_status()
     {
         await using BunitContext context = CreateContext(out _, signedIn: true);
 
@@ -405,7 +407,7 @@ public sealed class SettingsPageTests
         // The page and the settings sheet (F2) render the same shared sections.
         Assert.NotNull(cut.FindComponent<SettingsSections>());
         Assert.Equal(
-            ["Twitch account", "Channels", "Connection status"],
+            ["Twitch account", "Channels", "Chat", "Connection status"],
             cut.FindAll("section[aria-labelledby]")
                 .Select(section => cut.Find($"#{section.GetAttribute("aria-labelledby")}").TextContent.Trim()));
     }
@@ -489,6 +491,9 @@ public sealed class SettingsPageTests
         channels = new TestChannelsView();
         context.Services.AddSingleton<IChannelsView>(channels);
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider());
+        // Settings › Chat reads the viewer's chat sync offset.
+        context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
+        context.Services.AddScoped<UiPreferences>();
         context.Services.AddSingleton<IConnectionStatusView>(new TestConnectionStatusView
         {
             Status = new ConnectionStatus(

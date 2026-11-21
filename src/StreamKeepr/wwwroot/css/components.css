@@ -574,9 +574,13 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 }
 .sk-chat-text img { height: 28px; width: auto; vertical-align: middle; }
 .sk-chat-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--divider); }
-/* Chat sync: a native range drawn like MudSlider Color.Primary. The module sets --sk-sync-lo and
-   --sk-sync-hi (0–1 along the track) so the fill runs from the centre to the thumb. */
-.sk-chat-sync { flex: 1 1 100%; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* Settings › Chat (design system: ChatSettings). Chat sync is a native range drawn like MudSlider
+   Color.Primary; ChatSettings sets --sk-sync-lo and --sk-sync-hi (0–1 along the track) so the
+   fill runs from the centre to the thumb. */
+.sk-chat-settings svg[data-icon] { display: block; width: 24px; height: 24px; fill: currentColor; flex: none; }
+.sk-chat-settings :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.sk-chat-settings-help { margin: 0; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
+.sk-chat-sync { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 420px; }
 .sk-chat-sync-head { display: flex; align-items: center; gap: var(--space-2); min-height: 28px; }
 .sk-chat-sync-head > svg[data-icon] { width: 20px; height: 20px; color: var(--action-default); }
 .sk-chat-sync-label { flex: 1; min-width: 0; color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
