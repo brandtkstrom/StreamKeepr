@@ -618,7 +618,7 @@ public sealed class RecorderJobTests : IDisposable
             samples = progress.ToList();
         Assert.Contains(samples, sample => sample.MediaTime == TimeSpan.FromSeconds(2));
 
-        // Live progress keeps the last readable total; the final reconcile is authoritative.
+        // Live progress keeps the last readable total; the part-end scan is authoritative.
         Assert.Equal(samples[0].Bytes, samples[^1].Bytes);
 
         long onDisk = PartFiles.TotalBytes(session.Directory, 1);
@@ -803,6 +803,92 @@ public sealed class RecorderJobTests : IDisposable
         Assert.Contains("4321", error.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task An_unverified_shutdown_still_counts_the_part_and_logs_its_finish()
+    {
+        using var parts = new MetricCollector<long>(
+            _telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.parts");
+        using var forceKills = new MetricCollector<long>(
+            _telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.force_kills");
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        DateTime captured = ProcessStartedAt;
+        var streamlink = new TaskCompletionSource<ProcessOutcome>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var runner = new FakeProcessRunner((tool, forceKill, _) =>
+        {
+            if (tool == "ffmpeg")
+            {
+                return new RunningProcess(
+                    4322, captured, Task.FromResult(Completed(4322, captured)));
+            }
+
+            forceKill.Register(() => streamlink.TrySetResult(
+                new ProcessOutcome(0, null, true, 4321, captured, ProcessStop.AlreadyStopped, false)));
+            return new RunningProcess(4321, captured, streamlink.Task);
+        });
+
+        await Assert.ThrowsAsync<RecorderShutdownException>(
+            () => RunAsync(
+                NewSession(),
+                FakeOptions(),
+                clock: new ScaledTimeProvider(),
+                logger: loggerFactory.CreateLogger<RecorderJob>(),
+                processRunner: runner,
+                identityProbe: (pid, at) =>
+                    ProcessIdentityInspector.Inspect(pid, at, _ => captured)));
+
+        CollectedMeasurement<long> part = Assert.Single(parts.GetMeasurementSnapshot());
+        Assert.Equal("killed", part.Tags[StreamKeeprTelemetry.RecorderExitKindAttribute]);
+        Assert.Equal(1, Assert.Single(forceKills.GetMeasurementSnapshot()).Value);
+
+        CapturedLogEntry finished = Assert.Single(
+            logs.Entries,
+            entry => entry.Message.Contains("finished", StringComparison.Ordinal));
+        Assert.Equal(RecorderExitKind.Killed, finished.Properties["Kind"]);
+        Assert.Contains("4321", finished.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_part_whose_size_cannot_be_read_is_counted_without_a_size_sample()
+    {
+        using var parts = new MetricCollector<long>(
+            _telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.parts");
+        using var sizes = new MetricCollector<long>(
+            _telemetry.MeterFactory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.part.size");
+        var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        DateTime captured = ProcessStartedAt;
+        var runner = new FakeProcessRunner((tool, _, _) =>
+            tool == "ffmpeg"
+                ? new RunningProcess(4322, captured, Task.FromResult(Completed(4322, captured)))
+                : new RunningProcess(4321, captured, Task.FromResult(Completed(4321, captured))));
+
+        IReadOnlyList<DvrEvent> events = await RunAsync(
+            NewSession(),
+            FakeOptions(),
+            clock: new ScaledTimeProvider(),
+            logger: loggerFactory.CreateLogger<RecorderJob>(),
+            processRunner: runner,
+            partBytesScan: (_, _) => throw new IOException("part directory unreadable"));
+
+        Assert.Equal(
+            RecorderExitKind.Exited,
+            Assert.Single(events.OfType<DvrEvent.RecorderExited>()).Kind);
+        Assert.Single(parts.GetMeasurementSnapshot());
+        Assert.Empty(sizes.GetMeasurementSnapshot());
+
+        CapturedLogEntry finished = Assert.Single(
+            logs.Entries,
+            entry => entry.Message.Contains("finished", StringComparison.Ordinal));
+        Assert.Null(finished.Properties["Bytes"]);
+        Assert.Contains(
+            logs.Entries,
+            entry => entry.Level == LogLevel.Warning
+                && entry.Message.Contains("part size", StringComparison.Ordinal));
+    }
+
     private static ProcessOutcome Completed(int pid, DateTime started, int exitCode = 0) =>
         new(exitCode, null, false, pid, started, ProcessStop.AlreadyStopped, false);
 
@@ -832,7 +918,8 @@ public sealed class RecorderJobTests : IDisposable
         CancellationToken stopRequested = default,
         Action<JobId, long, TimeSpan>? reportProgress = null,
         IRecorderProcessRunner? processRunner = null,
-        Func<int?, DateTime?, ProcessIdentity>? identityProbe = null)
+        Func<int?, DateTime?, ProcessIdentity>? identityProbe = null,
+        Func<string, int, long>? partBytesScan = null)
     {
         var events = new List<DvrEvent>();
         ValueTask Publish(DvrEvent dvrEvent, CancellationToken _)
@@ -848,7 +935,13 @@ public sealed class RecorderJobTests : IDisposable
         var job = processRunner is null
             ? new RecorderJob(configured, time, recorderLogger, _telemetry.Value)
             : new RecorderJob(
-                configured, time, recorderLogger, _telemetry.Value, processRunner, identityProbe);
+                configured,
+                time,
+                recorderLogger,
+                _telemetry.Value,
+                processRunner,
+                identityProbe,
+                partBytesScan);
         Task run = job.RunAsync(
             session, new JobId(session.Id, 1), Publish, stopRequested, reportProgress);
         return (run, events);
@@ -862,10 +955,19 @@ public sealed class RecorderJobTests : IDisposable
         ILogger<RecorderJob>? logger = null,
         Action<JobId, long, TimeSpan>? reportProgress = null,
         IRecorderProcessRunner? processRunner = null,
-        Func<int?, DateTime?, ProcessIdentity>? identityProbe = null)
+        Func<int?, DateTime?, ProcessIdentity>? identityProbe = null,
+        Func<string, int, long>? partBytesScan = null)
     {
         (Task run, List<DvrEvent> events) = StartJob(
-            session, options, clock, logger, stopRequested, reportProgress, processRunner, identityProbe);
+            session,
+            options,
+            clock,
+            logger,
+            stopRequested,
+            reportProgress,
+            processRunner,
+            identityProbe,
+            partBytesScan);
         await WaitForCompletionAsync(run, "recorder job");
         return ReadEvents(events);
     }

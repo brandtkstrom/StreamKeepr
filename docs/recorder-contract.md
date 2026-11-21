@@ -87,7 +87,7 @@ Order, with every wait bounded:
 
 A stop is verified only when the bounded wait completes, both streams reach EOF (the CliWrap task completes), and, after a force kill, the captured PID is gone or reused. If the force wait expires with the task still pending, or the captured PID still resolves to the captured start time, or the identity cannot be read, `RecorderJob.StopAsync` throws `RecorderShutdownException`.
 
-The exception carries the job, tool, PID, captured start time, stop result, task-pending flag, and observed process state. The job must not publish `RecorderExited(Exited, ...)` for it: the previous process tree may still be writing. Diagnostic text includes the tool, PID, start time, task state, and observed state; it never includes the OAuth token or the raw Streamlink command line.
+The exception carries the job, tool, PID, captured start time, stop result, task-pending flag, and observed process state. The job must not publish `RecorderExited(Exited, ...)` for it: the previous process tree may still be writing. Before the exception leaves the job, the job force-cancels both tools, counts the part as `Killed` with one force kill in telemetry, and writes the finish log with the exception's diagnostic text; it never deletes part files on this path. Diagnostic text includes the tool, PID, start time, task state, and observed state; it never includes the OAuth token or the raw Streamlink command line.
 
 The coordinator responds as follows:
 
@@ -116,7 +116,7 @@ There is no PID marker, startup orphan check, or new configuration knob. Recover
 | `Killed` | The stall watchdog fired, or a force-kill token was used because a graceful wait timed out. |
 | `Exited` | Streamlink or FFmpeg ended on its own: stream end, network failure, or tool crash. |
 
-Precedence when more than one applies: `Stopped` > `Killed` > `Exited`.
+Precedence when more than one applies: `Killed` > `Stopped` > `Exited`. A requested stop that had to be forced, or whose FFmpeg finalize timed out, is `Killed`, so the exit kind always agrees with the force-kill count.
 
 ## 6. Progress and media detection
 
@@ -125,7 +125,7 @@ Precedence when more than one applies: `Stopped` > `Killed` > `Exited`.
 - The tracker re-stats the part playlist only when its length or last-write time changed. It reads `#EXT-X-MAP` for the init URI and non-comment lines for segment names, accepts only exact names for the current part, and stats each newly seen init or completed segment once. `.tmp` files, playlists, other parts, duplicates, and partial writes are ignored.
 - The tracker opens the playlist with sharing that permits FFmpeg's atomic rename. A missing, empty, malformed, or momentarily unreadable playlist returns the last known total and retries on the next sample; metadata errors never fault FFmpeg's stdout pipe or fail the recorder.
 - Live `PartBytes` is monotonic within a part (the high-water total); deleting a segment does not lower it. A new part starts at zero, and `DvrStatus` resets the bytes when the active job changes.
-- At part end one authoritative `PartFiles.TotalBytes` scan supplies `telemetry.PartExited`, the finish log, and their equality. If that scan throws, the tracker total is used and a warning is logged.
+- At part end one authoritative `PartFiles.TotalBytes` scan supplies `telemetry.PartExited`, the finish log, and their equality. If that scan throws, the size is unknown: the part is counted without a size sample, the finish log reports null bytes, and a warning logs the tracker total as a hint. The tracker total is never substituted, because it is stale after an empty part is deleted and zero before the tracker has seen a segment.
 - `Advanced` means `out_time_us` increased since the last report. The final block arrives after the trailer but before process exit; the job still awaits the process.
 - Publish `PartProducingMedia(job, At)` exactly once, when progress advances or at shutdown when at least one segment file exists. It must be published before `RecorderExited`.
 - Guard the “producing” flag with `Interlocked` or an equivalent atomic. Cleanup must never delete a part that produced media.
@@ -170,7 +170,7 @@ Precedence when more than one applies: `Stopped` > `Killed` > `Exited`.
 Unit:
 
 - `PartFiles` paths, the delete globs (including `.tmp` and init temp files), and strict segment/init name parsing.
-- `PartByteTracker`: missing, empty, and malformed playlists; init-only; out-of-order and duplicate segments; `.tmp` and foreign names; late segments; deletion; transient read/stat failures; part isolation; final reconcile; and a probe proving one stat per newly seen segment.
+- `PartByteTracker`: missing, empty, and malformed playlists; init-only; out-of-order and duplicate segments; `.tmp` and foreign names; late segments; deletion; transient read/stat failures; part isolation; an unlisted segment that only the full `PartFiles.TotalBytes` scan counts; and a probe proving one stat per newly seen segment.
 - FFmpeg and Streamlink argument builders, including `-bsf:a aac_adtstoasc` and `--twitch-supported-codecs h264,h265,av1`.
 - `FfmpegProgressParser`: `total_size=N/A`, `out_time_us`, `progress=continue`, `progress=end`, missing keys, first-block-only parts.
 - `StderrTail` capacity and ordering.
@@ -184,6 +184,8 @@ Recorder job seam (fake process runner and identity probe; no long-lived process
 - A verified force-kill (task completed, PID gone or reused) remains `Killed`.
 - A force kill whose captured PID is still alive, or whose identity is unreadable, fails closed.
 - A clean stream end remains `Exited` and never inspects process identity.
+- An unverified shutdown still counts the part as `Killed`, counts one force kill, and writes the finish log before raising.
+- A part whose size scan throws is counted with no size sample, logs null bytes, and warns.
 
 Integration with the fake Streamlink and a synthetic media fixture:
 

@@ -24,10 +24,12 @@ public sealed class RecorderJob(
     private readonly IRecorderProcessRunner _processRunner = new CliWrapProcessRunner();
     private readonly Func<int?, DateTime?, ProcessIdentity> _identityProbe =
         ProcessIdentityInspector.Inspect;
+    private readonly Func<string, int, long> _partBytesScan = PartFiles.TotalBytes;
 
     /// <summary>
-    /// Test seam: production uses the CliWrap runner and the real process table. Tests substitute
-    /// both so an unverified stop is deterministic without long-lived processes.
+    /// Test seam: production uses the CliWrap runner, the real process table, and a full scan of
+    /// the part's files. Tests substitute them so an unverified stop or an unreadable part size is
+    /// deterministic without long-lived processes.
     /// </summary>
     internal RecorderJob(
         IOptions<RecorderOptions> options,
@@ -35,12 +37,15 @@ public sealed class RecorderJob(
         ILogger<RecorderJob> logger,
         StreamKeeprTelemetry telemetry,
         IRecorderProcessRunner processRunner,
-        Func<int?, DateTime?, ProcessIdentity>? identityProbe = null)
+        Func<int?, DateTime?, ProcessIdentity>? identityProbe = null,
+        Func<string, int, long>? partBytesScan = null)
         : this(options, clock, logger, telemetry)
     {
         _processRunner = processRunner;
         if (identityProbe is not null)
             _identityProbe = identityProbe;
+        if (partBytesScan is not null)
+            _partBytesScan = partBytesScan;
     }
 
     private static readonly TimeSpan WatchdogInterval = TimeSpan.FromSeconds(5);
@@ -217,12 +222,65 @@ public sealed class RecorderJob(
             stalled,
             watchdog.Token);
 
-        string reason;
+        // Assigned before any stop can fail; the initial value only satisfies the fatal catch.
+        string reason = "shutdown";
         bool forcedKill = false;
         bool finalizeTimedOut = false;
         bool stalledEnd = false;
         ProcessStop streamlinkStop = ProcessStop.AlreadyStopped;
         ProcessStop ffmpegStop = ProcessStop.AlreadyStopped;
+
+        // One authoritative scan for telemetry, the finish log, and their equality. A metadata
+        // error must never fail the recorder; the size is then unknown, never a guessed number.
+        long? ScanPartBytes()
+        {
+            try
+            {
+                return _partBytesScan(session.Directory, job.Part);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Could not read the part size; the tracked total was {TrackedBytes} bytes.",
+                    byteTracker.Total);
+                return null;
+            }
+        }
+
+        string AppendTailAndRedact(string text)
+        {
+            string stderr = tail.ToString();
+            if (stderr.Length > 0)
+                text = $"{text}; {stderr}";
+
+            // Diagnostic text can include a tool exception message; redact once more at the
+            // boundary so the subscriber token can never leak through the detail or the log.
+            return ProcessOutput.Redact(text, recorder.TwitchUserOAuthToken);
+        }
+
+        // Every path on which the tools ran ends here, including an unverified shutdown, so the
+        // part is always counted and its finish is always logged.
+        void ReportPart(RecorderExitKind kind, bool stall, bool forceKill, long? bytes, string detail)
+        {
+            telemetry.PartExited(kind, clock.GetElapsedTime(startedAt), bytes);
+            if (stall)
+                telemetry.Stall();
+            if (forceKill)
+                telemetry.ForceKill();
+
+            // Bytes are what the part left on disk: zero when an empty part was removed, null
+            // when the size could not be read. Only the log copy of the detail is escaped.
+            double elapsedMs = clock.GetElapsedTime(startedAt).TotalMilliseconds;
+            logger.LogInformation(
+                "Recorder {Job} finished ({Kind}) after {ElapsedMs:F0} ms with {Bytes} bytes: {Detail}",
+                job,
+                kind,
+                elapsedMs,
+                bytes,
+                ProcessOutput.Sanitize(detail));
+        }
+
         try
         {
             Task first = await Task.WhenAny(
@@ -273,6 +331,20 @@ public sealed class RecorderJob(
             if (!readerCompleted)
                 await pipe.Reader.CompleteAsync();
         }
+        catch (RecorderShutdownException ex)
+        {
+            // The writer may still be alive: never delete part files here. Count and log the part
+            // before the fault reaches the coordinator, which publishes the exit and stops the host.
+            await streamlinkForce.CancelAsync();
+            await ffmpegForce.CancelAsync();
+            ReportPart(
+                RecorderExitKind.Killed,
+                stalledEnd,
+                forceKill: true,
+                ScanPartBytes(),
+                AppendTailAndRedact($"{reason}; {ex.Message}"));
+            throw;
+        }
         catch
         {
             // Never leave the other process running when the job fails unexpectedly.
@@ -298,22 +370,7 @@ public sealed class RecorderJob(
         if (Volatile.Read(ref producing) == 0)
             PartFiles.Delete(session.Directory, job.Part);
 
-        // One authoritative scan for telemetry, the finish log, and their equality. The
-        // incremental tracker is the fallback; a metadata error must never fail the recorder.
-        long bytes;
-        try
-        {
-            bytes = byteTracker.Reconcile();
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(
-                ex,
-                "Could not read the part size; using the tracked total of {Bytes} bytes.",
-                byteTracker.Total);
-            bytes = byteTracker.Total;
-        }
-        long? partBytes = telemetry.Enabled ? bytes : null;
+        long? bytes = ScanPartBytes();
 
         // The watchdog and force-kill paths beat a requested stop; an escalated finalize did not
         // end on its own, so it is reported as killed rather than as a self exit.
@@ -323,33 +380,12 @@ public sealed class RecorderJob(
                 ? RecorderExitKind.Stopped
                 : RecorderExitKind.Exited;
 
-        telemetry.PartExited(kind, clock.GetElapsedTime(startedAt), partBytes);
-        if (stalledEnd)
-            telemetry.Stall();
-        if (forcedKill || finalizeTimedOut)
-            telemetry.ForceKill();
-
-        string detail =
+        // The published detail is display text, and a newline in it is harmless.
+        string detail = AppendTailAndRedact(
             $"{reason}; streamlink {Describe(streamlink, streamlinkStop)}, "
-            + $"ffmpeg {Describe(ffmpeg, ffmpegStop)}";
-        string stderr = tail.ToString();
-        if (stderr.Length > 0)
-            detail = $"{detail}; {stderr}";
+            + $"ffmpeg {Describe(ffmpeg, ffmpegStop)}");
 
-        // Diagnostic text can include a tool exception message; redact once more at the boundary
-        // so the subscriber token can never leak through the detail or the log. Only the log
-        // copy is escaped: the published detail is display text, and a newline in it is harmless.
-        detail = ProcessOutput.Redact(detail, recorder.TwitchUserOAuthToken);
-
-        // Bytes are what the part left on disk: zero when an empty part was removed.
-        double elapsedMs = clock.GetElapsedTime(startedAt).TotalMilliseconds;
-        logger.LogInformation(
-            "Recorder {Job} finished ({Kind}) after {ElapsedMs:F0} ms with {Bytes} bytes: {Detail}",
-            job,
-            kind,
-            elapsedMs,
-            bytes,
-            ProcessOutput.Sanitize(detail));
+        ReportPart(kind, stalledEnd, forcedKill || finalizeTimedOut, bytes, detail);
         await publish(
             new DvrEvent.RecorderExited(
                 job,
