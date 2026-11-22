@@ -29,16 +29,16 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         await row.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{deletedId}", StringComparison.Ordinal));
 
-        ILocator delete = page.Locator("button[data-delete]");
-        await delete.WaitForAsync();
-        if (await delete.IsDisabledAsync())
+        // Delete lives in More actions (design system: RecordingDetails).
+        ILocator delete = await TitleBlock.MenuItemAsync(page, "data-delete");
+        if (await delete.GetAttributeAsync("aria-disabled") == "true")
         {
-            string reason = await page.Locator("[data-delete-blocked] [role=tooltip]")
-                .TextContentAsync() ?? "";
+            string reason = await delete.Locator("[data-delete-blocked]").TextContentAsync() ?? "";
             Assert.Fail($"Delete was disabled: {reason}");
         }
 
-        // Cancel first: the dialog closes, focus returns to the trigger, and the recording stays.
+        // Cancel first: the dialog closes, focus returns to More actions (the menu item that
+        // opened it is gone), and the recording stays.
         await delete.ClickAsync();
         ILocator dialog = Feedback.Dialog(page, "Delete recording?");
         await dialog.WaitForAsync();
@@ -47,12 +47,12 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "delete-dialog");
         await page.Locator("[data-delete-cancel]").ClickAsync();
         await dialog.WaitForAsync(new() { State = WaitForSelectorState.Hidden });
-        Assert.True(await delete.EvaluateAsync<bool>("b => b === document.activeElement"));
+        await Assertions.Expect(TitleBlock.More(page)).ToBeFocusedAsync();
         Assert.Equal(1, await page.Locator($"a[data-recording-id='{deletedId}']").CountAsync());
 
         // Confirm: the row disappears, the snackbar names the outcome, and Home opens the
         // first remaining recording in the current query.
-        await delete.ClickAsync();
+        await (await TitleBlock.MenuItemAsync(page, "data-delete")).ClickAsync();
         await Feedback.Dialog(page, "Delete recording?").WaitForAsync();
         await page.Locator("[data-delete-confirm]").ClickAsync();
 
@@ -71,12 +71,10 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
 
         await page.Locator(LibraryHooks.Row, new() { HasTextString = "Community day" }).ClickAsync();
 
-        ILocator delete = page.Locator("button[data-delete]");
-        await delete.WaitForAsync();
-        Assert.True(await delete.IsDisabledAsync());
-        Assert.Contains(
-            "finishes",
-            await page.Locator("[data-delete-blocked] [role=tooltip]").TextContentAsync());
+        ILocator delete = await TitleBlock.MenuItemAsync(page, "data-delete");
+        Assert.Equal("true", await delete.GetAttributeAsync("aria-disabled"));
+        Assert.Contains("finishes", await delete.Locator("[data-delete-blocked]").TextContentAsync());
+        await TitleBlock.CloseMenuAsync(page);
         await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "live-actions-disabled");
     }
 }

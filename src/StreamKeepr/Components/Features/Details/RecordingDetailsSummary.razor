@@ -36,7 +36,12 @@
                 <StatusChip Status="@chip" />
             }
             <span class="who">
-                <Avatar Name="@Recording.StreamerLogin" Tone="AvatarTone.Tertiary" />
+                <ChannelAvatar Login="@Recording.StreamerLogin"
+                               Name="@Recording.StreamerLogin"
+                               ImageUrl="@AvatarUrl"
+                               Size="MudBlazor.Size.Small"
+                               Decorative="true"
+                               data-details-avatar />
                 <span data-details-streamer>@Recording.StreamerLogin</span>
             </span>
             @if (!Compact)
@@ -74,80 +79,64 @@
             }
         </div>
 
-        <div class="sk-actions" data-details-actions="true">
+        <div class="sk-actions" role="group" aria-label="Recording actions" data-details-actions="true">
             @* The live state leads the phone's actions row (PhoneLayout); Md and up it leads
                the meta line instead. *@
             @if (Compact && LiveChip is { } phoneChip)
             {
                 <StatusChip Status="@phoneChip" />
             }
-            @* Stop and Delete sit in the row from Breakpoint.Md up and in More actions
-               below it; components.css shows one or the other at 960px. *@
-            @if (IsLive)
-            {
-                <span class="sk-details-wide">
-                    <RequiresTwitch>
-                        <MudBlazor.MudButton Variant="MudBlazor.Variant.Outlined"
-                                             Color="MudBlazor.Color.Error"
-                                             StartIcon="@MudBlazor.Icons.Material.Rounded.Stop"
-                                             IconSize="MudBlazor.Size.Small"
-                                             Disabled="@_stopping"
-                                             OnClick="OpenStopDialog"
-                                             data-stop-recording="true">Stop recording</MudBlazor.MudButton>
-                    </RequiresTwitch>
-                </span>
-            }
-            <MudBlazor.MudButton Variant="MudBlazor.Variant.Outlined"
-                                 StartIcon="@MudBlazor.Icons.Material.Rounded.PlaylistPlay"
-                                 IconSize="MudBlazor.Size.Small"
-                                 OnClick="CopyPlaylistAsync"
-                                 data-copy-playlist="true">Copy playlist URL</MudBlazor.MudButton>
+            @* Icon buttons for the everyday actions, then More actions for the rare and
+               destructive ones (design system: RecordingDetails). A blocked button is
+               disabled and sits in its reason's tooltip; the menu gives its reason under
+               the item. *@
+            <MudBlazor.MudTooltip Text="Copy playlist URL" Placement="MudBlazor.Placement.Top">
+                <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.PlaylistPlay"
+                                         aria-label="Copy playlist URL"
+                                         OnClick="CopyPlaylistAsync"
+                                         data-copy-playlist="true" />
+            </MudBlazor.MudTooltip>
             <RequiresTwitch>
-                @if (ExportBlockedReason is { } reason)
+                @if (ExportTooltip is { } blocked)
                 {
-                    <Tooltip Text="@reason" tabindex="0">@ExportButton</Tooltip>
+                    <Tooltip Text="@blocked" tabindex="0" data-export-blocked>@ExportButton</Tooltip>
                 }
                 else
                 {
-                    @ExportButton
+                    <MudBlazor.MudTooltip Text="Export MP4" Placement="MudBlazor.Placement.Top">@ExportButton</MudBlazor.MudTooltip>
                 }
             </RequiresTwitch>
-            <span class="sk-details-wide">
-                <RequiresTwitch>
-                    @if (DeleteBlockedReason is { } deleteReason)
+            <RequiresTwitch>
+                <span class="sk-more" @ref="_more">
+                <MudBlazor.MudMenu Icon="@MudBlazor.Icons.Material.Rounded.MoreVert"
+                                   AriaLabel="More actions"
+                                   AnchorOrigin="MudBlazor.Origin.BottomRight"
+                                   TransformOrigin="MudBlazor.Origin.TopRight"
+                                   ListClass="sk-more-menu"
+                                   data-more-actions="true">
+                    @if (IsLive)
                     {
-                        <Tooltip Text="@deleteReason" tabindex="0" data-delete-blocked>@DeleteButton</Tooltip>
+                        <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Stop"
+                                               IconColor="MudBlazor.Color.Error"
+                                               Class="sk-menu-error"
+                                               Disabled="@_stopping"
+                                               OnClick="OpenStopDialog"
+                                               data-stop-recording="true">Stop recording</MudBlazor.MudMenuItem>
+                        <MudBlazor.MudDivider />
                     }
-                    else
-                    {
-                        @DeleteButton
-                    }
-                </RequiresTwitch>
-            </span>
-            <span class="sk-details-compact">
-                <RequiresTwitch>
-                    <MudBlazor.MudMenu Icon="@MudBlazor.Icons.Material.Rounded.MoreVert"
-                                       AriaLabel="More actions"
-                                       AnchorOrigin="MudBlazor.Origin.BottomRight"
-                                       TransformOrigin="MudBlazor.Origin.TopRight">
-                        @if (IsLive)
+                    <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Delete"
+                                           Disabled="@(DeleteBlockedReason is not null)"
+                                           OnClick="OpenDeleteDialog"
+                                           data-delete="true">
+                        Delete recording
+                        @if (DeleteBlockedReason is { } menuReason)
                         {
-                            <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Stop"
-                                                   Disabled="@_stopping"
-                                                   OnClick="OpenStopDialog">Stop recording</MudBlazor.MudMenuItem>
+                            <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="sk-menu-reason" data-delete-blocked>@menuReason</MudBlazor.MudText>
                         }
-                        <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Delete"
-                                               Disabled="@(DeleteBlockedReason is not null)"
-                                               OnClick="OpenDeleteDialog">
-                            Delete recording
-                            @if (DeleteBlockedReason is { } menuReason)
-                            {
-                                <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="sk-menu-reason">@menuReason</MudBlazor.MudText>
-                            }
-                        </MudBlazor.MudMenuItem>
-                    </MudBlazor.MudMenu>
-                </RequiresTwitch>
-            </span>
+                    </MudBlazor.MudMenuItem>
+                </MudBlazor.MudMenu>
+                </span>
+            </RequiresTwitch>
         </div>
     </div>
 </div>
@@ -190,6 +179,11 @@
 
     private IJSObjectReference? _module;
 
+    // Stop and Delete open from More actions, whose item is gone once the menu closes, so a
+    // closed dialog hands focus back to the More actions button rather than to the page.
+    private ElementReference _more;
+    private string? _dialogOpenFor;
+
     private bool _starting;
     private bool _stopOpen;
     private bool _stopping;
@@ -200,6 +194,9 @@
     private string? _deleteRecordingId;
 
     [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
+
+    /// <summary>The channel's Twitch profile image, the same one the drawer shows; null shows its initial.</summary>
+    [Parameter] public string? AvatarUrl { get; set; }
 
     /// <summary>Below <c>Breakpoint.Md</c>: the summary sits outside the details card and tabs.</summary>
     [Parameter] public bool Compact { get; set; }
@@ -215,21 +212,17 @@
     // Partial recording's chip belongs to the library row, not here).
     private StatusChipKind? LiveChip => IsLive ? RecordingStatusChip.For(Recording.State) : null;
 
-    // One Export MP4 button; a blocked one is disabled and sits in its reason's tooltip.
-    private RenderFragment ExportButton => @<MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
-                                                                Color="MudBlazor.Color.Primary"
-                                                                StartIcon="@MudBlazor.Icons.Material.Rounded.Output"
-                                                                IconSize="MudBlazor.Size.Small"
-                                                                Disabled="@(ExportBlockedReason is not null || ExportActive || _starting)"
-                                                                OnClick="StartExportAsync"
-                                                                data-export="true">Export MP4</MudBlazor.MudButton>;
+    // One Export MP4 icon button: tonal primary, the one emphasised action.
+    private RenderFragment ExportButton => @<MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Output"
+                                                                    Color="MudBlazor.Color.Primary"
+                                                                    Class="sk-tonal"
+                                                                    aria-label="Export MP4"
+                                                                    Disabled="@(ExportBlockedReason is not null || ExportActive || _starting)"
+                                                                    OnClick="StartExportAsync"
+                                                                    data-export="true" />;
 
-    // One Delete icon button; a blocked one is disabled and sits in its reason's tooltip.
-    private RenderFragment DeleteButton => @<MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Delete"
-                                                                    aria-label="Delete recording"
-                                                                    Disabled="@(DeleteBlockedReason is not null)"
-                                                                    OnClick="OpenDeleteDialog"
-                                                                    data-delete="true" />;
+    // The disabled Export button's tooltip: why it is blocked, or that it is already running.
+    private string? ExportTooltip => ExportBlockedReason ?? (ExportActive ? "Exporting…" : null);
 
     private bool ExportActive => Exports.FindByRecording(Recording.Id) is { IsActive: true };
 
@@ -457,6 +450,33 @@
         finally
         {
             _stopping = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_stopOpen || _deleteOpen)
+        {
+            _dialogOpenFor = Recording.Id;
+            return;
+        }
+
+        if (_dialogOpenFor is null)
+            return;
+
+        bool sameRecording = _dialogOpenFor == Recording.Id;
+        _dialogOpenFor = null;
+        if (!sameRecording)
+            return;
+
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
+            await _module.InvokeVoidAsync("focusButton", _more);
+        }
+        catch (JSDisconnectedException ex)
+        {
+            Logger.LogDebug(ex, "Focus was not returned to More actions because the circuit disconnected.");
         }
     }
 

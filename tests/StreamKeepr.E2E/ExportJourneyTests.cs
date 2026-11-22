@@ -23,8 +23,10 @@ public sealed class ExportJourneyTests(MockAppFixture app)
 
         // Wait for the card to rehydrate the queued job before checking the delete guard.
         await page.Locator("[data-export-row]").WaitForAsync();
-        ILocator delete = page.Locator("button[data-delete]");
-        Assert.True(await delete.IsDisabledAsync(), "an active export blocks delete");
+        ILocator delete = await TitleBlock.MenuItemAsync(page, "data-delete");
+        Assert.Equal("true", await delete.GetAttributeAsync("aria-disabled"));
+        Assert.Contains("export", await delete.Locator("[data-delete-blocked]").TextContentAsync());
+        await TitleBlock.CloseMenuAsync(page);
 
         // The row walks Queued/Running to MP4 ready; the button stays disabled while active.
         ILocator download = page.Locator("a[data-export-download]");
@@ -65,6 +67,10 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         await page.Locator("button[data-export]").ClickAsync();
         ILocator status = page.Locator("[data-export-row] [role='status']");
         await page.Locator("[data-export-row='Running'] [role='progressbar']").WaitForAsync(new() { Timeout = 30_000 });
+        // The pointer still rests on Export, whose tooltip MudBlazor renders outside the page's
+        // landmarks; check the page as it is without a hover.
+        await page.Mouse.MoveAsync(0, 0);
+        await page.Locator(".mud-popover-open .mud-tooltip").WaitForAsync(new() { State = WaitForSelectorState.Detached });
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "export-running");
 
         await page.Locator("button[data-export-cancel]").ClickAsync();

@@ -75,7 +75,7 @@ else
             @if (Selected is { } phone)
             {
                 <div class="sk-watch-summary" data-watch-summary>
-                    <RecordingDetailsSummary Recording="phone" Compact="true" />
+                    <RecordingDetailsSummary Recording="phone" Compact="true" AvatarUrl="@AvatarUrlFor(phone)" />
                 </div>
 
                 <MudBlazor.MudTabs Class="sk-watch-tabs"
@@ -114,7 +114,7 @@ else
             <div data-slot="details">
                 @if (Selected is { } detailed)
                 {
-                    <RecordingDetails Recording="detailed" />
+                    <RecordingDetails Recording="detailed" AvatarUrl="@AvatarUrlFor(detailed)" />
                 }
             </div>
 
@@ -141,6 +141,11 @@ else
 
     private RecordingView? Selected =>
         RecordingId is not null && Library.IsLoaded ? Library.Find(RecordingId) : null;
+
+    // The channel's Twitch profile image for the title block, the same one the drawer shows.
+    private string? AvatarUrlFor(RecordingView recording) =>
+        Library.Streamers(new LibraryQuery())
+            .FirstOrDefault(streamer => streamer.Login == recording.StreamerLogin)?.AvatarUrl;
 
     // Captured chat always replays; a live recording only waits for chat while capture is on.
     private bool ShowChat => Selected is { } recording &&

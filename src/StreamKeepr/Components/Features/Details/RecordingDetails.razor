@@ -27,7 +27,7 @@
     </button>
     <MudBlazor.MudCollapse Expanded="@Preferences.DetailsOpen">
         <div id="@_bodyId" class="sk-details-body" inert="@(!Preferences.DetailsOpen)">
-            <RecordingDetailsSummary Recording="Recording" />
+            <RecordingDetailsSummary Recording="Recording" AvatarUrl="@AvatarUrl" />
             <RecordingDetailsBody Recording="Recording" />
         </div>
     </MudBlazor.MudCollapse>
@@ -37,6 +37,9 @@
     private readonly string _bodyId = $"sk-details-body-{Guid.NewGuid():N}";
 
     [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
+
+    /// <summary>The channel's Twitch profile image for the title block's avatar.</summary>
+    [Parameter] public string? AvatarUrl { get; set; }
 
     private string StartLabel => Format.FullDate(Clock.ToLocal(Recording.StartedAt));
 

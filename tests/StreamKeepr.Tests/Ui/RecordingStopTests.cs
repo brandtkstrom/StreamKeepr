@@ -33,7 +33,7 @@ public sealed class RecordingStopTests
 
         var cut = Render(context, Recording(RecordingState.Recording));
 
-        Assert.NotNull(cut.Find("button[data-stop-recording]"));
+        Assert.NotNull(MoreActions.Item(context, cut, "data-stop-recording"));
         Assert.Empty(channels.Calls);
     }
 
@@ -45,7 +45,7 @@ public sealed class RecordingStopTests
 
         var cut = Render(context, Recording(RecordingState.Reconnecting));
 
-        Assert.NotNull(cut.Find("[data-requires-twitch] [inert] button[data-stop-recording]"));
+        Assert.NotNull(cut.Find("[data-requires-twitch] [inert] button[aria-label='More actions']"));
     }
 
     [Fact]
@@ -55,7 +55,8 @@ public sealed class RecordingStopTests
         var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var cut = Render(context, Recording(RecordingState.Recording));
 
-        cut.Find("button[data-stop-recording]").Click();
+        MoreActions.Item(context, cut, "data-stop-recording").Click();
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog(StopName)));
 
         Assert.True(dialogs.HasOpenDialog(StopName));
         Assert.Contains("finalized", dialogs.Find("[data-stop-dialog]").TextContent);
@@ -74,7 +75,8 @@ public sealed class RecordingStopTests
         await using BunitContext context = CreateContext(out _, signedIn: true);
         var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var cut = Render(context, Recording(RecordingState.Recording));
-        cut.Find("button[data-stop-recording]").Click();
+        MoreActions.Item(context, cut, "data-stop-recording").Click();
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog(StopName)));
         Assert.True(dialogs.HasOpenDialog(StopName));
 
         cut.Render(parameters => parameters.Add(
@@ -91,7 +93,8 @@ public sealed class RecordingStopTests
         var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         channels.OnStop = _ => Task.FromException(new UnauthorizedAccessException());
         var cut = Render(context, Recording(RecordingState.Recording));
-        cut.Find("button[data-stop-recording]").Click();
+        MoreActions.Item(context, cut, "data-stop-recording").Click();
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog(StopName)));
 
         dialogs.Find("[data-stop-confirm]").Click();
 

@@ -35,7 +35,7 @@ public sealed class RecordingDetailsTests
         Assert.Equal("1,342 segments", cut.Find("[data-details-segments]").TextContent);
         Assert.Equal("3 parts", cut.Find("[data-details-parts]").TextContent);
         Assert.Equal("9.8 GB", cut.Find("[data-details-size]").TextContent);
-        Assert.Contains("Copy playlist URL", cut.Find("[data-copy-playlist]").TextContent);
+        Assert.Equal("Copy playlist URL", cut.Find("[data-copy-playlist]").GetAttribute("aria-label"));
     }
 
     [Fact]

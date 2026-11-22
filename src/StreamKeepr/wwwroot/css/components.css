@@ -798,13 +798,15 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-details-meta .who { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-primary); font-weight: 600; }
 .sk-details-meta .pair { display: inline-flex; align-items: center; gap: var(--space-1); }
 .sk-details-meta .pair .mud-icon-root { font-size: var(--icon-inline); color: var(--action-default); }
-.sk-details .sk-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.sk-details .sk-actions { display: flex; align-items: center; gap: var(--space-1); flex-wrap: nowrap; }
 /* Buttons card: icon buttons rest in action-default (MudBlazor's button root is currentColor). */
-.sk-details .sk-actions .mud-icon-button:not(:disabled) { color: var(--action-default); }
-.sk-details-wide, .sk-details-compact { display: contents; }
-/* Below Breakpoint.Md, Stop recording and Delete move into More actions. */
-@media (max-width: 959.98px) { .sk-details-wide { display: none; } }
-@media (min-width: 960px) { .sk-details-compact { display: none; } }
+.sk-details .sk-actions .mud-icon-button:not(:disabled):not(.sk-tonal) { color: var(--action-default); }
+/* Export MP4 is the one emphasised action: a tonal icon button, primary on a primary tint. */
+.sk-details .sk-actions .sk-tonal:not(:disabled) { color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, transparent); }
+.sk-details .sk-actions .sk-tonal:not(:disabled):hover { background: color-mix(in srgb, var(--primary) 22%, transparent); }
+/* More actions: Stop recording in error; a blocked item gives its reason under its label. */
+.sk-more-menu { min-width: 220px; }
+.sk-menu-error:not(.mud-disabled) { color: var(--error); }
 .sk-menu-reason { display: block; color: var(--text-secondary); }
 .sk-chapters { display: flex; flex-direction: column; gap: 2px; margin-top: var(--space-3); }
 .sk-chapter { display: flex; align-items: baseline; gap: var(--space-3); width: 100%; padding: 6px var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }

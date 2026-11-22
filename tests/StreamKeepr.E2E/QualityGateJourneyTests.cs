@@ -210,8 +210,14 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         await AssertTabReachesEveryControlAsync(page, "recording with stats");
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "keyboard-stats");
 
-        // The delete dialog traps focus while open and gives it back on Escape. Nothing is deleted.
-        await TabToAsync(page, "e => e.hasAttribute('data-delete')", "the delete button");
+        // Delete opens from More actions by keyboard; its dialog traps focus while open and
+        // gives it back to More actions on Escape. Nothing is deleted.
+        await TabToAsync(page, "e => e.getAttribute('aria-label') === 'More actions'", "More actions");
+        await page.Keyboard.PressAsync("Enter");
+        await page.Locator("[role='menuitem'][data-delete]").WaitForAsync();
+        for (int press = 0; press < 4 && !await FocusedMatchesAsync(page, "e => e.hasAttribute('data-delete')"); press++)
+            await page.Keyboard.PressAsync("ArrowDown");
+        Assert.True(await FocusedMatchesAsync(page, "e => e.hasAttribute('data-delete')"), "arrows reach Delete in More actions");
         await page.Keyboard.PressAsync("Enter");
         ILocator deleteDialog = Feedback.Dialog(page, "Delete recording?");
         await deleteDialog.WaitForAsync();
@@ -220,7 +226,7 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         await AssertFocusStaysInsideAsync(page, "[role=dialog]", nativeModal: false);
         await page.Keyboard.PressAsync("Escape");
         await Feedback.Dialog(page, "Delete recording?").WaitForAsync(new() { State = WaitForSelectorState.Detached });
-        Assert.True(await FocusedMatchesAsync(page, "e => e.hasAttribute('data-delete')"), "Escape returns focus to Delete");
+        await Assertions.Expect(page.Locator("button[aria-label='More actions']")).ToBeFocusedAsync();
 
         // Settings by keyboard from the top bar.
         await TabToAsync(page, "e => e.getAttribute('href') === '/settings'", "the Settings link");

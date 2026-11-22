@@ -22,7 +22,7 @@ public sealed class RecordingDeleteTests
 
         var cut = Render(context, Recording());
 
-        Assert.NotNull(cut.Find("[data-requires-twitch] [inert] button[data-delete]"));
+        Assert.NotNull(cut.Find("[data-requires-twitch] [inert] button[aria-label='More actions']"));
     }
 
     [Fact]
@@ -33,8 +33,9 @@ public sealed class RecordingDeleteTests
 
         var cut = Render(context, Recording(RecordingState.Recording));
 
-        Assert.Contains("finishes", cut.Find("[data-delete-blocked]").TextContent);
-        Assert.True(cut.Find("button[data-delete]").HasAttribute("disabled"));
+        AngleSharp.Dom.IElement delete = MoreActions.Item(context, cut, "data-delete");
+        Assert.Contains("finishes", delete.QuerySelector("[data-delete-blocked]")!.TextContent);
+        Assert.Equal("true", delete.GetAttribute("aria-disabled"));
     }
 
     [Fact]
@@ -47,8 +48,9 @@ public sealed class RecordingDeleteTests
 
         var cut = Render(context, Recording());
 
-        Assert.Contains("export", cut.Find("[data-delete-blocked]").TextContent);
-        Assert.True(cut.Find("button[data-delete]").HasAttribute("disabled"));
+        AngleSharp.Dom.IElement delete = MoreActions.Item(context, cut, "data-delete");
+        Assert.Contains("export", delete.QuerySelector("[data-delete-blocked]")!.TextContent);
+        Assert.Equal("true", delete.GetAttribute("aria-disabled"));
     }
 
     [Fact]
@@ -58,7 +60,8 @@ public sealed class RecordingDeleteTests
         var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var cut = Render(context, Recording());
 
-        cut.Find("button[data-delete]").Click();
+        MoreActions.Item(context, cut, "data-delete").Click();
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog(DeleteName)));
         Assert.True(dialogs.HasOpenDialog(DeleteName));
         Assert.Contains("Title — ann", dialogs.Find("[data-delete-banner]").TextContent);
         Assert.Contains("permanently", dialogs.Find("[data-delete-banner]").TextContent);
@@ -66,6 +69,23 @@ public sealed class RecordingDeleteTests
 
         dialogs.Find("[data-delete-cancel]").Click();
         Assert.False(dialogs.HasOpenDialog(DeleteName));
+    }
+
+    [Fact]
+    public async Task Cancel_hands_focus_back_to_more_actions()
+    {
+        await using BunitContext context = CreateContext(out _, out _, signedIn: true);
+        var module = context.JSInterop.SetupModule("./Components/Features/Details/RecordingDetails.razor.js");
+        module.SetupVoid("focusButton", _ => true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
+        var cut = Render(context, Recording());
+        MoreActions.Item(context, cut, "data-delete").Click();
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog(DeleteName)));
+        Assert.Empty(module.Invocations);
+
+        dialogs.Find("[data-delete-cancel]").Click();
+
+        cut.WaitForAssertion(() => Assert.Single(module.Invocations, invocation => invocation.Identifier == "focusButton"));
     }
 
     [Theory]
@@ -76,7 +96,8 @@ public sealed class RecordingDeleteTests
         await using BunitContext context = CreateContext(out TestRecordingAdmin admin, out _, signedIn: true);
         var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var cut = Render(context, Recording());
-        cut.Find("button[data-delete]").Click();
+        MoreActions.Item(context, cut, "data-delete").Click();
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog(DeleteName)));
 
         if (escape)
             await PressEscapeAsync(dialogs);
@@ -93,7 +114,8 @@ public sealed class RecordingDeleteTests
         await using BunitContext context = CreateContext(out TestRecordingAdmin admin, out _, signedIn: true);
         var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var cut = Render(context, Recording());
-        cut.Find("button[data-delete]").Click();
+        MoreActions.Item(context, cut, "data-delete").Click();
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog(DeleteName)));
 
         dialogs.Find("[data-delete-confirm]").Click();
 
@@ -111,7 +133,8 @@ public sealed class RecordingDeleteTests
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         admin.Gate = gate;
         var cut = Render(context, Recording());
-        cut.Find("button[data-delete]").Click();
+        MoreActions.Item(context, cut, "data-delete").Click();
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog(DeleteName)));
 
         dialogs.Find("[data-delete-confirm]").Click();
 
@@ -133,7 +156,8 @@ public sealed class RecordingDeleteTests
         await using BunitContext context = CreateContext(out _, signedIn: true);
         var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var cut = Render(context, Recording());
-        cut.Find("button[data-delete]").Click();
+        MoreActions.Item(context, cut, "data-delete").Click();
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog(DeleteName)));
         Assert.True(dialogs.HasOpenDialog(DeleteName));
 
         cut.Render(parameters => parameters.Add(
@@ -155,7 +179,8 @@ public sealed class RecordingDeleteTests
             return new InvalidOperationException("That recording is being exported.");
         };
         var cut = Render(context, Recording());
-        cut.Find("button[data-delete]").Click();
+        MoreActions.Item(context, cut, "data-delete").Click();
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog(DeleteName)));
 
         dialogs.Find("[data-delete-confirm]").Click();
 
@@ -172,7 +197,8 @@ public sealed class RecordingDeleteTests
         var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         admin.Failure = _ => new KeyNotFoundException("That recording was already deleted.");
         var cut = Render(context, Recording());
-        cut.Find("button[data-delete]").Click();
+        MoreActions.Item(context, cut, "data-delete").Click();
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog(DeleteName)));
 
         dialogs.Find("[data-delete-confirm]").Click();
 
@@ -187,7 +213,8 @@ public sealed class RecordingDeleteTests
         var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         admin.Failure = _ => new UnauthorizedAccessException("Connect Twitch to delete recordings.");
         var cut = Render(context, Recording());
-        cut.Find("button[data-delete]").Click();
+        MoreActions.Item(context, cut, "data-delete").Click();
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog(DeleteName)));
 
         dialogs.Find("[data-delete-confirm]").Click();
 

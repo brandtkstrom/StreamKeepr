@@ -25,8 +25,7 @@ public sealed class DetailsStopJourneyTests : IAsyncLifetime
         await row.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
 
-        ILocator stop = page.Locator("button[data-stop-recording]");
-        await stop.WaitForAsync();
+        ILocator stop = await TitleBlock.MenuItemAsync(page, "data-stop-recording");
         await stop.ClickAsync();
 
         ILocator dialog = Feedback.Dialog(page, new Regex("^Stop recording for "));
@@ -37,7 +36,12 @@ public sealed class DetailsStopJourneyTests : IAsyncLifetime
         await page.Locator("[data-stop-confirm]").ClickAsync();
 
         await Feedback.Snackbar(page, "Channel paused").WaitForAsync();
-        await page.WaitForSelectorAsync("[data-stop-recording]", new() { State = WaitForSelectorState.Hidden });
+        // Once the capture is finalized the live chip goes, and More actions no longer offers
+        // Stop recording.
+        await page.Locator("[data-details-meta] [data-status]").WaitForAsync(new() { State = WaitForSelectorState.Detached });
+        await TitleBlock.MenuItemAsync(page, "data-delete");
+        Assert.Equal(0, await page.Locator("[role='menuitem'][data-stop-recording]").CountAsync());
+        await TitleBlock.CloseMenuAsync(page);
 
         await page.GotoAsync(_app.BaseUrl);
         await page.Locator(LibraryHooks.Group).First.WaitForAsync();
