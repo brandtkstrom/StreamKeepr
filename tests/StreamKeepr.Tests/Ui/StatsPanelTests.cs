@@ -14,20 +14,18 @@ public sealed class StatsPanelTests
     // Keep in step with HOOKS in StatsPanel.razor.js; the Vitest fixture mirrors these.
     private static readonly string[] Hooks =
     [
-        "stats-toggle", "stats-hint", "stats-body", "copy-stats",
+        "stats-close", "stats-body", "copy-stats",
         "value-bitrate", "spark-bitrate", "tip-bitrate", "table-bitrate", "rows-bitrate",
         "value-frame", "spark-frame", "tip-frame", "table-frame", "rows-frame",
         "value-bandwidth", "spark-bandwidth", "tip-bandwidth", "table-bandwidth", "rows-bandwidth",
         "value-buffer", "spark-buffer", "tip-buffer", "table-buffer", "rows-buffer",
         "kv-resolution", "kv-codecs", "kv-dropped", "kv-decoder",
         "kv-last-segment", "kv-segments", "kv-errors", "kv-playlist",
-        "viewer-chart-empty", "viewer-tile", "viewer-at", "viewer-count",
-        "viewer-now", "viewer-peak", "viewer-average",
-        "viewer-chart", "viewer-svg", "tip-viewers", "table-viewers", "rows-viewers",
+        "stats-stream", "stream-at", "stream-viewers",
     ];
 
     [Fact]
-    public void Renders_the_skeleton_once_with_the_design_system_panel()
+    public void Renders_the_overlay_skeleton_once_as_a_statistics_region()
     {
         using BunitContext context = CreateContext(out _);
 
@@ -37,20 +35,19 @@ public sealed class StatsPanelTests
         foreach (string hook in Hooks)
             Assert.Single(cut.FindAll($"[data-sk='{hook}']"));
 
-        var panel = cut.Find("[data-sk-stats]");
+        // A <section> with an accessible name is a region, named by the card's title.
+        var panel = cut.Find("section[data-sk-stats]");
+        Assert.Equal("overlay", panel.GetAttribute("data-chrome"));
         Assert.Equal("false", panel.GetAttribute("data-open"));
+        Assert.True(panel.HasAttribute("hidden"));
+        var title = cut.Find("[data-stats-head] h2");
+        Assert.Equal("Statistics", title.TextContent.Trim());
+        Assert.Equal(title.GetAttribute("id"), panel.GetAttribute("aria-labelledby"));
 
-        var toggle = cut.Find("[data-sk='stats-toggle']");
-        Assert.Equal("switch", toggle.GetAttribute("role"));
-        Assert.Equal("false", toggle.GetAttribute("aria-checked"));
-        Assert.Contains("Stats for nerds", toggle.TextContent);
-        Assert.Empty(toggle.QuerySelectorAll("h1, h2, h3, h4, h5, h6"));
-        var heading = cut.Find("section > h2[data-sr-only]");
-        Assert.Equal(heading.GetAttribute("id"), panel.GetAttribute("aria-labelledby"));
-
-        // Copy is a body action, never part of the switch row.
-        Assert.Empty(toggle.QuerySelectorAll("[data-sk='copy-stats']"));
-        Assert.Single(cut.FindAll("[data-sk='stats-body'] [data-sk='copy-stats']"));
+        // The header's icon buttons: copy, then close.
+        Assert.Equal(
+            ["Copy stats", "Close statistics"],
+            cut.FindAll("[data-stats-head] button").Select(b => b.GetAttribute("aria-label") ?? "").ToArray());
 
         Assert.Equal("/media/ann/r1/index.m3u8", cut.Find("[data-sk='kv-playlist']").TextContent.Trim());
         Assert.Equal("/media/ann/r1/index.m3u8", cut.Find("[data-sk='kv-playlist']").GetAttribute("title"));
@@ -68,10 +65,10 @@ public sealed class StatsPanelTests
     }
 
     [Theory]
-    [InlineData("Video", "Videocam")]
-    [InlineData("Network", "NetworkCheck")]
-    [InlineData("Stream", "Groups")]
-    public void Each_section_is_headed_by_its_series_icon(string section, string glyph)
+    [InlineData("Video", "video")]
+    [InlineData("Network", "network")]
+    [InlineData("Stream", "stream")]
+    public void Each_section_is_headed_by_its_series_swatch(string section, string series)
     {
         using BunitContext context = CreateContext(out _);
 
@@ -79,8 +76,8 @@ public sealed class StatsPanelTests
             p.Add(c => c.Recording, Recording("r1")));
 
         var heading = Assert.Single(cut.FindAll("[data-sk='stats-body'] h3"), h => h.TextContent.Trim() == section);
-        Assert.Equal(glyph, heading.QuerySelector("svg")?.GetAttribute("data-icon"));
-        Assert.Equal("QueryStats", cut.Find("[data-sk='stats-toggle'] > svg").GetAttribute("data-icon"));
+        Assert.Equal(series, heading.GetAttribute("data-series"));
+        Assert.Equal("true", heading.QuerySelector(".swatch")?.GetAttribute("aria-hidden"));
     }
 
     [Fact]
@@ -98,20 +95,7 @@ public sealed class StatsPanelTests
     }
 
     [Fact]
-    public void The_stream_section_says_there_is_no_viewer_data_yet()
-    {
-        using BunitContext context = CreateContext(out _);
-
-        IRenderedComponent<StatsPanel> cut = context.Render<StatsPanel>(p =>
-            p.Add(c => c.Recording, Recording("r1")));
-
-        Assert.Equal(
-            "No viewer data for this recording.",
-            cut.Find("[data-sk='stats-stream'] [data-sk='stream-empty']").TextContent.Trim());
-    }
-
-    [Fact]
-    public void The_viewer_tile_and_chart_stay_hidden_until_the_module_has_samples()
+    public void The_stream_row_waits_hidden_for_viewer_samples()
     {
         using BunitContext context = CreateContext(out _);
 
@@ -119,96 +103,56 @@ public sealed class StatsPanelTests
             p.Add(c => c.Recording, Recording("r1")));
 
         var stream = cut.Find("[data-sk='stats-stream']");
-        Assert.False(stream.QuerySelector("[data-sk='viewer-chart-empty']")!.HasAttribute("hidden"));
-        Assert.True(stream.QuerySelector("[data-sk='viewer-tile']")!.HasAttribute("hidden"));
-        Assert.True(stream.QuerySelector("[data-sk='viewer-chart']")!.HasAttribute("hidden"));
-        Assert.True(stream.QuerySelector("[data-sk='table-viewers']")!.HasAttribute("hidden"));
-
-        var tile = cut.Find("[data-sk='viewer-tile']");
-        Assert.Equal("Viewers at 0:00", tile.QuerySelector("[data-sk='viewer-at']")!.TextContent.Trim());
-        Assert.Equal("—", tile.QuerySelector("[data-sk='viewer-count']")!.TextContent.Trim());
-        string[] rows = tile.QuerySelectorAll("dt").Select(dt => dt.TextContent.Trim()).ToArray();
-        Assert.Equal(["Now", "Peak", "Average"], rows);
-        foreach (string hook in new[] { "viewer-now", "viewer-peak", "viewer-average" })
-            Assert.Equal("—", tile.QuerySelector($"dd[data-sk='{hook}']")!.TextContent.Trim());
+        Assert.True(stream.HasAttribute("hidden"));
+        Assert.Equal("Viewers at 0:00", stream.QuerySelector("[data-sk='stream-at']")!.TextContent.Trim());
     }
 
     [Fact]
-    public void The_viewer_chart_is_a_labelled_image_with_a_screen_reader_table_beside_it()
+    public void The_phone_tab_copies_from_a_text_button_and_has_no_stream_row()
     {
         using BunitContext context = CreateContext(out _);
 
-        IRenderedComponent<StatsPanel> cut = context.Render<StatsPanel>(p =>
-            p.Add(c => c.Recording, Recording("r1")));
-
-        var chart = cut.Find("[data-sk='viewer-chart']");
-        Assert.Equal("img", chart.GetAttribute("role"));
-        Assert.False(string.IsNullOrWhiteSpace(chart.GetAttribute("aria-label")));
-        Assert.Equal("true", chart.QuerySelector("[data-sk='viewer-svg']")!.GetAttribute("aria-hidden"));
-        Assert.Equal("true", chart.QuerySelector("[data-sk='tip-viewers']")!.GetAttribute("aria-hidden"));
-
-        // An img's children are presentational, so the sample table must sit outside it.
-        var table = cut.Find("[data-sk='table-viewers']");
-        Assert.Null(chart.QuerySelector("table"));
-        Assert.True(table.HasAttribute("data-sr-only"));
-        Assert.Equal("Viewer count samples", table.QuerySelector("caption")!.TextContent.Trim());
-        Assert.Equal(
-            ["Time", "Viewers"],
-            table.QuerySelectorAll("thead th").Select(th => th.TextContent.Trim()).ToArray());
-        Assert.Empty(cut.FindAll("[data-sk='rows-viewers'] tr"));
-    }
-
-    [Fact]
-    public async Task A_chart_seek_moves_the_player_through_the_bridge()
-    {
-        using BunitContext context = CreateContext(out _);
-        var bridge = context.Services.GetRequiredService<PlayerBridge>();
-        var seeks = new List<double>();
-        bridge.Attach(seconds =>
-        {
-            seeks.Add(seconds);
-            return ValueTask.CompletedTask;
-        });
-        IRenderedComponent<StatsPanel> cut = context.Render<StatsPanel>(p =>
-            p.Add(c => c.Recording, Recording("r1")));
-
-        await cut.InvokeAsync(() => cut.Instance.Seek(2280.5));
-
-        Assert.Equal([2280.5], seeks);
-    }
-
-    [Fact]
-    public void Copy_stats_is_a_plain_button_the_module_owns()
-    {
-        using BunitContext context = CreateContext(out _);
-
-        IRenderedComponent<StatsPanel> cut = context.Render<StatsPanel>(p =>
-            p.Add(c => c.Recording, Recording("r1")));
+        IRenderedComponent<StatsPanel> cut = context.Render<StatsPanel>(p => p
+            .Add(c => c.Recording, Recording("r1"))
+            .Add(c => c.Tab, true));
 
         var copy = cut.Find("[data-sk='copy-stats']");
         Assert.Equal("BUTTON", copy.TagName);
         Assert.Equal("button", copy.GetAttribute("type"));
         Assert.Equal("Copy stats", copy.TextContent.Trim());
+        Assert.Empty(cut.FindAll("[data-sk='stats-stream']"));
     }
 
     [Fact]
-    public void Collapsed_body_is_inert_and_open_state_comes_from_sk_ui()
+    public async Task The_overlay_takes_a_recording_change_from_the_player_without_re_rendering()
+    {
+        using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+        IRenderedComponent<StatsPanel> cut = context.Render<StatsPanel>(p => p.Add(c => c.Recording, Recording("r1")));
+
+        await cut.InvokeAsync(() => cut.Instance.SetRecordingAsync(Recording("r2")));
+
+        JSRuntimeInvocation update = Assert.Single(module.Invocations, call => call.Identifier == "update");
+        JsonElement payload = JsonSerializer.SerializeToElement(
+            update.Arguments[1], new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal("r2", payload.GetProperty("recordingId").GetString());
+    }
+
+    [Fact]
+    public void A_closed_card_is_hidden_and_open_state_comes_from_sk_ui()
     {
         using BunitContext closed = CreateContext(out _);
         IRenderedComponent<StatsPanel> closedCut = closed.Render<StatsPanel>(p =>
             p.Add(c => c.Recording, Recording("r1")));
 
-        Assert.True(closedCut.Find("[data-sk='stats-body']").HasAttribute("inert"));
+        Assert.True(closedCut.Find("[data-sk-stats]").HasAttribute("hidden"));
         Assert.Equal("false", closedCut.Find("[data-sk-stats]").GetAttribute("data-open"));
-        Assert.Equal("false", closedCut.Find("[data-sk='stats-toggle']").GetAttribute("aria-checked"));
 
         using BunitContext open = CreateContext(out _, stats: true);
         IRenderedComponent<StatsPanel> openCut = open.Render<StatsPanel>(p =>
             p.Add(c => c.Recording, Recording("r1")));
 
-        Assert.False(openCut.Find("[data-sk='stats-body']").HasAttribute("inert"));
+        Assert.False(openCut.Find("[data-sk-stats]").HasAttribute("hidden"));
         Assert.Equal("true", openCut.Find("[data-sk-stats]").GetAttribute("data-open"));
-        Assert.Equal("true", openCut.Find("[data-sk='stats-toggle']").GetAttribute("aria-checked"));
     }
 
     [Fact]
@@ -220,10 +164,10 @@ public sealed class StatsPanelTests
             .Add(c => c.Recording, Recording("r1"))
             .Add(c => c.Tab, true));
 
-        Assert.Empty(cut.FindAll("[data-sk='stats-toggle']"));
+        Assert.Empty(cut.FindAll("[data-stats-head], [data-sk='stats-close']"));
         Assert.Equal("tab", cut.Find("[data-sk-stats]").GetAttribute("data-chrome"));
         Assert.Equal("true", cut.Find("[data-sk-stats]").GetAttribute("data-open"));
-        Assert.False(cut.Find("[data-sk='stats-body']").HasAttribute("inert"));
+        Assert.False(cut.Find("[data-sk-stats]").HasAttribute("hidden"));
     }
 
     [Fact]

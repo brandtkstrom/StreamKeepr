@@ -1,4 +1,4 @@
-// One-series SVG sparkline used by the Stats for nerds tiles (player contract §10).
+// One-series SVG sparkline used by the Statistics tiles (player contract §10).
 // Geometry is pure; drawSparkline only owns the SVG children. The 2 px stroke lives in
 // components.css (.sk-tile .line), and the colour comes from a design token.
 

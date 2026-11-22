@@ -28,7 +28,7 @@ public sealed class HomePlayerTests
 
         Assert.NotNull(cut.Find("[data-slot='player'] [data-sk-player]"));
         Assert.NotNull(cut.Find("[data-slot='details'] [data-recording-details]"));
-        Assert.Equal(["player", "details", "stats"], cut.FindAll("[data-slot]").Select(s => s.GetAttribute("data-slot")));
+        Assert.Equal(["player", "details", "viewers"], cut.FindAll("[data-slot]").Select(s => s.GetAttribute("data-slot")));
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public sealed class HomePlayerTests
     }
 
     [Fact]
-    public async Task The_stats_panel_renders_once_and_shares_the_open_state_with_the_player_button()
+    public async Task The_statistics_overlay_renders_once_inside_the_player_and_shares_its_open_state()
     {
         const string openCookie =
             """{"v":1,"drawer":"expanded","theater":false,"stats":true,"details":true,"collapsed":[]}""";
@@ -67,11 +67,13 @@ public sealed class HomePlayerTests
 
         IRenderedComponent<Home> cut = context.Render<Home>(p => p.Add(c => c.RecordingId, "r1"));
 
-        Assert.Single(cut.FindAll("[data-slot='stats'] [data-sk-stats]"));
+        Assert.Single(cut.FindAll("[data-sk-stats]"));
+        Assert.Single(cut.FindAll("[data-slot='player'] [data-sk-player] [data-sk-stats]"));
         Assert.Equal("true", cut.Find("[data-sk-stats]").GetAttribute("data-open"));
-        Assert.Equal("true", cut.Find("[data-sk='stats-toggle']").GetAttribute("aria-checked"));
-        Assert.False(cut.Find("[data-sk='stats-body']").HasAttribute("inert"));
+        Assert.False(cut.Find("[data-sk-stats]").HasAttribute("hidden"));
         Assert.Equal("true", cut.Find("[data-sk='stats']").GetAttribute("aria-pressed"));
+        // The viewer chart left the stats: it is the Viewers panel under the title block.
+        Assert.Single(cut.FindAll("[data-slot='viewers'] [data-viewers-panel] [data-sk='viewer-chart']"));
     }
 
     [Fact]
@@ -123,7 +125,7 @@ public sealed class HomePlayerTests
             ["Chat", "Chapters", "Stats"],
             home.FindAll("[role='tab']").Select(tab => tab.TextContent.Trim()));
         Assert.Empty(home.FindAll("[data-slot='details']"));
-        Assert.Empty(home.FindAll("[data-slot='stats']"));
+        Assert.Empty(home.FindAll("[data-slot='viewers']"));
         Assert.NotNull(home.Find("[role='tabpanel'] [data-sk-chat]"));
         // The export row follows the title block, outside the tabs; the chapters are a tab.
         Assert.NotNull(home.Find("[data-watch-summary] [data-details-extra]"));
@@ -131,6 +133,9 @@ public sealed class HomePlayerTests
         Assert.Equal(
             "tab",
             home.Find("[role='tabpanel'] [data-sk-stats]").GetAttribute("data-chrome"));
+        // The Stats tab ends with the viewer chart, with no Viewers panel header.
+        Assert.NotNull(home.Find("[role='tabpanel'] [data-sk-stats] ~ [data-viewers-panel] [data-sk='viewer-chart']"));
+        Assert.Empty(home.FindAll("[role='tabpanel'] [data-viewers-panel] [data-collapsible-toggle]"));
         // The Chat tab owns its disclosure: the pane has no header toggle of its own.
         Assert.Empty(home.FindAll("[data-sk='chat-toggle']"));
     }

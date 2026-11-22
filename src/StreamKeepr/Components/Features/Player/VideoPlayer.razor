@@ -50,6 +50,10 @@
         </div>
     </div>
 
+    @* The Statistics overlay (design system: StatsPanel): inside the frame, so it shows in
+       theater and fullscreen; above the title strip and controls, below the menus. *@
+    <StatsPanel @ref="_stats" Recording="Recording" />
+
     <div class="sk-player-bottom" data-sk="bottom-bar">
         <div class="sk-seek"
              data-sk="seek"
@@ -123,7 +127,8 @@
             <button type="button"
                     class="sk-player-btn"
                     data-sk="stats"
-                    aria-label="Stats for nerds"
+                    aria-label="Statistics"
+                    aria-keyshortcuts="I"
                     aria-pressed="@(StatsOpen ? "true" : "false")">@IslandIcon.Svg("QueryStats")</button>
             @* Shown by the module once a chat pane announces itself (sk:chat); mirrors the C key. *@
             <button type="button"
@@ -151,6 +156,7 @@
 
     private readonly string SpeedMenuId = $"sk-speed-{Guid.NewGuid():N}";
     private ElementReference _root;
+    private StatsPanel? _stats;
     private IJSObjectReference? _module;
     private DotNetObjectReference<VideoPlayer>? _self;
     private RecordingView? _loaded;
@@ -201,6 +207,9 @@
             : "load";
         _loaded = Recording;
         await InvokeAsync(identifier, _root, ToPayload(Recording));
+        // This component never re-renders, so the overlay inside it gets the recording here.
+        if (_stats is not null)
+            await _stats.SetRecordingAsync(Recording);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

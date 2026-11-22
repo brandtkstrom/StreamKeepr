@@ -135,6 +135,7 @@ export function createPlayer(
   let theater = false;
   let theaterAvailable = true;
   let idleTimer = 0;
+  let pointerOnStats = false;
   let wasFullscreen = false;
   let lastPlayheadAt = 0;
   const stats = createStatsProbe({ video });
@@ -545,7 +546,7 @@ export function createPlayer(
 
   function canIdle() {
     return Boolean(view) && !video.paused && !video.ended && el["speed-menu"].hidden
-      && !keyboardFocusInside();
+      && !keyboardFocusInside() && !pointerOnStats;
   }
 
   /** Idle hides the overlays; data-idle mirrors the class as a test and automation hook. */
@@ -912,7 +913,20 @@ export function createPlayer(
   on(video, "enterpictureinpicture", renderPip);
   on(video, "leavepictureinpicture", renderPip);
 
-  for (const type of ["pointermove", "pointerdown", "keydown", "focusin"]) on(root, type, wake);
+  for (const type of ["pointerdown", "keydown", "focusin"]) on(root, type, wake);
+  // The Statistics card moves when the overlays show or hide, so neither happens while the
+  // pointer is on it: moving over it does not wake them, and they do not go idle meanwhile.
+  // Otherwise the card would slide out from under the pointer and drop a sparkline's tooltip.
+  const inStats = (node) => node instanceof Element && node.closest("[data-sk-stats]") !== null;
+  on(root, "pointermove", (event) => {
+    if (!inStats(event.target)) wake();
+  });
+  on(root, "pointerover", (event) => {
+    pointerOnStats = inStats(event.target);
+  });
+  on(root, "pointerout", (event) => {
+    if (!inStats(event.relatedTarget)) pointerOnStats = false;
+  });
 
   // Global shortcuts while a recording is open; the decision lives in player-keys.js.
   on(doc, "keydown", (event) => {

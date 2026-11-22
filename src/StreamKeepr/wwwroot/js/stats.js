@@ -1,4 +1,4 @@
-// Stats for nerds sampling seam (player contract §10).
+// Statistics sampling seam (player contract §10).
 //
 // The player owns hls.js and every dynamic player control. It creates one probe and
 // registers it under the player root; StatsPanel.razor.js samples that probe on its own

@@ -503,7 +503,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   /* The tab has no header: Video and Network stack, and their tiles stack too. */
   .sk-stats-panel[data-chrome="tab"] .sk-stats { grid-template-columns: 1fr; }
   .sk-stats-panel[data-chrome="tab"] .sk-tiles { grid-template-columns: 1fr; }
-  .sk-stats-panel[data-chrome="tab"] .sk-viewers { grid-template-columns: minmax(0, 1fr); }
+  .sk-viewers-tab .sk-viewers { grid-template-columns: minmax(0, 1fr); }
   .sk-watch-tabs .sk-chat,
   .sk-watch-tabs .sk-chat[data-open="true"] {
     width: 100%; max-height: none; min-height: 0; height: 60dvh; contain: none;
@@ -654,54 +654,76 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   .sk-chat, .sk-chat[data-open="true"] { width: 100%; max-height: 50vh; min-height: 0; contain: none; }
 }
 
-/* ---------- stats for nerds (design system: StatsPanel; JS island, #180) ----------
-   StatsPanel.razor.js owns this DOM: a MudExpansionPanel's shape drawn with plain markup.
-   Series colours: video primary, network secondary, the stream tertiary; labels never take them. */
-.sk-stats-panel { background: var(--surface); border-radius: var(--radius-lg); overflow: hidden; color: var(--text-primary); }
-.sk-stats-panel svg[data-icon] { display: block; width: 24px; height: 24px; fill: currentColor; flex: none; }
+/* ---------- Statistics (design system: StatsPanel; JS island, #180) ----------
+   StatsPanel.razor.js owns this DOM. Md and up it is a card laid over the top-left of the video,
+   inside the player's frame; on phones it is the Stats tab. Series colours: video primary,
+   network secondary, the stream tertiary; labels never take them. */
+.sk-stats-panel { color: var(--text-primary); }
+.sk-stats-panel[hidden] { display: none !important; }
+.sk-stats-panel svg[data-icon] { display: block; width: 20px; height: 20px; fill: currentColor; flex: none; }
 .sk-stats-panel :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-.sk-stats-head {
-  display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 48px; padding: 0 var(--space-3) 0 var(--space-4);
-  border: 0; border-radius: var(--radius-lg); background: transparent; color: var(--text-primary); text-align: left; cursor: pointer;
+.sk-stats-panel[data-chrome="tab"] { background: var(--surface); border-radius: var(--radius-lg); }
+
+/* The overlay: semi-transparent so the video shows through, above the title strip and control
+   bar and below the menus (z-index 5). While the overlays show it sits between the title strip
+   and the seek bar; idle, it moves up and may grow down. */
+.sk-stats-panel[data-chrome="overlay"] {
+  --sk-stats-top: 64px; --sk-stats-bottom: 96px;
+  position: absolute; z-index: 4; left: var(--space-3); top: var(--sk-stats-top);
+  width: min(420px, calc(100% - 2 * var(--space-3))); max-height: calc(100% - var(--sk-stats-top) - var(--sk-stats-bottom));
+  display: flex; flex-direction: column; border-radius: var(--radius-md); box-shadow: var(--elevation-8);
+  background: color-mix(in srgb, var(--player-surface) 68%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  color: var(--player-text); transition: top 200ms cubic-bezier(0.2, 0, 0, 1), max-height 200ms cubic-bezier(0.2, 0, 0, 1);
+  user-select: text; cursor: auto;
 }
-.sk-stats-panel .sk-stats-head:focus-visible { outline-offset: -2px; }
-.sk-stats-head:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
-.sk-stats-head > svg[data-icon] { color: var(--action-default); }
-/* The hint gives way first on a narrow panel; the title keeps its words. */
-.sk-stats-head .title { flex: 1 0 auto; font: var(--text-h6); letter-spacing: var(--text-h6-letter-spacing); white-space: nowrap; }
-.sk-stats-head .hint {
-  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary);
-  font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
+.sk-player.idle .sk-stats-panel[data-chrome="overlay"] { --sk-stats-top: var(--space-3); --sk-stats-bottom: var(--space-3); }
+.sk-stats-panel[data-chrome="overlay"] :focus-visible { outline-color: var(--player-accent); }
+.sk-stats-card-head { display: flex; align-items: center; gap: var(--space-1); flex: none; height: 40px; padding: 0 var(--space-1) 0 var(--space-3); }
+.sk-stats-card-head .title { flex: 1; margin: 0; font: var(--text-subtitle2); letter-spacing: var(--text-subtitle2-letter-spacing); }
+.sk-stats-icon-btn {
+  display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--radius-full);
+  background: transparent; color: var(--player-text); cursor: pointer;
 }
-/* A MudSwitch Color.Primary: a 14px track and a 20px thumb that slides and fills primary. */
-.sk-stats-switch { position: relative; flex: none; width: 34px; height: 20px; margin: 0 var(--space-2); }
-.sk-stats-switch::before {
-  content: ""; position: absolute; left: 0; right: 0; top: 3px; height: 14px; border-radius: 7px;
-  background: var(--text-primary); opacity: 0.38; transition: background 150ms, opacity 150ms;
+.sk-stats-icon-btn:hover { background: color-mix(in srgb, var(--player-text) calc(var(--hover-opacity) * 100%), transparent); }
+.sk-stats-panel[data-chrome="overlay"] .sk-stats-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.sk-stats-panel[data-chrome="overlay"] .sk-stats { grid-template-columns: 1fr; gap: var(--space-3); padding: 0 var(--space-3) var(--space-3); }
+.sk-stats-panel[data-chrome="overlay"] .sk-tile { padding: 0; background: transparent; }
+.sk-stats-panel[data-chrome="overlay"] .sk-tile .val { font: var(--text-stat-value); font-variant-numeric: var(--text-stat-value-numeric); letter-spacing: var(--text-stat-value-letter-spacing); }
+.sk-stats-panel[data-chrome="overlay"] .sk-tile svg { height: 20px; }
+.sk-stats-panel[data-chrome="overlay"] :is(.sk-tile .lbl, .sk-tile .val small, .sk-kv dt) { color: color-mix(in srgb, var(--player-text) 72%, transparent); }
+.sk-stats-panel[data-chrome="overlay"] :is(.sk-tile .val, .sk-kv dd) { text-shadow: 0 1px 2px rgb(0 0 0 / 0.5); }
+.sk-stats-panel[data-chrome="overlay"] .sk-tiles { margin-bottom: var(--space-2); }
+.sk-stats-panel[data-chrome="overlay"] .sk-stats-section.stream { padding-top: 0; border-top: 0; }
+/* A narrow player (a small window with chat open): half the width, no sparklines. */
+@container (max-width: 559.98px) {
+  .sk-stats-panel[data-chrome="overlay"] { width: max(220px, 50%); }
+  .sk-stats-panel[data-chrome="overlay"] .sk-tile svg { display: none; }
 }
-.sk-stats-switch::after {
-  content: ""; position: absolute; left: 0; top: 0; width: 20px; height: 20px; border-radius: var(--radius-full);
-  background: var(--text-secondary); box-shadow: var(--elevation-4); transition: transform 150ms cubic-bezier(0.2, 0, 0, 1), background 150ms;
+/* Phones use the Stats tab, and the player's stats button is hidden there. */
+@media (max-width: 959.98px) {
+  .sk-stats-panel[data-chrome="overlay"] { display: none !important; }
 }
-[aria-checked="true"] > .sk-stats-switch::before { background: var(--primary); opacity: 0.5; }
-[aria-checked="true"] > .sk-stats-switch::after { background: var(--primary); transform: translateX(14px); }
-.sk-stats-collapse { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 300ms cubic-bezier(0.2, 0, 0, 1); }
-.sk-stats-collapse > div { min-height: 0; overflow: hidden; }
-/* The switch carries the disclosure state (aria-checked); the section's data-open drives motion. */
-.sk-stats-panel[data-open="false"] > .sk-stats-collapse { grid-template-rows: 0fr; }
+@media (prefers-reduced-motion: reduce) {
+  .sk-stats-panel[data-chrome="overlay"] { transition: none; }
+}
 
 .sk-stats { padding: var(--space-2) var(--space-4) var(--space-4); display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4) var(--space-6); }
 .sk-stats-heading {
   display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-2);
-  color: var(--text-primary); font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing);
+  color: var(--text-secondary); font: var(--text-overline); letter-spacing: var(--text-overline-letter-spacing); text-transform: uppercase;
 }
-.sk-stats-heading.video svg[data-icon] { color: var(--primary); }
-.sk-stats-heading.network svg[data-icon] { color: var(--secondary); }
-.sk-stats-heading.stream svg[data-icon] { color: var(--tertiary); }
+.sk-stats-panel[data-chrome="overlay"] .sk-stats-heading { color: color-mix(in srgb, var(--player-text) 72%, transparent); }
+.sk-stats-heading .swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.sk-stats-heading.video .swatch { background: var(--primary); }
+.sk-stats-heading.network .swatch { background: var(--secondary); }
+.sk-stats-heading.stream .swatch { background: var(--tertiary); }
 .sk-stats-section.stream { grid-column: 1 / -1; padding-top: var(--space-4); border-top: 1px solid var(--divider); }
-.sk-stats-empty { margin: 0; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
-/* Stream: the viewer tile (220px) beside the viewer chart (StatsPanel card, #211). The module
-   toggles [hidden]; none of these rules set display on a hidden element. */
+/* Viewers (design system: Viewers; #211): the 220px tile beside the chart, in its own panel
+   under Chapters, or at the bottom of the phone Stats tab. */
+.sk-viewers-panel[hidden], .sk-viewers-tab[hidden] { display: none !important; }
+.sk-viewers-panel .sk-disclosure-body { padding: 0 var(--space-4) var(--space-4); }
+.sk-viewers-tab { padding: 0 var(--space-4) var(--space-4); }
+.sk-disclosure-head .hint:empty { display: none; }
 .sk-viewers { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--space-3); align-items: stretch; }
 .sk-viewer-tile .sk-kv { margin-top: var(--space-2); }
 .sk-vchart {

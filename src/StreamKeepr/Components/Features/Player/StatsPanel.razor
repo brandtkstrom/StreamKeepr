@@ -2,203 +2,167 @@
 @inject UiPreferences Preferences
 @inject MudBlazor.ISnackbar Snackbars
 @inject IJSRuntime JS
-@inject PlayerBridge Bridge
 @inject ILogger<StatsPanel> Logger
 
 @* Rendered once. StatsPanel.razor.js owns the open state, sampled values, sparklines, and
    the copy action; Blazor never re-renders this markup, so it cannot overwrite JS-owned
-   text, attributes, or SVG children. The player's stats button is wired by the same module.
-   No MudBlazor components: it is drawn like a MudExpansionPanel with plain markup, the
-   series colours and inline Material Rounded SVG (IslandIcon).
-   Tab renders the phone Stats tab (#175): the tab owns the disclosure, so there is no
-   header or switch and the panel opens expanded. *@
+   text, attributes, or SVG children. No MudBlazor components: plain markup, the series
+   colours and inline Material Rounded SVG (IslandIcon).
+   Md and up it is the Statistics overlay (design system: StatsPanel): a card inside the
+   player's frame, so it shows in theater and fullscreen too. VideoPlayer renders it and passes
+   recording changes on, and the player's stats button and I toggle it. Tab renders the phone
+   Stats tab (#175): no card header, always open, and the viewer chart follows it there in
+   ViewersPanel. The overlay's Stream row reads the samples ViewersPanel loads. *@
 <section class="sk-stats-panel"
          data-sk-stats
          data-open="@(_open ? "true" : "false")"
-         data-chrome="@(Tab ? "tab" : null)"
+         data-chrome="@(Tab ? "tab" : "overlay")"
          aria-labelledby="@_titleId"
+         hidden="@(_open ? null : "hidden")"
          @ref="_root">
-    <h2 id="@_titleId" class="sk-visually-hidden" data-sr-only>Stats for nerds</h2>
-    @if (!Tab)
+    @if (Tab)
     {
-        <button type="button"
-                class="sk-stats-head"
-                data-sk="stats-toggle"
-                role="switch"
-                aria-label="Stats for nerds"
-                aria-checked="@(_open ? "true" : "false")"
-                aria-controls="@_bodyId">
-            @IslandIcon.Svg("QueryStats")
-            <span class="title" aria-hidden="true">Stats for nerds</span>
-            <span class="hint" data-sk="stats-hint">—</span>
-            <span class="sk-stats-switch" aria-hidden="true"></span>
-        </button>
+        <h2 id="@_titleId" class="sk-visually-hidden" data-sr-only>Statistics</h2>
+    }
+    else
+    {
+        <div class="sk-stats-card-head" data-stats-head>
+            <h2 id="@_titleId" class="title">Statistics</h2>
+            <button type="button" class="sk-stats-icon-btn" data-sk="copy-stats" aria-label="Copy stats">@IslandIcon.Svg("ContentCopy")</button>
+            <button type="button" class="sk-stats-icon-btn" data-sk="stats-close" aria-label="Close statistics">@IslandIcon.Svg("Close")</button>
+        </div>
     }
 
-    <div class="sk-stats-collapse"
-         id="@_bodyId"
-         data-sk="stats-body"
-         inert="@(_open ? null : "inert")">
-        <div>
-            <div class="sk-stats">
-                <div class="sk-stats-section">
-                    <h3 class="sk-stats-heading video">@IslandIcon.Svg("Videocam")Video</h3>
-                    <div class="sk-tiles">
-                        <div class="sk-tile">
-                            <div class="lbl">Bitrate</div>
-                            <div class="val"><span data-sk="value-bitrate">—</span> <small>Mb/s</small></div>
-                            <svg data-sk="spark-bitrate"
-                                 data-spark-unit="Mb/s"
-                                 data-spark-color="var(--primary)"
-                                 aria-hidden="true"
-                                 focusable="false"></svg>
-                            <span class="tip" data-sk="tip-bitrate" aria-hidden="true"></span>
-                            <table class="sk-visually-hidden" data-sr-only data-sk="table-bitrate">
-                                <caption>Bitrate samples</caption>
-                                <thead>
-                                    <tr><th scope="col">Time</th><th scope="col">Value</th></tr>
-                                </thead>
-                                <tbody data-sk="rows-bitrate"></tbody>
-                            </table>
-                        </div>
-                        <div class="sk-tile">
-                            <div class="lbl">Frame rate</div>
-                            <div class="val"><span data-sk="value-frame">—</span> <small>fps</small></div>
-                            <svg data-sk="spark-frame"
-                                 data-spark-unit="fps"
-                                 data-spark-color="var(--primary)"
-                                 aria-hidden="true"
-                                 focusable="false"></svg>
-                            <span class="tip" data-sk="tip-frame" aria-hidden="true"></span>
-                            <table class="sk-visually-hidden" data-sr-only data-sk="table-frame">
-                                <caption>Frame rate samples</caption>
-                                <thead>
-                                    <tr><th scope="col">Time</th><th scope="col">Value</th></tr>
-                                </thead>
-                                <tbody data-sk="rows-frame"></tbody>
-                            </table>
-                        </div>
+    @* The overlay's body scrolls when the player is short, so the keyboard can reach it. *@
+    <div class="sk-stats-body" data-sk="stats-body" tabindex="@(Tab ? null : "0")">
+        <div class="sk-stats">
+            <div class="sk-stats-section">
+                <h3 class="sk-stats-heading video" data-series="video"><span class="swatch" aria-hidden="true"></span>Video</h3>
+                <div class="sk-tiles">
+                    <div class="sk-tile">
+                        <div class="lbl">Bitrate</div>
+                        <div class="val"><span data-sk="value-bitrate">—</span> <small>Mb/s</small></div>
+                        <svg data-sk="spark-bitrate"
+                             data-spark-unit="Mb/s"
+                             data-spark-color="var(--primary)"
+                             aria-hidden="true"
+                             focusable="false"></svg>
+                        <span class="tip" data-sk="tip-bitrate" aria-hidden="true"></span>
+                        <table class="sk-visually-hidden" data-sr-only data-sk="table-bitrate">
+                            <caption>Bitrate samples</caption>
+                            <thead>
+                                <tr><th scope="col">Time</th><th scope="col">Value</th></tr>
+                            </thead>
+                            <tbody data-sk="rows-bitrate"></tbody>
+                        </table>
                     </div>
-                    <dl class="sk-kv">
-                        <dt>Resolution</dt>
-                        <dd data-sk="kv-resolution">—</dd>
-                        <dt>Codecs</dt>
-                        <dd data-sk="kv-codecs">—</dd>
-                        <dt>Dropped frames</dt>
-                        <dd data-sk="kv-dropped">—</dd>
-                        <dt>Decoder</dt>
-                        <dd data-sk="kv-decoder">—</dd>
-                    </dl>
-                </div>
-
-                <div class="sk-stats-section">
-                    <h3 class="sk-stats-heading network">@IslandIcon.Svg("NetworkCheck")Network</h3>
-                    <div class="sk-tiles">
-                        <div class="sk-tile">
-                            <div class="lbl">Bandwidth estimate</div>
-                            <div class="val"><span data-sk="value-bandwidth">—</span> <small>Mb/s</small></div>
-                            <svg data-sk="spark-bandwidth"
-                                 data-spark-unit="Mb/s"
-                                 data-spark-color="var(--secondary)"
-                                 aria-hidden="true"
-                                 focusable="false"></svg>
-                            <span class="tip" data-sk="tip-bandwidth" aria-hidden="true"></span>
-                            <table class="sk-visually-hidden" data-sr-only data-sk="table-bandwidth">
-                                <caption>Bandwidth samples</caption>
-                                <thead>
-                                    <tr><th scope="col">Time</th><th scope="col">Value</th></tr>
-                                </thead>
-                                <tbody data-sk="rows-bandwidth"></tbody>
-                            </table>
-                        </div>
-                        <div class="sk-tile">
-                            <div class="lbl">Buffer health</div>
-                            <div class="val"><span data-sk="value-buffer">—</span> <small>s</small></div>
-                            <svg data-sk="spark-buffer"
-                                 data-spark-unit="s"
-                                 data-spark-color="var(--secondary)"
-                                 aria-hidden="true"
-                                 focusable="false"></svg>
-                            <span class="tip" data-sk="tip-buffer" aria-hidden="true"></span>
-                            <table class="sk-visually-hidden" data-sr-only data-sk="table-buffer">
-                                <caption>Buffer samples</caption>
-                                <thead>
-                                    <tr><th scope="col">Time</th><th scope="col">Value</th></tr>
-                                </thead>
-                                <tbody data-sk="rows-buffer"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                    <dl class="sk-kv">
-                        <dt>Last segment</dt>
-                        <dd data-sk="kv-last-segment">—</dd>
-                        <dt>Segments loaded</dt>
-                        <dd data-sk="kv-segments">—</dd>
-                        <dt>Errors</dt>
-                        <dd class="sk-kv-errors" data-sk="kv-errors">None</dd>
-                        <dt>Playlist</dt>
-                        <dd data-sk="kv-playlist"
-                            title="@Recording.PlaylistUrl">@Recording.PlaylistUrl</dd>
-                    </dl>
-                </div>
-
-                @* Viewer counts (StatsPanel card, #211). The module fetches the samples, then
-                   swaps the empty line for the tile and chart; it draws the chart, its labels,
-                   playhead and tooltip, and fills the screen-reader table. *@
-                <div class="sk-stats-section stream" data-sk="stats-stream">
-                    <h3 class="sk-stats-heading stream">@IslandIcon.Svg("Groups")Stream</h3>
-                    <div data-sk="viewer-chart-empty">
-                        <p class="sk-stats-empty" data-sk="stream-empty">No viewer data for this recording.</p>
-                    </div>
-                    <div class="sk-viewers">
-                        <div class="sk-tile sk-viewer-tile" data-sk="viewer-tile" hidden>
-                            <div class="lbl" data-sk="viewer-at">Viewers at 0:00</div>
-                            <div class="val" data-sk="viewer-count">—</div>
-                            <dl class="sk-kv">
-                                <dt>Now</dt>
-                                <dd data-sk="viewer-now">—</dd>
-                                <dt>Peak</dt>
-                                <dd data-sk="viewer-peak">—</dd>
-                                <dt>Average</dt>
-                                <dd data-sk="viewer-average">—</dd>
-                            </dl>
-                        </div>
-                        <div class="sk-vchart">
-                            <div class="plot"
-                                 data-sk="viewer-chart"
-                                 role="img"
-                                 aria-label="No viewer data for this recording."
-                                 hidden>
-                                <svg data-sk="viewer-svg"
-                                     viewBox="0 0 1000 100"
-                                     preserveAspectRatio="none"
-                                     aria-hidden="true"
-                                     focusable="false"></svg>
-                                <span class="tip" data-sk="tip-viewers" aria-hidden="true"></span>
-                            </div>
-                            <table class="sk-visually-hidden" data-sr-only data-sk="table-viewers" hidden>
-                                <caption>Viewer count samples</caption>
-                                <thead>
-                                    <tr><th scope="col">Time</th><th scope="col">Viewers</th></tr>
-                                </thead>
-                                <tbody data-sk="rows-viewers"></tbody>
-                            </table>
-                        </div>
+                    <div class="sk-tile">
+                        <div class="lbl">Frame rate</div>
+                        <div class="val"><span data-sk="value-frame">—</span> <small>fps</small></div>
+                        <svg data-sk="spark-frame"
+                             data-spark-unit="fps"
+                             data-spark-color="var(--primary)"
+                             aria-hidden="true"
+                             focusable="false"></svg>
+                        <span class="tip" data-sk="tip-frame" aria-hidden="true"></span>
+                        <table class="sk-visually-hidden" data-sr-only data-sk="table-frame">
+                            <caption>Frame rate samples</caption>
+                            <thead>
+                                <tr><th scope="col">Time</th><th scope="col">Value</th></tr>
+                            </thead>
+                            <tbody data-sk="rows-frame"></tbody>
+                        </table>
                     </div>
                 </div>
+                <dl class="sk-kv">
+                    <dt>Resolution</dt>
+                    <dd data-sk="kv-resolution">—</dd>
+                    <dt>Codecs</dt>
+                    <dd data-sk="kv-codecs">—</dd>
+                    <dt>Dropped frames</dt>
+                    <dd data-sk="kv-dropped">—</dd>
+                    <dt>Decoder</dt>
+                    <dd data-sk="kv-decoder">—</dd>
+                </dl>
             </div>
 
+            <div class="sk-stats-section">
+                <h3 class="sk-stats-heading network" data-series="network"><span class="swatch" aria-hidden="true"></span>Network</h3>
+                <div class="sk-tiles">
+                    <div class="sk-tile">
+                        <div class="lbl">Bandwidth</div>
+                        <div class="val"><span data-sk="value-bandwidth">—</span> <small>Mb/s</small></div>
+                        <svg data-sk="spark-bandwidth"
+                             data-spark-unit="Mb/s"
+                             data-spark-color="var(--secondary)"
+                             aria-hidden="true"
+                             focusable="false"></svg>
+                        <span class="tip" data-sk="tip-bandwidth" aria-hidden="true"></span>
+                        <table class="sk-visually-hidden" data-sr-only data-sk="table-bandwidth">
+                            <caption>Bandwidth samples</caption>
+                            <thead>
+                                <tr><th scope="col">Time</th><th scope="col">Value</th></tr>
+                            </thead>
+                            <tbody data-sk="rows-bandwidth"></tbody>
+                        </table>
+                    </div>
+                    <div class="sk-tile">
+                        <div class="lbl">Buffer</div>
+                        <div class="val"><span data-sk="value-buffer">—</span> <small>s</small></div>
+                        <svg data-sk="spark-buffer"
+                             data-spark-unit="s"
+                             data-spark-color="var(--secondary)"
+                             aria-hidden="true"
+                             focusable="false"></svg>
+                        <span class="tip" data-sk="tip-buffer" aria-hidden="true"></span>
+                        <table class="sk-visually-hidden" data-sr-only data-sk="table-buffer">
+                            <caption>Buffer samples</caption>
+                            <thead>
+                                <tr><th scope="col">Time</th><th scope="col">Value</th></tr>
+                            </thead>
+                            <tbody data-sk="rows-buffer"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <dl class="sk-kv">
+                    <dt>Last segment</dt>
+                    <dd data-sk="kv-last-segment">—</dd>
+                    <dt>Segments</dt>
+                    <dd data-sk="kv-segments">—</dd>
+                    <dt>Errors</dt>
+                    <dd class="sk-kv-errors" data-sk="kv-errors">None</dd>
+                    <dt>Playlist</dt>
+                    <dd data-sk="kv-playlist"
+                        title="@Recording.PlaylistUrl">@Recording.PlaylistUrl</dd>
+                </dl>
+            </div>
+
+            @if (!Tab)
+            {
+                @* The viewer count at the playhead, so fullscreen still shows it. The module shows
+                   the row once ViewersPanel has samples for this recording. *@
+                <div class="sk-stats-section stream" data-sk="stats-stream" hidden>
+                    <h3 class="sk-stats-heading stream" data-series="stream"><span class="swatch" aria-hidden="true"></span>Stream</h3>
+                    <dl class="sk-kv">
+                        <dt data-sk="stream-at">Viewers at 0:00</dt>
+                        <dd data-sk="stream-viewers">—</dd>
+                    </dl>
+                </div>
+            }
+        </div>
+
+        @if (Tab)
+        {
             <div class="sk-stats-actions">
                 <button type="button" class="sk-stats-copy" data-sk="copy-stats">Copy stats</button>
             </div>
-        </div>
+        }
     </div>
 </section>
 
 @code {
     private const string ModulePath = "./Components/Features/Player/StatsPanel.razor.js";
 
-    private readonly string _bodyId = $"sk-stats-{Guid.NewGuid():N}";
     private readonly string _titleId = $"sk-stats-title-{Guid.NewGuid():N}";
     private ElementReference _root;
     private IJSObjectReference? _module;
@@ -211,8 +175,21 @@
     [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
 
     /// <summary>Below <c>Breakpoint.Md</c>: the Stats tab owns the disclosure, so there is no
-    /// header switch and the panel starts expanded.</summary>
+    /// card header and the panel is always open.</summary>
     [Parameter] public bool Tab { get; set; }
+
+    /// <summary>
+    /// The overlay lives inside VideoPlayer, which never re-renders, so it passes a changed
+    /// recording here instead of through parameters.
+    /// </summary>
+    public async Task SetRecordingAsync(RecordingView recording)
+    {
+        if (ReferenceEquals(Recording, recording))
+            return;
+
+        Recording = recording;
+        await OnParametersSetAsync();
+    }
 
     // The skeleton renders once; afterwards the module changes every dynamic part.
     protected override bool ShouldRender() => !_ready;
@@ -275,10 +252,6 @@
         if (!string.IsNullOrWhiteSpace(message))
             Snackbars.Show(message);
     }
-
-    /// <summary>Seeks the player to a recording time picked on the viewer chart.</summary>
-    [JSInvokable]
-    public Task Seek(double seconds) => Bridge.SeekAsync(seconds).AsTask();
 
     private void OnPreferencesChanged() => _ = InvokeAsync(async () =>
     {

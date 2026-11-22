@@ -158,7 +158,12 @@ public sealed class VideoPlayerTests
         });
 
         Assert.Equal("true", cut.Find("[data-sk='stats']").GetAttribute("aria-pressed"));
-        Assert.Equal("Stats for nerds", cut.Find("[data-sk='stats']").GetAttribute("aria-label"));
+        Assert.Equal("Statistics", cut.Find("[data-sk='stats']").GetAttribute("aria-label"));
+        Assert.Equal("I", cut.Find("[data-sk='stats']").GetAttribute("aria-keyshortcuts"));
+        // The overlay is inside the frame that goes fullscreen, before the control bar.
+        var overlay = cut.Find("[data-sk-player] > [data-sk-stats]");
+        Assert.Equal("overlay", overlay.GetAttribute("data-chrome"));
+        Assert.Equal("bottom-bar", overlay.NextElementSibling?.GetAttribute("data-sk"));
     }
 
     [Fact]
@@ -306,6 +311,9 @@ public sealed class VideoPlayerTests
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         module = context.JSInterop.SetupModule(Module);
         module.Mode = JSRuntimeMode.Loose;
+        // The Statistics overlay renders inside the player.
+        context.JSInterop.SetupModule("./Components/Features/Player/StatsPanel.razor.js").Mode = JSRuntimeMode.Loose;
+        context.Services.AddStreamKeeprMudServices();
         context.Services.AddLogging();
         context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
         context.Services.AddScoped<UiPreferences>();

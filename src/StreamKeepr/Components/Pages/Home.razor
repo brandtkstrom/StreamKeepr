@@ -44,7 +44,8 @@ else
 }
 
 @* The watch view (player contract §2a, #175; design system: AppShell, TheaterMode, PhoneLayout).
-   Md and up it is two columns: the player, the title block, Chapters and stats on the left, and
+   Md and up it is two columns: the player (with the Statistics overlay inside it), the title
+   block, Chapters and Viewers on the left, and
    chat as a full-height sticky column on the right; theater spans the player across both and
    moves the columns under it. Below Md the player is edge to edge above the title block and
    the Chat/Chapters/Stats tabs, so the title and actions stay put while a tab scrolls. The
@@ -109,6 +110,7 @@ else
                                            Icon="@MudBlazor.Icons.Material.Rounded.QueryStats">
                         <div class="sk-watch-tab-panel">
                             <StatsPanel Recording="phone" Tab="true" />
+                            <ViewersPanel Recording="phone" Tab="true" />
                         </div>
                     </MudBlazor.MudTabPanel>
                 </MudBlazor.MudTabs>
@@ -124,10 +126,10 @@ else
                 }
             </div>
 
-            <div class="sk-watch-stats" data-slot="stats">
-                @if (Selected is { } statRecording)
+            <div class="sk-watch-stats" data-slot="viewers">
+                @if (Selected is { } viewerRecording)
                 {
-                    <StatsPanel Recording="statRecording" />
+                    <ViewersPanel Recording="viewerRecording" />
                 }
             </div>
         }

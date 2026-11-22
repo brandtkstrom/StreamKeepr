@@ -35,6 +35,7 @@ public sealed class UiPreferences
     private bool _theater;
     private bool _statsOpen;
     private bool _detailsOpen = true;
+    private bool _viewersOpen = true;
     private bool _chatOpen;
     private double _chatSync;
 
@@ -74,6 +75,9 @@ public sealed class UiPreferences
     public bool StatsOpen => _statsOpen;
 
     public bool DetailsOpen => _detailsOpen;
+
+    /// <summary>The Viewers panel under the title block; open by default.</summary>
+    public bool ViewersOpen => _viewersOpen;
 
     public bool ChatOpen => _chatOpen;
 
@@ -137,6 +141,15 @@ public sealed class UiPreferences
             return;
 
         _detailsOpen = open;
+        OnChanged();
+    }
+
+    public void SetViewersOpen(bool open)
+    {
+        if (open == _viewersOpen)
+            return;
+
+        _viewersOpen = open;
         OnChanged();
     }
 
@@ -232,6 +245,7 @@ public sealed class UiPreferences
         _theater = state.Theater ?? false;
         _statsOpen = state.Stats ?? false;
         _detailsOpen = state.Details ?? true;
+        _viewersOpen = state.Viewers ?? true;
         _chatOpen = state.Chat ?? false;
         _chatSync = state.ChatSync is { } sync && double.IsFinite(sync) ? SnapChatSync(sync) : 0;
 
@@ -305,7 +319,8 @@ public sealed class UiPreferences
         _detailsOpen,
         _chatOpen,
         _collapsed.ToArray(),
-        _chatSync);
+        _chatSync,
+        _viewersOpen);
 
     private string ToJson() => Serialize(CreateState());
 
@@ -328,6 +343,8 @@ public sealed class UiPreferences
 
         [JsonPropertyName("chat")] public bool? Chat { get; set; }
 
+        [JsonPropertyName("viewers")] public bool? Viewers { get; set; }
+
         [JsonPropertyName("chatSync")] public double? ChatSync { get; set; }
 
         [JsonPropertyName("collapsed")] public List<string?>? Collapsed { get; set; }
@@ -344,4 +361,5 @@ public sealed record UiPreferencesState(
     [property: JsonPropertyName("details")] bool Details,
     [property: JsonPropertyName("chat")] bool Chat,
     [property: JsonPropertyName("collapsed")] IReadOnlyList<string> Collapsed,
-    [property: JsonPropertyName("chatSync")] double ChatSync);
+    [property: JsonPropertyName("chatSync")] double ChatSync,
+    [property: JsonPropertyName("viewers")] bool Viewers = true);
