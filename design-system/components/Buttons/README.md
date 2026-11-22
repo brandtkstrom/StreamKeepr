@@ -2,8 +2,8 @@ MudBlazor buttons, icon buttons, toggle icon buttons, filter chips, switches and
 
 ## Variants
 
-- **Filled `Color.Primary`**: the one main action in a region (Export MP4, Add). **Filled `Color.Error`**: the confirm in a destructive dialog (Delete, Stop recording).
-- **Outlined**: secondary actions (Copy playlist URL, Disconnect). `Color.Error` outlined for Stop recording in the title block's action stack. The border is `lines-inputs`, and the label is `text-primary`.
+- **Filled `Color.Primary`**: the one main action in a region (Add; Export MP4 is the tonal icon button in the title block). **Filled `Color.Error`**: the confirm in a destructive dialog (Delete, Stop recording).
+- **Outlined**: secondary actions (Disconnect). The title block's actions are icon buttons and menu items, not outlined buttons (see `RecordingDetails`). The border is `lines-inputs`, and the label is `text-primary`.
 - **Text**: low-emphasis and row actions (Retry, Copy stats; Cancel, Remove and Resume recording in `Color.Default`).
 - **`MudIconButton`**: `action-default` at rest. **`MudToggleIconButton`** for stats and theater: `ToggledColor="Color.Primary"` and a 14% `primary` tint.
 - **`MudChipSet`** filters: `Variant.Outlined`, `SelectedColor="Color.Primary"`, `CheckMark`.

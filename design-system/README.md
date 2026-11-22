@@ -12,7 +12,7 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 
 | Width (MudBlazor breakpoint) | Top bar | Navigation | Watching a recording |
 |---|---|---|---|
-| **Md and up** (≥ 960px): laptop, desktop | `MudAppBar`, 64px: menu, wordmark, search field, GitHub and Twitch links, settings, account avatar | `MudDrawer Variant="Mini" ClipMode="Always"`: the 72px rail, or the 320px library when opened | Two columns. Left: the player, the title block with its actions stacked on the right, Chapters (when there are any) and Viewers (when there are samples); Statistics is an overlay inside the player. Right: chat, 320–400px wide and the full height of the view. |
+| **Md and up** (≥ 960px): laptop, desktop | `MudAppBar`, 64px: menu, wordmark, search field, GitHub and Twitch links, settings, account avatar | `MudDrawer Variant="Mini" ClipMode="Always"`: the 72px rail, or the 320px library when opened | Two columns. Left: the player, the title block with its icon actions and More menu at the top right, Chapters (when there are any) and Viewers (when there are samples); Statistics is an overlay inside the player. Right: chat, 320–400px wide and the full height of the view. |
 | **Sm** (600–959px): tablet, small window | `MudAppBar Dense`, 48px | Bottom app bar (`BottomNav`); the library is a temporary drawer | Player edge to edge, then the title block, then `MudTabs`: Chat · Chapters · Stats (Chapters only when there are any) |
 | **Xs** (< 600px): phone portrait | Dense, 48px; a back arrow on the watch page | Bottom app bar; temporary drawer | As Sm, with the player sticky under the top bar while the tabs scroll |
 | Phone landscape (height < 500px) | Hidden | Hidden | The player fills the screen, with controls overlaid |
@@ -23,7 +23,7 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 - Opening a recording on desktop collapses the drawer to the rail. Home opens it fully again. Both choices are remembered per viewer.
 - **Theater mode** (desktop only) makes the player span the full width of the view: no drawer, no gutters, no sidecar. Its height is capped at the viewport minus the app bar. The two columns move below it, chat still on the right, filling the height left. Fullscreen takes over theater mode's job on phones.
 - Nothing ever sits above the player, and nothing sits to the right of the open chat: it is the full-height right-hand column on desktop.
-- The recording's title, meta and actions sit directly under the player on the page, not in a panel; the actions are a vertical stack beside the title (`RecordingDetails`). The chapters are their own panel, `Chapters`, shown only when the recording has chapters.
+- The recording's title, meta and actions sit directly under the player on the page, not in a panel; the actions are a compact row of icon buttons beside the title, with Stop and Delete in a More actions menu (`RecordingDetails`). The chapters are their own panel, `Chapters`, shown only when the recording has chapters.
 
 ### The rest
 

@@ -1,4 +1,4 @@
-<!-- @dsCard group="Playback" height=300 width=1000 subtitle="The title block under the player: title and meta on the left, actions stacked on the right, an export in progress below" -->
+<!-- @dsCard group="Playback" height=440 width=1000 subtitle="The title block under the player: title and meta on the left, icon actions and a More actions menu at its top right, an export in progress below" -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -6,19 +6,45 @@
 <style>
   html, body { margin: 0; }
   .wrap { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
+  .cap { font: var(--text-caption); color: var(--text-secondary); margin: 0 0 var(--space-2); }
+  .gap { height: 120px; }
 </style>
 </head>
 <body class="ds">
 <div class="wrap">
-  <div class="ds-vhead">
-    <div class="ds-vinfo">
-      <h2 class="vtitle">Route planning with chat, then full runs until the 9pm block</h2>
-      <div class="ds-meta"><span class="who"><span class="ds-avatar a1" style="width:24px;height:24px"><img src="../sample-avatars/nightjar_tv.svg" alt=""></span>nightjar_tv</span><span><i data-i="sportsesports"></i>Speedrunning</span><span><i data-i="event"></i>Yesterday, 20:30</span><span><i data-i="timer"></i>2h 14m</span><span><i data-i="folder"></i>806 segments · 1 part</span><span><i data-i="storage"></i>9.8 GB</span></div>
+  <div>
+    <p class="cap">Recording now, with More actions open</p>
+    <div class="ds-vhead">
+      <div class="ds-vinfo">
+        <h2 class="vtitle">Late-night speedrun practice: any% resets</h2>
+        <div class="ds-meta"><span class="ds-status rec">Rec</span><span class="who"><span class="ds-avatar a1" style="width:24px;height:24px"><img src="../sample-avatars/nightjar_tv.svg" alt=""></span>nightjar_tv</span><span><i data-i="sportsesports"></i>Speedrunning</span><span><i data-i="event"></i>Today, 21:04</span><span><i data-i="timer"></i>1h 02m</span><span><i data-i="folder"></i>412 segments · 1 part</span></div>
+      </div>
+      <div class="ds-vacts" role="group" aria-label="Recording actions">
+        <button class="ds-ibtn" aria-label="Copy playlist URL" title="Copy playlist URL"><i data-i="playlist"></i></button>
+        <button class="ds-ibtn export" aria-label="Export MP4" title="Export MP4"><i data-i="output"></i></button>
+        <button class="ds-ibtn" aria-label="More actions" aria-haspopup="menu" aria-expanded="true"><i data-i="more"></i></button>
+        <div class="ds-menu" role="menu" aria-label="More actions">
+          <div class="ds-menu-item error" role="menuitem"><i data-i="stop"></i>Stop recording</div>
+          <hr>
+          <div class="ds-menu-item" role="menuitem" aria-disabled="true"><i data-i="delete"></i><span>Delete recording<span class="why">Stop the recording first</span></span></div>
+        </div>
+      </div>
     </div>
-    <div class="ds-vstack" role="group" aria-label="Recording actions">
-      <button class="ds-btn outlined"><i data-i="playlist"></i>Copy playlist URL</button>
-      <button class="ds-btn filled disabled" disabled><i data-i="output"></i>Export MP4</button>
-      <button class="ds-btn text default"><i data-i="delete"></i>Delete recording</button>
+    <div class="gap"></div>
+  </div>
+  <div>
+    <p class="cap">Finished, exporting; hovering Copy playlist URL</p>
+    <div class="ds-vhead">
+      <div class="ds-vinfo">
+        <h2 class="vtitle">Route planning with chat, then full runs until the 9pm block</h2>
+        <div class="ds-meta"><span class="who"><span class="ds-avatar a1" style="width:24px;height:24px"><img src="../sample-avatars/nightjar_tv.svg" alt=""></span>nightjar_tv</span><span><i data-i="sportsesports"></i>Speedrunning</span><span><i data-i="event"></i>Yesterday, 20:30</span><span><i data-i="timer"></i>2h 14m</span><span><i data-i="folder"></i>806 segments · 1 part</span><span><i data-i="storage"></i>9.8 GB</span></div>
+      </div>
+      <div class="ds-vacts" role="group" aria-label="Recording actions">
+        <button class="ds-ibtn" aria-label="Copy playlist URL" style="background:color-mix(in srgb, var(--text-primary) 8%, transparent)"><i data-i="playlist"></i></button>
+        <button class="ds-ibtn export" aria-label="Export MP4 (exporting)" disabled><i data-i="output"></i></button>
+        <button class="ds-ibtn" aria-label="More actions" aria-haspopup="menu" aria-expanded="false"><i data-i="more"></i></button>
+        <span class="ds-tip" role="tooltip">Copy playlist URL</span>
+      </div>
     </div>
   </div>
   <div class="ds-export" data-export-row="Running">

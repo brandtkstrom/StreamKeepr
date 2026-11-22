@@ -468,8 +468,19 @@ mark.ds-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .ds-vhead { display: flex; align-items: flex-start; gap: var(--space-4); }
 .ds-vhead > .ds-vinfo { flex: 1 1 auto; min-width: 0; padding: 0; gap: var(--space-2); }
 .ds-vhead > .ds-vinfo .ds-meta { padding: 0; }
-.ds-vstack { flex: none; width: 200px; display: flex; flex-direction: column; gap: var(--space-2); }
-.ds-vstack .ds-btn { width: 100%; justify-content: flex-start; }
+/* The recording's actions: a compact row of icon buttons at the title's top right, with the rarer
+   and destructive actions in a "More actions" menu. */
+.ds-vacts { flex: none; position: relative; display: flex; align-items: center; gap: var(--space-1); }
+.ds-vacts .ds-ibtn.export { color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, transparent); }
+.ds-vacts .ds-ibtn.export:hover { background: color-mix(in srgb, var(--primary) 22%, transparent); }
+.ds-vacts .ds-ibtn.export[disabled] { color: var(--action-disabled); background: transparent; }
+.ds-vacts .ds-ibtn[aria-expanded="true"] { background: color-mix(in srgb, var(--text-primary) 12%, transparent); }
+.ds-vacts .ds-menu { position: absolute; right: 0; top: calc(100% + var(--space-1)); z-index: 3; min-width: 220px; }
+.ds-vacts .ds-menu-item.error, .ds-vacts .ds-menu-item.error .ds-i { color: var(--error); }
+.ds-vacts .ds-menu-item[aria-disabled="true"] { color: var(--action-disabled); cursor: default; }
+.ds-vacts .ds-menu-item[aria-disabled="true"] .ds-i { color: var(--action-disabled); }
+.ds-vacts .ds-menu-item .why { display: block; font: var(--text-caption); color: var(--text-secondary); }
+.ds-vacts .ds-tip { position: absolute; right: 0; top: calc(100% + var(--space-1)); z-index: 3; }
 .ds-export { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--surface-raised); }
 .ds-export .ds-progress { flex: 1; --c: var(--secondary); max-width: 320px; }
 .ds-export .pct { font: var(--text-timecode); color: var(--text-secondary); }
@@ -488,12 +499,6 @@ mark.ds-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   box-shadow: 0 0 0 2px var(--drawer-background); animation: ds-pulse 1.6s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) { .ds-avatar.rail.live::after { animation: none; } }
-/* A narrow left column (a small window with chat open): the action stack runs as a row under the meta. */
-.ds-watchcols > .col, .ds-vhead-host { container-type: inline-size; }
-@container (max-width: 520px) {
-  .ds-vhead { flex-direction: column; }
-  .ds-vstack { width: auto; flex-direction: row; flex-wrap: wrap; }
-  .ds-vstack .ds-btn { width: auto; }
 }
 
 /* Statistics as an overlay inside the player (StatsPanel). It is part of the player island, so it
