@@ -570,3 +570,18 @@ mark.ds-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 @media (hover: none) { .ds-rec-del { opacity: 1; } }
 .ds-rec-del:not([disabled]):hover, .ds-rec-item.hover > .ds-rec-del:not([disabled]) { color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); }
 .ds-rec-item > .ds-tip { position: absolute; right: var(--space-2); top: calc(var(--space-2) + 32px + var(--space-1)); z-index: 3; }
+
+/* Sign-in page (SignIn): shown instead of the app when Auth:AllowedTwitchLogins is set. */
+.ds-signin { display: grid; place-items: center; min-height: 100%; padding: var(--space-4); background: var(--background); box-sizing: border-box; }
+.ds-signin-card { width: 100%; max-width: 400px; box-sizing: border-box; padding: var(--space-8) var(--space-6) var(--space-6); background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--elevation-4); display: flex; flex-direction: column; align-items: center; gap: var(--space-4); text-align: center; }
+.ds-signin-card .ds-wordmark { font-size: 24px; }
+.ds-signin-card h1 { margin: var(--space-2) 0 0; font: var(--text-h5); color: var(--text-primary); }
+.ds-signin-card p { margin: 0; font: var(--text-body2); color: var(--text-secondary); }
+.ds-signin-card .ds-alert { width: 100%; box-sizing: border-box; text-align: left; align-items: flex-start; padding-top: var(--space-3); padding-bottom: var(--space-3); }
+.ds-signin-card .ds-alert .ds-i { color: var(--c); flex: none; }
+.ds-signin-card .ds-alert b { display: block; }
+.ds-signin-card .ds-btn.twitch { width: 100%; justify-content: center; height: 44px; }
+.ds-signin-card .ds-btn.twitch[aria-busy="true"] { background: var(--twitch-hover); }
+.ds-signin-card .small-spin { width: 18px; height: 18px; border-width: 2px; border-color: color-mix(in srgb, var(--twitch-contrast-text) 30%, transparent); border-top-color: var(--twitch-contrast-text); }
+.ds-signin-card .fine { font: var(--text-caption); color: var(--text-secondary); }
+.ds-signin-card .other { font: var(--text-body2); }

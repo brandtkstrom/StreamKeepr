@@ -29,6 +29,7 @@ StreamKeepr's hand-built primitives (`Components/Primitives/`) give way to MudBl
 | `StorageMeter` | The library drawer's footer: `MudTooltip` + caption + full-width `MudProgressLinear` (`Size.Small`, `Color.Warning` under 10% free). It moves out of the app bar. |
 | `SearchField` | `MudTextField` `Variant.Outlined`, `Margin.Dense`, `Adornment.Start`, `Immediate`, `DebounceInterval="150"`; 360px max, 480px while focused |
 | `TwitchAccount` | `MudButton Href` (styled `twitch`) or a `MudMenu` with an avatar activator |
+| `SignIn` (new) | A `/signin` page with an empty layout: `MudPaper` card, `MudAlert Dense` for the reason, the `twitch` link button. Only used when `Auth:AllowedTwitchLogins` is set |
 | `LibraryDrawer`, `StreamerGroup`, `RecordingRow` | `MudDrawer` content: header, `MudChipSet`, a channels list (`role="listbox"`) and, beside it, the selected channel's recordings column of `RecordingRow`s |
 | `Home` (new; the default view) | Two `<section>`s with `MudText Typo.h6` headers, each a horizontal `<ul>` of `RecordingCard`s; `MudButton` "Show all"; `MudIconButton` chevrons; `MudSkeleton` while loading |
 | `RecordingCard` (new) | A real `<a>` with the thumbnail, `MudAvatar` on a channel colour (`channel-*`), `MudText` title and meta, and one `StatusChip` |
