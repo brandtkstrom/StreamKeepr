@@ -68,7 +68,25 @@ public sealed class ChatSettingsTests
         cut.Find("[data-chat-sync-range]").Change("1.5");
 
         Assert.Equal(1.5, preferences.ChatSyncOffset);
-        Assert.Equal("1.5", cut.Find("[data-chat-sync-range]").GetAttribute("value"));
+        Assert.Equal("1.5 seconds later", cut.Find("[data-chat-sync-range]").GetAttribute("aria-valuetext"));
+    }
+
+    [Fact]
+    public async Task The_server_never_writes_the_thumb_back_while_it_moves()
+    {
+        // On a slow round trip, an echoed value lands after the next arrow press and undoes it,
+        // so the rendered value stays put and the browser keeps the thumb (CI flake, PR #262).
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out _);
+        IRenderedComponent<ChatSettings> cut = context.Render<ChatSettings>();
+
+        foreach (string value in new[] { "0.5", "1", "1.5" })
+        {
+            cut.Find("[data-chat-sync-range]").Input(value);
+            cut.Find("[data-chat-sync-range]").Change(value);
+        }
+
+        Assert.Equal("0", cut.Find("[data-chat-sync-range]").GetAttribute("value"));
+        Assert.Equal("+1.5 s", cut.Find("[data-chat-sync-value]").TextContent.Trim());
     }
 
     [Fact]
@@ -79,9 +97,14 @@ public sealed class ChatSettingsTests
         preferences.SetChatSyncOffset(6);
         IRenderedComponent<ChatSettings> cut = context.Render<ChatSettings>();
 
+        var before = cut.Find("[data-chat-sync-range]");
+        Assert.Equal("6", before.GetAttribute("value"));
+
         cut.Find("[data-chat-sync-reset]").Click();
 
         Assert.Equal(0, preferences.ChatSyncOffset);
         Assert.Equal("0.0 s", cut.Find("[data-chat-sync-value]").TextContent.Trim());
+        // Reset is the one move the server makes: a new slider, at 0.
+        Assert.Equal("0", cut.Find("[data-chat-sync-range]").GetAttribute("value"));
     }
 }

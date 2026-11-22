@@ -30,13 +30,14 @@
             </button>
         </div>
         <div class="sk-chat-sync-slider">
-            <input id="sk-chat-sync-range"
+            <input @key="_sliderGeneration"
+                   id="sk-chat-sync-range"
                    class="sk-chat-sync-range"
                    type="range"
                    min="@SyncMin"
                    max="@SyncMax"
                    step="@SyncStep"
-                   value="@Invariant(_shown)"
+                   value="@Invariant(_sliderValue)"
                    style="@FillStyle(_shown)"
                    aria-valuetext="@ValueText(_shown)"
                    @oninput="OnInput"
@@ -59,10 +60,17 @@
     private static readonly string SyncMin = Invariant(-ChatReader.MaxSyncOffsetSeconds);
     private static readonly string SyncStep = Invariant(UiPreferences.ChatSyncStepSeconds);
 
-    // What the slider shows: the thumb while dragging, the saved offset otherwise.
+    // What the readout shows: the thumb while dragging, the saved offset otherwise.
     private double _shown;
 
-    protected override void OnInitialized() => _shown = Preferences.ChatSyncOffset;
+    // The slider's value as the server renders it. The browser owns the thumb once it is shown:
+    // echoing each input back would land after the next arrow press or drag step on a slow
+    // round trip and undo it. Only Reset moves the thumb from here, by creating a new slider
+    // (focus is on the Reset button then).
+    private double _sliderValue;
+    private int _sliderGeneration;
+
+    protected override void OnInitialized() => _shown = _sliderValue = Preferences.ChatSyncOffset;
 
     // Dragging only redraws the readout; the offset is saved, and chat refetched, on change.
     private void OnInput(ChangeEventArgs args)
@@ -77,7 +85,12 @@
             await SaveAsync(value);
     }
 
-    private Task ResetAsync() => SaveAsync(0);
+    private async Task ResetAsync()
+    {
+        await SaveAsync(0);
+        _sliderValue = Preferences.ChatSyncOffset;
+        _sliderGeneration++;
+    }
 
     private async Task SaveAsync(double value)
     {

@@ -56,14 +56,6 @@ function fakeDotNet() {
   };
 }
 
-const VIEWER_SAMPLES = [
-  { at: 0, count: 380 },
-  { at: 600, count: 900 },
-  { at: 2280, count: 1658 },
-  { at: 3000, count: 1658 },
-  { at: 3720, count: 1492 },
-];
-
 async function flush() {
   for (let index = 0; index < 6; index++) await Promise.resolve();
 }

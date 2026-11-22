@@ -93,18 +93,6 @@ describe("ViewerChart.razor.js", () => {
     return chart;
   }
 
-  function playhead(time, recordingId = "r1") {
-    document.dispatchEvent(new CustomEvent("sk:playhead", {
-      detail: { recordingId, time, duration: 3733, paused: false, rate: 1, live: false },
-    }));
-  }
-
-  function chartBox() {
-    hook("viewer-chart").getBoundingClientRect = () => ({
-      left: 0, width: 1000, top: 0, height: 100, right: 1000, bottom: 100,
-    });
-  }
-
   describe("chart", () => {
     function playhead(time, recordingId = "r1") {
       document.dispatchEvent(new CustomEvent("sk:playhead", {
