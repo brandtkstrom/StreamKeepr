@@ -105,7 +105,7 @@ public sealed class HomePlayerTests
     }
 
     [Fact]
-    public async Task Below_md_the_player_sits_above_the_summary_and_the_chat_details_and_stats_tabs()
+    public async Task Below_md_the_player_sits_above_the_title_block_and_the_chat_chapters_and_stats_tabs()
     {
         await using BunitContext context = CreateContext(out _, out TestLibraryView view);
         view.FindById["r1"] = VideoPlayerTests.Recording("r1", "First") with { HasChat = true };
@@ -120,17 +120,43 @@ public sealed class HomePlayerTests
         Assert.NotNull(home.Find("[data-watch-summary] [data-details-start]"));
         Assert.NotNull(home.Find("[data-watch-summary] [data-details-duration]"));
         Assert.Equal(
-            ["Chat", "Details", "Stats"],
+            ["Chat", "Chapters", "Stats"],
             home.FindAll("[role='tab']").Select(tab => tab.TextContent.Trim()));
         Assert.Empty(home.FindAll("[data-slot='details']"));
         Assert.Empty(home.FindAll("[data-slot='stats']"));
         Assert.NotNull(home.Find("[role='tabpanel'] [data-sk-chat]"));
-        Assert.NotNull(home.Find("[role='tabpanel'] [data-details-extra]"));
+        // The export row follows the title block, outside the tabs; the chapters are a tab.
+        Assert.NotNull(home.Find("[data-watch-summary] [data-details-extra]"));
+        Assert.NotNull(home.Find("[role='tabpanel'] [data-chapter-list]"));
         Assert.Equal(
             "tab",
             home.Find("[role='tabpanel'] [data-sk-stats]").GetAttribute("data-chrome"));
         // The Chat tab owns its disclosure: the pane has no header toggle of its own.
         Assert.Empty(home.FindAll("[data-sk='chat-toggle']"));
+    }
+
+    [Fact]
+    public async Task Below_md_a_recording_without_chapters_has_no_chapters_tab()
+    {
+        await using BunitContext context = CreateContext(out _, out TestLibraryView view);
+        view.FindById["r1"] = VideoPlayerTests.Recording("r1", "First") with { HasChat = true, Chapters = [] };
+
+        IRenderedComponent<Home> home = RenderShell(context, compact: true);
+
+        Assert.Equal(["Chat", "Stats"], home.FindAll("[role='tab']").Select(tab => tab.TextContent.Trim()));
+    }
+
+    [Fact]
+    public async Task Md_and_up_the_title_block_is_followed_by_the_chapters_panel()
+    {
+        await using BunitContext context = CreateContext(out _, out TestLibraryView view);
+        view.FindById["r1"] = VideoPlayerTests.Recording("r1", "First");
+
+        IRenderedComponent<Home> home = RenderShell(context, compact: false);
+
+        Assert.NotNull(home.Find("[data-slot='details'] [data-recording-details] [data-details-title]"));
+        Assert.NotNull(home.Find("[data-slot='details'] [data-chapters-panel] [data-chapter]"));
+        Assert.Empty(home.FindAll("[role='tab']"));
     }
 
     [Fact]

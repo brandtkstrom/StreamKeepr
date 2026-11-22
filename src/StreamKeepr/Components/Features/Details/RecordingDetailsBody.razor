@@ -1,14 +1,12 @@
-@using System.Globalization
 @using StreamKeepr.Infrastructure.Storage
 @implements IDisposable
 @inject MudBlazor.ISnackbar Snackbars
-@inject PlayerBridge Bridge
 @inject ILogger<RecordingDetailsBody> Logger
 @inject IExportService Exports
 
-@* The rest of Recording details below the title, meta and actions (design system:
-   RecordingDetails, #175): the export's progress and the chapter strip. Md and up it sits in
-   the details card; below Md the phone's Details tab holds it. *@
+@* The export row under the title block (design system: RecordingDetails): an export's
+   progress, then Cancel, Retry or Download. It renders nothing without a job. The chapters
+   moved to ChapterList (ChaptersPanel Md and up, the Chapters tab below). *@
 <div class="sk-details-extra" data-details-extra>
     @if (_job is { } job)
     {
@@ -70,32 +68,6 @@
         </div>
     }
 
-    @{
-        IReadOnlyList<Chapter> chapters = VisibleChapters;
-    }
-    @if (chapters.Count > 0)
-    {
-        <div class="sk-chapters" role="group" aria-label="Chapters">
-            @for (int index = 0; index < chapters.Count; index++)
-            {
-                Chapter chapter = chapters[index];
-                <button type="button"
-                        class="sk-chapter"
-                        @key="ChapterKey(index, chapter)"
-                        data-chapter="@ChapterOffset(chapter)"
-                        data-chapter-key="@ChapterKey(index, chapter)"
-                        @onclick="() => SeekToChapterAsync(chapter)">
-                    <span class="sk-visually-hidden">Seek to </span>
-                    <span class="time">@Format.Timecode(chapter.StartSeconds)</span>
-                    <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle2" HtmlTag="span" Class="title">@chapter.Title</MudBlazor.MudText>
-                    @if (!string.IsNullOrWhiteSpace(chapter.Game))
-                    {
-                        <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="game">@chapter.Game</MudBlazor.MudText>
-                    }
-                </button>
-            }
-        </div>
-    }
 </div>
 
 @code {
@@ -112,14 +84,6 @@
     [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
 
     [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
-
-    private IReadOnlyList<Chapter> VisibleChapters =>
-        Recording.Chapters
-            .Where(chapter =>
-                double.IsFinite(chapter.StartSeconds) &&
-                chapter.StartSeconds >= 0 &&
-                (Recording.DurationSec <= 0 || chapter.StartSeconds <= Recording.DurationSec))
-            .ToArray();
 
     protected override void OnInitialized() => Exports.Changed += OnExportsChanged;
 
@@ -233,17 +197,6 @@
         RefreshExport();
         StateHasChanged();
     });
-
-    private async Task SeekToChapterAsync(Chapter chapter) =>
-        await Bridge.SeekAsync(chapter.StartSeconds);
-
-    private static string ChapterOffset(Chapter chapter) =>
-        chapter.StartSeconds.ToString("0.###", CultureInfo.InvariantCulture);
-
-    // Offsets are not unique (two metadata changes can land in one segment); the index
-    // keeps sibling keys unique while preserving the offset for stable data attributes.
-    private static string ChapterKey(int index, Chapter chapter) =>
-        $"{ChapterOffset(chapter)}:{index}";
 
     public void Dispose() => Exports.Changed -= OnExportsChanged;
 }

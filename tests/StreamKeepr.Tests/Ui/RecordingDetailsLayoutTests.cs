@@ -82,14 +82,14 @@ public sealed class RecordingDetailsLayoutTests
     }
 
     [Fact]
-    public async Task The_title_is_a_heading_below_the_panel_heading()
+    public async Task The_title_is_the_pages_section_heading_outside_any_panel()
     {
         await using BunitContext context = CreateContext(signedIn: false);
 
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
-        Assert.Equal("H3", cut.Find("[data-details-title]").TagName);
-        Assert.Equal("Recording details", cut.Find("[data-collapsible-toggle] h2").TextContent.Trim());
+        Assert.Equal("H2", cut.Find("[data-details-title]").TagName);
+        Assert.Empty(cut.FindAll("[data-collapsible-toggle]"));
     }
 
     [Fact]

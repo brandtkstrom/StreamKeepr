@@ -16,17 +16,14 @@ public sealed class RecordingDetailsTests
     private static readonly DateTimeOffset Now = new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task Expanded_card_shows_the_title_streamer_category_start_counts_and_size()
+    public async Task The_title_block_shows_the_title_streamer_category_start_counts_and_size()
     {
         await using BunitContext context = CreateContext(out _, timeZoneId: "Asia/Tokyo");
 
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
-        var section = cut.Find("[data-recording-details]");
-        Assert.Equal("true", section.GetAttribute("data-expanded"));
-        Assert.Equal("true", cut.Find("[data-recording-details] [data-collapsible-toggle]").GetAttribute("aria-expanded"));
-        Assert.Contains("Recording details", cut.Find("[data-recording-details] [data-collapsible-toggle]").TextContent);
-        Assert.Contains("Wed, Nov 11, 2026 · 9:00 PM", cut.Find("[data-details-date]").TextContent);
+        // The title block sits on the page, outside any panel: nothing collapses it.
+        Assert.Empty(cut.FindAll("[data-recording-details] [data-collapsible-toggle]"));
 
         Assert.Equal("Title", cut.Find("[data-details-title]").TextContent);
         Assert.Equal("ann", cut.Find("[data-details-streamer]").TextContent);
@@ -39,19 +36,38 @@ public sealed class RecordingDetailsTests
     }
 
     [Fact]
-    public async Task Collapsed_state_comes_from_sk_ui_and_the_header_keeps_the_start_date()
+    public async Task The_chapters_panel_is_expanded_by_default_and_counts_its_chapters()
+    {
+        await using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<ChaptersPanel> cut = RenderPanel(context, Recording(chapters:
+        [
+            new Chapter(60, "Intro", ""),
+            new Chapter(3733, "Celeste", "game"),
+        ]));
+
+        Assert.Equal("true", cut.Find("[data-chapters-panel]").GetAttribute("data-expanded"));
+        var toggle = cut.Find("[data-chapters-panel] [data-collapsible-toggle]");
+        Assert.Equal("true", toggle.GetAttribute("aria-expanded"));
+        Assert.Equal("Chapters", toggle.QuerySelector("h2")!.TextContent.Trim());
+        Assert.Equal("2 chapters", cut.Find("[data-chapter-count]").TextContent.Trim());
+        Assert.Equal(2, cut.FindAll("[data-chapter]").Count);
+    }
+
+    [Fact]
+    public async Task Collapsed_state_comes_from_sk_ui()
     {
         await using BunitContext context = CreateContext(
             out _,
             detailsCookie: "{\"v\":1,\"details\":false}");
 
-        IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
+        IRenderedComponent<ChaptersPanel> cut = RenderPanel(context, Recording());
 
-        var section = cut.Find("[data-recording-details]");
-        Assert.Equal("false", section.GetAttribute("data-expanded"));
-        Assert.Equal("false", cut.Find("[data-recording-details] [data-collapsible-toggle]").GetAttribute("aria-expanded"));
-        Assert.True(cut.Find($"#{cut.Find("[data-recording-details] [data-collapsible-toggle]").GetAttribute("aria-controls")}").HasAttribute("inert"));
-        Assert.Contains("Wed, Nov 11, 2026 · 12:00 PM", cut.Find("[data-details-date]").TextContent);
+        Assert.Equal("false", cut.Find("[data-chapters-panel]").GetAttribute("data-expanded"));
+        var toggle = cut.Find("[data-chapters-panel] [data-collapsible-toggle]");
+        Assert.Equal("false", toggle.GetAttribute("aria-expanded"));
+        Assert.True(cut.Find($"#{toggle.GetAttribute("aria-controls")}").HasAttribute("inert"));
+        Assert.Equal("1 chapter", cut.Find("[data-chapter-count]").TextContent.Trim());
     }
 
     [Fact]
@@ -59,14 +75,14 @@ public sealed class RecordingDetailsTests
     {
         await using BunitContext context = CreateContext(out _);
         UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
-        IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
+        IRenderedComponent<ChaptersPanel> cut = RenderPanel(context, Recording());
 
-        cut.Find("[data-recording-details] [data-collapsible-toggle]").Click();
+        cut.Find("[data-chapters-panel] [data-collapsible-toggle]").Click();
 
         cut.WaitForAssertion(() =>
         {
             Assert.False(preferences.DetailsOpen);
-            Assert.Equal("false", cut.Find("[data-recording-details]").GetAttribute("data-expanded"));
+            Assert.Equal("false", cut.Find("[data-chapters-panel]").GetAttribute("data-expanded"));
         });
         Assert.Contains(
             context.JSInterop.Invocations,
@@ -114,7 +130,7 @@ public sealed class RecordingDetailsTests
             return ValueTask.CompletedTask;
         });
 
-        IRenderedComponent<RecordingDetails> cut = Render(
+        IRenderedComponent<ChapterList> cut = RenderChapters(
             context,
             Recording(chapters:
             [
@@ -144,7 +160,7 @@ public sealed class RecordingDetailsTests
         {
             CultureInfo.CurrentCulture = new CultureInfo("fr-FR");
 
-            IRenderedComponent<RecordingDetails> cut = Render(
+            IRenderedComponent<ChapterList> cut = RenderChapters(
                 context,
                 Recording(chapters:
                 [
@@ -172,7 +188,7 @@ public sealed class RecordingDetailsTests
     {
         await using BunitContext context = CreateContext(out _);
 
-        IRenderedComponent<RecordingDetails> cut = Render(
+        IRenderedComponent<ChapterList> cut = RenderChapters(
             context,
             Recording(chapters:
             [
@@ -183,6 +199,8 @@ public sealed class RecordingDetailsTests
 
         Assert.Empty(cut.FindAll("[data-chapter]"));
         Assert.Empty(cut.FindAll("[role='group'][aria-label='Chapters']"));
+        // No chapters, no panel: not an empty one.
+        Assert.Empty(RenderPanel(context, Recording(chapters: [new Chapter(-1, "Negative", "")])).FindAll("[data-chapters-panel]"));
     }
 
     [Fact]
@@ -244,6 +262,12 @@ public sealed class RecordingDetailsTests
         RecordingView recording) =>
         context.Render<RecordingDetails>(parameters =>
             parameters.Add(component => component.Recording, recording));
+
+    private static IRenderedComponent<ChapterList> RenderChapters(BunitContext context, RecordingView recording) =>
+        context.Render<ChapterList>(parameters => parameters.Add(component => component.Recording, recording));
+
+    private static IRenderedComponent<ChaptersPanel> RenderPanel(BunitContext context, RecordingView recording) =>
+        context.Render<ChaptersPanel>(parameters => parameters.Add(component => component.Recording, recording));
 
     private static BunitContext CreateContext(
         out BunitJSModuleInterop module,

@@ -49,7 +49,7 @@ MudBreakpointProvider
         ReconnectNotice
         main
           .sk-main-inner: Home rows/Settings, or the /r/{id} watch view
-                          (player, sidecar, details, stats; below Md: player, summary, tabs)
+                          (player, title block, Chapters, stats | chat column; below Md: player, summary, tabs)
       BottomNav (compact or breakpoint not yet known; not on watch pages)
 ```
 
@@ -66,7 +66,7 @@ MudBreakpointProvider
 - **Drawer, compact.** A `Temporary` drawer over `overlay-dark` at `elevation-4`, always the full library, opened from the bottom bar's Library button; `[data-shell][data-drawer-modal-open]` marks it open. `AppShell.razor.js` moves focus into it, traps Tab, and closes it on Escape, returning focus to the opener; the overlay closes it too; navigating (picking a recording) closes it.
 - **Bottom bar (compact, not on watch pages).** A fixed `MudAppBar Bottom` (`bottom-bar-height`, with the safe-area inset) holding `nav[aria-label=Main]`: Home (link to `/`), Library (a button with `aria-controls="sk-drawer"` and `aria-expanded`, and a `rec` dot while anything records) and Settings (link to `/settings`, which opens the settings dialog over the page with the circuit, with `aria-expanded`, #183). The current destination has `aria-current="page"`; Library is current while the drawer is open, and Settings while the settings dialog is open. The main column is padded so nothing hides under it.
 - **Phone landscape** (PhoneLayout): below 500px height the top bar hides and the player fills the screen (player contract §2a, #175).
-- The watch layout (player contract §2a, #175): Md and up the player row is player → chat sidecar → details → stats; the watch page has no max width, while the library keeps its 1100px. Below Md the player is edge to edge above `RecordingDetailsSummary` and the Chat/Details/Stats tabs.
+- The watch layout (player contract §2a, #175): Md and up the left column is player → title block → Chapters → stats, with chat as a full-height sticky column on the right; the watch page has no max width, while the library keeps its 1100px. Below Md the player is edge to edge above `RecordingDetailsSummary`, the export row and the Chat/Chapters/Stats tabs.
 - Collapse/expand follows MudBlazor's drawer transition; `prefers-reduced-motion` turns the shell's transitions and the REC pulse off.
 - Every interactive element has the 2px `primary` focus ring. New shell styles read `tokens.css` variables, not the legacy `--sk-*` aliases.
 

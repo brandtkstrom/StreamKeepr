@@ -64,13 +64,11 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
 
-        await page.Locator("button[data-export]").ClickAsync();
+        // Started from the keyboard: a pointer resting on Export would hold its tooltip open,
+        // and MudBlazor renders tooltips outside the page's landmarks.
+        await page.Locator("button[data-export]").PressAsync("Enter");
         ILocator status = page.Locator("[data-export-row] [role='status']");
         await page.Locator("[data-export-row='Running'] [role='progressbar']").WaitForAsync(new() { Timeout = 30_000 });
-        // The pointer still rests on Export, whose tooltip MudBlazor renders outside the page's
-        // landmarks; check the page as it is without a hover.
-        await page.Mouse.MoveAsync(0, 0);
-        await page.Locator(".mud-popover-open .mud-tooltip").WaitForAsync(new() { State = WaitForSelectorState.Detached });
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "export-running");
 
         await page.Locator("button[data-export-cancel]").ClickAsync();

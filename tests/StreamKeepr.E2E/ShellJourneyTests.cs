@@ -348,6 +348,9 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             await ExpandLibraryOnWatchPageAsync(page);
 
             ILocator details = page.Locator("[data-slot='details'] [data-recording-details]");
+            // The collapsible panel under the title block is Chapters; the title block itself
+            // sits on the page and does not collapse.
+            ILocator chapters = page.Locator("[data-slot='details'] [data-chapters-panel]");
             await details.WaitForAsync(new LocatorWaitForOptions
             {
                 State = WaitForSelectorState.Visible,
@@ -359,9 +362,9 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             Assert.Equal(1, await details.CountAsync());
             Assert.Equal(
                 "true",
-                await details.Locator("[data-collapsible-toggle]").GetAttributeAsync("aria-expanded"));
-            Assert.Contains("Recording details", await details.Locator("[data-collapsible-toggle]").InnerTextAsync());
-            string date = (await details.Locator("[data-details-date]").InnerTextAsync()).Trim();
+                await chapters.Locator("[data-collapsible-toggle]").GetAttributeAsync("aria-expanded"));
+            Assert.Contains("Chapters", await chapters.Locator("[data-collapsible-toggle]").InnerTextAsync());
+            string date = (await details.Locator("[data-details-start]").InnerTextAsync()).Trim();
             Assert.Contains("2026", date);
 
             Assert.StartsWith(
@@ -380,8 +383,8 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             Assert.NotEmpty(await details.Locator("[data-details-size]").InnerTextAsync());
 
             // The collapsed state is layout preference state and survives a reload.
-            await details.Locator("[data-collapsible-toggle]").ClickAsync();
-            await Assertions.Expect(details.Locator("[data-collapsible-toggle]")).ToHaveAttributeAsync(
+            await chapters.Locator("[data-collapsible-toggle]").ClickAsync();
+            await Assertions.Expect(chapters.Locator("[data-collapsible-toggle]")).ToHaveAttributeAsync(
                 "aria-expanded",
                 "false",
                 new LocatorAssertionsToHaveAttributeOptions { Timeout = 10_000 });
@@ -398,14 +401,14 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 State = WaitForSelectorState.Visible,
                 Timeout = 30_000,
             });
-            await Assertions.Expect(details.Locator("[data-collapsible-toggle]")).ToHaveAttributeAsync(
+            await Assertions.Expect(chapters.Locator("[data-collapsible-toggle]")).ToHaveAttributeAsync(
                 "aria-expanded",
                 "false",
                 new LocatorAssertionsToHaveAttributeOptions { Timeout = 10_000 });
             Assert.Equal(1, await details.CountAsync());
 
-            await details.Locator("[data-collapsible-toggle]").ClickAsync();
-            await Assertions.Expect(details.Locator("[data-collapsible-toggle]")).ToHaveAttributeAsync(
+            await chapters.Locator("[data-collapsible-toggle]").ClickAsync();
+            await Assertions.Expect(chapters.Locator("[data-collapsible-toggle]")).ToHaveAttributeAsync(
                 "aria-expanded",
                 "true",
                 new LocatorAssertionsToHaveAttributeOptions { Timeout = 10_000 });
@@ -413,7 +416,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 new LocatorWaitForOptions { State = WaitForSelectorState.Attached, Timeout = 30_000 });
 
             // Chapter seek moves the playhead without starting playback and keeps focus on the button.
-            ILocator chapter = details.Locator("[data-chapter]").First;
+            ILocator chapter = chapters.Locator("[data-chapter]").First;
             await chapter.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
             double chapterStart = double.Parse(
                 (await chapter.GetAttributeAsync("data-chapter"))!, CultureInfo.InvariantCulture);
@@ -457,7 +460,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             Assert.Equal(
                 "2 parts",
                 (await details.Locator("[data-details-parts]").InnerTextAsync()).Trim());
-            Assert.Equal(2, await details.Locator("[data-chapter]").CountAsync());
+            Assert.Equal(2, await chapters.Locator("[data-chapter]").CountAsync());
 
             // A chapter seek while playing moves the playhead and keeps playback running.
             await page.Locator("[data-sk='seek'][aria-disabled='false']").WaitForAsync(
@@ -468,7 +471,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 null,
                 new PageWaitForFunctionOptions { Timeout = 10_000 });
 
-            ILocator playingChapter = details.Locator("[data-chapter]").Nth(1);
+            ILocator playingChapter = chapters.Locator("[data-chapter]").Nth(1);
             double playingStart = double.Parse(
                 (await playingChapter.GetAttributeAsync("data-chapter"))!, CultureInfo.InvariantCulture);
             await playingChapter.ClickAsync();

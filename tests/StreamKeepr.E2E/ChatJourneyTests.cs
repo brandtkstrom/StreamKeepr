@@ -257,7 +257,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
     }
 
     [Fact]
-    public async Task Live_chat_scrolls_inside_the_player_height_and_keeps_the_footer_in_place()
+    public async Task Live_chat_scrolls_inside_a_full_height_column_and_keeps_its_footer_in_view()
     {
         await using LibraryJourneyTests.Session session =
             await LibraryJourneyTests.OpenAsync(app.BaseUrl);
@@ -278,14 +278,16 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await page.Locator("[data-sk='video']").EvaluateAsync(
             "v => { v.muted = true; return v.play(); }");
 
-        // Wait until the rendered rows are taller than the player, so the log must overflow.
+        // Wait until the rendered rows are taller than the log, so it must overflow, and the
+        // follow scroll has brought the newest row into view.
         await page.WaitForFunctionAsync(
             """
             () => {
-              const rows = [...document.querySelectorAll('[data-sk=chat-log] [data-message-id]')];
-              const player = document.querySelector('[data-sk-player]').getBoundingClientRect();
-              return rows.reduce((sum, row) => sum + row.getBoundingClientRect().height, 0) >
-                player.height;
+              const log = document.querySelector('[data-sk=chat-log]');
+              const rows = [...log.querySelectorAll('[data-message-id]')];
+              const total = rows.reduce((sum, row) => sum + row.getBoundingClientRect().height, 0);
+              return total > log.clientHeight &&
+                rows[rows.length - 1].getBoundingClientRect().bottom <= log.getBoundingClientRect().bottom + 1;
             }
             """,
             null,
@@ -296,6 +298,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             () => {
               const pane = document.querySelector('[data-sk-chat]').getBoundingClientRect();
               const player = document.querySelector('[data-sk-player]').getBoundingClientRect();
+              const main = document.querySelector('main').getBoundingClientRect();
               const log = document.querySelector('[data-sk=chat-log]');
               const footer = document.querySelector('[data-sk=chat-footer]').getBoundingClientRect();
               const rows = log.querySelectorAll('[data-message-id]');
@@ -306,6 +309,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
                 playerHeight: player.height,
                 footerBottom: footer.bottom,
                 playerBottom: player.bottom,
+                viewBottom: main.bottom,
                 scrollable: log.scrollHeight > log.clientHeight,
                 lastRowBottom: last.bottom,
                 logBottom: logBox.bottom,
@@ -313,11 +317,12 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             }
             """);
 
-        // The pane follows the player's height instead of growing with its content.
-        Assert.True(layout.PaneHeight <= layout.PlayerHeight + 1,
-            $"chat pane {layout.PaneHeight}px is taller than the player {layout.PlayerHeight}px");
-        Assert.True(layout.FooterBottom <= layout.PlayerBottom + 1,
-            $"sync footer bottom {layout.FooterBottom}px is below the player {layout.PlayerBottom}px");
+        // The pane is the view's height (design system: AppShell, chat as a full-height column)
+        // instead of growing with its content, so its footer stays inside the view.
+        Assert.True(layout.PaneHeight > layout.PlayerHeight,
+            $"chat pane {layout.PaneHeight}px is no taller than the player {layout.PlayerHeight}px");
+        Assert.True(layout.FooterBottom <= layout.ViewBottom + 1,
+            $"chat footer bottom {layout.FooterBottom}px is below the view {layout.ViewBottom}px");
         Assert.True(layout.Scrollable, "the chat log scrolls once it overflows");
         // Following the live edge keeps the newest row in view at the bottom of the log.
         Assert.True(layout.LastRowBottom <= layout.LogBottom + 1,
@@ -401,6 +406,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         public double PlayerHeight { get; set; }
         public double FooterBottom { get; set; }
         public double PlayerBottom { get; set; }
+        public double ViewBottom { get; set; }
         public bool Scrollable { get; set; }
         public double LastRowBottom { get; set; }
         public double LogBottom { get; set; }

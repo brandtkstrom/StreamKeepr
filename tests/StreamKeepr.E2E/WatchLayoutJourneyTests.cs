@@ -32,29 +32,25 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
             "el => getComputedStyle(el).borderTopLeftRadius"));
 
         ILocator chatTab = page.GetByRole(AriaRole.Tab, new() { Name = "Chat" });
-        ILocator detailsTab = page.GetByRole(AriaRole.Tab, new() { Name = "Details" });
+        ILocator chaptersTab = page.GetByRole(AriaRole.Tab, new() { Name = "Chapters" });
         ILocator statsTab = page.GetByRole(AriaRole.Tab, new() { Name = "Stats" });
         await chatTab.WaitForAsync();
         Assert.Equal("true", await chatTab.GetAttributeAsync("aria-selected"));
-        await Assertions.Expect(detailsTab).ToBeVisibleAsync();
+        // This recording has no chapters, so it has no Chapters tab; the export row and actions
+        // stay with the title block, outside the tabs.
+        Assert.Equal(0, await chaptersTab.CountAsync());
+        Assert.Equal(0, await page.GetByRole(AriaRole.Tab, new() { Name = "Details" }).CountAsync());
         await Assertions.Expect(statsTab).ToBeVisibleAsync();
         Assert.True(await page.Locator("[role='tabpanel'] [data-sk-chat]").IsVisibleAsync());
 
         // Selecting a tab shows its panel and hides the others.
-        await ScrollTopAsync(page);
-        await detailsTab.ClickAsync();
-        await Assertions.Expect(detailsTab).ToHaveAttributeAsync("aria-selected", "true");
-        await Assertions.Expect(page.Locator("[role='tabpanel'] [data-details-extra]"))
-            .ToBeVisibleAsync();
-        Assert.False(await page.Locator("[role='tabpanel'] [data-sk-chat]").IsVisibleAsync());
-
         await ScrollTopAsync(page);
         await statsTab.ClickAsync();
         await Assertions.Expect(statsTab).ToHaveAttributeAsync("aria-selected", "true");
         ILocator stats = page.Locator("[role='tabpanel'] [data-sk-stats]");
         await Assertions.Expect(stats).ToBeVisibleAsync();
         Assert.Equal("true", await stats.GetAttributeAsync("data-open"));
-        Assert.False(await page.Locator("[role='tabpanel'] [data-details-extra]").IsVisibleAsync());
+        Assert.False(await page.Locator("[role='tabpanel'] [data-sk-chat]").IsVisibleAsync());
 
         await ScrollTopAsync(page);
         await chatTab.ClickAsync();
@@ -73,6 +69,15 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
         await AssertNoSidewaysScrollAsync(page, "watch-phone");
         await page.ScreenshotAsync(new() { Path = Path.Combine(app.ArtifactsDirectory, "watch-phone.png") });
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "watch-phone");
+
+        // A recording with chapters adds the Chapters tab before Stats, holding the list.
+        await page.GotoAsync(app.BaseUrl);
+        await OpenRecordingAsync(page, "Chat picks the route");
+        await SettleAsync(page, compact: true);
+        ILocator chapters = page.GetByRole(AriaRole.Tab, new() { Name = "Chapters" });
+        await chapters.ClickAsync();
+        await Assertions.Expect(chapters).ToHaveAttributeAsync("aria-selected", "true");
+        await Assertions.Expect(page.Locator("[role='tabpanel'] [data-chapter-list]")).ToBeVisibleAsync();
     }
 
     [Fact]
@@ -148,7 +153,7 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
         Assert.Equal("0px", await player.EvaluateAsync<string>(
             "el => getComputedStyle(el).borderTopLeftRadius"));
 
-        // Chat and Recording details move below the player, never beside it.
+        // Chat and the title block move below the player, never beside it.
         ILocator details = page.Locator("[data-slot='details'] [data-recording-details]");
         LocatorBoundingBoxResult detailsBox = (await details.BoundingBoxAsync())!;
         Assert.True(detailsBox.Y >= full.Y + full.Height - 1, "details sit below the player");
@@ -169,7 +174,7 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
     }
 
     [Fact]
-    public async Task On_desktop_the_open_chat_sidecar_takes_its_400px_basis_beside_the_player()
+    public async Task On_desktop_open_chat_is_a_full_height_column_beside_everything_else()
     {
         await using Session session = await OpenAsync(app.BaseUrl, viewport: Desktop);
         IPage page = session.Page;
@@ -192,9 +197,22 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
         Assert.True(sidecar.X >= player.X + player.Width - 1, "chat sits beside the player");
         Assert.True(Math.Abs(sidecar.Y - player.Y) < 2, "the sidecar starts with the player");
 
+        // It runs from the top of the main column to the bottom of the view, and the title
+        // block and Chapters sit under the player, to its left.
+        LocatorBoundingBoxResult main = (await page.Locator("main").BoundingBoxAsync())!;
+        double bottom = main.Y + main.Height;
+        Assert.True(sidecar.Y + sidecar.Height >= bottom - 40,
+            $"chat ends at {sidecar.Y + sidecar.Height}px, the view at {bottom}px");
         ILocator details = page.Locator("[data-slot='details'] [data-recording-details]");
         LocatorBoundingBoxResult detailsBox = (await details.BoundingBoxAsync())!;
-        Assert.True(detailsBox.Y >= player.Y + player.Height - 1, "details sit below the pair");
+        Assert.True(detailsBox.Y >= player.Y + player.Height - 1, "the title block sits below the player");
+        Assert.True(detailsBox.X + detailsBox.Width <= sidecar.X + 1, "the title block stays left of chat");
+
+        // Chat is sticky: scrolling the left column leaves it in place.
+        await page.Locator("main").EvaluateAsync("el => { el.scrollTop = el.scrollHeight; }");
+        LocatorBoundingBoxResult scrolled = (await pane.BoundingBoxAsync())!;
+        Assert.True(Math.Abs(scrolled.Y - sidecar.Y) < 2, $"chat moved from {sidecar.Y}px to {scrolled.Y}px");
+        await page.Locator("main").EvaluateAsync("el => { el.scrollTop = 0; }");
 
         await AssertNoSidewaysScrollAsync(page, "watch-desktop-chat");
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "watch-desktop-chat");
@@ -214,6 +232,15 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
 
         Assert.True(await page.Locator("[data-sk='video']").EvaluateAsync<bool>("v => v.__skMarker === true"));
         await page.GetByRole(AriaRole.Tab, new() { Name = "Stats" }).WaitForAsync();
+    }
+
+    private static async Task OpenRecordingAsync(IPage page, string title)
+    {
+        string href = (await page.Locator(LibraryHooks.Row, new() { HasTextString = title }).First
+            .GetAttributeAsync("href"))!;
+        await page.GotoAsync(new Uri(new Uri(page.Url), href).ToString(),
+            new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
     }
 
     private static async Task OpenFirstRecordingAsync(IPage page)

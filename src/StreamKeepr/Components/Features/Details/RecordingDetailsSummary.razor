@@ -11,25 +11,25 @@
 @inject IChannelsView Channels
 @inject IRecordingAdmin Admin
 
-@* The recording's title, meta line and actions (design system: RecordingDetails, #178, #175).
-   Md and up it sits at the top of the details card; below Md it sits directly under the player,
-   outside the tabs, so the title and actions stay visible while the tabs scroll. The export's
-   progress and the chapters live in RecordingDetailsBody. *@
+@* The recording's title, meta line and actions (design system: RecordingDetails, #178, #175):
+   the title and meta on the left, the icon actions at the top right. It sits directly under the
+   player at every width, outside any panel; below Md also outside the tabs, so the title and
+   actions stay visible while a tab scrolls. The export row is RecordingDetailsBody. *@
 <div class="sk-details-summary" data-details-summary>
-    @* The title has a row of its own; it wraps to two lines, then the tooltip has the rest.
+    @* The title wraps to two lines, then the tooltip has the rest.
        It is a tab stop so keyboard users can open that tooltip too (MudTooltip shows on
        focus); screen readers already read the whole title. *@
-    <MudBlazor.MudTooltip Text="@Recording.Title"
-                          Placement="MudBlazor.Placement.Top"
-                          RootClass="sk-details-title-root">
-        <MudBlazor.MudText Typo="@(Compact ? MudBlazor.Typo.h6 : MudBlazor.Typo.h5)"
-                           HtmlTag="@(Compact ? "h2" : "h3")"
-                           Class="sk-details-title"
-                           tabindex="0"
-                           data-details-title="true">@Recording.Title</MudBlazor.MudText>
-    </MudBlazor.MudTooltip>
+    <div class="sk-details-info">
+        <MudBlazor.MudTooltip Text="@Recording.Title"
+                              Placement="MudBlazor.Placement.Top"
+                              RootClass="sk-details-title-root">
+            <MudBlazor.MudText Typo="@(Compact ? MudBlazor.Typo.h6 : MudBlazor.Typo.h5)"
+                               HtmlTag="h2"
+                               Class="sk-details-title"
+                               tabindex="0"
+                               data-details-title="true">@Recording.Title</MudBlazor.MudText>
+        </MudBlazor.MudTooltip>
 
-    <div class="sk-details-row">
         <div class="sk-details-meta" data-details-meta="true">
             @if (!Compact && LiveChip is { } chip)
             {
@@ -78,66 +78,66 @@
                 }
             }
         </div>
+    </div>
 
-        <div class="sk-actions" role="group" aria-label="Recording actions" data-details-actions="true">
-            @* The live state leads the phone's actions row (PhoneLayout); Md and up it leads
-               the meta line instead. *@
-            @if (Compact && LiveChip is { } phoneChip)
+    <div class="sk-actions" role="group" aria-label="Recording actions" data-details-actions="true">
+        @* The live state leads the phone's actions row (PhoneLayout); Md and up it leads
+           the meta line instead. *@
+        @if (Compact && LiveChip is { } phoneChip)
+        {
+            <StatusChip Status="@phoneChip" />
+        }
+        @* Icon buttons for the everyday actions, then More actions for the rare and
+           destructive ones (design system: RecordingDetails). A blocked button is
+           disabled and sits in its reason's tooltip; the menu gives its reason under
+           the item. *@
+        <MudBlazor.MudTooltip Text="Copy playlist URL" Placement="MudBlazor.Placement.Top">
+            <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.PlaylistPlay"
+                                     aria-label="Copy playlist URL"
+                                     OnClick="CopyPlaylistAsync"
+                                     data-copy-playlist="true" />
+        </MudBlazor.MudTooltip>
+        <RequiresTwitch>
+            @if (ExportTooltip is { } blocked)
             {
-                <StatusChip Status="@phoneChip" />
+                <Tooltip Text="@blocked" tabindex="0" data-export-blocked>@ExportButton</Tooltip>
             }
-            @* Icon buttons for the everyday actions, then More actions for the rare and
-               destructive ones (design system: RecordingDetails). A blocked button is
-               disabled and sits in its reason's tooltip; the menu gives its reason under
-               the item. *@
-            <MudBlazor.MudTooltip Text="Copy playlist URL" Placement="MudBlazor.Placement.Top">
-                <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.PlaylistPlay"
-                                         aria-label="Copy playlist URL"
-                                         OnClick="CopyPlaylistAsync"
-                                         data-copy-playlist="true" />
-            </MudBlazor.MudTooltip>
-            <RequiresTwitch>
-                @if (ExportTooltip is { } blocked)
+            else
+            {
+                <MudBlazor.MudTooltip Text="Export MP4" Placement="MudBlazor.Placement.Top">@ExportButton</MudBlazor.MudTooltip>
+            }
+        </RequiresTwitch>
+        <RequiresTwitch>
+            <span class="sk-more" @ref="_more">
+            <MudBlazor.MudMenu Icon="@MudBlazor.Icons.Material.Rounded.MoreVert"
+                               AriaLabel="More actions"
+                               AnchorOrigin="MudBlazor.Origin.BottomRight"
+                               TransformOrigin="MudBlazor.Origin.TopRight"
+                               ListClass="sk-more-menu"
+                               data-more-actions="true">
+                @if (IsLive)
                 {
-                    <Tooltip Text="@blocked" tabindex="0" data-export-blocked>@ExportButton</Tooltip>
+                    <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Stop"
+                                           IconColor="MudBlazor.Color.Error"
+                                           Class="sk-menu-error"
+                                           Disabled="@_stopping"
+                                           OnClick="OpenStopDialog"
+                                           data-stop-recording="true">Stop recording</MudBlazor.MudMenuItem>
+                    <MudBlazor.MudDivider />
                 }
-                else
-                {
-                    <MudBlazor.MudTooltip Text="Export MP4" Placement="MudBlazor.Placement.Top">@ExportButton</MudBlazor.MudTooltip>
-                }
-            </RequiresTwitch>
-            <RequiresTwitch>
-                <span class="sk-more" @ref="_more">
-                <MudBlazor.MudMenu Icon="@MudBlazor.Icons.Material.Rounded.MoreVert"
-                                   AriaLabel="More actions"
-                                   AnchorOrigin="MudBlazor.Origin.BottomRight"
-                                   TransformOrigin="MudBlazor.Origin.TopRight"
-                                   ListClass="sk-more-menu"
-                                   data-more-actions="true">
-                    @if (IsLive)
+                <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Delete"
+                                       Disabled="@(DeleteBlockedReason is not null)"
+                                       OnClick="OpenDeleteDialog"
+                                       data-delete="true">
+                    Delete recording
+                    @if (DeleteBlockedReason is { } menuReason)
                     {
-                        <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Stop"
-                                               IconColor="MudBlazor.Color.Error"
-                                               Class="sk-menu-error"
-                                               Disabled="@_stopping"
-                                               OnClick="OpenStopDialog"
-                                               data-stop-recording="true">Stop recording</MudBlazor.MudMenuItem>
-                        <MudBlazor.MudDivider />
+                        <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="sk-menu-reason" data-delete-blocked>@menuReason</MudBlazor.MudText>
                     }
-                    <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Delete"
-                                           Disabled="@(DeleteBlockedReason is not null)"
-                                           OnClick="OpenDeleteDialog"
-                                           data-delete="true">
-                        Delete recording
-                        @if (DeleteBlockedReason is { } menuReason)
-                        {
-                            <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="sk-menu-reason" data-delete-blocked>@menuReason</MudBlazor.MudText>
-                        }
-                    </MudBlazor.MudMenuItem>
-                </MudBlazor.MudMenu>
-                </span>
-            </RequiresTwitch>
-        </div>
+                </MudBlazor.MudMenuItem>
+            </MudBlazor.MudMenu>
+            </span>
+        </RequiresTwitch>
     </div>
 </div>
 
