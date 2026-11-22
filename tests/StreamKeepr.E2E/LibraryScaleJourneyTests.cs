@@ -67,6 +67,8 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
         {
             await page.ReloadAsync(new() { WaitUntil = WaitUntilState.DOMContentLoaded });
             await page.Locator($"{Search}[data-sk-ready]").WaitForAsync();
+            // The counts are in the open library (Md and up it starts as the rail).
+            await LibraryHooks.OpenLibraryAsync(page);
             await WaitForRowsAsync(page, totalRows);
             warm.Add((await FirstByteMsAsync(page), await page.EvaluateAsync<double>("() => performance.now()")));
         }

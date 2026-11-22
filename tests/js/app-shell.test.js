@@ -61,6 +61,63 @@ describe("AppShell.razor.js temporary drawer focus", () => {
   });
 });
 
+describe("AppShell.razor.js library over the page (Md and up)", () => {
+  let calls;
+  let elements;
+
+  beforeEach(() => {
+    elements = makeShell();
+    // The drawer frame MudDrawer renders around the nav, and the menu button.
+    const frame = document.createElement("aside");
+    frame.className = "sk-drawer-frame";
+    document.querySelector("[data-shell]").append(frame);
+    frame.append(document.getElementById("sk-drawer"));
+    elements.library.setAttribute("data-drawer-toggle", "");
+    calls = [];
+    shell.init({ invokeMethodAsync: (name) => { calls.push(name); return Promise.resolve(); } });
+  });
+
+  afterEach(() => {
+    shell.dispose();
+    document.body.replaceChildren();
+  });
+
+  const press = (target) => target.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+
+  it("closes on a press outside it, but not inside it, on the app bar, or in a popover", () => {
+    shell.setModalDrawer(true, false);
+    const popover = document.createElement("div");
+    popover.className = "mud-popover";
+    document.body.append(popover);
+
+    press(elements.row);
+    press(elements.library);
+    press(popover);
+    expect(calls).toEqual([]);
+
+    press(document.querySelector("main"));
+    expect(calls).toEqual(["CloseModalDrawer"]);
+  });
+
+  it("closes on Escape and does not trap Tab", () => {
+    shell.setModalDrawer(true, false);
+    elements.row.focus();
+
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    document.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(false);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect(calls).toEqual(["CloseModalDrawer"]);
+  });
+
+  it("leaves outside presses alone while the phone's drawer is modal", () => {
+    shell.setModalDrawer(true, true);
+    press(document.querySelector("main"));
+    expect(calls).toEqual([]);
+  });
+});
+
 describe("AppShell.razor.js settings links", () => {
   let shellRef;
 

@@ -8,6 +8,9 @@ let main = null;
 let appBar = null;
 let drawer = null;
 let modalOpen = false;
+// Below 960px the open library is modal (focus is trapped); Md and up it lies over the page and
+// a click outside it closes it instead.
+let trapFocus = true;
 let lastFocus = null;
 
 function onScroll() {
@@ -29,8 +32,9 @@ function focusableElements() {
   );
 }
 
-// Called by AppShell after it renders the temporary drawer open or closed.
-function setModalDrawer(open) {
+// Called by AppShell after it renders the library open or closed.
+function setModalDrawer(open, modal = true) {
+  trapFocus = modal;
   if (open === modalOpen) return;
   modalOpen = open;
 
@@ -53,6 +57,9 @@ function onKeyDown(event) {
   if (!modalOpen) return;
 
   if (event.key === "Escape") {
+    // An open menu or popover takes its own Escape first.
+    const target = event.target instanceof Element ? event.target : null;
+    if (event.defaultPrevented || target?.closest("[role='menu'], .mud-popover")) return;
     event.preventDefault();
     void dotNetRef
       ?.invokeMethodAsync("CloseModalDrawer")
@@ -60,7 +67,7 @@ function onKeyDown(event) {
     return;
   }
 
-  if (event.key !== "Tab") return;
+  if (event.key !== "Tab" || !trapFocus) return;
 
   const items = focusableElements();
   if (items.length === 0) return;
@@ -112,6 +119,18 @@ function onClick(event) {
     .catch((error) => console.warn("StreamKeepr: could not open the settings sheet.", error));
 }
 
+// Md and up the open library closes on a press outside it. The menu button toggles it itself,
+// and MudBlazor's popovers and dialogs live outside the drawer but belong to what is open.
+function onPointerDown(event) {
+  if (!modalOpen || trapFocus || !dotNetRef) return;
+  const target = event.target instanceof Element ? event.target : null;
+  // The app bar is not "outside": its search filters the open library live.
+  if (!target || target.closest(".sk-drawer-frame, header, .mud-popover, .mud-dialog-container")) return;
+  void dotNetRef
+    .invokeMethodAsync("CloseModalDrawer")
+    .catch((error) => console.warn("StreamKeepr: could not close the library.", error));
+}
+
 function onReconnectState(event) {
   const state = event.detail?.state;
   // Mirrors HARD_LOSS in reconnect.js: only a hard circuit loss opens the reconnect modal.
@@ -139,6 +158,7 @@ export function init(reference) {
   onScroll();
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("click", onClick, true);
+  document.addEventListener("pointerdown", onPointerDown, true);
 
   document
     .getElementById("components-reconnect-modal")
@@ -152,6 +172,7 @@ export function dispose() {
   main?.removeEventListener("scroll", onScroll);
   document.removeEventListener("keydown", onKeyDown);
   document.removeEventListener("click", onClick, true);
+  document.removeEventListener("pointerdown", onPointerDown, true);
   document
     .getElementById("components-reconnect-modal")
     ?.removeEventListener("components-reconnect-state-changed", onReconnectState);

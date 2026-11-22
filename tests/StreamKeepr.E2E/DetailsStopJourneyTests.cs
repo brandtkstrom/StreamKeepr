@@ -44,6 +44,7 @@ public sealed class DetailsStopJourneyTests : IAsyncLifetime
         await TitleBlock.CloseMenuAsync(page);
 
         await page.GotoAsync(_app.BaseUrl);
+        await LibraryHooks.OpenLibraryAsync(page);
         await page.Locator(LibraryHooks.Channel).First.WaitForAsync();
         Assert.Contains(
             "Paused",

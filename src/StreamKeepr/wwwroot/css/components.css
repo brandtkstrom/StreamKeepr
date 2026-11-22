@@ -919,6 +919,12 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-main-inner { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-3); }
 .sk-shell[data-drawer-frame="hidden"] .sk-drawer-frame { display: none; }
 .sk-shell[data-drawer-frame="hidden"] .sk-main-frame { margin-left: 0; }
+/* Md and up the page always keeps the rail's width: the open library lies over it (design
+   system: LibraryDrawer), widening from 320px to 680px with a channel's recordings column. */
+@media (min-width: 960px) {
+  .sk-shell[data-layout="wide"]:not([data-drawer-frame="hidden"]) .sk-main-frame.mud-main-content { margin-left: var(--drawer-mini-width); }
+  .sk-shell[data-layout="wide"][data-library-open] .sk-drawer-frame { box-shadow: var(--elevation-8); }
+}
 .sk-auth-placeholder { opacity: var(--sk-state-disabled); pointer-events: none; cursor: default; }
 
 /* A "Live updates paused" alert's message takes the room; Retry sits at its end. */

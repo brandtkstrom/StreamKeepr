@@ -28,8 +28,27 @@ internal static class LibraryHooks
     public static string ChannelFor(string login) => $"{Drawer} [data-library-channel='{login}']";
 
     /// <summary>
-    /// Opens a channel's recordings column and waits for it to finish sliding in. On a phone it
-    /// first opens the library from the bottom bar, and leaves a channel it drilled into.
+    /// Opens the library when it is closed: Md and up the menu opens it over the page (it starts
+    /// as the rail); below Md the bottom bar's Library opens the temporary drawer.
+    /// </summary>
+    public static async Task OpenLibraryAsync(IPage page)
+    {
+        await page.Locator("[data-shell]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
+        if (await page.Locator("[data-shell][data-library-open]").CountAsync() > 0)
+            return;
+
+        ILocator library = page.GetByRole(AriaRole.Navigation, new() { Name = "Main" })
+            .GetByRole(AriaRole.Button, new() { Name = "Library" });
+        if (await library.IsVisibleAsync())
+            await library.ClickAsync();
+        else
+            await page.Locator("[data-drawer-toggle]").ClickAsync();
+        await page.Locator("[data-shell][data-library-open]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
+    }
+
+    /// <summary>
+    /// Opens a channel's recordings column and waits for it to finish sliding in. It opens the
+    /// library first, and on a phone leaves a channel it drilled into.
     /// </summary>
     public static async Task OpenChannelAsync(IPage page, string login)
     {
@@ -37,20 +56,7 @@ internal static class LibraryHooks
         if (await open.CountAsync() == 1 && await open.IsVisibleAsync())
             return;
 
-        // Below Md the library is a temporary drawer, opened from the bottom bar (or the app bar
-        // menu on a watch page, where the bottom bar is hidden).
-        ILocator library = page.GetByRole(AriaRole.Navigation, new() { Name = "Main" })
-            .GetByRole(AriaRole.Button, new() { Name = "Library" });
-        bool compact = await page.Locator("[data-shell][data-layout='compact']").CountAsync() > 0
-            || await library.IsVisibleAsync();
-        if (compact && await page.Locator("[data-shell][data-drawer-modal-open]").CountAsync() == 0)
-        {
-            if (await library.IsVisibleAsync())
-                await library.ClickAsync();
-            else
-                await page.Locator("[data-drawer-toggle]").ClickAsync();
-            await page.Locator("[data-shell][data-drawer-modal-open]").WaitForAsync();
-        }
+        await OpenLibraryAsync(page);
         ILocator back = page.Locator($"{Drawer} button[aria-label='All channels']");
         if (await back.IsVisibleAsync())
             await back.ClickAsync();

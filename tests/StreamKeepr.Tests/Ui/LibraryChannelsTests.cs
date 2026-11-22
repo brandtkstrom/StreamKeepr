@@ -115,8 +115,6 @@ public sealed class LibraryChannelsTests
     public async Task A_rail_avatar_opens_the_drawer_on_that_channel()
     {
         await using BunitContext context = CreateContext(out _);
-        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
-        preferences.SetDrawer(DrawerMode.Rail);
 
         var cut = context.Render<CascadingValue<bool>>(parameters => parameters
             .Add(component => component.Name, "LibraryRail")
@@ -128,8 +126,8 @@ public sealed class LibraryChannelsTests
 
         cut.Find("[data-library-channel='beta']").Click();
 
-        Assert.Equal(DrawerMode.Expanded, preferences.Drawer);
-        // The shell then shows the full drawer, which keeps its state.
+        // The shell opens the library (MainLayout test below); it is the same drawer, which
+        // keeps the channel picked in the rail.
         LibraryDrawer before = cut.FindComponent<LibraryDrawer>().Instance;
         cut.Render(parameters => parameters
             .Add(component => component.Value, false)

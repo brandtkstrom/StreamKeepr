@@ -142,56 +142,57 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
     }
 
     [Fact]
-    public async Task Watch_pages_open_on_the_rail_and_each_page_kind_remembers_its_drawer()
+    public async Task The_library_opens_over_the_rail_without_moving_the_page_and_closes_after_a_pick()
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
         ILocator drawer = page.Locator(LibraryHooks.Drawer);
-        Assert.Equal("expanded", await drawer.GetAttributeAsync("data-drawer"));
-        // MudDrawer must actually be open, not just labelled expanded: the frame shows the full library.
-        await LibraryJourneyTests.Expect(async () => await VisibleWidthAsync(drawer) >= 280 ? 1 : 0, 1);
+        ILocator main = page.Locator("main");
 
+        // Every page starts on the rail, Home included, and the page sits beside it.
+        await page.Locator("[data-shell][data-breakpoint-known]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
+        Assert.Equal("rail", await drawer.GetAttributeAsync("data-drawer"));
+        await LibraryJourneyTests.Expect(async () => await VisibleWidthAsync(drawer) <= 80 ? 1 : 0, 1);
+        double left = (await main.BoundingBoxAsync())!.X;
+
+        // The menu opens the full library over the page: MudDrawer is really open (the frame
+        // shows the full library), and the page does not move.
+        await page.Locator("[data-drawer-toggle]").ClickAsync();
+        await LibraryJourneyTests.Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "expanded" ? 1 : 0, 1);
+        await LibraryJourneyTests.Expect(async () => await VisibleWidthAsync(drawer) >= 280 ? 1 : 0, 1);
+        Assert.Equal(left, (await main.BoundingBoxAsync())!.X, 0.5);
+
+        // A press outside it closes it.
+        await page.Mouse.ClickAsync(900, 600);
+        await LibraryJourneyTests.Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
+
+        // Escape closes it too.
+        await page.Locator("[data-drawer-toggle]").ClickAsync();
+        await LibraryJourneyTests.Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "expanded" ? 1 : 0, 1);
+        await page.Locator(LibraryHooks.Channel).First.FocusAsync();
+        await page.Keyboard.PressAsync("Escape");
+        await LibraryJourneyTests.Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
+
+        // Picking a recording closes it, and the watch page is on the rail.
         await (await LibraryHooks.RowAsync(page)).ClickAsync();
         await page.WaitForURLAsync(url => url.Contains("/r/", StringComparison.Ordinal));
         await LibraryJourneyTests.Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
         await LibraryJourneyTests.Expect(async () => await VisibleWidthAsync(drawer) <= 80 ? 1 : 0, 1);
-
-        await ExpandLibraryOnWatchPageAsync(page);
-        await page.ReloadAsync(new() { WaitUntil = WaitUntilState.DOMContentLoaded });
-        Assert.Equal("expanded", await page.Locator(LibraryHooks.Drawer).GetAttributeAsync("data-drawer"));
-
-        // Collapsing on Home does not change the watch page's choice.
-        await page.GetByRole(AriaRole.Link, new() { Name = "StreamKeepr home" }).ClickAsync();
-        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/");
-        await page.Locator("[data-drawer-toggle]").ClickAsync();
-        await LibraryJourneyTests.Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
-        await page.GoBackAsync();
-        await page.WaitForURLAsync(url => url.Contains("/r/", StringComparison.Ordinal));
-        await LibraryJourneyTests.Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "expanded" ? 1 : 0, 1);
     }
 
     [Fact]
-    public async Task A_collapsed_drawer_loads_at_the_rail_width()
+    public async Task An_open_library_is_not_remembered_across_a_reload()
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-
-        // Collapse Home's drawer, so the saved choice is the rail when the page is next loaded.
-        await page.Locator("[data-drawer-toggle]").ClickAsync();
-        await LibraryJourneyTests.Expect(
-            async () => await page.Locator(LibraryHooks.Drawer).GetAttributeAsync("data-drawer") == "rail" ? 1 : 0,
-            1);
-        await page.WaitForFunctionAsync(
-            """() => decodeURIComponent(document.cookie).includes('"drawer":"rail"')""",
-            null,
-            new PageWaitForFunctionOptions { Timeout = 10_000 });
+        await LibraryHooks.OpenLibraryAsync(page);
 
         await page.ReloadAsync(new() { WaitUntil = WaitUntilState.DOMContentLoaded });
         await page.Locator("[data-shell][data-breakpoint-known]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
         ILocator drawer = page.Locator(LibraryHooks.Drawer);
 
-        // A full load starts MudDrawer closed, so it must keep the rail's width. Breakpoint.Always
-        // used to force it open on the first viewport report, painting the library at 320px.
+        // A full load starts MudDrawer closed, at the rail's width. Breakpoint.Always used to
+        // force it open on the first viewport report, painting the library at 320px.
         Assert.Equal("rail", await drawer.GetAttributeAsync("data-drawer"));
         await LibraryJourneyTests.Expect(async () => await VisibleWidthAsync(drawer) <= 80 ? 1 : 0, 1);
     }

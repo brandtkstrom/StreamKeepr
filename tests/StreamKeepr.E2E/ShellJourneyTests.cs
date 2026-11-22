@@ -266,6 +266,8 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             app.BaseUrl,
             new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
 
+        // The full meter is in the open library; the rail shows its icon.
+        await LibraryHooks.OpenLibraryAsync(page);
         ILocator storage = page.Locator("[data-storage]");
         await storage.WaitForAsync(new LocatorWaitForOptions
         {

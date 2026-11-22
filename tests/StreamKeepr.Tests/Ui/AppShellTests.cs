@@ -45,22 +45,37 @@ public sealed class AppShellTests
     }
 
     [Theory]
-    [InlineData("""{"v":1,"drawer":"expanded","theater":false,"stats":false,"details":true,"collapsed":[]}""", "expanded")]
-    [InlineData("""{"v":1,"drawer":"rail","theater":false,"stats":false,"details":true,"collapsed":[]}""", "rail")]
-    [InlineData("""{"v":1,"drawer":"hidden","theater":false,"stats":false,"details":true,"collapsed":[]}""", "hidden")]
-    public async Task Renders_the_saved_drawer_mode(string cookie, string expectedMode)
+    [InlineData("""{"v":1,"drawer":"expanded","theater":false,"stats":false,"details":true,"collapsed":[]}""")]
+    [InlineData("""{"v":1,"drawer":"rail","theater":false,"stats":false,"details":true,"collapsed":[]}""")]
+    [InlineData("""{"v":1,"drawer":"hidden","theater":false,"stats":false,"details":true,"collapsed":[]}""")]
+    public async Task Md_and_up_the_library_starts_as_the_rail_whatever_an_older_cookie_saved(string cookie)
     {
+        // The open library lies over the page and is not remembered (design system: LibraryDrawer).
         await using var context = CreateContext(cookie);
         var cut = RenderShell(context);
 
-        Assert.Equal(expectedMode, cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
+        Assert.Equal("rail", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
+        Assert.Empty(cut.FindAll("[data-shell][data-library-open]"));
+        Assert.Empty(cut.FindAll("[data-shell][data-drawer-frame='hidden']"));
     }
 
     [Fact]
-    public async Task Menu_toggles_expanded_and_rail_modes()
+    public async Task The_menu_opens_the_library_over_the_page_and_closes_it()
     {
         await using var context = CreateContext();
         var cut = RenderShell(context);
+        Assert.Equal("Menu: open library", cut.Find("[data-drawer-toggle]").GetAttribute("aria-label"));
+
+        cut.Find("[data-drawer-toggle]").Click();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("expanded", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
+            Assert.Equal("true", cut.Find("[data-drawer-toggle]").GetAttribute("aria-expanded"));
+            Assert.Equal("Menu: close library", cut.Find("[data-drawer-toggle]").GetAttribute("aria-label"));
+            Assert.NotNull(cut.Find("[data-shell][data-library-open]"));
+            // Md and up it is not modal: no backdrop, and the phone's modal hook stays off.
+            Assert.Empty(cut.FindAll("[data-shell][data-drawer-modal-open]"));
+        });
 
         cut.Find("[data-drawer-toggle]").Click();
         cut.WaitForAssertion(() =>
@@ -68,13 +83,21 @@ public sealed class AppShellTests
             Assert.Equal("rail", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
             Assert.Equal("false", cut.Find("[data-drawer-toggle]").GetAttribute("aria-expanded"));
         });
+        // Nothing about it is saved.
+        Assert.DoesNotContain(context.JSInterop.Invocations, call => call.Identifier == "skPrefs.writeUi");
+    }
 
+    [Fact]
+    public async Task Escape_or_a_click_outside_closes_the_open_library_through_the_module()
+    {
+        await using var context = CreateContext();
+        var cut = RenderShell(context);
         cut.Find("[data-drawer-toggle]").Click();
-        cut.WaitForAssertion(() =>
-        {
-            Assert.Equal("expanded", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
-            Assert.Equal("true", cut.Find("[data-drawer-toggle]").GetAttribute("aria-expanded"));
-        });
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-shell][data-library-open]")));
+
+        await cut.InvokeAsync(() => cut.Instance.CloseModalDrawer());
+
+        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll("[data-shell][data-library-open]")));
     }
 
     [Fact]
@@ -187,41 +210,26 @@ public sealed class AppShellTests
     }
 
     [Fact]
-    public async Task A_watch_page_shows_the_rail_by_default_and_the_menu_keeps_its_own_choice()
-    {
-        await using var context = CreateContext();
-        // Home starts on the rail, so a toggle that wrote both choices would show.
-        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
-        preferences.SetDrawer(DrawerMode.Rail, watching: false);
-        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/r/abc");
-        var cut = RenderShell(context);
-
-        Assert.Equal("rail", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
-        Assert.NotNull(cut.Find("[data-shell][data-watching]"));
-
-        cut.Find("[data-drawer-toggle]").Click();
-
-        cut.WaitForAssertion(() =>
-            Assert.Equal("expanded", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer")));
-        Assert.Equal(DrawerMode.Expanded, preferences.WatchDrawer);
-        Assert.Equal(DrawerMode.Rail, preferences.Drawer);
-    }
-
-    [Fact]
-    public async Task Returning_home_restores_the_home_drawer_choice()
+    public async Task A_query_change_keeps_the_library_open_and_another_page_closes_it()
     {
         await using var context = CreateContext();
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
-        navigation.NavigateTo("/r/abc");
         var cut = RenderShell(context);
-        Assert.Equal("rail", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
+        cut.Find("[data-drawer-toggle]").Click();
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-shell][data-library-open]")));
 
-        navigation.NavigateTo("/");
+        // A filter chip or the search changes only the query: the library stays open.
+        navigation.NavigateTo("/?state=saved", replace: true);
+        cut.WaitForAssertion(() => Assert.Equal("/?state=saved", "/" + navigation.ToBaseRelativePath(navigation.Uri)));
+        Assert.NotNull(cut.Find("[data-shell][data-library-open]"));
 
+        // Picking a recording is another page: it closes, and the watch page shows the rail.
+        navigation.NavigateTo("/r/abc");
         cut.WaitForAssertion(() =>
         {
-            Assert.Equal("expanded", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
-            Assert.Empty(cut.FindAll("[data-shell][data-watching]"));
+            Assert.Empty(cut.FindAll("[data-shell][data-library-open]"));
+            Assert.Equal("rail", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
+            Assert.NotNull(cut.Find("[data-shell][data-watching]"));
         });
     }
 

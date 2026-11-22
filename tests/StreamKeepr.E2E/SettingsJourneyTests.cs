@@ -108,6 +108,7 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "settings-paused");
 
         await page.GotoAsync(app.BaseUrl);
+        await LibraryHooks.OpenLibraryAsync(page);
         await page.Locator(LibraryHooks.Channel).First.WaitForAsync();
         Assert.Contains(
             "Paused",

@@ -204,6 +204,9 @@
 
     [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
 
+    /// <summary>The shell, which opens the library over the page (absent in isolated tests).</summary>
+    [CascadingParameter] public AppShell? Shell { get; set; }
+
     private ElementReference _list;
     private bool _focusSortMenu;
     private IJSObjectReference? _drawerModule;
@@ -317,10 +320,10 @@
     {
         if (Rail)
         {
-            // In the rail an avatar opens the drawer on that channel, its recordings showing.
-            Preferences.SetDrawer(DrawerMode.Expanded, LibraryUrl.RecordingId(Navigation.Uri) is not null);
+            // In the rail an avatar opens the library on that channel, its recordings showing.
             _selectedChannel = login;
-            await Preferences.PersistAsync();
+            Shell?.OpenLibrary();
+            await Task.CompletedTask;
             return;
         }
 
@@ -487,8 +490,8 @@
 
     private async Task ExpandFromRailAsync()
     {
-        Preferences.SetDrawer(DrawerMode.Expanded, LibraryUrl.RecordingId(Navigation.Uri) is not null);
-        await Preferences.PersistAsync();
+        Shell?.OpenLibrary();
+        await Task.CompletedTask;
     }
 
     private void SetSort(string sort) => Navigate(_query with { Sort = sort });

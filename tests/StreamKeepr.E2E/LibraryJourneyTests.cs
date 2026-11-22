@@ -16,6 +16,8 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
         int historyLength = await page.EvaluateAsync<int>("history.length");
+        // The library opens over the page from the menu; the app bar's search filters it live.
+        await LibraryHooks.OpenLibraryAsync(page);
 
         await page.Locator(Search).FillAsync("NIGHT");
         await page.WaitForURLAsync(url => url.Contains("q=NIGHT", StringComparison.Ordinal));
@@ -29,11 +31,13 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         await page.WaitForURLAsync(url => !url.Contains("q=", StringComparison.Ordinal));
         await Expect(async () => await TotalRecordingsAsync(page) >= 7 ? 1 : 0, 1);
 
-        await page.Locator("main").ClickAsync();
+        // "/" focuses the search from anywhere outside a field.
+        await page.EvaluateAsync("() => document.activeElement?.blur()");
         await page.Keyboard.PressAsync("/");
         Assert.True(await page.Locator(Search).EvaluateAsync<bool>("el => el === document.activeElement"));
-        await page.Locator("main").ClickAsync();
+        await page.EvaluateAsync("() => document.activeElement?.blur()");
 
+        await LibraryHooks.OpenLibraryAsync(page);
         await page.Locator("[data-filter='saved']").ClickAsync();
         await page.WaitForURLAsync(url => url.Contains("state=saved", StringComparison.Ordinal));
         await Expect(async () => (await RowStatesAsync(page)).Count(state => state is "rec" or "reconnecting"), 0);
@@ -57,6 +61,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
 
         await page.ReloadAsync();
         await page.Locator($"{Search}[data-sk-ready]").WaitForAsync();
+        await LibraryHooks.OpenLibraryAsync(page);
         Assert.Equal("true", await page.Locator("[data-filter='saved']").GetAttributeAsync("aria-pressed"));
         Assert.Contains("A–Z by streamer", await page.Locator("[data-sort]").InnerTextAsync());
 
@@ -72,6 +77,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
         ILocator channels = page.Locator($"{LibraryHooks.Drawer} [role='listbox']");
+        await LibraryHooks.OpenLibraryAsync(page);
 
         // The channels are one tab stop.
         await page.Locator("[data-filter='saved']").FocusAsync();
@@ -123,8 +129,8 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         IPage page = session.Page;
         ILocator drawer = page.Locator(LibraryHooks.Drawer);
 
-        await page.Locator("[data-drawer-toggle]").ClickAsync();
-        await Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
+        // Md and up the library starts as the rail, on every page.
+        Assert.Equal("rail", await drawer.GetAttributeAsync("data-drawer"));
         await AssertAxeCleanAsync(page, "library-rail");
 
         ILocator last = page.Locator(LibraryHooks.Channel).Last;
@@ -145,6 +151,10 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         IPage page = session.Page;
         ILocator main = page.Locator("main");
         LocatorBoundingBoxResult before = (await main.BoundingBoxAsync())!;
+        // The menu opens the library over the page, so the page does not move either.
+        await LibraryHooks.OpenLibraryAsync(page);
+        Assert.Equal(before.X, (await main.BoundingBoxAsync())!.X, 0.5);
+        await AssertAxeCleanAsync(page, "library-open");
         ILocator first = page.Locator(LibraryHooks.Channel).First;
         string login = (await first.GetAttributeAsync("data-library-channel"))!;
 
@@ -183,13 +193,17 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         ILocator trigger = page.GetByRole(AriaRole.Button, new() { Name = "Library options" });
         ILocator menu = page.Locator("[role='menu']:not([hidden])");
 
-        // The expanded drawer keeps opening the menu leftward.
+        // The open library keeps opening the menu leftward.
+        await LibraryHooks.OpenLibraryAsync(page);
         await trigger.ClickAsync();
         await menu.WaitForAsync();
         LocatorBoundingBoxResult expandedTrigger = (await trigger.BoundingBoxAsync())!;
         LocatorBoundingBoxResult expandedMenu = (await menu.BoundingBoxAsync())!;
         Assert.True(expandedMenu.X < expandedTrigger.X, "expanded menu opens leftward");
+        // Escape closes the menu, not the library around it.
         await page.Keyboard.PressAsync("Escape");
+        await menu.WaitForAsync(new() { State = WaitForSelectorState.Hidden });
+        Assert.Equal("expanded", await drawer.GetAttributeAsync("data-drawer"));
 
         await page.Locator("[data-drawer-toggle]").ClickAsync();
         await Expect(
@@ -321,6 +335,8 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     /// <summary>The recordings matching the current view: the sum of the channels' counts.</summary>
     internal static async Task<int> TotalRecordingsAsync(IPage page)
     {
+        // The rail shows avatars only; the counts are in the open library.
+        await LibraryHooks.OpenLibraryAsync(page);
         IReadOnlyList<string> counts = await page.Locator($"{LibraryHooks.Channel} [data-channel-count]").AllInnerTextsAsync();
         return counts.Sum(count => int.Parse(count.Trim(), System.Globalization.CultureInfo.InvariantCulture));
     }
@@ -372,6 +388,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
+        await LibraryHooks.OpenLibraryAsync(page);
 
         await page.Locator(Search).FillAsync("zzzz-no-such-stream");
         ILocator noMatch = page.Locator("[data-library-no-match]");

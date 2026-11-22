@@ -169,13 +169,11 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
-    public async Task In_the_rail_the_footer_is_a_storage_button_that_opens_the_drawer()
+    public async Task In_the_rail_the_footer_is_a_storage_button()
     {
         const long GiB = 1024L * 1024 * 1024;
         var view = new TestLibraryView { Storage = new StorageView(5 * GiB, 100 * GiB) };
         await using BunitContext context = CreateContext(view);
-        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
-        preferences.SetDrawer(DrawerMode.Rail);
 
         var cut = context.Render<CascadingValue<bool>>(parameters => parameters
             .Add(component => component.Name, "LibraryRail")
@@ -187,10 +185,6 @@ public sealed class LibraryDrawerTests
         Assert.Equal("low", button.GetAttribute("data-storage-rail"));
         Assert.Equal("Recording disk: 5.0 GB free of 100.0 GB", button.GetAttribute("aria-label"));
         Assert.Equal("/", cut.Find("a[aria-label='Home']").GetAttribute("href"));
-
-        await button.ClickAsync(new());
-
-        Assert.Equal(DrawerMode.Expanded, preferences.Drawer);
     }
 
     [Fact]
@@ -419,8 +413,45 @@ public sealed class LibraryDrawerTests
                 fragment.AddMarkupContent(0, "<div data-test='body'>Body</div>")));
 
         Assert.NotNull(cut.Find("header a[href='/'] [data-rec-dot]"));
+        // Md and up the library starts as the rail: the disk is its storage button.
+        Assert.Equal("rail", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
+        Assert.Equal("low", cut.Find("[data-storage-rail]").GetAttribute("data-storage-rail"));
+
+        // The storage button opens the library over the page, with the full meter.
+        await cut.Find("button[data-storage-rail]").ClickAsync(new());
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-shell][data-library-open]")));
         Assert.Equal("low", cut.Find("[data-storage]").GetAttribute("data-storage"));
         Assert.Contains("5.0 GB free of 100.0 GB", cut.Find("[data-storage]").GetAttribute("title"));
+    }
+
+    [Fact]
+    public async Task A_rail_avatar_opens_the_library_on_its_channel()
+    {
+        var view = new TestLibraryView
+        {
+            StreamerItems =
+            [
+                Streamer("alpha", "Alpha", recording: false, count: 1, last: Now),
+                Streamer("beta", "Beta", recording: false, count: 1, last: Now.AddDays(-1)),
+            ],
+        };
+        view.RecordingsByLogin["alpha"] = [Recording("r1", "alpha", RecordingState.Saved, Now)];
+        view.RecordingsByLogin["beta"] = [Recording("r2", "beta", RecordingState.Saved, Now.AddDays(-1))];
+        await using BunitContext context = CreateContext(view);
+        IRenderedComponent<MainLayout> cut = context.Render<MainLayout>(parameters =>
+            parameters.Add(component => component.Body, fragment =>
+                fragment.AddMarkupContent(0, "<div data-test='body'>Body</div>")));
+
+        cut.Find("[data-library-channel='beta']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.NotNull(cut.Find("[data-shell][data-library-open]"));
+            Assert.Equal("expanded", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
+            Assert.Single(cut.FindAll("[data-recordings-column='beta']"));
+        });
+        // Opening is not remembered.
+        Assert.DoesNotContain(context.JSInterop.Invocations, call => call.Identifier == "skPrefs.writeUi");
     }
 
     [Theory]
