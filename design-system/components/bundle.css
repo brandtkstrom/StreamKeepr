@@ -495,3 +495,35 @@ mark.ds-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   .ds-vstack { width: auto; flex-direction: row; flex-wrap: wrap; }
   .ds-vstack .ds-btn { width: auto; }
 }
+
+/* Stats for nerds as an overlay inside the player (StatsPanel). It is part of the player island, so it
+   draws on player tokens; the series colours are the page's own, as everywhere else in stats. */
+.ds-pstats { --pstats-top: var(--space-3); --pstats-bottom: var(--space-3); position: absolute; left: var(--space-3); top: var(--pstats-top); z-index: 2; width: 340px; max-width: calc(100% - 2 * var(--space-3)); max-height: calc(100% - var(--pstats-top) - var(--pstats-bottom)); display: flex; flex-direction: column; background: color-mix(in srgb, var(--player-surface) 88%, transparent); color: var(--player-text); border-radius: var(--radius-md); box-shadow: var(--elevation-8); backdrop-filter: blur(6px); transition: top 200ms ease, max-height 200ms ease; }
+/* While the player's overlays show, the card clears the title strip above and the seek bar and control bar below. */
+.ds-pstats.overlays { --pstats-top: calc(64px + var(--space-2)); --pstats-bottom: calc(var(--control-bar-height) + 24px + var(--space-2)); }
+.ds-pstats .body { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.3) transparent; }
+.ds-pstats header { display: flex; align-items: center; gap: var(--space-1); padding: var(--space-1) var(--space-1) 0 var(--space-3); min-height: 40px; }
+.ds-pstats header h2 { margin: 0; font: var(--text-subtitle2); flex: 1; }
+.ds-pstats header .ds-pbtn { width: 32px; height: 32px; }
+.ds-pstats header .ds-pbtn .ds-i { width: 18px; height: 18px; }
+.ds-pstats .body { overflow: auto; padding: 0 var(--space-3) var(--space-3); display: grid; gap: var(--space-2); }
+.ds-pstats h3 { margin: var(--space-1) 0 0; display: flex; align-items: center; gap: 6px; font: var(--text-overline); line-height: 16px; letter-spacing: 0.08333em; text-transform: uppercase; color: var(--text-secondary); }
+.ds-pstats h3 .sw { width: 8px; height: 8px; border-radius: 2px; }
+.ds-pstats .spark { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.ds-pstats .spark > div { min-width: 0; }
+.ds-pstats .spark b { display: block; font: var(--text-stat-value); font-variant-numeric: tabular-nums; }
+.ds-pstats .spark b small { font: var(--text-caption); color: var(--text-secondary); }
+.ds-pstats .spark span { font: var(--text-caption); color: var(--text-secondary); }
+.ds-pstats .spark svg { display: block; width: 100%; height: 20px; margin-top: 2px; }
+.ds-pstats .spark polyline { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.ds-pstats .v polyline { stroke: var(--primary); } .ds-pstats .n polyline { stroke: var(--secondary); }
+.ds-pstats .ds-kv { margin: 0; gap: 2px var(--space-3); }
+.ds-pstats .ds-kv dd { font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .ds-pstats { transition: none; } }
+/* The player is the card's container, so the card sizes to the player, fullscreen included. */
+.ds-player:has(.ds-pstats) { container-type: inline-size; }
+/* Narrow players (phones in fullscreen landscape, small windows): the card takes the left half and scrolls. */
+@container (max-width: 560px) { .ds-pstats { width: 50%; min-width: 220px; } .ds-pstats .spark svg { display: none; } }
+
+/* The viewer chart, moved out of Stats into its own panel under Chapters. */
+.ds-viewers.panel { margin: 0; padding: 0; border: 0; }

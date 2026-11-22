@@ -27,7 +27,7 @@ The recording's chapters, one row per chapter, in a collapsible panel under the 
 
 ## Rules
 
-- **Hidden without chapters.** A recording with no chapters renders no panel at all, not an empty one; Stats for nerds moves up under the title block.
+- **Hidden without chapters.** A recording with no chapters renders no panel at all, not an empty one; `Viewers` moves up under the title block.
 - The header: the `Toc` icon, "Chapters" in `h6` (the page's `h2`), and the count in `caption` ("1 chapter", "4 chapters"), then the chevron. It is expanded by default and remembers its open state per viewer in `UiPreferences` (the slot the old details panel used).
 - Each chapter is a full-width button, one row: the offset in `timecode` (`tertiary`, at least 64px so offsets line up), the title in `subtitle2` taking the remaining width and ellipsising on one line, and the game in `caption`, `text-secondary`, at the right. Clicking seeks the player to the chapter's start.
 - On hover the row is `surface-raised` and the offset turns `text-primary`, because `tertiary` text is under 4.5:1 there.

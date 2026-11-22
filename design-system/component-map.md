@@ -11,7 +11,7 @@ StreamKeepr's hand-built primitives (`Components/Primitives/`) give way to MudBl
 | `Chip` (filter) | `MudChipSet` + `MudChip` | `SelectionMode.SingleSelection`, `SelectedColor="Color.Primary"`. |
 | `StatusChip` | `MudChip` `Size.Small`, class `sk-status` | See `StatusChip`. The label stays `text-primary`, and the icon takes the status colour. |
 | `Avatar` | `MudAvatar` + `MudBadge` | The live ring is `MudBadge Dot Overlap Origin="Origin.BottomRight" BadgeClass="sk-live"`, with `.sk-live` filled `rec` (no `Color` maps to `rec`). |
-| `Collapsible` | `MudCollapse` under a real disclosure button | Chapters uses `MudPaper` + `MudCollapse`: 9.12's `MudExpansionPanel` header has no button role or `aria-expanded`. Stats keeps its own markup (see islands). |
+| `Collapsible` | `MudCollapse` under a real disclosure button | Chapters uses `MudPaper` + `MudCollapse`: 9.12's `MudExpansionPanel` header has no button role or `aria-expanded`. Viewers uses the same pattern. Stats for nerds is an overlay inside the player island (see islands). |
 | `Dialog` | `ConfirmDialog`: an inline `MudDialog` (shown through `IDialogService` by the `MudDialogProvider`) that its owner keeps open; `ShowMessageBoxAsync` for a plain confirm | See `Dialog`. |
 | `Menu`, `MenuItem` | `MudMenu`, `MudMenuItem` | `AnchorOrigin="Origin.BottomRight"`, `TransformOrigin="Origin.TopRight"`. |
 | `Snackbar`, `SnackbarHost` | `ISnackbar` + `MudSnackbarProvider` | Bottom left; one at a time; an action, never a close icon alone. |
@@ -42,7 +42,7 @@ StreamKeepr's hand-built primitives (`Components/Primitives/`) give way to MudBl
 
 ## JS-owned islands
 
-`VideoPlayer`, `StatsPanel` and `ChatPane` render once. Their `.razor.js` modules own the DOM after that, and `LibraryDrawer`'s tree keyboard model belongs to `tree-nav.js`. **Do not put interactive MudBlazor components inside a JS-owned island**: Mud components re-render and would overwrite attributes the module set. Inside an island:
+`VideoPlayer`, `StatsPanel` (an overlay rendered inside the player's frame), `Viewers` and `ChatPane` render once. Their `.razor.js` modules own the DOM after that, and `LibraryDrawer`'s tree keyboard model belongs to `tree-nav.js`. **Do not put interactive MudBlazor components inside a JS-owned island**: Mud components re-render and would overwrite attributes the module set. Inside an island:
 
 - keep the existing markup and `data-sk` hooks;
 - style it with the Mud CSS variables (`var(--mud-palette-surface)`) and the StreamKeepr tokens (`var(--player-accent)`), so it follows the theme switch;

@@ -1,31 +1,27 @@
-"Stats for nerds": a collapsible panel under Chapters (or under the title block when a recording has no chapters) with playback (video) and network statistics side by side, and the stream's viewer count over time below them. A JS-owned island.
+"Stats for nerds": a compact card laid over the top-left of the video, inside the player, with playback (video) and network figures and the viewer count at the playhead. Because it lives in the player it shows in theater mode and in fullscreen, where a panel under the player never could. The viewer chart is too big to lay over the video, so it moved to its own panel under Chapters (`Viewers`).
 
 ## Build it from
 
-Keep `StatsPanel.razor` rendering once, and keep `StatsPanel.razor.js` owning values, sparklines, the viewer chart and the open state. Restyle the existing markup to match a MudExpansionPanel:
+Keep `StatsPanel.razor.js` owning the values, the sparklines and the open state, but render its markup **inside the player's frame** (the element that goes fullscreen), after the title strip and before the control bar. It stays a JS-owned island; no MudBlazor components inside it. The viewer-chart wiring (`viewer-chart.js`, the `/viewers` fetch) moves to `Viewers`; the overlay only reads the count at the playhead from the same samples.
 
-- **Header** (48px): the `QueryStats` icon, "Stats for nerds" in `h6`, a live hint in `caption` ("48.6 Mb/s · 28.4 s buffer · 1,312 viewers"), and a switch-styled toggle (`role="switch"`), drawn like `MudSwitch Color.Primary`. *As built in #180 the hint still names the engine ("hls.js · source", player contract §10); the live summary waits for the viewer data.*
-- **Video** (`Videocam` in `primary`) and **Network** (`NetworkCheck` in `secondary`), side by side, headed in `subtitle1`. Each has two tiles on `surface-raised` (`radius-md`, `pa-3`): the label in `overline`, the value in `stat-hero` with its unit in `caption`, and a 32px sparkline below. Under the tiles goes a key/value list (`caption` keys, `stat-value` values, URLs ellipsised).
-- **Stream** (`Groups` in `tertiary`), full width below a `divider`, with two parts:
-  - **A tile** (220px): "Viewers at 54:40" in `overline`, the count at the playhead in `stat-hero`, then Now, Peak (with its time) and Average as key/value rows.
-  - **The viewer chart** (on `surface-raised`, `radius-md`, about 120px of plot): viewer count across the recording's whole timeline, so x is recording time (0:00 → the duration, or the live edge while recording), not wall-clock time.
-- **Footer**: a text button, "Copy stats". It copies the viewer figures too. *As built (#211) the v1 snapshot gains `"viewers": {"now", "peak", "peakAt", "average"}` (player contract §10).*
+- **Opening it:** the player's existing stats button (`QueryStats`, pressed = `player-accent`) and the `I` shortcut toggle it, and so does the card's own close button. The open state is remembered per viewer in `UiPreferences`, as the old switch was. The panel's switch-styled header goes away.
+- **Card:** 340px wide (at most the player's width minus `space-3` each side), on `player-surface` at 88% with a light blur, `radius-md`, `elevation-8`, text in `player-text`. Its height is capped above the control bar, and its body scrolls.
+- **Header** (40px): "Stats for nerds" in `subtitle2`, then two 32px player buttons: `ContentCopy` ("Copy stats", the same v1 snapshot as before, viewers included) and `Close`.
+- **Sections**, each headed in `overline` (`text-secondary`) after an 8px swatch in the series colour:
+  - **Video** (`primary`): Bitrate and Frame rate as `stat-value` figures with a 20px sparkline under each, then Resolution, Codecs, Dropped frames and Decoder as key/value rows.
+  - **Network** (`secondary`): Bandwidth and Buffer with sparklines, then Last segment, Segments (count and errors) and Playlist (ellipsised; full URL in its `title`).
+  - **Stream** (`tertiary`): one row, "Viewers at 54:40 · 1,489 · peak 1,658". Left out when the recording has no viewer samples.
+- Key/value rows: keys in `caption` `text-secondary`, values in `stat-value`, tabular figures.
 
-## The viewer chart
+## Placement
 
-- One series in `tertiary`: a 2px line over an 18% `tertiary` area. The y axis has three gridlines (0, half, max) in `divider`, labelled in `caption` with compact numbers (0 · 1k · 2k). The x axis has four or five timecode labels in `caption`.
-- The **playhead** is a dashed `primary` line with a knob on the series and a `primary` tag carrying its timecode. It moves with playback, and the tile's "Viewers at …" value follows it.
-- While recording, the series ends at the **live edge** with a `rec` dot, and the chart grows to the right as samples arrive.
-- Hovering shows a tooltip ("38:00 · 1,658 viewers"). Clicking or dragging seeks the player to that time. The chart is `role="img"` with a one-sentence summary as its label, and it keeps a visually hidden sample table like the sparklines.
-- Draw it as SVG in `StatsPanel.razor.js` (or `sparkline.js`), like the sparklines. *As built (#211) the pure geometry and drawing live in `wwwroot/js/viewer-chart.js`, wired by `StatsPanel.razor.js`.* MudBlazor's `MudChart` would re-render inside the island.
-- With no samples (a recording made before sampling existed, or a broadcast with none), the Stream section shows a single `caption` line instead: "No viewer data for this recording." *As built (#211) the module fetches the samples from `GET /api/recordings/{id}/viewers` (once, or every 60 s and on reopen while live) and swaps this line for the tile and chart; the hooks are listed in player contract §10.*
-
-## Data this needs
-
-*As built (#186) the recorder samples viewer counts and serves them from `GET /api/recordings/{id}/viewers`.* Originally: StreamKeepr did not record viewer counts. The chart needs the recorder to sample the stream's viewer count (Twitch Get Streams `viewer_count`) during capture, for example once a minute, and to store the samples with the session as (offset from session start, count). Those samples are the whole input: peak, average and "at the playhead" are derived from them.
+- Top-left, `space-3` in from the frame. While the player's overlays show, the card sits between the title strip and the seek bar; when they hide after 3 s idle, it slides up to `space-3` from the top and may grow down to `space-3` from the bottom (200 ms, no motion under reduced motion). It never hides with the overlays: it stays until closed.
+- It sits above the video and below the menus (speed), so an open menu draws over it.
+- Clicks on the card never reach the video, so they don't play or pause it.
+- In a player narrower than 560px (a small window with chat open, phone landscape in fullscreen) the card takes half the width, at least 220px, and drops its sparklines.
 
 ## Rules
 
-- Video sparklines are `primary`, network sparklines `secondary`, and the viewer series `tertiary`: the colour of the stream itself, shared with chapters. One series per chart, and labels never take the series colour.
-- Each sparkline keeps its visually hidden sample table for screen readers.
-- Below `Breakpoint.Md` the panel is the **Stats** tab under the player (`MudTabPanel Icon="@Icons.Material.Rounded.QueryStats"`), without its own header or toggle. Video and Network stack, then their tiles stack. The Stream tile moves above its chart, and the chart keeps the full width. *As built (#211), as described.*
+- Video sparklines are `primary`, network sparklines `secondary`, the stream row's swatch `tertiary`. Labels never take the series colour.
+- Each sparkline keeps its visually hidden sample table for screen readers. The card is a `region` labelled "Stats for nerds"; values update quietly (no live region), as before.
+- Below `Breakpoint.Md` (not fullscreen) the overlay is not used: the **Stats** tab under the player keeps the full layout (Video and Network stacked, then the viewer tile and chart). The player's stats button stays hidden there, as now. In fullscreen on a phone, `I` and the tab's state don't apply; the overlay can be opened from the player only once the deferred `MoreVert` menu exists.
