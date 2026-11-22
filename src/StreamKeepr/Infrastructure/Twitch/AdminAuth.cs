@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
+using StreamKeepr.Hosting;
 
 namespace StreamKeepr.Infrastructure.Twitch;
 
@@ -36,6 +37,10 @@ public static class AdminAuth
     private const string HomePath = "/";
 
     private const string RejectedSignInItem = "StreamKeepr.AdminAuth.AuthError";
+    private const string RejectedLoginItem = "StreamKeepr.AdminAuth.RejectedLogin";
+
+    /// <summary>Asks Twitch to show its account prompt, so a rejected account is not reused silently.</summary>
+    private const string ForceVerifyItem = "StreamKeepr.AdminAuth.ForceVerify";
 
     public static IServiceCollection AddStreamKeeprAdminAuth(this IServiceCollection services)
     {
@@ -75,6 +80,7 @@ public static class AdminAuth
                     OnTicketReceived = RedirectRejectedSignInAsync,
                     OnRemoteFailure = RedirectFailedSignInAsync,
                     OnAccessDenied = RedirectDeniedSignInAsync,
+                    OnRedirectToAuthorizationEndpoint = RedirectToTwitchAsync,
                 };
             });
 
@@ -83,17 +89,43 @@ public static class AdminAuth
 
     /// <summary>
     /// API endpoints answer a missing or insufficient sign-in with a status code; pages keep
-    /// the cookie handler's redirect to the login endpoint.
+    /// the cookie handler's redirect to the login endpoint. In private mode (ADR-0013) a page
+    /// goes to the sign-in page instead, and every other request gets the status code.
     /// </summary>
     public static Func<RedirectContext<CookieAuthenticationOptions>, Task> ChallengeApiWithStatus(int status) =>
         context =>
         {
-            if (context.Request.Path.StartsWithSegments("/api"))
+            if (PrivateMode.IsPrivate(context.HttpContext))
+            {
+                // A login that left the list is forbidden by the policy, but to the visitor it is
+                // the same as being signed out: the session check above already ended it.
+                if (PrivateMode.IsPageRequest(context.Request))
+                    context.Response.Redirect(PrivateMode.ChallengeRedirectUrl(context.HttpContext));
+                else
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            }
+            else if (context.Request.Path.StartsWithSegments(RequestPaths.Api))
+            {
                 context.Response.StatusCode = status;
+            }
             else
+            {
                 context.Response.Redirect(context.RedirectUri);
+            }
+
             return Task.CompletedTask;
         };
+
+    /// <summary>
+    /// Where a sign-in that did not succeed lands: the return page with one <c>authError</c>
+    /// while viewing is open, or the sign-in page with the reason in private mode, since the
+    /// return page would only redirect there without it.
+    /// </summary>
+    public static string SignInErrorRedirectUrl(
+        HttpContext context, string? returnUrl, string authError, string? login = null) =>
+        PrivateMode.IsPrivate(context)
+            ? PrivateMode.SignInUrl(returnUrl, authError, login)
+            : AuthErrorRedirectUrl(returnUrl, authError);
 
     /// <summary>
     /// Starts sign-in. Plain HTTP is accepted only on localhost/loopback; other
@@ -102,7 +134,7 @@ public static class AdminAuth
     /// Twitch round trip. <see cref="HttpRequest.IsHttps"/> already reflects
     /// trusted <c>X-Forwarded-Proto</c> values.
     /// </summary>
-    public static IResult HandleLogin(HttpContext context, string? returnUrl)
+    public static IResult HandleLogin(HttpContext context, string? returnUrl, bool? forceVerify = null)
     {
         var localReturnUrl = ResolveReturnUrl(returnUrl);
 
@@ -117,10 +149,10 @@ public static class AdminAuth
                     ForwardedHeadersSettings.SectionName);
 
             return Results.LocalRedirect(
-                AuthErrorRedirectUrl(localReturnUrl, HttpsRequiredAuthError));
+                SignInErrorRedirectUrl(context, localReturnUrl, HttpsRequiredAuthError));
         }
 
-        return ChallengeLogin(localReturnUrl);
+        return ChallengeLogin(localReturnUrl, forceVerify == true);
     }
 
     /// <summary>
@@ -166,10 +198,14 @@ public static class AdminAuth
     /// Challenges the Twitch handler, returning to <paramref name="returnUrl"/> only
     /// when it is local; every other value falls back to the home page.
     /// </summary>
-    public static IResult ChallengeLogin(string? returnUrl) =>
-        Results.Challenge(
-            new AuthenticationProperties { RedirectUri = ResolveReturnUrl(returnUrl) },
-            [TwitchAuthenticationDefaults.AuthenticationScheme]);
+    public static IResult ChallengeLogin(string? returnUrl, bool forceVerify = false)
+    {
+        var properties = new AuthenticationProperties { RedirectUri = ResolveReturnUrl(returnUrl) };
+        if (forceVerify)
+            properties.Items[ForceVerifyItem] = "true";
+
+        return Results.Challenge(properties, [TwitchAuthenticationDefaults.AuthenticationScheme]);
+    }
 
     /// <summary>
     /// True for <c>localhost</c> and loopback IP literals, where Twitch permits a
@@ -253,11 +289,13 @@ public static class AdminAuth
 
     /// <summary>
     /// An empty allowlist admits every authenticated Twitch user; otherwise only
-    /// the configured logins are admitted.
+    /// the configured logins are admitted. The login is normalized here, so every caller (the
+    /// Twitch callback, the private-mode policy, the circuit's revalidation and the Mock login)
+    /// applies the same rule to the raw name.
     /// </summary>
-    public static bool IsLoginAllowed(string login, IReadOnlyCollection<string> allowedLogins) =>
+    public static bool IsLoginAllowed(string? login, IReadOnlyCollection<string> allowedLogins) =>
         allowedLogins.Count == 0
-        || allowedLogins.Contains(login, StringComparer.OrdinalIgnoreCase);
+        || allowedLogins.Contains(TwitchLogin.Normalize(login), StringComparer.OrdinalIgnoreCase);
 
     private static bool HasControlCharacter(ReadOnlySpan<char> value)
     {
@@ -273,7 +311,7 @@ public static class AdminAuth
     private static async Task CreateAdminTicketAsync(OAuthCreatingTicketContext context)
     {
         var services = context.HttpContext.RequestServices;
-        var auth = services.GetRequiredService<IOptions<AuthOptions>>().Value;
+        var auth = services.GetRequiredService<IOptionsMonitor<AuthOptions>>().CurrentValue;
 
         // The Twitch handler already called /helix/users with the app's client id and
         // mapped that response's login to ClaimTypes.Name before this event runs.
@@ -295,6 +333,7 @@ public static class AdminAuth
                 services,
                 NotAllowedAuthError,
                 "The Twitch login is not in Auth:AllowedTwitchLogins.");
+            context.Properties.Items[RejectedLoginItem] = TwitchLogin.Normalize(login);
             return;
         }
 
@@ -369,11 +408,12 @@ public static class AdminAuth
         }
 
         context.Properties.Items.Remove(RejectedSignInItem);
+        context.Properties.Items.Remove(RejectedLoginItem, out var login);
 
         // RemoteAuthenticationHandler moves the challenge RedirectUri into ReturnUri
         // and clears Properties.RedirectUri before TicketReceived runs.
         context.HttpContext.Response.Redirect(
-            AuthErrorRedirectUrl(context.ReturnUri, authError ?? FailedAuthError));
+            SignInErrorRedirectUrl(context.HttpContext, context.ReturnUri, authError ?? FailedAuthError, login));
         context.HandleResponse();
         return Task.CompletedTask;
     }
@@ -387,7 +427,7 @@ public static class AdminAuth
                 context.Failure?.Message ?? "The OAuth response was not usable.");
 
         context.HttpContext.Response.Redirect(
-            AuthErrorRedirectUrl(context.Properties?.RedirectUri, FailedAuthError));
+            SignInErrorRedirectUrl(context.HttpContext, context.Properties?.RedirectUri, FailedAuthError));
         context.HandleResponse();
         return Task.CompletedTask;
     }
@@ -399,8 +439,20 @@ public static class AdminAuth
             .LogWarning("Twitch admin sign-in was denied.");
 
         context.HttpContext.Response.Redirect(
-            AuthErrorRedirectUrl(context.Properties?.RedirectUri, FailedAuthError));
+            SignInErrorRedirectUrl(context.HttpContext, context.Properties?.RedirectUri, FailedAuthError));
         context.HandleResponse();
         return Task.CompletedTask;
     }
+
+    private static Task RedirectToTwitchAsync(RedirectContext<OAuthOptions> context)
+    {
+        context.Response.Redirect(context.Properties.Items.ContainsKey(ForceVerifyItem)
+            ? WithForceVerify(context.RedirectUri)
+            : context.RedirectUri);
+        return Task.CompletedTask;
+    }
+
+    // The Twitch handler always sends force_verify (false unless the option is set); replace it.
+    private static string WithForceVerify(string authorizeUrl) =>
+        UrlQuery.With(authorizeUrl, "force_verify", "true");
 }

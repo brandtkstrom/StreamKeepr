@@ -25,7 +25,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         };
         Assert.Empty(hlsRequests); // nothing on the library page
 
-        ILocator saved = page.Locator(LibraryHooks.SavedRow);
+        ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
         string first = (await saved.Nth(0).GetAttributeAsync("data-recording-id"))!;
         await saved.Nth(0).ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{first}", StringComparison.Ordinal));
@@ -67,9 +67,10 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
 
         // Another recording swaps the source in the same player element.
         await page.Locator("[data-sk='video']").EvaluateAsync("v => { v.__skMarker = true; }");
-        string second = (await saved.Nth(1).GetAttributeAsync("data-recording-id"))!;
-        string secondTitle = (await saved.Nth(1).Locator("[data-row-title]").InnerTextAsync()).Trim();
-        await saved.Nth(1).ClickAsync();
+        ILocator next = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow, index: 1);
+        string second = (await next.GetAttributeAsync("data-recording-id"))!;
+        string secondTitle = (await next.Locator("[data-row-title]").InnerTextAsync()).Trim();
+        await next.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{second}", StringComparison.Ordinal));
         await page.WaitForFunctionAsync(
             "t => document.querySelector('[data-sk=title]').textContent === t", secondTitle);
@@ -84,7 +85,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -110,7 +111,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl, hasTouch: true);
         IPage page = session.Page;
-        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -131,7 +132,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator saved = page.Locator(LibraryHooks.SavedRow);
+        ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
         string id = (await saved.First.GetAttributeAsync("data-recording-id"))!;
 
         int failures = 0;
@@ -162,7 +163,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        string href = (await page.Locator(LibraryHooks.SavedRow).First.GetAttributeAsync("href"))!;
+        string href = (await (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow)).GetAttributeAsync("href"))!;
         await page.GotoAsync(new Uri(new Uri(page.Url), href).ToString(),
             new() { WaitUntil = WaitUntilState.DOMContentLoaded });
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
@@ -179,13 +180,15 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             Math.Max(viewers.RootElement.GetProperty("durationSec").GetDouble(), samples[^1].GetProperty("at").GetDouble()),
             1);
 
-        await page.Locator("[data-sk='stats']").ClickAsync();
-        ILocator panel = page.Locator("[data-sk-stats]:not([data-chrome='tab'])");
-        await Assertions.Expect(panel).ToHaveAttributeAsync("data-open", "true");
+        // The Viewers panel under the title block shows once the samples load, open by default.
+        ILocator panel = page.Locator("[data-viewers-panel]");
+        await Assertions.Expect(panel).ToBeVisibleAsync(new() { Timeout = 10_000 });
+        await Assertions.Expect(panel.Locator("[data-collapsible-toggle]")).ToHaveAttributeAsync("aria-expanded", "true");
+        await Assertions.Expect(panel.Locator("[data-viewers-hint]"))
+            .ToHaveTextAsync(new Regex(@"^[\d,—]+ at \d+:\d\d · peak [\d,]+$"));
 
         ILocator tile = panel.Locator("[data-sk='viewer-tile']");
-        await Assertions.Expect(tile).ToBeVisibleAsync(new() { Timeout = 10_000 });
-        await Assertions.Expect(panel.Locator("[data-sk='viewer-chart-empty']")).ToBeHiddenAsync();
+        await Assertions.Expect(tile).ToBeVisibleAsync();
         await Assertions.Expect(tile.Locator("[data-sk='viewer-now']"))
             .ToHaveTextAsync(now.ToString("N0", System.Globalization.CultureInfo.InvariantCulture));
         await Assertions.Expect(tile.Locator("[data-sk='viewer-peak']")).ToHaveTextAsync(new Regex(@"^[\d,]+ at \d+:\d\d$"));
@@ -224,16 +227,24 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await Assertions.Expect(tile.Locator("[data-sk='viewer-at']"))
             .ToHaveTextAsync($"Viewers at {Timecode(position)}");
 
+        // The Statistics overlay's Stream row shows the same count at the playhead.
+        await page.Locator("[data-sk='stats']").ClickAsync();
+        ILocator stream = page.Locator("[data-sk-player] [data-sk='stats-stream']");
+        await Assertions.Expect(stream).ToBeVisibleAsync();
+        await Assertions.Expect(stream.Locator("[data-sk='stream-at']")).ToHaveTextAsync($"Viewers at {Timecode(position)}");
+        await Assertions.Expect(stream.Locator("[data-sk='stream-viewers']")).ToHaveTextAsync(new Regex(@"^[\d,]+ · peak [\d,]+$"));
+        await page.Locator("[data-sk='stats-close']").ClickAsync();
+
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-viewers");
 
-        // On a phone the Stats tab holds the panel; the tile stacks above the full-width chart.
+        // On a phone the Stats tab ends with the chart; the tile stacks above the full-width chart.
         await using Session phone = await OpenAsync(app.BaseUrl, viewport: new() { Width = 375, Height = 812 });
         page = phone.Page;
         await page.GotoAsync(new Uri(new Uri(page.Url), href).ToString(),
             new() { WaitUntil = WaitUntilState.DOMContentLoaded });
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
         await page.GetByRole(AriaRole.Tab, new() { Name = "Stats" }).ClickAsync();
-        ILocator tab = page.Locator("[data-sk-stats][data-chrome='tab']");
+        ILocator tab = page.Locator("[role='tabpanel'] [data-viewers-panel]");
         await Assertions.Expect(tab.Locator("[data-sk='viewer-tile']")).ToBeVisibleAsync(new() { Timeout = 10_000 });
         await Assertions.Expect(tab.GetByRole(AriaRole.Img, new() { NameRegex = new Regex("^Viewer count over the recording: ") }))
             .ToBeVisibleAsync();
@@ -256,42 +267,41 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         IPage page = session.Page;
         await session.Context.GrantPermissionsAsync(["clipboard-read", "clipboard-write"]);
 
-        ILocator growing = page.Locator(
-            LibraryHooks.Row,
-            new() { HasTextString = "Community day" });
+        ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
         await growing.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
 
-        ILocator panel = page.Locator("[data-sk-stats]");
-        ILocator body = page.Locator("[data-sk='stats-body']");
+        // The Statistics overlay is inside the player's frame, so it shows in fullscreen too.
+        ILocator panel = page.Locator("[data-sk-player] [data-sk-stats]");
         ILocator playerButton = page.Locator("[data-sk='stats']");
-        ILocator toggle = page.Locator("[data-sk='stats-toggle']");
+        ILocator close = page.GetByRole(AriaRole.Button, new() { Name = "Close statistics" });
 
-        // Closed is one header row and an inert body.
+        // Closed, the card is not shown.
         Assert.Equal("false", await panel.GetAttributeAsync("data-open"));
         Assert.Equal("false", await playerButton.GetAttributeAsync("aria-pressed"));
-        Assert.True(await body.EvaluateAsync<bool>("b => b.inert"));
-        double collapsedHeight = (await panel.BoundingBoxAsync())!.Height;
-        Assert.InRange(collapsedHeight, 47, 49);
+        await Assertions.Expect(panel).ToBeHiddenAsync();
 
         await playerButton.ClickAsync();
-        await page.WaitForFunctionAsync(
-            """() => document.querySelector("[data-sk-stats]").dataset.open === 'true'""",
-            null,
-            new PageWaitForFunctionOptions { Timeout = 5_000 });
+        await Assertions.Expect(panel).ToBeVisibleAsync(new() { Timeout = 5_000 });
         Assert.Equal("true", await panel.GetAttributeAsync("data-open"));
         Assert.Equal("true", await playerButton.GetAttributeAsync("aria-pressed"));
-        Assert.Equal("true", await toggle.GetAttributeAsync("aria-checked"));
-        Assert.False(await body.EvaluateAsync<bool>("b => b.inert"));
+        await Assertions.Expect(page.GetByRole(AriaRole.Region, new() { Name = "Statistics" })).ToBeVisibleAsync();
 
-        // The heading and the data tables are for screen readers only: rendered and exposed, but
+        // The card sits in the top-left of the frame, inside it, and above the control bar.
+        LocatorBoundingBoxResult frame = (await page.Locator("[data-sk-player]").BoundingBoxAsync())!;
+        LocatorBoundingBoxResult card = (await panel.BoundingBoxAsync())!;
+        LocatorBoundingBoxResult controls = (await page.Locator("[data-sk='bottom-bar']").BoundingBoxAsync())!;
+        Assert.InRange(card.X - frame.X, 8, 16);
+        Assert.True(card.Y > frame.Y && card.Y + card.Height <= controls.Y + 1, $"card {card.Y}+{card.Height}, controls {controls.Y}");
+        Assert.InRange(card.Width, 300, 421);
+
+        // The data tables are for screen readers only: rendered and exposed, but
         // painting no visible area, so the data-sr-only hook cannot drift from the CSS. A table
         // keeps its content width despite width: 1px, so a clip-path that insets half of each
         // side (nothing left to paint) also counts as hidden.
-        // The viewer table is hidden until samples arrive (#211); the viewer journey checks it.
-        string screenReaderOnlyJson = await panel.Locator("[data-sr-only]:not([data-sk='table-viewers'])").EvaluateAllAsync<string>(
+        string screenReaderOnlyJson = await panel.Locator("[data-sr-only]").EvaluateAllAsync<string>(
             """
             elements => JSON.stringify(elements.map(e => {
               const box = e.getBoundingClientRect();
@@ -303,7 +313,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             }))
             """);
         using JsonDocument screenReaderOnly = JsonDocument.Parse(screenReaderOnlyJson);
-        Assert.Equal(5, screenReaderOnly.RootElement.GetArrayLength());
+        Assert.Equal(4, screenReaderOnly.RootElement.GetArrayLength());
         Assert.All(screenReaderOnly.RootElement.EnumerateArray(), element =>
         {
             string tag = element.GetProperty("tag").GetString()!;
@@ -320,7 +330,6 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             null,
             new PageWaitForFunctionOptions { Timeout = 20_000 });
 
-        Assert.Equal("hls.js · source", (await page.Locator("[data-sk='stats-hint']").InnerTextAsync()).Trim());
         Assert.Equal("MSE · hls.js", (await page.Locator("[data-sk='kv-decoder']").InnerTextAsync()).Trim());
         Assert.Contains("index.m3u8", await page.Locator("[data-sk='kv-playlist']").GetAttributeAsync("title"));
         string bitrate = (await page.Locator("[data-sk='value-bitrate']").InnerTextAsync()).Trim();
@@ -349,7 +358,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         // Network series are secondary (StatsPanel card; tertiary is the stream, #180).
         Assert.Equal("var(--secondary)", await line.GetAttributeAsync("stroke"));
 
-        // The stats panel sits below the details card; hover scrolls it into view first.
+        // Hovering a sparkline in the card shows its tooltip.
         await bufferSpark.HoverAsync();
         Assert.Contains("s ago ·", await page.Locator("[data-sk='tip-buffer']").InnerTextAsync());
         Assert.Equal(
@@ -367,11 +376,6 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             "visible",
             await bufferSpark.Locator("[data-crosshair]").GetAttributeAsync("visibility"));
 
-        // The growing capture may or may not have its first viewer sample yet (#211): wait for
-        // the Stream section to settle on either the empty line or the tile.
-        await page.Locator(
-            "[data-sk-stats] [data-sk='viewer-chart-empty']:not([hidden]), [data-sk-stats] [data-sk='viewer-tile']:not([hidden])")
-            .First.WaitForAsync();
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-stats");
 
         await page.Locator("[data-sk='copy-stats']").ClickAsync();
@@ -389,18 +393,13 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.True(snapshot.RootElement.GetProperty("samples").GetArrayLength() >= 3);
         Assert.Equal(JsonValueKind.Array, snapshot.RootElement.GetProperty("errors").ValueKind);
 
-        // Closing while focus is inside moves it to the switch, then stops the sampler.
-        await page.Locator("[data-sk='copy-stats']").FocusAsync();
-        await toggle.EvaluateAsync("el => el.click()");
-        Assert.True(await toggle.EvaluateAsync<bool>("el => el === document.activeElement"));
+        // Its close button hides it, hands focus to the player's stats button, and stops the sampler.
+        await close.FocusAsync();
+        await page.Keyboard.PressAsync("Enter");
+        Assert.True(await playerButton.EvaluateAsync<bool>("el => el === document.activeElement"));
         Assert.Equal("false", await panel.GetAttributeAsync("data-open"));
         Assert.Equal("false", await playerButton.GetAttributeAsync("aria-pressed"));
-        Assert.True(await body.EvaluateAsync<bool>("b => b.inert"));
-        await page.WaitForFunctionAsync(
-            """() => document.querySelector("[data-sk-stats]").getBoundingClientRect().height <= 49""",
-            null,
-            new PageWaitForFunctionOptions { Timeout = 2_000 });
-        Assert.InRange((await panel.BoundingBoxAsync())!.Height, 47, 49);
+        await Assertions.Expect(panel).ToBeHiddenAsync();
 
         // No new samples arrive after the panel closes.
         int rows = await page.Locator("[data-sk='rows-buffer'] tr").CountAsync();
@@ -424,7 +423,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
         Assert.Equal("true", await panel.GetAttributeAsync("data-open"));
         Assert.Equal("true", await playerButton.GetAttributeAsync("aria-pressed"));
-        Assert.False(await body.EvaluateAsync<bool>("b => b.inert"));
+        await Assertions.Expect(panel).ToBeVisibleAsync();
     }
 
     [Fact]
@@ -432,8 +431,9 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator row = page.Locator(LibraryHooks.SavedRow).First;
+        ILocator row = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
+        string channel = (await page.Locator(LibraryHooks.Column).GetAttributeAsync("data-recordings-column"))!;
 
         await row.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -451,6 +451,8 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await page.Locator("[data-sk='play']").ClickAsync();
         double paused = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
 
+        // The row's resume bar, in its channel's column.
+        await LibraryHooks.OpenChannelAsync(page, channel);
         ILocator bar = page.Locator($"{LibraryHooks.Drawer} a[data-recording-id='{id}'] [data-progress] i");
         await bar.WaitForAsync(new() { Timeout = 10_000 });
 
@@ -458,6 +460,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
         await WaitForTimeAsync(page, paused, tolerance: 1);
         Assert.True(await Video(page, "v => v.paused"), "resume never autoplays");
+        await LibraryHooks.OpenChannelAsync(page, channel);
         await bar.WaitForAsync();
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-resumed");
     }
@@ -467,8 +470,9 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator growing = page.Locator(LibraryHooks.Row, new() { HasTextString = "Community day" });
+        ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
+        string channel = (await page.Locator(LibraryHooks.Column).GetAttributeAsync("data-recordings-column"))!;
 
         await growing.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -488,6 +492,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         double paused = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
 
         // The row swaps the full live bar for a partial resume bar.
+        await LibraryHooks.OpenChannelAsync(page, channel);
         await page.WaitForFunctionAsync(
             "id => { const i = document.querySelector(`nav[aria-label=Library] a[data-recording-id='${id}'] [data-progress] i`); return i && i.style.width !== '100%'; }",
             id,
@@ -504,6 +509,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         // open starts at the live edge again.
         await live.ClickAsync();
         Assert.NotNull(await live.GetAttributeAsync("data-at-edge"));
+        await LibraryHooks.OpenChannelAsync(page, channel);
         await page.WaitForFunctionAsync(
             "id => document.querySelector(`nav[aria-label=Library] a[data-recording-id='${id}'] [data-progress] i`)?.style.width === '100%'",
             id,
@@ -520,7 +526,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator growing = page.Locator(LibraryHooks.Row, new() { HasTextString = "Community day" });
+        ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
 
         await growing.ClickAsync();
@@ -583,7 +589,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator row = page.Locator(LibraryHooks.SavedRow).First;
+        ILocator row = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
         await row.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));

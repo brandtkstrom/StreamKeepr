@@ -1,0 +1,72 @@
+@implements IDisposable
+@inject UiPreferences Preferences
+
+@* The Viewers panel (design system: Viewers): the stream's viewer count across the recording,
+   under Chapters, Md and up. It was the Stream section of the old stats panel. The chart is a
+   JS island (ViewerChart) that loads the samples and tells this panel whether there are any:
+   none, no panel. Tab is the phone Stats tab's copy, under Video and Network, with no header.
+   The disclosure is Blazor's, like ChaptersPanel; the island inside never re-renders. *@
+@if (Tab)
+{
+    <div class="sk-viewers-tab" data-viewers-panel hidden="@(_hasSamples ? null : "hidden")">
+        <ViewerChart Recording="Recording" HasSamplesChanged="OnHasSamplesChanged" />
+    </div>
+}
+else
+{
+    <MudBlazor.MudPaper Outlined="true"
+                        Elevation="0"
+                        Class="sk-disclosure sk-viewers-panel"
+                        data-viewers-panel
+                        data-expanded="@(Preferences.ViewersOpen ? "true" : "false")"
+                        hidden="@(_hasSamples ? null : "hidden")">
+        <button type="button"
+                class="sk-disclosure-head"
+                data-collapsible-toggle
+                aria-expanded="@(Preferences.ViewersOpen ? "true" : "false")"
+                aria-controls="@_bodyId"
+                @onclick="() => ToggleAsync(!Preferences.ViewersOpen)">
+            <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Groups" Size="MudBlazor.Size.Small" />
+            <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2">Viewers</MudBlazor.MudText>
+            @* ViewerChart.razor.js writes the live hint; Blazor renders it empty and never changes it. *@
+            <span class="hint mud-typography mud-typography-caption" data-viewers-hint></span>
+            <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.ExpandMore" Class="chev" />
+        </button>
+        <MudBlazor.MudCollapse Expanded="@Preferences.ViewersOpen">
+            <div id="@_bodyId" class="sk-disclosure-body" inert="@(!Preferences.ViewersOpen)">
+                <ViewerChart Recording="Recording" HasSamplesChanged="OnHasSamplesChanged" />
+            </div>
+        </MudBlazor.MudCollapse>
+    </MudBlazor.MudPaper>
+}
+
+@code {
+    private readonly string _bodyId = $"sk-viewers-body-{Guid.NewGuid():N}";
+    private bool _hasSamples;
+
+    [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
+
+    /// <summary>Below <c>Breakpoint.Md</c>: the chart inside the Stats tab, without a header.</summary>
+    [Parameter] public bool Tab { get; set; }
+
+    protected override void OnInitialized() => Preferences.Changed += OnPreferencesChanged;
+
+    private void OnPreferencesChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void OnHasSamplesChanged(bool hasSamples)
+    {
+        if (_hasSamples == hasSamples)
+            return;
+
+        _hasSamples = hasSamples;
+        StateHasChanged();
+    }
+
+    private async Task ToggleAsync(bool open)
+    {
+        Preferences.SetViewersOpen(open);
+        await Preferences.PersistAsync();
+    }
+
+    public void Dispose() => Preferences.Changed -= OnPreferencesChanged;
+}

@@ -1,64 +1,16 @@
-@implements IDisposable
-@inject UiPreferences Preferences
-@inject ViewerClock Clock
-
-@* Spec: docs/details-auth-settings-contract.md §§2–4; player contract §2. The same
-   component instance survives recording swaps because Home keeps it in one slot.
-   Design system: RecordingDetails and Buttons cards (#178). The panel is a MudPaper with a
-   MudCollapse rather than a MudExpansionPanel: MudBlazor 9.12's panel header is a focusable
-   div with no button role or aria-expanded, and this header must stay a disclosure button.
-   Below Breakpoint.Md Home renders RecordingDetailsSummary outside the tabs and RecordingDetailsBody
-   as the Details tab (#175), so this card is the Md-and-up form. *@
-<MudBlazor.MudPaper Outlined="true"
-                    Elevation="0"
-                    Class="sk-details"
-                    data-recording-details="true"
-                    data-expanded="@(Preferences.DetailsOpen ? "true" : "false")">
-    <button type="button"
-            class="sk-details-head"
-            data-collapsible-toggle
-            aria-expanded="@(Preferences.DetailsOpen ? "true" : "false")"
-            aria-controls="@_bodyId"
-            @onclick="() => ToggleAsync(!Preferences.DetailsOpen)">
-        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Info" Size="MudBlazor.Size.Small" />
-        <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2">Recording details</MudBlazor.MudText>
-        <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="hint" data-details-date="true">@StartLabel</MudBlazor.MudText>
-        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.ExpandMore" Class="chev" />
-    </button>
-    <MudBlazor.MudCollapse Expanded="@Preferences.DetailsOpen">
-        <div id="@_bodyId" class="sk-details-body" inert="@(!Preferences.DetailsOpen)">
-            <RecordingDetailsSummary Recording="Recording" />
-            <RecordingDetailsBody Recording="Recording" />
-        </div>
-    </MudBlazor.MudCollapse>
-</MudBlazor.MudPaper>
+@* Spec: docs/details-auth-settings-contract.md §§2–4; player contract §2. The title block
+   under the player, Md and up (design system: RecordingDetails): the title, meta line and
+   actions on the page ground, outside any panel, then the export row. The chapters are their
+   own panel (ChaptersPanel). The same instance survives recording swaps because Home keeps it
+   in one slot. Below Breakpoint.Md Home renders the summary and export row itself (#175). *@
+<div class="sk-details" data-recording-details="true">
+    <RecordingDetailsSummary Recording="Recording" AvatarUrl="@AvatarUrl" />
+    <RecordingDetailsBody Recording="Recording" />
+</div>
 
 @code {
-    private readonly string _bodyId = $"sk-details-body-{Guid.NewGuid():N}";
-
     [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
 
-    private string StartLabel => Format.FullDate(Clock.ToLocal(Recording.StartedAt));
-
-    protected override void OnInitialized()
-    {
-        Preferences.Changed += OnPreferencesChanged;
-        Clock.Changed += OnClockChanged;
-    }
-
-    private void OnPreferencesChanged() => _ = InvokeAsync(StateHasChanged);
-
-    private void OnClockChanged() => _ = InvokeAsync(StateHasChanged);
-
-    private async Task ToggleAsync(bool open)
-    {
-        Preferences.SetDetailsOpen(open);
-        await Preferences.PersistAsync();
-    }
-
-    public void Dispose()
-    {
-        Preferences.Changed -= OnPreferencesChanged;
-        Clock.Changed -= OnClockChanged;
-    }
+    /// <summary>The channel's Twitch profile image for the title block's avatar.</summary>
+    [Parameter] public string? AvatarUrl { get; set; }
 }

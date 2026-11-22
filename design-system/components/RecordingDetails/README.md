@@ -1,46 +1,38 @@
-A collapsible panel under the player with the recording's title, its actions, its meta line, an export's progress and the chapter strip.
+The title block directly under the player: the recording's title and meta line on the left, its actions as a compact row of icon buttons with a "More actions" menu on the right, and an export's progress below. It sits on the page, outside any panel.
 
-Built as `RecordingDetailsSummary` (title, meta line, actions, stop/delete dialogs) and `RecordingDetailsBody` (export row, chapters), composed by `RecordingDetails`; below `Breakpoint.Md` the summary renders outside the watch tabs and the body becomes the Details tab.
+Built from `RecordingDetailsSummary` (title, meta line, actions, stop/delete dialogs) and the export row. The chapter list that used to share its panel is now its own panel, `Chapters`. The collapsible "Recording details" panel is gone.
 
 ## Build it from
 
 ```razor
-@* Not MudExpansionPanel: in MudBlazor 9.12 its header is a focusable div with no button role
-   or aria-expanded. The header here is a real disclosure button over a MudCollapse. *@
-<MudPaper Outlined="true" Elevation="0" Class="sk-details">                      @* radius-lg, like every panel *@
-  <button type="button" aria-expanded="@open" aria-controls="@bodyId" @onclick="Toggle">
-    <MudIcon Icon="@Icons.Material.Rounded.Info" /><MudText Typo="Typo.h6" HtmlTag="h2">Recording details</MudText><MudText Typo="Typo.caption">@StartLabel</MudText>
-  </button>
-  <MudCollapse Expanded="@Preferences.DetailsOpen">
-    <div id="@bodyId" inert="@(!open)">
-      <MudTooltip Text="@Recording.Title">
-        <MudText Typo="Typo.h5" HtmlTag="h3" tabindex="0">@Recording.Title</MudText>  @* its own row, two lines max *@
-      </MudTooltip>
-      <div class="sk-details-row">
-        <div class="sk-details-meta"> live chip · streamer · category · start · duration · parts · size </div>
-        <div class="sk-actions">
-          <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Rounded.Stop">Stop recording</MudButton> @* live only; ≥ Md *@
-          <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Rounded.PlaylistPlay">Copy playlist URL</MudButton>
-          <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Rounded.Output">Export MP4</MudButton>
-          <MudIconButton Icon="@Icons.Material.Rounded.Delete" aria-label="Delete recording" />                                       @* ≥ Md *@
-          <MudMenu Icon="@Icons.Material.Rounded.MoreVert" AriaLabel="More actions"> Stop recording · Delete recording </MudMenu> @* < Md *@
-        </div>
-      </div>
-      …export row (MudProgressLinear Color.Secondary), chapters…
-    </div>
-  </MudCollapse>
-</MudPaper>
+<div class="sk-vhead">                                                     @* no MudPaper: on the page ground *@
+  <div class="sk-vinfo">
+    <MudTooltip Text="@Recording.Title">
+      <MudText Typo="Typo.h5" HtmlTag="h2" tabindex="0">@Recording.Title</MudText>   @* two lines max *@
+    </MudTooltip>
+    <div class="sk-details-meta"> live chip · streamer · category · start · duration · parts · size </div>
+  </div>
+  <div class="sk-vacts" role="group" aria-label="Recording actions">            @* one row, top right *@
+    <MudTooltip Text="Copy playlist URL"><MudIconButton Icon="@Icons.Material.Rounded.PlaylistPlay" aria-label="Copy playlist URL" /></MudTooltip>
+    <MudTooltip Text="Export MP4"><MudIconButton Icon="@Icons.Material.Rounded.Output" Color="Color.Primary" aria-label="Export MP4" /></MudTooltip> @* tonal *@
+    <MudMenu Icon="@Icons.Material.Rounded.MoreVert" aria-label="More actions" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+      <MudMenuItem Icon="@Icons.Material.Rounded.Stop" IconColor="Color.Error">Stop recording</MudMenuItem>   @* live only *@
+      <MudDivider />
+      <MudMenuItem Icon="@Icons.Material.Rounded.Delete">Delete recording</MudMenuItem>
+    </MudMenu>
+  </div>
+</div>
+…export row (MudProgressLinear Color.Secondary), full width under the block…
 ```
 
 ## Rules
 
-- **The title has a row of its own**, the full width of the panel, in `h5`, wrapping to two lines before it ellipsises. The full title is in a tooltip that opens on hover over the text and on keyboard focus (the title is a tab stop). Nothing shares that row. Below it, one row carries the meta line on the left and the actions on the right; when space runs out, the actions wrap under the meta, never beside the title.
-- Icons say what each action does: `PlaylistPlay` for Copy playlist URL (it copies the HLS playlist's address), `Output`, the generic export icon, for Export MP4, `Stop` for Stop recording and `Delete` for Delete. After an export finishes, Download uses `Download`.
-- One filled button: Export MP4. Copy and Stop are outlined, and Stop is `error`. Delete is an icon button in `action-default` at rest that opens the `Dialog`.
-- Actions that need Twitch stay visible. Wrap them in `MudTooltip` "Connect Twitch to use this" and disable them. A blocked export or delete gives its reason in the tooltip.
-- Meta line, in `caption`, as icon + text pairs (`icon-inline` 16px icons in `action-default`): the live chip first while live (REC while recording, Reconnecting while reconnecting), the avatar and streamer, `SportsEsports` category, `Event` start, `Timer` duration, `FolderOpen` segments and parts, and `Storage` size (omitted while live).
-- It is expanded by default directly under the player, so on desktop the title and actions show without scrolling. Below `Breakpoint.Md` Stop recording and Delete move into a `MoreVert` "More actions" menu; a blocked Delete is a disabled item showing its reason.
-- **Below `Breakpoint.Md`** the title, meta and actions sit under the player outside any panel, and the rest (export row, chapters) is the **Details** tab (`MudTabPanel Icon="@Icons.Material.Rounded.Info"`). The phone summary's meta line keeps the streamer, start and duration; the live chip leads the actions row; category, counts and size stay in the desktop card.
-- The export row sits on `surface-raised`: an `Output` icon in `secondary`, state text, `MudProgressLinear` in `secondary` with the percent in `timecode` while running (the bar is not a live region; the state text is the one announcement), then Cancel, Retry or a tonal Download link (a real `<a download>`). The tonal link is a 14% `primary` tint behind a `text-primary` label, because `primary` text is under 4.5:1 on `surface-raised`.
-- Chapters are buttons with the offset in `timecode` (`tertiary`), the title in `subtitle2` and the game in `caption`. On hover the row is `surface-raised` and the offset turns `text-primary`, because `tertiary` text is under 4.5:1 there.
-- **Not built yet:** the current chapter shown as `selection`. It needs the player's position in the details card.
+- **Two sides.** The left side takes the remaining width: the title in `h5` (the page's `h2`), wrapping to two lines before it ellipsises, then the meta line under it. The right side is the actions, one row of 40px icon buttons (about 130px in all), its top lined up with the title's first line. It never wraps and never squeezes the title, so the old narrow-column rule is gone.
+- **What shows and what is in the menu.** The everyday actions are icon buttons, in this order: Copy playlist URL (`PlaylistPlay`), Export MP4 (`Output`), then `MoreVert` "More actions". The menu holds the rare and destructive ones: Stop recording (`Stop`, `error`, live only), a divider, Delete recording (`Delete`). Both open the `Dialog` as before. After an export finishes, Download stays in the export row.
+- Every icon button has a `MudTooltip` with its full name and an `aria-label` that matches it. The menu button has `aria-haspopup="menu"` and `aria-expanded`; the menu opens below it, right-aligned, on `surface` with `elevation-8`.
+- Export MP4 is the one emphasised action: a tonal icon button, `primary` on a 14% `primary` tint. Copy and More are plain (`action-default`). While an export runs, Export is disabled with the tooltip "Exporting…", and the export row below shows the progress.
+- Actions that need Twitch stay visible. Wrap them in `MudTooltip` "Connect Twitch to use this" and disable them. A blocked export gives its reason in its tooltip; a blocked Stop or Delete is a disabled menu item with its reason under the label in `caption` ("Available when the recording finishes").
+- Meta line, in `caption`, as icon + text pairs (`icon-inline` 16px icons in `action-default`): the live chip first while live (REC while recording, Reconnecting while reconnecting), the channel's avatar (a 24px `ChannelAvatar` with the channel's Twitch profile image, the same image as in the drawer; its initial on its channel colour when there is no image) and the streamer, `SportsEsports` category, `Event` start, `Timer` duration, `FolderOpen` segments and parts, and `Storage` size (omitted while live).
+- The full title is in a tooltip that opens on hover over the text and on keyboard focus (the title is a tab stop).
+- **The export row** shows under the block, full width, only while an export runs or has finished: on `surface-raised`, an `Output` icon in `secondary`, state text, `MudProgressLinear` in `secondary` with the percent in `timecode` while running (the bar is not a live region; the state text is the one announcement), then Cancel, Retry or a tonal Download link (a real `<a download>`). The tonal link is a 14% `primary` tint behind a `text-primary` label, because `primary` text is under 4.5:1 on `surface-raised`.
+- **Below `Breakpoint.Md`** the block keeps its phone form (see `PhoneLayout`): the title in `h6` and a short meta line, with the same icon row and menu at its top right. The export row follows it.

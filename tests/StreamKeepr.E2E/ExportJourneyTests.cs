@@ -12,7 +12,7 @@ public sealed class ExportJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -23,8 +23,10 @@ public sealed class ExportJourneyTests(MockAppFixture app)
 
         // Wait for the card to rehydrate the queued job before checking the delete guard.
         await page.Locator("[data-export-row]").WaitForAsync();
-        ILocator delete = page.Locator("button[data-delete]");
-        Assert.True(await delete.IsDisabledAsync(), "an active export blocks delete");
+        ILocator delete = await TitleBlock.MenuItemAsync(page, "data-delete");
+        Assert.Equal("true", await delete.GetAttributeAsync("aria-disabled"));
+        Assert.Contains("export", await delete.Locator("[data-delete-blocked]").TextContentAsync());
+        await TitleBlock.CloseMenuAsync(page);
 
         // The row walks Queued/Running to MP4 ready; the button stays disabled while active.
         ILocator download = page.Locator("a[data-export-download]");
@@ -57,12 +59,14 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
         // A different finished recording from the download journey, so the two never share a job.
-        ILocator saved = page.Locator(LibraryHooks.SavedRow).Nth(1);
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow, index: 1));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
 
-        await page.Locator("button[data-export]").ClickAsync();
+        // Started from the keyboard: a pointer resting on Export would hold its tooltip open,
+        // and MudBlazor renders tooltips outside the page's landmarks.
+        await page.Locator("button[data-export]").PressAsync("Enter");
         ILocator status = page.Locator("[data-export-row] [role='status']");
         await page.Locator("[data-export-row='Running'] [role='progressbar']").WaitForAsync(new() { Timeout = 30_000 });
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "export-running");
@@ -85,7 +89,7 @@ public sealed class ExportJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator growing = page.Locator(LibraryHooks.Row, new() { HasTextString = "Community day" });
+        ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
         await growing.ClickAsync();
 
         ILocator export = page.Locator("button[data-export]");

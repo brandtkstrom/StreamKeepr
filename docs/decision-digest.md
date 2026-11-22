@@ -3,7 +3,7 @@
 Status: accepted (2026-11-10)
 Owner: @brandtkstrom
 Entry point for: `to-spec`
-Source: map issue #1 and decision tickets #2–#18; the binding contracts; ADRs 0001–0012; the plan-review register; `GLOSSARY.md`; `docs/plans/streamkeepr-implementation-plan.md`; `docs/design-assets.md`.
+Source: map issue #1 and decision tickets #2–#18; the binding contracts; ADRs 0001–0013; the plan-review register; `GLOSSARY.md`; `docs/plans/streamkeepr-implementation-plan.md`; `docs/design-assets.md`.
 
 This is the single handoff for the full application specification. It records the decisions already made, the plan amendments that bind the spec, the accepted risks, the open items, and the post-implementation conformance review. It does not rewrite the plan and does not implement the app.
 
@@ -129,7 +129,7 @@ This is the single handoff for the full application specification. It records th
 - Poll schedule: 30 s normal, 300 s with full push coverage, 10 s burst for 3 minutes after a notification, nudge on add/resume; any recording/waiting forces the short interval.
 - EventSub: user token, `stream.online`/`stream.offline` for every resolved channel, all-or-nothing coverage; 409 verified against the current session; 429 capacity keeps the covered subset and `PartialCoverage`; forced token refresh on 401; keepalive timeout; message-ID dedupe; concurrent reconnect handoff without resubscribe; revocation/reconnect; polling fallback. The WebSocket cost cap yields about five fully covered channels; more channels stay on the 30 s poll. Optional conduit transport (ADR-0007): app token, one saved conduit with one shard, reconcile on welcome, independent of admin sign-in; the WebSocket rules above apply to WebSocket mode.
 - OAuth: `AspNet.Security.OAuth.Twitch`, callback `/signin-twitch`, no extra scopes, local-only return URLs, cookie `sk-auth` (HttpOnly, SameSite=Lax, 7-day sliding, secure under HTTPS), logout POST with antiforgery.
-- Allowlist: non-empty restricts sign-in; empty admits every successfully authenticated Twitch user and logs a startup warning (E-13). Viewing/recording stay open.
+- Allowlist: non-empty restricts sign-in; empty admits every successfully authenticated Twitch user and logs a startup warning (E-13). Empty also keeps viewing open; non-empty makes the whole app private behind `/signin` (ADR-0013). Recording runs in both modes.
 - Admin token store: encrypted access/refresh tokens under `.streamkeepr/admin-tokens.json`, Data Protection keys under `.streamkeepr/keys`, refresh/rotation, clear on logout, `WaitForTokenAsync`; EventSub uses it only. Subscriber-only streams use a manual Streamlink browser token, not the admin token.
 - Health: push-aware liveness (900 s with full coverage, 90 s otherwise), stale poll/stuck loop/stalled media unhealthy; retry/cooldown/Unknown degraded.
 
@@ -223,6 +223,7 @@ This is the single handoff for the full application specification. It records th
 | [ADR-0010 Chat module dependency direction](adr/0010-chat-module-dependency-direction.md) | `Infrastructure/Twitch/Chat` may depend on `Infrastructure/Storage`; Storage must not import the chat transport; the chat log input records live in Storage. |
 | [ADR-0011 Third-party emotes via a provider seam](adr/0011-third-party-emotes-provider-seam.md) | Server-side `IEmoteProvider`; one aggregated endpoint; replay-time catalogs; static-only images from the provider CDN; off by default; no snapshot or image proxy. |
 | [ADR-0012 MudBlazor through an incremental, test-guarded migration](adr/0012-mudblazor-incremental-migration.md) | Small PRs to `main`, palette re-pointed in the foundation PR; `design-system/tokens.json` is the source of truth; layout ships with each surface and features as separate PRs; tests target roles, then `data-*` hooks, never `sk-*` or `mud-*` classes. |
+| [ADR-0013 A non-empty allowlist makes the whole app private](adr/0013-allowlist-makes-the-app-private.md) | Empty `Auth:AllowedTwitchLogins`: open viewing, open admin (unchanged). Non-empty: every page redirects to `/signin` and every media/API route answers `401` unless an allowed login is signed in; expiry or removal from the list ends access. |
 
 ## 7. Plan amendment ledger
 
@@ -285,7 +286,7 @@ The register holds the plan-line evidence and the full finding text. This table 
 | E-01 | Thumbnail strategy: Helix live preview vs frame grab. | **Resolved: FFmpeg frame grab** from recorded media (2026-11-13) | `session-store-contract.md` §7.1; `ThumbnailUrl` stays nullable until a grab succeeds |
 | E-02 | Schedule button. | **Resolved: stub with snackbar** | `details-auth-settings-contract.md` §8 |
 | E-03 | Retention automation/defaults. | Accept (non-goal) | ADR-0004 |
-| E-04 | Allowlist logins and viewing without sign-in. | **Resolved semantics**: empty = open admin (E-13); viewing public; exact values deployment config | `twitch-auth-contract.md` §6 |
+| E-04 | Allowlist logins and viewing without sign-in. | **Resolved semantics**: empty = open admin (E-13) and public viewing; non-empty = private app (ADR-0013); exact values deployment config | `twitch-auth-contract.md` §6 |
 | E-05 | HTTPS/reverse proxy for sign-in. | **Resolved**: external TLS proxy; HTTPS/localhost only (E-15) | `hosting-contract.md` §8, `twitch-auth-contract.md` §6 |
 | E-06 | Text webfont licensing. | **Resolved**: Roboto (OFL-1.1) is the one bundled font since #173; the Material Symbols Rounded icon font was removed in #181 (icons are MudBlazor SVGs) | `design-assets.md` |
 | E-07 | Subscriber-only token handling. | **Resolved mechanism**: manual `Recorder:TwitchUserOAuthToken`; Settings entry deferred | `twitch-auth-contract.md` §8 |
@@ -336,7 +337,7 @@ The register holds the plan-line evidence and the full finding text. This table 
 
 | Item | Status | Owner / impact |
 |---|---|---|
-| Exact `Auth:AllowedTwitchLogins` values | Deployment config | Operator; semantics fixed (empty = open admin); set for shared networks |
+| Exact `Auth:AllowedTwitchLogins` values | Deployment config | Operator; semantics fixed (empty = open admin and viewing; non-empty = private, ADR-0013); set for shared networks |
 | Subscriber-token rotation UI in Settings | Deferred | Auth/settings; manual secret works today |
 | Quality menu/preference | Deferred until a multi-variant master playlist exists | Player; E-20 |
 | Streamer group/player stop-resume surfaces | Deferred | Details/settings; E-23 |

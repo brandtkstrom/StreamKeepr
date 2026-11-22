@@ -1,0 +1,81 @@
+<!-- @dsCard group="Layout" height=1040 width=1200 subtitle="The sign-in page that replaces the app when AllowedTwitchLogins is set: ready, not allowed, waiting for Twitch, session expired, signed out, failed" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; }
+  .wrap { padding: var(--space-4); display: grid; grid-template-columns: 760px 360px; gap: var(--space-6) var(--space-6); }
+  .cap { font: var(--text-caption); color: var(--text-secondary); margin: 0 0 var(--space-2); }
+  .frame { border: 1px solid var(--divider); border-radius: var(--radius-md); overflow: hidden; }
+  .desk { height: 520px; }
+  .phone { height: 520px; }
+  .row2 { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-6); }
+  .row2 .ds-signin { min-height: 0; padding: var(--space-4) 0; background: none; }
+  .row2 .ds-signin-card { box-shadow: none; border: 1px solid var(--divider); }
+</style>
+</head>
+<body class="ds">
+<div class="wrap">
+  <div>
+    <p class="cap">Desktop, signed out: any page redirects here, keeping where you were going</p>
+    <div class="frame desk">
+      <main class="ds-signin" aria-labelledby="si-h">
+        <div class="ds-signin-card">
+          <span class="ds-wordmark" aria-label="StreamKeepr"><span class="ds-logo" aria-hidden="true"><i data-i="logo"></i></span><span>Stream<b>Keepr</b></span></span>
+          <h1 id="si-h">Sign in to watch</h1>
+          <p>This StreamKeepr is private. Sign in with a Twitch account its owner has allowed.</p>
+          <a class="ds-btn twitch" href="#"><i data-i="link"></i>Sign in with Twitch</a>
+          <span class="fine">Twitch asks you to approve, then sends you back here.</span>
+        </div>
+      </main>
+    </div>
+  </div>
+  <div>
+    <p class="cap">Phone: the account isn't on the list</p>
+    <div class="frame phone">
+      <main class="ds-signin" aria-labelledby="si-h2">
+        <div class="ds-signin-card">
+          <span class="ds-wordmark" aria-label="StreamKeepr"><span class="ds-logo" aria-hidden="true"><i data-i="logo"></i></span><span>Stream<b>Keepr</b></span></span>
+          <h1 id="si-h2">Sign in to watch</h1>
+          <div class="ds-alert error" role="alert"><i data-i="warning" class="sm"></i><span><b>pixelwren can't use this StreamKeepr</b>Ask its owner to add your Twitch login, or use another account.</span></div>
+          <a class="ds-btn twitch" href="#"><i data-i="link"></i>Use another Twitch account</a>
+        </div>
+      </main>
+    </div>
+  </div>
+  <div class="row2">
+    <div>
+      <p class="cap">Waiting for Twitch (after the click)</p>
+      <div class="ds-signin"><div class="ds-signin-card">
+        <span class="ds-wordmark" aria-label="StreamKeepr"><span class="ds-logo" aria-hidden="true"><i data-i="logo"></i></span><span>Stream<b>Keepr</b></span></span>
+        <h1>Sign in to watch</h1>
+        <p>This StreamKeepr is private. Sign in with a Twitch account its owner has allowed.</p>
+        <a class="ds-btn twitch" href="#" aria-busy="true"><span class="ds-spin small-spin" aria-hidden="true"></span>Waiting for Twitch…</a>
+      </div></div>
+    </div>
+    <div>
+      <p class="cap">Session expired, or signed out from the account menu</p>
+      <div class="ds-signin"><div class="ds-signin-card">
+        <span class="ds-wordmark" aria-label="StreamKeepr"><span class="ds-logo" aria-hidden="true"><i data-i="logo"></i></span><span>Stream<b>Keepr</b></span></span>
+        <h1>Sign in to watch</h1>
+        <div class="ds-alert warning" role="status"><i data-i="warning" class="sm"></i><span><b>Your Twitch session expired</b>Sign in again to carry on where you were.</span></div>
+        <a class="ds-btn twitch" href="#"><i data-i="link"></i>Sign in with Twitch</a>
+        <span class="fine">Signed out on purpose, the note reads "You're signed out" (info).</span>
+      </div></div>
+    </div>
+    <div>
+      <p class="cap">Sign-in failed, or the page isn't on HTTPS</p>
+      <div class="ds-signin"><div class="ds-signin-card">
+        <span class="ds-wordmark" aria-label="StreamKeepr"><span class="ds-logo" aria-hidden="true"><i data-i="logo"></i></span><span>Stream<b>Keepr</b></span></span>
+        <h1>Sign in to watch</h1>
+        <div class="ds-alert error" role="alert"><i data-i="warning" class="sm"></i><span><b>Twitch sign-in failed</b>Try again in a moment.</span></div>
+        <a class="ds-btn twitch" href="#"><i data-i="link"></i>Try again</a>
+        <span class="fine">Without HTTPS (and not localhost) the button is replaced by a warning: "Twitch sign-in needs HTTPS. Open this site through its HTTPS address."</span>
+      </div></div>
+    </div>
+  </div>
+</div>
+<script src="../icons.js"></script>
+</body>
+</html>

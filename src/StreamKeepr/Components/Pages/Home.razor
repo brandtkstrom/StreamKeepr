@@ -44,11 +44,13 @@ else
 }
 
 @* The watch view (player contract §2a, #175; design system: AppShell, TheaterMode, PhoneLayout).
-   Md and up the first row is the player plus the chat sidecar, with details and stats below;
-   theater moves the chat and details under the full-width player. Below Md the player is edge
-   to edge above a summary and the Chat/Details/Stats tabs, so the title and actions stay put
-   while a tab scrolls. The VideoPlayer stays the first child of the top row at every width, so
-   a breakpoint change never reloads it. *@
+   Md and up it is two columns: the player (with the Statistics overlay inside it), the title
+   block, Chapters and Viewers on the left, and
+   chat as a full-height sticky column on the right; theater spans the player across both and
+   moves the columns under it. Below Md the player is edge to edge above the title block and
+   the Chat/Chapters/Stats tabs, so the title and actions stay put while a tab scrolls. The
+   VideoPlayer stays the first child of the top row at every width, so a breakpoint change never
+   reloads it. *@
 @if (RecordingId is not null)
 {
     <div class="sk-watch" data-watch>
@@ -75,7 +77,8 @@ else
             @if (Selected is { } phone)
             {
                 <div class="sk-watch-summary" data-watch-summary>
-                    <RecordingDetailsSummary Recording="phone" Compact="true" />
+                    <RecordingDetailsSummary Recording="phone" Compact="true" AvatarUrl="@AvatarUrlFor(phone)" />
+                    <RecordingDetailsBody Recording="phone" />
                 </div>
 
                 <MudBlazor.MudTabs Class="sk-watch-tabs"
@@ -92,18 +95,22 @@ else
                             </div>
                         </MudBlazor.MudTabPanel>
                     }
-                    <MudBlazor.MudTabPanel @key="@("details")"
-                                           Text="Details"
-                                           Icon="@MudBlazor.Icons.Material.Rounded.Info">
-                        <div class="sk-watch-tab-panel">
-                            <RecordingDetailsBody Recording="phone" />
-                        </div>
-                    </MudBlazor.MudTabPanel>
+                    @if (ChapterList.Visible(phone).Count > 0)
+                    {
+                        <MudBlazor.MudTabPanel @key="@("chapters")"
+                                               Text="Chapters"
+                                               Icon="@MudBlazor.Icons.Material.Rounded.Toc">
+                            <div class="sk-watch-tab-panel" data-chapters-tab>
+                                <ChapterList Recording="phone" />
+                            </div>
+                        </MudBlazor.MudTabPanel>
+                    }
                     <MudBlazor.MudTabPanel @key="@("stats")"
                                            Text="Stats"
                                            Icon="@MudBlazor.Icons.Material.Rounded.QueryStats">
                         <div class="sk-watch-tab-panel">
                             <StatsPanel Recording="phone" Tab="true" />
+                            <ViewersPanel Recording="phone" Tab="true" />
                         </div>
                     </MudBlazor.MudTabPanel>
                 </MudBlazor.MudTabs>
@@ -111,17 +118,18 @@ else
         }
         else
         {
-            <div data-slot="details">
+            <div class="sk-watch-info" data-slot="details">
                 @if (Selected is { } detailed)
                 {
-                    <RecordingDetails Recording="detailed" />
+                    <RecordingDetails Recording="detailed" AvatarUrl="@AvatarUrlFor(detailed)" />
+                    <ChaptersPanel Recording="detailed" />
                 }
             </div>
 
-            <div data-slot="stats">
-                @if (Selected is { } statRecording)
+            <div class="sk-watch-stats" data-slot="viewers">
+                @if (Selected is { } viewerRecording)
                 {
-                    <StatsPanel Recording="statRecording" />
+                    <ViewersPanel Recording="viewerRecording" />
                 }
             </div>
         }
@@ -141,6 +149,11 @@ else
 
     private RecordingView? Selected =>
         RecordingId is not null && Library.IsLoaded ? Library.Find(RecordingId) : null;
+
+    // The channel's Twitch profile image for the title block, the same one the drawer shows.
+    private string? AvatarUrlFor(RecordingView recording) =>
+        Library.Streamers(new LibraryQuery())
+            .FirstOrDefault(streamer => streamer.Login == recording.StreamerLogin)?.AvatarUrl;
 
     // Captured chat always replays; a live recording only waits for chat while capture is on.
     private bool ShowChat => Selected is { } recording &&

@@ -82,14 +82,14 @@ public sealed class RecordingDetailsLayoutTests
     }
 
     [Fact]
-    public async Task The_title_is_a_heading_below_the_panel_heading()
+    public async Task The_title_is_the_pages_section_heading_outside_any_panel()
     {
         await using BunitContext context = CreateContext(signedIn: false);
 
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
-        Assert.Equal("H3", cut.Find("[data-details-title]").TagName);
-        Assert.Equal("Recording details", cut.Find("[data-collapsible-toggle] h2").TextContent.Trim());
+        Assert.Equal("H2", cut.Find("[data-details-title]").TagName);
+        Assert.Empty(cut.FindAll("[data-collapsible-toggle]"));
     }
 
     [Fact]
@@ -124,6 +124,44 @@ public sealed class RecordingDetailsLayoutTests
         popovers.WaitForAssertion(() => Assert.Single(popovers.FindAll("[role='menuitem']")));
         MenuItem(popovers, "Delete recording").Click();
         dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog("Delete recording?")));
+    }
+
+    [Fact]
+    public async Task The_streamer_avatar_shows_the_channels_twitch_image()
+    {
+        await using BunitContext context = CreateContext(signedIn: false);
+
+        IRenderedComponent<RecordingDetails> cut = context.Render<RecordingDetails>(parameters => parameters
+            .Add(component => component.Recording, Recording())
+            .Add(component => component.AvatarUrl, "https://static-cdn.jtvnw.net/ann.png"));
+
+        Assert.Equal("https://static-cdn.jtvnw.net/ann.png",
+            cut.Find("[data-details-avatar] img[data-avatar-image]").GetAttribute("src"));
+    }
+
+    [Fact]
+    public async Task Without_an_image_the_streamer_avatar_shows_the_initial()
+    {
+        await using BunitContext context = CreateContext(signedIn: false);
+
+        IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
+
+        Assert.Empty(cut.FindAll("[data-details-avatar] img"));
+        Assert.Equal("A", cut.Find("[data-details-avatar]").TextContent.Trim());
+    }
+
+    [Fact]
+    public async Task Copy_and_export_are_icon_buttons_and_stop_and_delete_only_live_in_the_menu()
+    {
+        await using BunitContext context = CreateContext(signedIn: true);
+
+        IRenderedComponent<RecordingDetails> cut = Render(context, Recording(RecordingState.Recording));
+
+        Assert.Equal("Copy playlist URL", cut.Find("button[data-copy-playlist]").GetAttribute("aria-label"));
+        Assert.Equal("Export MP4", cut.Find("button[data-export]").GetAttribute("aria-label"));
+        Assert.Empty(cut.FindAll("[data-stop-recording]"));
+        Assert.Empty(cut.FindAll("[data-delete]"));
+        Assert.Single(cut.FindAll("button[aria-label='More actions']"));
     }
 
     [Fact]

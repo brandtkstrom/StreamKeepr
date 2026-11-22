@@ -1,4 +1,4 @@
-// Stats for nerds sampling seam (player contract §10).
+// Statistics sampling seam (player contract §10).
 //
 // The player owns hls.js and every dynamic player control. It creates one probe and
 // registers it under the player root; StatsPanel.razor.js samples that probe on its own
@@ -6,6 +6,8 @@
 //
 // Everything below the DOM wiring is pure so Vitest can cover the ring, the sample shape,
 // the snapshot and the native fallback without a browser or hls.js.
+
+import { isLiveState } from "/js/recording-state.js";
 
 export const SAMPLE_INTERVAL_MS = 2000;
 export const SAMPLE_RING_SIZE = 20;
@@ -171,7 +173,7 @@ function playbackQuality(video) {
 }
 
 function isLive(view) {
-  return view?.state === "recording" || view?.state === "reconnecting";
+  return isLiveState(view?.state);
 }
 
 /**

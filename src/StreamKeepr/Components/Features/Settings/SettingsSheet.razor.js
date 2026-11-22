@@ -110,7 +110,7 @@ export async function opened(component, selector, doc = document) {
     event.preventDefault();
     void component
       .invokeMethodAsync("CloseFromKeyboard")
-      .catch((error) => console.warn("StreamKeepr: could not close the settings sheet.", error));
+      .catch((error) => console.warn("Stream Keepr: could not close the settings sheet.", error));
   };
   doc.addEventListener("keydown", onKeyDown);
   current.release.push(() => doc.removeEventListener("keydown", onKeyDown));

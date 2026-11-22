@@ -103,7 +103,8 @@ public sealed class LibrarySearchTests
 
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
-        Assert.Equal("Chef", cut.Find("[role='treeitem'][aria-level='1'] mark").TextContent);
+        Assert.Equal("Chef", cut.Find("[role='option'] mark").TextContent);
+        cut.Find("[data-library-channel='ann']").Click();
         Assert.Equal("chef", cut.Find("[data-recording-id='r1'] [data-row-title] mark").TextContent);
         Assert.Equal("Night chef special", cut.Find("[data-recording-id='r1'] [data-row-title]").TextContent);
     }
@@ -115,6 +116,7 @@ public sealed class LibrarySearchTests
         context.Services.GetRequiredService<NavigationManager>().NavigateTo("/?q=chef&sort=oldest");
 
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+        cut.Find("[data-library-channel='ann']").Click();
 
         Assert.Equal("/r/r1?q=chef&sort=oldest", cut.Find("a[data-recording-id='r1']").GetAttribute("href"));
     }
@@ -232,6 +234,9 @@ public sealed class LibrarySearchTests
         context.Services.AddScoped<UiPreferences>();
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.Services.AddSingleton<ILibraryView>(view);
+        context.Services.AddSingleton<StreamKeepr.Infrastructure.Storage.IExportService>(new TestExportService());
+        context.Services.AddSingleton<StreamKeepr.Infrastructure.Storage.IRecordingAdmin>(new TestRecordingAdmin());
+        context.AddAuthorization().SetNotAuthorized();
         return context;
     }
 }

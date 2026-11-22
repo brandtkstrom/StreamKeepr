@@ -38,6 +38,8 @@ MapHealthChecks
 
 ## 3. Endpoint map
 
+The Auth column is for an empty `Auth:AllowedTwitchLogins`. With a non-empty list the app is private (ADR-0013): every row marked Public, except the Twitch login, the callback, health, static assets and the new `/signin` page, requires an allowed signed-in login; pages redirect to `/signin?returnUrl=` and everything else answers `401`.
+
 | Surface | Path | Auth |
 |---|---|---|
 | Library/player pages | `/`, `/r/{id}` | Public |
@@ -48,6 +50,7 @@ MapHealthChecks
 | Emote catalog read | `GET /api/recordings/{id}/emotes` | Public (viewing is open) |
 | Viewer samples read | `GET /api/recordings/{id}/viewers` | Public (viewing is open) |
 | Export download | `GET /api/exports/{exportId}/download` | Signed-in |
+| Sign-in page | `/signin` | Public (private mode only) |
 | Twitch login | `GET /api/auth/twitch/login?returnUrl=` | Public |
 | Twitch callback | `/signin-twitch` | Public |
 | Logout | `POST /api/auth/logout` | Signed-in, antiforgery |

@@ -1,0 +1,57 @@
+@using System.Globalization
+@using StreamKeepr.Infrastructure.Storage
+@inject PlayerBridge Bridge
+
+@* The recording's chapters, one button per chapter (design system: Chapters). Clicking one
+   seeks the player and leaves focus on the button; it never autoplays. ChaptersPanel holds it
+   Md and up, and the phone's Chapters tab below Md. Renders nothing without chapters. *@
+@if (Visible(Recording) is { Count: > 0 } chapters)
+{
+    <div class="sk-chapters" role="group" aria-label="Chapters" data-chapter-list>
+        @for (int index = 0; index < chapters.Count; index++)
+        {
+            Chapter chapter = chapters[index];
+            <button type="button"
+                    class="sk-chapter"
+                    @key="ChapterKey(index, chapter)"
+                    data-chapter="@ChapterOffset(chapter)"
+                    data-chapter-key="@ChapterKey(index, chapter)"
+                    @onclick="() => SeekToChapterAsync(chapter)">
+                <span class="sk-visually-hidden">Seek to </span>
+                <span class="time">@Format.Timecode(chapter.StartSeconds)</span>
+                <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle2" HtmlTag="span" Class="title">@chapter.Title</MudBlazor.MudText>
+                @if (!string.IsNullOrWhiteSpace(chapter.Game))
+                {
+                    <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="game">@chapter.Game</MudBlazor.MudText>
+                }
+            </button>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
+
+    /// <summary>
+    /// The chapters that can be shown: a finite, non-negative start inside the recording.
+    /// Callers use it to leave out an empty Chapters panel or tab.
+    /// </summary>
+    public static IReadOnlyList<Chapter> Visible(RecordingView recording) =>
+        recording.Chapters
+            .Where(chapter =>
+                double.IsFinite(chapter.StartSeconds) &&
+                chapter.StartSeconds >= 0 &&
+                (recording.DurationSec <= 0 || chapter.StartSeconds <= recording.DurationSec))
+            .ToArray();
+
+    private async Task SeekToChapterAsync(Chapter chapter) =>
+        await Bridge.SeekAsync(chapter.StartSeconds);
+
+    private static string ChapterOffset(Chapter chapter) =>
+        chapter.StartSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+
+    // Offsets are not unique (two metadata changes can land in one segment); the index
+    // keeps sibling keys unique while preserving the offset for stable data attributes.
+    private static string ChapterKey(int index, Chapter chapter) =>
+        $"{ChapterOffset(chapter)}:{index}";
+}

@@ -9,8 +9,10 @@
 @inject ILogger<AppShell> Logger
 
 @* MudBlazor's Layout 2 wireframe (design system: AppShell, TopAppBar, BottomNav, PhoneLayout):
-   an app bar with the library drawer clipped beneath it. Md and up, the drawer is the mini rail
-   or the full library; below Md it is a temporary drawer opened from the bottom bar. The wide
+   an app bar with the library drawer clipped beneath it. Md and up, the drawer is the 72px rail,
+   and the menu (or a rail avatar) opens the full library over the page, so the page never
+   reflows; below Md it is a temporary drawer opened from the bottom bar. Either way the open
+   library is temporary: it closes on Escape, a click outside, or going to another page. The wide
    layout is the server-rendered default; components.css hides the wide-only controls below
    960px, so a phone's first paint already fits before the breakpoint is known. *@
 <MudBlazor.MudBreakpointProvider OnBreakpointChanged="OnBreakpointChanged">
@@ -21,7 +23,8 @@
          data-watching="@(Watching ? "" : null)"
          data-theater-mode="@(Preferences.Theater ? "" : null)"
          data-drawer-frame="@(DrawerFrameHidden ? "hidden" : null)"
-         data-drawer-modal-open="@(_modalOpen ? "" : null)">
+         data-drawer-modal-open="@(_compact && _modalOpen ? "" : null)"
+         data-library-open="@(_modalOpen ? "" : null)">
         <MudBlazor.MudLayout>
             <MudBlazor.MudAppBar Elevation="0" Fixed="true" Dense="_compact" Gutters="false" Class="sk-appbar">
                 <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Menu"
@@ -131,7 +134,7 @@
                                  Class="sk-drawer-frame">
                 <nav id="@DrawerId"
                      class="sk-drawer @DrawerClass"
-                     data-drawer="@DrawerMode.ToString().ToLowerInvariant()"
+                     data-drawer="@(DrawerOpen ? "expanded" : "rail")"
                      aria-label="Library">
                     @if (Drawer is null)
                     {
@@ -144,8 +147,15 @@
                     {
                         @* The drawer's contents differ in the rail (avatars, the storage icon, a
                            rightward sort menu), so they learn the mode from the shell. *@
-                        <CascadingValue Name="LibraryRail" Value="@(!_compact && DrawerMode == DrawerMode.Rail)">
+                        <CascadingValue Name="LibraryRail" Value="@(!_compact && !_modalOpen)">
+                        <CascadingValue Name="@LibraryOpenCascade" Value="_modalOpen">
+                        <CascadingValue Name="@CompactCascade" Value="_compact">
+                        @* The drawer asks the shell to open the library (a rail avatar, the storage icon). *@
+                        <CascadingValue Value="this" IsFixed="true">
                             @Drawer
+                        </CascadingValue>
+                        </CascadingValue>
+                        </CascadingValue>
                         </CascadingValue>
                     }
                 </nav>
@@ -201,6 +211,9 @@
     /// <summary>The cascade carrying <c>_compact</c> to pages such as the watch layout.</summary>
     public const string CompactCascade = "ShellCompact";
 
+    /// <summary>The library is open: the overlay Md and up, the temporary drawer below Md.</summary>
+    public const string LibraryOpenCascade = "LibraryOpen";
+
     private IJSObjectReference? _module;
     private DotNetObjectReference<AppShell>? _self;
     private bool _compact;
@@ -245,34 +258,22 @@
 
     private bool Watching => LibraryUrl.RecordingId(Navigation.Uri) is not null;
 
-    private DrawerMode DrawerMode => Preferences.DrawerFor(Watching);
+    // Theater mode takes the drawer, rail included, out of the wide layout.
+    // The page the library was last shown on, to tell a new page from a query change.
+    private string _location = "";
 
-    // Theater mode and the saved "hidden" mode both take the drawer out of the wide layout.
-    private bool DrawerFrameHidden =>
-        !_compact && (Preferences.Theater || DrawerMode == DrawerMode.Hidden);
+    private bool DrawerFrameHidden => !_compact && Preferences.Theater;
 
-    private bool DrawerOpen => _compact ? _modalOpen : DrawerMode == DrawerMode.Expanded;
+    // The library is open (_modalOpen) or not, at every width; Md and up, closed is the rail.
+    private bool DrawerOpen => _modalOpen;
 
-    private bool MenuExpanded => !Preferences.Theater && DrawerMode == DrawerMode.Expanded;
+    private bool MenuExpanded => !Preferences.Theater && _modalOpen;
 
     private string MenuLabel => Preferences.Theater
         ? "Menu: library hidden in theater mode"
-        : DrawerMode switch
-        {
-            DrawerMode.Expanded => "Menu: collapse library",
-            DrawerMode.Rail => "Menu: expand library",
-            _ => "Menu: open library",
-        };
+        : _modalOpen ? "Menu: close library" : "Menu: open library";
 
-    // A temporary drawer is always the full library, whatever the saved desktop mode.
-    private string DrawerClass => _compact
-        ? ""
-        : DrawerMode switch
-        {
-            DrawerMode.Rail => "rail",
-            DrawerMode.Hidden => "hidden",
-            _ => "",
-        };
+    private string DrawerClass => !_compact && !_modalOpen ? "rail" : "";
 
     private BottomNavItem? BottomNavCurrent
     {
@@ -296,6 +297,7 @@
     protected override void OnInitialized()
     {
         _history = new NavigationHistory(Navigation.Uri);
+        _location = Navigation.Uri;
         _searchOpen = LibraryUrl.Parse(Navigation.Uri).Search is not null;
         Preferences.Changed += OnPreferencesChanged;
         Navigation.LocationChanged += OnLocationChanged;
@@ -326,7 +328,8 @@
         if (_modalRendered != _modalOpen)
         {
             _modalRendered = _modalOpen;
-            await InvokeModuleAsync("setModalDrawer", _modalOpen);
+            // Below Md the drawer is modal and traps focus; Md and up it is not.
+            await InvokeModuleAsync("setModalDrawer", _modalOpen, _compact);
         }
     }
 
@@ -339,11 +342,9 @@
             return;
 
         _compact = compact;
+        _modalOpen = false;
         if (!compact)
-        {
-            _modalOpen = false;
             _searchOpen = false;
-        }
     }
 
     private async Task OnMenuClickedAsync()
@@ -351,65 +352,48 @@
         if (Preferences.Theater)
             return;
 
-        if (_compact)
-        {
-            ToggleModalDrawer();
-            return;
-        }
-
-        Preferences.ToggleDrawer(Watching);
-        await Preferences.PersistAsync();
+        ToggleModalDrawer();
+        await Task.CompletedTask;
     }
 
-    private void ToggleModalDrawer()
+    private void ToggleModalDrawer() => _modalOpen = !_modalOpen;
+
+    /// <summary>Opens the library: over the page Md and up, the temporary drawer below Md.</summary>
+    public void OpenLibrary()
     {
-        if (_compact)
-            _modalOpen = !_modalOpen;
+        if (_modalOpen || (!_compact && Preferences.Theater))
+            return;
+
+        _modalOpen = true;
+        StateHasChanged();
     }
 
     // MudDrawer reports the overlay click (and nothing else) through OpenChanged.
-    private void OnDrawerOpenChanged(bool open)
-    {
-        if (_compact)
-            _modalOpen = open;
-    }
+    private void OnDrawerOpenChanged(bool open) => _modalOpen = open;
 
     private void ToggleSearch() => _searchOpen = !_searchOpen;
 
     /// <summary>
-    /// Navigates to a library view (such as <c>/?state=saved</c>) and shows the library: the
-    /// full drawer Md and up, saved like the menu's choice, or the temporary drawer below Md.
+    /// Navigates to a library view (such as <c>/?state=saved</c>) and opens the library: over
+    /// the page Md and up, the temporary drawer below Md.
     /// </summary>
-    public async Task ShowLibraryAsync(string url)
+    public Task ShowLibraryAsync(string url)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
 
-        if (_compact)
+        // Navigating may close the library, so open it once this navigation lands, and only
+        // there: any other location change clears the request. An unchanged URL raises no
+        // location change, so open it now instead.
+        Uri target = Navigation.ToAbsoluteUri(url);
+        if (target == new Uri(Navigation.Uri))
         {
-            // Navigating closes the temporary drawer, so open it once this navigation lands, and
-            // only there: any other location change clears the request. An unchanged URL raises
-            // no location change, so open it now instead.
-            Uri target = Navigation.ToAbsoluteUri(url);
-            if (target == new Uri(Navigation.Uri))
-            {
-                _modalOpen = true;
-                StateHasChanged();
-                return;
-            }
-
-            _openModalOnArrivalAt = target.AbsoluteUri;
-            Navigation.NavigateTo(url);
-            return;
+            OpenLibrary();
+            return Task.CompletedTask;
         }
 
-        bool watching = LibraryUrl.RecordingId(Navigation.ToAbsoluteUri(url).ToString()) is not null;
-        if (Preferences.DrawerFor(watching) != DrawerMode.Expanded)
-        {
-            Preferences.SetDrawer(DrawerMode.Expanded, watching);
-            await Preferences.PersistAsync();
-        }
-
+        _openModalOnArrivalAt = target.AbsoluteUri;
         Navigation.NavigateTo(url);
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -511,14 +495,21 @@
 
     private void OnPreferencesChanged() => _ = InvokeAsync(StateHasChanged);
 
-    // Picking a recording closes the temporary drawer, and the page kind decides the drawer.
-    // ShowLibraryAsync's own navigation opens it instead.
+    // Picking a recording closes the open library, and ShowLibraryAsync's own navigation opens
+    // it. Below Md any navigation closes the temporary drawer; Md and up the overlay stays open
+    // while only the query changes (a filter chip, the search, the sort), so the library can be
+    // filtered while it is open.
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _ = InvokeAsync(() =>
     {
+        string previous = _location;
+        _location = e.Location;
         _history.Visit(e.Location);
         _closingSettings = false;
-        _modalOpen = _compact && string.Equals(
+        bool arrived = string.Equals(
             new Uri(e.Location).AbsoluteUri, _openModalOnArrivalAt, StringComparison.Ordinal);
+        bool samePage = !_compact && string.Equals(
+            new Uri(previous).AbsolutePath, new Uri(e.Location).AbsolutePath, StringComparison.Ordinal);
+        _modalOpen = arrived || (_modalOpen && samePage);
         _openModalOnArrivalAt = null;
         StateHasChanged();
     });

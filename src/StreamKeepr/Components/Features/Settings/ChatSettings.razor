@@ -1,0 +1,133 @@
+@using System.Globalization
+@using StreamKeepr.Infrastructure.Storage
+@inject UiPreferences Preferences
+
+@* Design system: ChatSettings. The viewer's own chat preferences, so it renders signed out too.
+   Chat sync is one offset for every recording, kept in UiPreferences; an open ChatPane listens
+   for the change and refetches, so the sheet adjusts chat while playback runs behind it.
+   A native range rather than MudSlider: MudSlider fills from its minimum, and this fill runs
+   from the centre (0) to the thumb. *@
+<SettingsSection HeadingId="sk-settings-chat"
+                 Title="Chat"
+                 Icon="@MudBlazor.Icons.Material.Rounded.Chat"
+                 class="sk-chat-settings"
+                 data-chat-settings>
+    <div class="sk-chat-sync" role="group" aria-labelledby="sk-chat-sync-label" aria-describedby="sk-chat-sync-help">
+        <div class="sk-chat-sync-head">
+            @IslandIcon.Svg("Tune")
+            <label class="sk-chat-sync-label" id="sk-chat-sync-label" for="sk-chat-sync-range">Chat sync</label>
+            <span class="sk-chat-sync-value"
+                  data-chat-sync-value
+                  data-zero="@(_shown == 0 ? "true" : "false")"
+                  aria-hidden="true">@FormatOffset(_shown)</span>
+            <button type="button"
+                    class="sk-chat-sync-reset"
+                    aria-label="Reset chat sync to 0"
+                    title="Reset to 0"
+                    @onclick="ResetAsync"
+                    data-chat-sync-reset>
+                @IslandIcon.Svg("RestartAlt")
+            </button>
+        </div>
+        <div class="sk-chat-sync-slider">
+            <input @key="_sliderGeneration"
+                   id="sk-chat-sync-range"
+                   class="sk-chat-sync-range"
+                   type="range"
+                   min="@SyncMin"
+                   max="@SyncMax"
+                   step="@SyncStep"
+                   value="@Invariant(_sliderValue)"
+                   style="@FillStyle(_shown)"
+                   aria-valuetext="@ValueText(_shown)"
+                   @oninput="OnInput"
+                   @onchange="OnChangeAsync"
+                   data-chat-sync-range />
+        </div>
+        <div class="sk-chat-sync-ends" aria-hidden="true">
+            <span>Earlier</span>
+            <span>Later</span>
+        </div>
+    </div>
+    <p class="sk-chat-settings-help" id="sk-chat-sync-help">
+        Shifts chat on every recording, to match the delay between the stream and its chat.
+    </p>
+</SettingsSection>
+
+@code {
+    // The chat endpoint's limit bounds the slider; invariant culture keeps "-30" and "30".
+    private static readonly string SyncMax = Invariant(ChatReader.MaxSyncOffsetSeconds);
+    private static readonly string SyncMin = Invariant(-ChatReader.MaxSyncOffsetSeconds);
+    private static readonly string SyncStep = Invariant(UiPreferences.ChatSyncStepSeconds);
+
+    // What the readout shows: the thumb while dragging, the saved offset otherwise.
+    private double _shown;
+
+    // The slider's value as the server renders it. The browser owns the thumb once it is shown:
+    // echoing each input back would land after the next arrow press or drag step on a slow
+    // round trip and undo it. Only Reset moves the thumb from here, by creating a new slider
+    // (focus is on the Reset button then).
+    private double _sliderValue;
+    private int _sliderGeneration;
+
+    protected override void OnInitialized() => _shown = _sliderValue = Preferences.ChatSyncOffset;
+
+    // Dragging only redraws the readout; the offset is saved, and chat refetched, on change.
+    private void OnInput(ChangeEventArgs args)
+    {
+        if (TryParse(args.Value, out double value))
+            _shown = value;
+    }
+
+    private async Task OnChangeAsync(ChangeEventArgs args)
+    {
+        if (TryParse(args.Value, out double value))
+            await SaveAsync(value);
+    }
+
+    private async Task ResetAsync()
+    {
+        await SaveAsync(0);
+        _sliderValue = Preferences.ChatSyncOffset;
+        _sliderGeneration++;
+    }
+
+    private async Task SaveAsync(double value)
+    {
+        Preferences.SetChatSyncOffset(value);
+        _shown = Preferences.ChatSyncOffset;
+        await Preferences.PersistAsync();
+    }
+
+    private static bool TryParse(object? value, out double result) =>
+        double.TryParse(value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out result) &&
+        double.IsFinite(result);
+
+    private static string Invariant(double value) => value.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>The readout, a timecode: "+1.5 s", "−3.0 s" (a true minus sign) or "0.0 s".</summary>
+    internal static string FormatOffset(double value)
+    {
+        string sign = value > 0 ? "+" : value < 0 ? "−" : "";
+        return $"{sign}{Math.Abs(value).ToString("0.0", CultureInfo.InvariantCulture)} s";
+    }
+
+    /// <summary>The slider's aria-valuetext: "1.5 seconds later", "3 seconds earlier", "0 seconds".</summary>
+    internal static string ValueText(double value)
+    {
+        double size = Math.Abs(value);
+        string unit = size == 1 ? "second" : "seconds";
+        string amount = size.ToString(CultureInfo.InvariantCulture);
+        return size == 0 ? $"0 {unit}" : $"{amount} {unit} {(value > 0 ? "later" : "earlier")}";
+    }
+
+    // The fill runs from the centre to the thumb: --sk-sync-lo and --sk-sync-hi are 0–1 along
+    // the track (components.css draws them).
+    private static string FillStyle(double value)
+    {
+        double max = ChatReader.MaxSyncOffsetSeconds;
+        double at = (value + max) / (2 * max);
+        return string.Create(CultureInfo.InvariantCulture,
+            $"--sk-sync-lo: {Math.Min(at, 0.5)}; --sk-sync-hi: {Math.Max(at, 0.5)}");
+    }
+}

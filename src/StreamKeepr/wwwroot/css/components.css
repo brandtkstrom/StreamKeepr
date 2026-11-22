@@ -165,7 +165,7 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 
 /* ---------- library drawer (design system: LibraryDrawer, RecordingRow) ----------
    New rules read tokens.css directly (ADR 0012). The MudDrawer frame sets the width (320px
-   library, 72px rail); the library fills it, with the tree scrolling between head and footer. */
+   library, 72px rail); the library fills it, with the channels scrolling between head and footer. */
 .sk-drawer { width: 100%; height: 100%; display: flex; flex-direction: column; min-height: 0; overflow: hidden; color: var(--drawer-text); }
 .sk-drawer-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-4) var(--space-2) var(--space-2) var(--space-4); }
 .sk-drawer-head h2 { flex: 1; margin: 0; white-space: nowrap; color: var(--text-primary); }
@@ -184,38 +184,83 @@ body[data-sk-reconnect="show"] .sk-drawer-note.mud-alert, body[data-sk-reconnect
 .sk-storage-line .of { margin-left: auto; }
 .sk-storage.low .sk-storage-line .free { color: var(--warning); }
 
-.sk-group + .sk-group { border-top: 1px solid var(--divider); }
-/* Long lists stay in the DOM (E-19): skip off-screen layout and paint, keep remembered sizes. */
-.sk-group { content-visibility: auto; contain-intrinsic-size: auto 72px; }
-.sk-day { content-visibility: auto; contain-intrinsic-size: auto 28px; }
-.sk-row { content-visibility: auto; contain-intrinsic-size: auto 80px; }
-/* Containment clips anything drawn outside a group, so drawer focus rings sit inside the item. */
-.sk-drawer :is(.sk-row, .sk-group-head):focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
-.sk-group-head {
-  position: relative; display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 72px; padding: var(--space-2);
-  border-radius: var(--radius-md); color: var(--text-primary); text-align: left; cursor: pointer; user-select: none;
+/* Channels (a listbox): each option a full-width button. The selected channel is on selection
+   with a 3px primary bar at its left edge, every line text-primary. */
+.sk-channels { display: flex; flex-direction: column; gap: 2px; }
+.sk-channel {
+  position: relative; display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 64px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-primary); font: inherit; text-align: left; cursor: pointer;
 }
-.sk-group-head .who { flex: 1; min-width: 0; }
-.sk-group-head .name { display: block; font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing); }
-.sk-group-head .meta { display: block; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sk-group-head .chev { color: var(--action-default); transition: transform 300ms cubic-bezier(0.2, 0, 0, 1); }
-.sk-group-head[aria-expanded="false"] .chev { transform: rotate(-90deg); }
-.sk-group-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 300ms cubic-bezier(0.2, 0, 0, 1); }
-.sk-group-body > div { min-height: 0; overflow: hidden; }
-.sk-group-head[aria-expanded="false"] + .sk-group-body { grid-template-rows: 0fr; }
+.sk-channel .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sk-channel .name { font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-channel .meta { color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-channel .count { color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); font-variant-numeric: tabular-nums; }
+.sk-channel .chev { color: var(--action-default); }
+.sk-channel[aria-selected="true"] { background: var(--selection); }
+.sk-channel[aria-selected="true"]::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 2px 2px 0; background: var(--primary); }
+.sk-channel[aria-selected="true"] :is(.meta, .count) { color: var(--text-primary); }
+.sk-channel[data-library-skeleton] { cursor: default; }
+/* Long lists stay in the DOM (E-19): days and rows (.sk-row-item, below) skip off-screen layout and
+   paint, and keep remembered sizes. */
+.sk-day { content-visibility: auto; contain-intrinsic-size: auto 28px; }
+.sk-drawer :is(.sk-row, .sk-channel):focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .sk-day { padding: var(--space-2) var(--space-2) var(--space-1); color: var(--text-secondary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
 /* The live badge on a channel avatar (MudBadge Dot) is the rec colour, never a state colour. */
 .sk-channel-avatar .mud-badge.sk-live { background-color: var(--rec); }
 
+/* The recordings column (360px). Md and up it opens to the right of the channels, over the page,
+   so nothing reflows; the drawer frame lets it overflow. Below Md it drills in over the list. */
+.sk-drawer-frame:not(.mud-drawer-temporary), .sk-drawer-frame:not(.mud-drawer-temporary) > .mud-drawer-content,
+.sk-drawer-frame:not(.mud-drawer-temporary) .sk-drawer { overflow: visible; }
+.sk-rec-col {
+  position: absolute; z-index: 1; top: 0; bottom: 0; left: 100%; width: 360px; display: flex; flex-direction: column;
+  background: var(--drawer-background); border-left: 1px solid var(--divider); box-shadow: var(--elevation-8);
+  animation: sk-col-in 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+.sk-rec-col.drill { left: 0; right: 0; width: auto; border-left: 0; box-shadow: none; animation-name: sk-drill-in; }
+@keyframes sk-col-in { from { transform: translateX(-24px); opacity: 0; } }
+@keyframes sk-drill-in { from { transform: translateX(32px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .sk-rec-col { animation: none; } }
+.sk-rec-col-head { flex: none; display: flex; align-items: center; gap: var(--space-3); min-height: 64px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); border-bottom: 1px solid var(--divider); }
+.sk-rec-col.drill .sk-rec-col-head { padding-left: var(--space-1); }
+.sk-rec-col-head .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sk-rec-col-head h3 { margin: 0; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-rec-col-head .meta { color: var(--text-secondary); }
+.sk-rec-col-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--space-2) var(--space-4); scrollbar-width: thin; scrollbar-color: var(--lines-default) transparent; }
+
+/* A recording row: the link, and its Delete button at the top right. The link reserves the
+   button's width, so titles never reflow when it appears. */
+.sk-row-item { position: relative; margin-bottom: 2px; content-visibility: auto; contain-intrinsic-size: auto 80px; }
+/* A deleted row collapsing out (library-keys.js animates its height). */
+.sk-row-item[data-collapsing] { overflow: hidden; pointer-events: none; }
 .sk-row {
-  position: relative; display: flex; gap: var(--space-3); align-items: flex-start; width: 100%; padding: var(--space-2); margin-bottom: 2px;
+  position: relative; display: flex; gap: var(--space-3); align-items: flex-start; width: 100%; padding: var(--space-2) 44px var(--space-2) var(--space-2);
   border-radius: var(--radius-md); color: var(--text-primary); text-decoration: none; text-align: left;
 }
 /* Hover lays text-primary at hover-opacity over the row; selection fills it and keeps every line text-primary. */
-.sk-row::after, .sk-group-head::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--text-primary); opacity: 0; pointer-events: none; }
-.sk-row:hover::after, .sk-group-head:hover::after { opacity: var(--hover-opacity); }
+.sk-row::after, .sk-channel::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--text-primary); opacity: 0; pointer-events: none; }
+.sk-row:hover::after, .sk-channel:hover::after { opacity: var(--hover-opacity); }
 .sk-row[aria-current="true"] { background: var(--selection); }
 .sk-row[aria-current="true"] .sk-row-meta { color: var(--text-primary); }
+/* Delete: shown on hover, on focus anywhere in the row, on the selected row, and always on touch.
+   Hidden is opacity 0, never display none, so it stays in the tab order. */
+.sk-row-del {
+  position: absolute; top: var(--space-1); right: var(--space-1); display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
+  border: 0; border-radius: var(--radius-full); background: transparent; color: var(--action-default); cursor: pointer; opacity: 0;
+}
+.sk-row-del svg[data-icon] { width: 20px; height: 20px; fill: currentColor; }
+.sk-row-item:is(:hover, :focus-within) .sk-row-del, .sk-row[aria-current="true"] + .sk-row-del { opacity: 1; }
+@media (hover: none) { .sk-row-del { opacity: 1; } }
+.sk-row-del:not([aria-disabled="true"]):hover { color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); }
+.sk-row-del[aria-disabled="true"] { color: var(--action-disabled); cursor: default; }
+.sk-row-del:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+/* The tooltip: "Delete recording", or why it is blocked. */
+.sk-row-del::after {
+  content: attr(data-tip); position: absolute; z-index: 2; right: 0; top: calc(100% + 4px); padding: 4px 8px; border-radius: var(--radius-sm);
+  background: var(--tooltip-background); color: var(--tooltip-text); font: var(--text-caption); white-space: nowrap; pointer-events: none;
+  opacity: 0; transition: opacity 120ms;
+}
+.sk-row-del:is(:hover, :focus-visible)::after { opacity: 1; }
 .sk-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 1px; }
 .sk-row-title { font: var(--text-subtitle2); letter-spacing: var(--text-subtitle2-letter-spacing); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 /* One meta line for drawer rows and Home cards. */
@@ -242,18 +287,22 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
    menu against it, leaving an opened menu stranded mid-slide. */
 .sk-drawer-frame.mud-drawer-mini { transition: none; }
 
-/* rail (desktop mini drawer): Home, avatars, the storage icon */
+/* rail (desktop mini drawer): Home, 32px avatars, the storage icon */
 .sk-rail-home { display: grid; justify-items: center; gap: var(--space-2); padding: var(--space-2) 0 0; }
 .sk-rail-home .mud-divider { width: 32px; }
 .sk-drawer.rail .sk-drawer-head h2, .sk-drawer.rail .sk-sort, .sk-drawer.rail .sk-filters,
-.sk-drawer.rail .sk-group-body, .sk-drawer.rail .who, .sk-drawer.rail .chev { display: none; }
+.sk-drawer.rail .who, .sk-drawer.rail .chev, .sk-drawer.rail .count { display: none; }
 .sk-drawer.rail .sk-drawer-head { justify-content: center; padding: var(--space-2) 0; }
-.sk-drawer.rail .sk-group-head { justify-content: center; padding: var(--space-2) 0; min-height: 0; }
-.sk-drawer.rail .sk-group + .sk-group { border-top: 0; }
-.sk-drawer.rail .sk-row[aria-current="true"] { background: none; }
+.sk-drawer.rail .sk-channel { justify-content: center; padding: var(--space-2) 0; min-height: 0; }
 .sk-drawer.rail .sk-drawer-foot { display: grid; justify-items: center; padding: var(--space-2) 0; }
-/* The open streamer's avatar is ringed in primary. */
-.sk-drawer.rail .sk-group:has(.sk-row[aria-current="true"]) .sk-group-head .mud-avatar { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
+.sk-drawer.rail .sk-channel .mud-avatar { width: 32px; height: 32px; font: var(--text-subtitle2); }
+/* The watched channel's avatar is ringed in primary. */
+.sk-drawer.rail .sk-channel[data-current="true"] .mud-avatar { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
+/* A capturing channel carries the logo's live dot, larger: 14px, ringed, pulsing. */
+.sk-drawer.rail .sk-channel-avatar .mud-badge.sk-live {
+  width: 14px; height: 14px; min-width: 14px; border: 2px solid var(--drawer-background); animation: sk-pulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .sk-drawer.rail .sk-channel-avatar .mud-badge.sk-live { animation: none; } }
 
 /* ---------- player (design system: VideoPlayer, Keyboard; JS island, #180) ----------
    VideoPlayer.razor.js owns this DOM, so it holds no MudBlazor components: plain markup on the
@@ -428,48 +477,63 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 }
 
 /* ---------- watch layout (design system: AppShell, TheaterMode, PhoneLayout; #175) ----------
-   The watch page has no max width: the player is as wide as its column, and the chat sidecar
-   fills the space beside it. The player's height cap keeps the details title above the fold;
-   the video letterboxes inside the frame when the cap bites. */
+   The watch page has no max width: the player is as wide as its column, and chat is a column
+   of its own beside everything else. The player's height cap keeps the title block's first
+   line above the fold; the video letterboxes inside the frame when the cap bites. */
 .sk-main-inner:has(.sk-watch) { max-width: none; }
 .sk-watch { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
 .sk-watch-top { display: flex; align-items: stretch; gap: var(--space-3); min-width: 0; }
 .sk-watch-player { flex: 1 1 auto; min-width: 0; }
 .sk-watch-player > .sk-player { width: 100%; }
-/* The sidecar: flex 0 1 400px with a 320px minimum, so it widens into the space a wide
-   screen leaves. Collapsed it is the 44px strip. */
+/* Closed, chat is not shown: the player's Chat button and C reopen it. */
 .sk-watch-chat { display: flex; flex: 0 1 400px; min-width: var(--chat-width); min-height: 0; }
-.sk-watch-chat:has(.sk-chat[data-open="false"]) { flex: 0 0 44px; min-width: 44px; }
+.sk-watch-chat:has(.sk-chat[data-open="false"]) { display: none; }
 .sk-watch-chat > .sk-chat { width: 100%; }
 
 @media (min-width: 960px) {
+  /* Two columns (design system: AppShell): the player, the title block, Chapters and stats on
+     the left; chat on the right, full height and sticky, so it stays put while the left
+     column scrolls. The top row dissolves so the player and chat are grid items; the last
+     row takes the height chat adds, so nothing on the left stretches. */
+  .sk-watch {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto auto 1fr;
+    grid-template-areas: "player chat" "info chat" "stats chat" ". chat";
+    column-gap: var(--space-4); row-gap: var(--space-4); align-items: start;
+  }
+  .sk-watch:not(:has(.sk-watch-chat .sk-chat[data-open="true"])) { column-gap: 0; }
+  .sk-watch-top { display: contents; }
+  .sk-watch-player { grid-area: player; min-width: 0; }
+  .sk-watch-info { grid-area: info; min-width: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+  .sk-watch-stats { grid-area: stats; min-width: 0; }
+  .sk-watch-stats:empty { display: none; }
+  .sk-watch-chat {
+    grid-area: chat; grid-row: 1 / -1; position: sticky; top: 0; align-self: start;
+    width: clamp(var(--chat-width), 28vw, 400px); min-width: 0;
+    height: calc(100dvh - var(--appbar-height) - (2 * var(--space-6)));
+  }
   .sk-watch-player > .sk-player {
     max-height: calc(100dvh - var(--appbar-height) - (2 * var(--space-6)) - var(--player-peek));
   }
 
-  /* Theater mode (desktop only): no gutters, the player is the view's full width, and chat
-     and details follow below it. The top row dissolves so its children become grid items. */
+  /* Theater mode (desktop only): no gutters, the player is the view's full width, and the two
+     columns follow below it with chat still sticky on the right. */
   .sk-shell[data-theater-mode] .sk-main { background: var(--background-gray); padding: 0; }
   .sk-shell[data-theater-mode] .sk-watch {
-    display: grid; grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "player player" "details chat" "stats stats";
-    column-gap: var(--space-4); row-gap: var(--space-4); padding-bottom: var(--space-4);
+    grid-template-rows: auto auto auto 1fr;
+    grid-template-areas: "player player" "info chat" "stats chat" ". chat";
+    padding-bottom: var(--space-4);
   }
-  .sk-shell[data-theater-mode] .sk-watch-top { display: contents; }
-  .sk-shell[data-theater-mode] .sk-watch-player { grid-area: player; min-width: 0; }
   .sk-shell[data-theater-mode] .sk-watch-player > .sk-player {
     max-height: calc(100dvh - var(--appbar-height)); border-radius: 0;
   }
-  .sk-shell[data-theater-mode] [data-slot="details"] {
-    grid-area: details; align-self: start; min-width: 0; padding-left: var(--space-4);
-  }
+  .sk-shell[data-theater-mode] .sk-watch-info,
+  .sk-shell[data-theater-mode] .sk-watch-stats { padding-left: var(--space-4); }
+  .sk-shell[data-theater-mode] .sk-watch:not(:has(.sk-watch-chat .sk-chat[data-open="true"])) .sk-watch-info,
+  .sk-shell[data-theater-mode] .sk-watch:not(:has(.sk-watch-chat .sk-chat[data-open="true"])) .sk-watch-stats { padding-right: var(--space-4); }
   .sk-shell[data-theater-mode] .sk-watch-chat {
-    grid-area: chat; align-self: start; flex: none; min-width: 0; padding-right: var(--space-4);
+    grid-row: 2 / -1; top: var(--space-4); margin-right: var(--space-4);
+    height: max(260px, calc(100dvh - var(--appbar-height) - (2 * var(--space-4))));
   }
-  .sk-shell[data-theater-mode] .sk-watch-chat:has(.sk-chat[data-open="true"]) { width: 400px; }
-  .sk-shell[data-theater-mode] .sk-watch-chat:has(.sk-chat[data-open="false"]) { width: 44px; }
-  .sk-shell[data-theater-mode] .sk-watch-chat .sk-chat[data-open="true"] { height: 260px; min-height: 0; }
-  .sk-shell[data-theater-mode] [data-slot="stats"] { grid-area: stats; padding: 0 var(--space-4); }
 }
 
 @media (max-width: 959.98px) {
@@ -484,11 +548,11 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   .sk-watch-tabs .mud-tabs-tabbar-wrapper { width: 100%; }
   .sk-watch-tabs .mud-tab { flex: 1 1 0; }
   .sk-watch-tab-panel { min-height: 50dvh; }
-  .sk-watch-tab-panel > .sk-details-extra { padding: var(--space-3) var(--space-4) var(--space-4); }
+  .sk-watch-tab-panel > .sk-chapters { padding: var(--space-2) var(--space-2) var(--space-4); }
   /* The tab has no header: Video and Network stack, and their tiles stack too. */
   .sk-stats-panel[data-chrome="tab"] .sk-stats { grid-template-columns: 1fr; }
   .sk-stats-panel[data-chrome="tab"] .sk-tiles { grid-template-columns: 1fr; }
-  .sk-stats-panel[data-chrome="tab"] .sk-viewers { grid-template-columns: minmax(0, 1fr); }
+  .sk-viewers-tab .sk-viewers { grid-template-columns: minmax(0, 1fr); }
   .sk-watch-tabs .sk-chat,
   .sk-watch-tabs .sk-chat[data-open="true"] {
     width: 100%; max-height: none; min-height: 0; height: 60dvh; contain: none;
@@ -524,34 +588,27 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
    the player's height and the log scrolls; without it every new message grows the pane and
    pushes the sync footer down the page. */
 .sk-chat {
-  width: 44px; flex: none; display: flex; flex-direction: column; min-height: 0; overflow: hidden; contain: size;
+  width: 100%; flex: none; display: flex; flex-direction: column; min-height: 0; overflow: hidden; contain: size;
   background: var(--drawer-background); border: 1px solid var(--lines-default); border-radius: var(--radius-lg); color: var(--text-primary);
 }
 /* Open, the pane fills its sidecar; the watch layout owns the 400px/320px basis. As tall as
    the player, so a narrow desktop player keeps a few rows. */
-.sk-chat[data-open="true"] { width: 100%; min-height: 240px; }
+.sk-chat[data-open="true"] { min-height: 240px; }
 .sk-chat svg[data-icon] { display: block; width: 24px; height: 24px; fill: currentColor; flex: none; }
 .sk-chat [hidden] { display: none !important; }
 .sk-chat :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-.sk-chat-head { display: flex; align-items: center; gap: var(--space-2); min-height: 48px; padding: 0 var(--space-3) 0 var(--space-1); border-bottom: 1px solid var(--divider); }
-.sk-chat-toggle {
-  display: flex; align-items: center; gap: var(--space-2); flex: 1; min-width: 0; height: 40px; padding: 0 var(--space-2);
-  justify-content: flex-start; border: 0; border-radius: var(--radius-full); background: transparent; color: var(--text-primary);
-  cursor: pointer; font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing); text-align: left;
+.sk-chat-head { display: flex; align-items: center; gap: var(--space-2); min-height: 48px; padding: 0 var(--space-3); border-bottom: 1px solid var(--divider); }
+.sk-chat-head svg[data-icon] { color: var(--action-default); }
+.sk-chat-title {
+  flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing);
 }
-.sk-chat-toggle svg[data-icon] { color: var(--action-default); }
-.sk-chat-toggle:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
-.sk-chat-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sk-chat-state { flex: none; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; }
 .sk-chat-state[data-state="live"] { color: var(--primary); }
 .sk-chat-state[data-state="unavailable"] { color: var(--error); }
-/* Collapsed: a 44px strip with only the chat icon. */
-.sk-chat[data-open="false"] .sk-chat-title,
-.sk-chat[data-open="false"] .sk-chat-state { display: none; }
-.sk-chat[data-open="false"] .sk-chat-head { justify-content: center; padding: var(--space-1) 0; border-bottom: 0; }
-.sk-chat[data-open="false"] .sk-chat-toggle { flex: none; width: 40px; padding: 0; justify-content: center; }
+/* Closed, the pane is not shown at all; it has no toggle of its own to leave behind. */
+.sk-chat[data-open="false"] { display: none; }
 .sk-chat-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.sk-chat[data-open="false"] .sk-chat-body { display: none; }
 .sk-chat-log {
   flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; padding: var(--space-2) var(--space-3);
   display: flex; flex-direction: column; gap: var(--space-1);
@@ -582,9 +639,13 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 }
 .sk-chat-text img { height: 28px; width: auto; vertical-align: middle; }
 .sk-chat-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--divider); }
-/* Chat sync: a native range drawn like MudSlider Color.Primary. The module sets --sk-sync-lo and
-   --sk-sync-hi (0–1 along the track) so the fill runs from the centre to the thumb. */
-.sk-chat-sync { flex: 1 1 100%; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* Settings › Chat (design system: ChatSettings). Chat sync is a native range drawn like MudSlider
+   Color.Primary; ChatSettings sets --sk-sync-lo and --sk-sync-hi (0–1 along the track) so the
+   fill runs from the centre to the thumb. */
+.sk-chat-settings svg[data-icon] { display: block; width: 24px; height: 24px; fill: currentColor; flex: none; }
+.sk-chat-settings :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.sk-chat-settings-help { margin: 0; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
+.sk-chat-sync { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 420px; }
 .sk-chat-sync-head { display: flex; align-items: center; gap: var(--space-2); min-height: 28px; }
 .sk-chat-sync-head > svg[data-icon] { width: 20px; height: 20px; color: var(--action-default); }
 .sk-chat-sync-label { flex: 1; min-width: 0; color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
@@ -640,58 +701,78 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 @media (max-width: 959.98px) {
   /* Stacked under the player, the pane sizes to its content up to half the viewport. */
   .sk-chat, .sk-chat[data-open="true"] { width: 100%; max-height: 50vh; min-height: 0; contain: none; }
-  .sk-chat[data-open="false"] { max-height: 50px; }
-  .sk-chat[data-open="false"] .sk-chat-head { justify-content: flex-start; padding: var(--space-1); }
 }
 
-/* ---------- stats for nerds (design system: StatsPanel; JS island, #180) ----------
-   StatsPanel.razor.js owns this DOM: a MudExpansionPanel's shape drawn with plain markup.
-   Series colours: video primary, network secondary, the stream tertiary; labels never take them. */
-.sk-stats-panel { background: var(--surface); border-radius: var(--radius-lg); overflow: hidden; color: var(--text-primary); }
-.sk-stats-panel svg[data-icon] { display: block; width: 24px; height: 24px; fill: currentColor; flex: none; }
+/* ---------- Statistics (design system: StatsPanel; JS island, #180) ----------
+   StatsPanel.razor.js owns this DOM. Md and up it is a card laid over the top-left of the video,
+   inside the player's frame; on phones it is the Stats tab. Series colours: video primary,
+   network secondary, the stream tertiary; labels never take them. */
+.sk-stats-panel { color: var(--text-primary); }
+.sk-stats-panel[hidden] { display: none !important; }
+.sk-stats-panel svg[data-icon] { display: block; width: 20px; height: 20px; fill: currentColor; flex: none; }
 .sk-stats-panel :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-.sk-stats-head {
-  display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 48px; padding: 0 var(--space-3) 0 var(--space-4);
-  border: 0; border-radius: var(--radius-lg); background: transparent; color: var(--text-primary); text-align: left; cursor: pointer;
+.sk-stats-panel[data-chrome="tab"] { background: var(--surface); border-radius: var(--radius-lg); }
+
+/* The overlay: semi-transparent so the video shows through, above the title strip and control
+   bar and below the menus (z-index 5). While the overlays show it sits between the title strip
+   and the seek bar; idle, it moves up and may grow down. */
+.sk-stats-panel[data-chrome="overlay"] {
+  --sk-stats-top: 64px; --sk-stats-bottom: 96px;
+  position: absolute; z-index: 4; left: var(--space-3); top: var(--sk-stats-top);
+  width: min(420px, calc(100% - 2 * var(--space-3))); max-height: calc(100% - var(--sk-stats-top) - var(--sk-stats-bottom));
+  display: flex; flex-direction: column; border-radius: var(--radius-md); box-shadow: var(--elevation-8);
+  background: color-mix(in srgb, var(--player-surface) 68%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  color: var(--player-text); transition: top 200ms cubic-bezier(0.2, 0, 0, 1), max-height 200ms cubic-bezier(0.2, 0, 0, 1);
+  user-select: text; cursor: auto;
 }
-.sk-stats-panel .sk-stats-head:focus-visible { outline-offset: -2px; }
-.sk-stats-head:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
-.sk-stats-head > svg[data-icon] { color: var(--action-default); }
-/* The hint gives way first on a narrow panel; the title keeps its words. */
-.sk-stats-head .title { flex: 1 0 auto; font: var(--text-h6); letter-spacing: var(--text-h6-letter-spacing); white-space: nowrap; }
-.sk-stats-head .hint {
-  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary);
-  font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
+.sk-player.idle .sk-stats-panel[data-chrome="overlay"] { --sk-stats-top: var(--space-3); --sk-stats-bottom: var(--space-3); }
+.sk-stats-panel[data-chrome="overlay"] :focus-visible { outline-color: var(--player-accent); }
+.sk-stats-card-head { display: flex; align-items: center; gap: var(--space-1); flex: none; height: 40px; padding: 0 var(--space-1) 0 var(--space-3); }
+.sk-stats-card-head .title { flex: 1; margin: 0; font: var(--text-subtitle2); letter-spacing: var(--text-subtitle2-letter-spacing); }
+.sk-stats-icon-btn {
+  display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--radius-full);
+  background: transparent; color: var(--player-text); cursor: pointer;
 }
-/* A MudSwitch Color.Primary: a 14px track and a 20px thumb that slides and fills primary. */
-.sk-stats-switch { position: relative; flex: none; width: 34px; height: 20px; margin: 0 var(--space-2); }
-.sk-stats-switch::before {
-  content: ""; position: absolute; left: 0; right: 0; top: 3px; height: 14px; border-radius: 7px;
-  background: var(--text-primary); opacity: 0.38; transition: background 150ms, opacity 150ms;
+.sk-stats-icon-btn:hover { background: color-mix(in srgb, var(--player-text) calc(var(--hover-opacity) * 100%), transparent); }
+.sk-stats-panel[data-chrome="overlay"] .sk-stats-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.sk-stats-panel[data-chrome="overlay"] .sk-stats { grid-template-columns: 1fr; gap: var(--space-3); padding: 0 var(--space-3) var(--space-3); }
+.sk-stats-panel[data-chrome="overlay"] .sk-tile { padding: 0; background: transparent; }
+.sk-stats-panel[data-chrome="overlay"] .sk-tile .val { font: var(--text-stat-value); font-variant-numeric: var(--text-stat-value-numeric); letter-spacing: var(--text-stat-value-letter-spacing); }
+.sk-stats-panel[data-chrome="overlay"] .sk-tile svg { height: 20px; }
+.sk-stats-panel[data-chrome="overlay"] :is(.sk-tile .lbl, .sk-tile .val small, .sk-kv dt) { color: color-mix(in srgb, var(--player-text) 72%, transparent); }
+.sk-stats-panel[data-chrome="overlay"] :is(.sk-tile .val, .sk-kv dd) { text-shadow: var(--text-shadow-overlay); }
+.sk-stats-panel[data-chrome="overlay"] .sk-tiles { margin-bottom: var(--space-2); }
+.sk-stats-panel[data-chrome="overlay"] .sk-stats-section.stream { padding-top: 0; border-top: 0; }
+/* A narrow player (a small window with chat open): half the width, no sparklines. */
+@container (max-width: 559.98px) {
+  .sk-stats-panel[data-chrome="overlay"] { width: max(220px, 50%); }
+  .sk-stats-panel[data-chrome="overlay"] .sk-tile svg { display: none; }
 }
-.sk-stats-switch::after {
-  content: ""; position: absolute; left: 0; top: 0; width: 20px; height: 20px; border-radius: var(--radius-full);
-  background: var(--text-secondary); box-shadow: var(--elevation-4); transition: transform 150ms cubic-bezier(0.2, 0, 0, 1), background 150ms;
+/* Phones use the Stats tab, and the player's stats button is hidden there. */
+@media (max-width: 959.98px) {
+  .sk-stats-panel[data-chrome="overlay"] { display: none !important; }
 }
-[aria-checked="true"] > .sk-stats-switch::before { background: var(--primary); opacity: 0.5; }
-[aria-checked="true"] > .sk-stats-switch::after { background: var(--primary); transform: translateX(14px); }
-.sk-stats-collapse { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 300ms cubic-bezier(0.2, 0, 0, 1); }
-.sk-stats-collapse > div { min-height: 0; overflow: hidden; }
-/* The switch carries the disclosure state (aria-checked); the section's data-open drives motion. */
-.sk-stats-panel[data-open="false"] > .sk-stats-collapse { grid-template-rows: 0fr; }
+@media (prefers-reduced-motion: reduce) {
+  .sk-stats-panel[data-chrome="overlay"] { transition: none; }
+}
 
 .sk-stats { padding: var(--space-2) var(--space-4) var(--space-4); display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4) var(--space-6); }
 .sk-stats-heading {
   display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-2);
-  color: var(--text-primary); font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing);
+  color: var(--text-secondary); font: var(--text-overline); letter-spacing: var(--text-overline-letter-spacing); text-transform: uppercase;
 }
-.sk-stats-heading.video svg[data-icon] { color: var(--primary); }
-.sk-stats-heading.network svg[data-icon] { color: var(--secondary); }
-.sk-stats-heading.stream svg[data-icon] { color: var(--tertiary); }
+.sk-stats-panel[data-chrome="overlay"] .sk-stats-heading { color: color-mix(in srgb, var(--player-text) 72%, transparent); }
+.sk-stats-heading .swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.sk-stats-heading.video .swatch { background: var(--primary); }
+.sk-stats-heading.network .swatch { background: var(--secondary); }
+.sk-stats-heading.stream .swatch { background: var(--tertiary); }
 .sk-stats-section.stream { grid-column: 1 / -1; padding-top: var(--space-4); border-top: 1px solid var(--divider); }
-.sk-stats-empty { margin: 0; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
-/* Stream: the viewer tile (220px) beside the viewer chart (StatsPanel card, #211). The module
-   toggles [hidden]; none of these rules set display on a hidden element. */
+/* Viewers (design system: Viewers; #211): the 220px tile beside the chart, in its own panel
+   under Chapters, or at the bottom of the phone Stats tab. */
+.sk-viewers-panel[hidden], .sk-viewers-tab[hidden] { display: none !important; }
+.sk-viewers-panel .sk-disclosure-body { padding: 0 var(--space-4) var(--space-4); }
+.sk-viewers-tab { padding: 0 var(--space-4) var(--space-4); }
+.sk-disclosure-head .hint:empty { display: none; }
 .sk-viewers { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--space-3); align-items: stretch; }
 .sk-viewer-tile .sk-kv { margin-top: var(--space-2); }
 .sk-vchart {
@@ -781,38 +862,45 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 /* ---------- panel ---------- */
 .sk-panel { background: var(--sk-surface-container); border-radius: var(--sk-radius-md); overflow: hidden; }
 
-/* ---------- details (design system: RecordingDetails, #178) ---------- */
-.sk-details { background: var(--surface); border-radius: var(--radius-lg); overflow: hidden; }
-.sk-details-head {
+/* ---------- title block and panels (design system: RecordingDetails, Chapters, #178) ----------
+   The title block sits on the page ground under the player, outside any panel: the title and
+   meta on the left, the icon actions at the top right. Panels under it (Chapters) are
+   disclosures: a MudPaper with a real button header over a MudCollapse. */
+.sk-details { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.sk-details-summary { display: flex; align-items: flex-start; gap: var(--space-4); min-width: 0; }
+.sk-details-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.sk-details-summary .sk-actions { flex: none; display: flex; align-items: center; gap: var(--space-1); padding-top: var(--space-1); }
+.sk-disclosure { background: var(--surface); border-radius: var(--radius-lg); overflow: hidden; }
+.sk-disclosure-head {
   display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 48px; padding: 0 var(--space-2) 0 var(--space-4);
   border: 0; background: transparent; color: var(--text-primary); text-align: left; border-radius: var(--radius-md); cursor: pointer;
 }
-.sk-details-head:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
-.sk-details-head:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
-.sk-details-head h2 { flex: 1; margin: 0; }
-.sk-details-head .hint { color: var(--text-secondary); white-space: nowrap; }
-.sk-details-head .chev { color: var(--action-default); transition: transform 300ms cubic-bezier(0.2, 0, 0, 1); }
-.sk-details[data-expanded="false"] .sk-details-head .chev { transform: rotate(-90deg); }
-.sk-details-body { padding: 0 var(--space-4) var(--space-4); }
+.sk-disclosure-head:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
+.sk-disclosure-head:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.sk-disclosure-head h2 { flex: 1; margin: 0; }
+.sk-disclosure-head .hint { color: var(--text-secondary); white-space: nowrap; }
+.sk-disclosure-head .chev { color: var(--action-default); transition: transform 300ms cubic-bezier(0.2, 0, 0, 1); }
+.sk-disclosure[data-expanded="false"] .sk-disclosure-head .chev { transform: rotate(-90deg); }
+.sk-disclosure-body { padding: 0 var(--space-2) var(--space-3); }
 /* The title has the row to itself: two lines, then an ellipsis; the tooltip has the rest.
    The tooltip's hover target is the text, not the empty rest of the row beside a short title. */
 .sk-details-title-root { display: inline-block; max-width: 100%; vertical-align: top; }
 .sk-details-title { margin: 0; padding: var(--space-2) 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .sk-details-title:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--radius-sm); }
-.sk-details-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin-top: var(--space-1); }
-.sk-details-meta { flex: 1 1 320px; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
+.sk-details-meta { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
 .sk-details-meta .who { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-primary); font-weight: 600; }
 .sk-details-meta .pair { display: inline-flex; align-items: center; gap: var(--space-1); }
 .sk-details-meta .pair .mud-icon-root { font-size: var(--icon-inline); color: var(--action-default); }
-.sk-details .sk-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 /* Buttons card: icon buttons rest in action-default (MudBlazor's button root is currentColor). */
-.sk-details .sk-actions .mud-icon-button:not(:disabled) { color: var(--action-default); }
-.sk-details-wide, .sk-details-compact { display: contents; }
-/* Below Breakpoint.Md, Stop recording and Delete move into More actions. */
-@media (max-width: 959.98px) { .sk-details-wide { display: none; } }
-@media (min-width: 960px) { .sk-details-compact { display: none; } }
+.sk-details-summary .sk-actions .mud-icon-button:not(:disabled):not(.sk-tonal) { color: var(--action-default); }
+/* Export MP4 is the one emphasised action: a tonal icon button, primary on a primary tint. */
+.sk-details-summary .sk-actions .sk-tonal:not(:disabled) { color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, transparent); }
+.sk-details-summary .sk-actions .sk-tonal:not(:disabled):hover { background: color-mix(in srgb, var(--primary) 22%, transparent); }
+/* More actions: Stop recording in error; a blocked item gives its reason under its label. */
+.sk-more-menu { min-width: 220px; }
+.sk-menu-error:not(.mud-disabled) { color: var(--error); }
 .sk-menu-reason { display: block; color: var(--text-secondary); }
-.sk-chapters { display: flex; flex-direction: column; gap: 2px; margin-top: var(--space-3); }
+.sk-chapters { display: flex; flex-direction: column; gap: 2px; }
 .sk-chapter { display: flex; align-items: baseline; gap: var(--space-3); width: 100%; padding: 6px var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }
 .sk-chapter:hover { background: var(--surface-raised); }
 /* tertiary as text is under 4.5:1 on surface-raised, so the hovered offset turns text-primary. */
@@ -833,6 +921,12 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-main-inner { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-3); }
 .sk-shell[data-drawer-frame="hidden"] .sk-drawer-frame { display: none; }
 .sk-shell[data-drawer-frame="hidden"] .sk-main-frame { margin-left: 0; }
+/* Md and up the page always keeps the rail's width: the open library lies over it (design
+   system: LibraryDrawer), widening from 320px to 680px with a channel's recordings column. */
+@media (min-width: 960px) {
+  .sk-shell[data-layout="wide"]:not([data-drawer-frame="hidden"]) .sk-main-frame.mud-main-content { margin-left: var(--drawer-mini-width); }
+  .sk-shell[data-layout="wide"][data-library-open] .sk-drawer-frame { box-shadow: var(--elevation-8); }
+}
 .sk-auth-placeholder { opacity: var(--sk-state-disabled); pointer-events: none; cursor: default; }
 
 /* A "Live updates paused" alert's message takes the room; Retry sits at its end. */
@@ -889,7 +983,7 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sk-search-field, .sk-group-body, .sk-group-head .chev { transition: none; }
+  .sk-search-field { transition: none; }
   /* MudBlazor's own transitions and ripples (drawer, app bar, buttons, menus, tooltips,
      overlays) use longer selectors than ours, so reduced motion overrides them outright. */
   [class*="mud-"], [class*="mud-"]::before, [class*="mud-"]::after { transition: none !important; animation: none !important; }
@@ -1029,6 +1123,8 @@ body:has([data-bottom-nav]) .mud-snackbar-location-bottom-left {
 .sk-channel-row .grow { flex: 1; }
 .sk-channel-row .sk-field-error { flex-basis: 100%; }
 .sk-channel-busy { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); font: var(--text-body2); }
+/* The add field and its error lead the Channels section, set off from the list by a divider. */
+.sk-channel-adder { display: flex; flex-direction: column; gap: var(--space-2); padding-bottom: var(--space-3); border-bottom: 1px solid var(--divider); }
 .sk-channel-add { display: flex; align-items: center; gap: var(--space-2); }
 .sk-channel-add .mud-input-control { flex: 1; min-width: 0; margin: 0; }
 /* Add errors render below as their own role="alert" paragraph, so the field's empty helper row goes. */
@@ -1117,3 +1213,14 @@ a.sk-card:focus-visible { outline: 2px solid var(--primary); outline-offset: -2p
   .sk-shelf-row > li { flex-basis: 60vw; }
   .sk-shelf-row.large > li { flex-basis: 85vw; }
 }
+
+/* ---------- sign-in page (design system: SignIn; private mode, ADR-0013) ---------- */
+.sk-signin { display: grid; place-items: center; min-height: 100dvh; padding: var(--space-4); background: var(--background); }
+.sk-signin-card.mud-paper { width: 100%; max-width: 400px; padding: var(--space-8) var(--space-6) var(--space-6); background: var(--surface); border-radius: var(--radius-lg); display: flex; flex-direction: column; align-items: center; gap: var(--space-4); text-align: center; }
+.sk-signin-brand { margin: 0; font-size: 24px; }
+.sk-signin-brand .sk-logo img { width: 24px; height: 24px; }
+.sk-signin-card h1 { margin-top: var(--space-2); }
+.sk-signin-intro, .sk-signin-fine { color: var(--text-secondary); }
+.sk-signin-alert.mud-alert { width: 100%; text-align: left; align-items: flex-start; }
+.sk-signin-alert b { display: block; }
+.sk-signin-twitch { width: 100%; height: 44px; justify-content: center; text-decoration: none; }
