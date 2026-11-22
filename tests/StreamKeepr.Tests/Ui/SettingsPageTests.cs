@@ -185,6 +185,15 @@ public sealed class SettingsPageTests
     }
 
     [Fact]
+    public async Task Add_field_asks_for_a_twitch_channel()
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+        IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
+
+        Assert.Equal("Add a Twitch channel", cut.Find("[data-channel-login]").GetAttribute("placeholder"));
+    }
+
+    [Fact]
     public async Task Add_trims_and_lowercases_shows_busy_then_clears_and_announces()
     {
         await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
