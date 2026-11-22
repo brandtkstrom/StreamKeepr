@@ -122,6 +122,7 @@ ExportJob? FindByRecording(string recordingId);
   - `failed` — remote/OAuth failure.
 - A shell-level notifier shows one snackbar, then removes only `authError` with `replace: true`, preserving `q`/`state`/`sort` and the current path. Messages: “This Twitch account is not allowed to manage Stream Keepr.”, “Twitch sign-in requires HTTPS except on localhost.”, “Twitch sign-in failed. Try again.”
 - Empty `AllowedTwitchLogins` keeps the accepted open-admin behavior (E-13); no UI gate beyond successful authentication.
+- Non-empty `AllowedTwitchLogins` makes the app private (ADR-0013): the failures above show on the `/signin` page (design system `SignIn`) rather than as a snackbar, and the signed-out states in this contract (`RequiresTwitch` tooltips, the Settings connect prompt, the expired chip) cannot occur, because no signed-out visitor reaches the app.
 - Return URLs are local paths only (`/...`); external URLs fall back to `/`. The login link builds the current path and query, excluding fragments and an existing `authError`.
 - Settings shows a short note when the page is HTTP and the host is not localhost/loopback: Twitch sign-in needs HTTPS through the reverse proxy. It is a dense info `MudAlert` with `role="note"` (`[data-https-note]`, #179), above the sections. The Connect button remains visible.
 
@@ -251,7 +252,7 @@ Freedom: exact panel markup beyond the `sk-` classes, wording of non-binding mes
 - Stop/resume surfaces are Settings plus the details card; the plan's streamer group menu and player title-strip control are absent (E-23).
 - An already-produced export file survives recording deletion until the 24 h sweep; deleting the recording does not revoke a downloaded copy.
 - Export jobs are in-memory: a host restart loses queued/running jobs (a completed file may remain until cleanup). One process-wide export runs at a time.
-- Admin sign-in requires HTTPS except on localhost; plain LAN HTTP can view and record but cannot administer.
+- Admin sign-in requires HTTPS except on localhost; with an empty allowlist plain LAN HTTP can view and record but cannot administer, and with a non-empty one it cannot view either (ADR-0013).
 - Empty `AllowedTwitchLogins` means open administration (E-13); set the allowlist on shared networks.
 - No per-user progress or preferences.
 

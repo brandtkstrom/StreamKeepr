@@ -114,7 +114,8 @@ public sealed class TwitchTokenProvider(
 
 - Non-empty: only those logins may complete sign-in. Any other login is rejected with `context.Fail`, no cookie, and no token saved.
 - **Empty: every successfully authenticated Twitch user is an app admin.** This is an explicit opt-in to open administration. Log a startup warning: “AllowedTwitchLogins is empty; any Twitch user can administer this app.” Set the allowlist for any shared or untrusted network.
-- Viewing and recording stay open in both modes. The allowlist governs app management actions only; it does not grant Twitch moderator/broadcaster powers.
+- **The list also decides who can view (ADR-0013).** Empty: viewing is open, as above. Non-empty: the app is private; every page redirects a visitor without an allowed session to `/signin?returnUrl=`, every media and API route answers `401`, and the circuit refuses the connection. Only `/signin`, the login and callback routes, health and static assets stay public. Recording runs in both modes.
+- The allowlist does not grant Twitch moderator/broadcaster powers.
 
 ### OAuth
 

@@ -1,4 +1,4 @@
-The sign-in page. When `Auth:AllowedTwitchLogins` lists one or more logins, StreamKeepr is private: nothing in it shows until an allowed Twitch account has signed in, and this page is all a signed-out visitor sees. With an empty list nothing changes: viewing stays open and the app bar's `TwitchAccount` button signs in for admin actions.
+The sign-in page. When `Auth:AllowedTwitchLogins` lists one or more logins, StreamKeepr is private: nothing in it shows until an allowed Twitch account has signed in, and this page is all a signed-out visitor sees. With an empty list nothing changes: viewing stays open and the app bar's `TwitchAccount` button signs in for admin actions. The decision is ADR-0013 (`docs/adr/0013-allowlist-makes-the-app-private.md`).
 
 ## Build it from
 
