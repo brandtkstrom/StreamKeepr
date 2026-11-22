@@ -184,8 +184,11 @@ public sealed class RecordingDeleteTests
 
         dialogs.Find("[data-delete-confirm]").Click();
 
+        // The refusal comes back through the async delete, so the banner may render a moment
+        // after the click on a slow machine (CI, PR #262).
+        dialogs.WaitForAssertion(() =>
+            Assert.Contains("being exported", dialogs.Find("[data-delete-banner]").TextContent));
         Assert.True(dialogs.HasOpenDialog(DeleteName));
-        Assert.Contains("being exported", dialogs.Find("[data-delete-banner]").TextContent);
         cut.WaitForAssertion(() =>
             Assert.True(dialogs.Find("[data-delete-confirm]").HasAttribute("disabled")));
     }
