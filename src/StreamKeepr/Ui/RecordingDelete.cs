@@ -12,7 +12,7 @@ public static class RecordingDelete
 
     /// <summary>Why Delete is disabled, or null when it is available.</summary>
     public static string? BlockedReason(RecordingView recording, bool exportActive) =>
-        recording.State is RecordingState.Recording or RecordingState.Reconnecting ? WhileLive
+        recording.State.IsOpen() ? WhileLive
         : exportActive ? WhileExporting
         : null;
 }

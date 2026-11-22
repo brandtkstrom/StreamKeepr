@@ -185,6 +185,14 @@ else
     private void OnSessionChanged() => _ = InvokeAsync(() =>
     {
         // Private mode: playback and the page stop with the session; the sign-in page explains.
+        if (Private && Session.NotAllowed)
+        {
+            Navigation.NavigateTo(
+                PrivateMode.SignInUrl(ReturnUrl, AdminAuth.NotAllowedAuthError, TwitchLogin.Normalize(Session.LastLogin)),
+                forceLoad: true);
+            return;
+        }
+
         if (Private && Session.Expired)
         {
             Navigation.NavigateTo(

@@ -79,16 +79,43 @@ public sealed class LibraryChannelsTests
     }
 
     [Fact]
-    public async Task Picking_a_recording_closes_the_column_md_and_up()
+    public async Task Md_and_up_the_library_opens_on_the_watched_channel_and_keeps_the_last_pick_elsewhere()
     {
-        await using BunitContext context = CreateContext(out _);
+        var view = View();
+        view.FindById["b1"] = view.RecordingsByLogin["beta"][0];
+        await using BunitContext context = CreateContext(out _, view);
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+        // Elsewhere it opens on nothing; a pick is remembered for the session.
+        Assert.Empty(cut.FindAll("[data-recordings-column]"));
         Option(cut, "alpha").Click();
+        navigation.NavigateTo("/settings");
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("[data-recordings-column='alpha']")));
 
-        navigation.NavigateTo("/r/a1");
+        // Watching b1, the library (next time it opens) is on b1's channel.
+        navigation.NavigateTo("/r/b1");
 
-        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll("[data-recordings-column]")));
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Single(cut.FindAll("[data-recordings-column='beta']"));
+            Assert.Equal("true", Option(cut, "beta").GetAttribute("aria-selected"));
+        });
+    }
+
+    [Fact]
+    public async Task A_deep_link_opens_on_its_channel_once_the_library_has_loaded()
+    {
+        var view = View();
+        view.IsLoaded = false;
+        await using BunitContext context = CreateContext(out _, view);
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/r/b1");
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        view.FindById["b1"] = view.RecordingsByLogin["beta"][0];
+        view.IsLoaded = true;
+        view.RaiseChanged();
+
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("[data-recordings-column='beta']")));
     }
 
     [Fact]

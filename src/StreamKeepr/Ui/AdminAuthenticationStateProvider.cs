@@ -1,6 +1,9 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Server;
+using Microsoft.Extensions.Options;
+using StreamKeepr.Configuration;
+using StreamKeepr.Infrastructure.Twitch;
 
 namespace StreamKeepr.Ui;
 
@@ -12,7 +15,10 @@ public sealed class AdminSessionState
 {
     public bool Expired { get; private set; }
 
-    /// <summary>The login that was signed in when the session expired.</summary>
+    /// <summary>The login left <c>Auth:AllowedTwitchLogins</c> while this circuit was open (ADR-0013).</summary>
+    public bool NotAllowed { get; private set; }
+
+    /// <summary>The login that was signed in when the session expired or was refused.</summary>
     public string? LastLogin { get; private set; }
 
     public event Action? Changed;
@@ -20,6 +26,13 @@ public sealed class AdminSessionState
     public void MarkExpired(string? login)
     {
         Expired = true;
+        LastLogin = login;
+        Changed?.Invoke();
+    }
+
+    public void MarkNotAllowed(string? login)
+    {
+        NotAllowed = true;
         LastLogin = login;
         Changed?.Invoke();
     }
@@ -48,6 +61,7 @@ public sealed class AdminAuthenticationStateProvider :
         Task.FromResult(new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity())));
 
     private readonly IAdminSessionValidator _validator;
+    private readonly IOptionsMonitor<AuthOptions> _auth;
     private readonly AdminSessionState _session;
     private readonly TimeProvider _clock;
     private readonly ILogger<AdminAuthenticationStateProvider> _logger;
@@ -59,11 +73,13 @@ public sealed class AdminAuthenticationStateProvider :
 
     public AdminAuthenticationStateProvider(
         IAdminSessionValidator validator,
+        IOptionsMonitor<AuthOptions> auth,
         AdminSessionState session,
         TimeProvider clock,
         ILogger<AdminAuthenticationStateProvider> logger)
     {
         _validator = validator;
+        _auth = auth;
         _session = session;
         _clock = clock;
         _logger = logger;
@@ -96,6 +112,19 @@ public sealed class AdminAuthenticationStateProvider :
                 ClaimsPrincipal user = (await _state).User;
                 if (user.Identity?.IsAuthenticated != true)
                     continue;
+
+                // Private mode: a login taken off the list loses the circuit at this check, the
+                // same as an expiry, but it is told why (ADR-0013).
+                AuthOptions auth = _auth.CurrentValue;
+                if (auth.IsPrivate
+                    && !AdminAuth.IsLoginAllowed(TwitchLogin.Normalize(user.Identity?.Name), auth.AllowedTwitchLogins))
+                {
+                    _logger.LogInformation("The signed-in login is no longer allowed; signing this circuit out.");
+                    _state = Anonymous;
+                    _session.MarkNotAllowed(user.Identity?.Name);
+                    NotifyAuthenticationStateChanged(_state);
+                    continue;
+                }
 
                 bool valid;
                 try

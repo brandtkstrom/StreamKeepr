@@ -97,7 +97,8 @@ public sealed class PrivateModeTests
     {
         using var harness = PrivateHarness();
         string cookie = await SignInCookieAsync(harness);
-        harness.Factory.Services.GetRequiredService<IOptions<AuthOptions>>().Value.AllowedTwitchLogins = ["someone_else"];
+        // The list is read live, so editing it takes effect without a restart.
+        harness.Factory.Services.GetRequiredService<IOptionsMonitor<AuthOptions>>().CurrentValue.AllowedTwitchLogins = ["someone_else"];
         using HttpClient client = harness.CreateRequestClient();
 
         using HttpResponseMessage page = await client.SendAsync(Page("/settings", cookie));

@@ -77,7 +77,7 @@ public sealed class StatsPanelTests
 
         var heading = Assert.Single(cut.FindAll("[data-sk='stats-body'] h3"), h => h.TextContent.Trim() == section);
         Assert.Equal(series, heading.GetAttribute("data-series"));
-        Assert.Equal("true", heading.QuerySelector(".swatch")?.GetAttribute("aria-hidden"));
+        Assert.Equal("true", heading.QuerySelector("[data-series-swatch]")?.GetAttribute("aria-hidden"));
     }
 
     [Fact]

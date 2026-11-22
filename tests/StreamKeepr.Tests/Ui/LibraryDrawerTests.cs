@@ -266,13 +266,13 @@ public sealed class LibraryDrawerTests
         Assert.Equal("true", cut.Find("[data-recording-id='r2']").GetAttribute("aria-current"));
         Assert.Null(cut.Find("[data-recording-id='r1']").GetAttribute("aria-current"));
 
-        // Picking a recording closes the column; reopened, it marks the new one.
         navigation.NavigateTo("/r/r1");
-        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll("[data-recordings-column]")));
-        Open(cut, "alpha");
 
-        Assert.Equal("true", cut.Find("[data-recording-id='r1']").GetAttribute("aria-current"));
-        Assert.Null(cut.Find("[data-recording-id='r2']").GetAttribute("aria-current"));
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("true", cut.Find("[data-recording-id='r1']").GetAttribute("aria-current"));
+            Assert.Null(cut.Find("[data-recording-id='r2']").GetAttribute("aria-current"));
+        });
     }
 
     [Fact]

@@ -117,6 +117,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         await page.Keyboard.PressAsync("Enter");
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
         await ExpandLibraryOnWatchPageAsync(page);
+        await LibraryHooks.OpenLibraryAsync(page);
         await first.FocusAsync();
         await page.Keyboard.PressAsync("Tab");
         Assert.False(await IsFocusedInsideAsync(channels));
@@ -368,20 +369,12 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     }
 
     /// <summary>
-    /// Watch pages show the library as the rail by default (#174). Journeys that keep using the
-    /// library's rows there open it with the menu, as a viewer would; the choice is remembered
-    /// for later watch pages and reloads.
+    /// Waits for the watch page. The library there is the rail; it opens over the page (and the
+    /// player) only when a journey uses it, through <see cref="LibraryHooks.OpenLibraryAsync"/>,
+    /// so it never covers the player's controls by accident.
     /// </summary>
-    internal static async Task ExpandLibraryOnWatchPageAsync(IPage page)
-    {
-        await page.Locator("[data-shell][data-watching]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
-        ILocator drawer = page.Locator(LibraryHooks.Drawer);
-        if (await drawer.GetAttributeAsync("data-drawer") == "expanded")
-            return;
-
-        await page.Locator("[data-drawer-toggle]").ClickAsync();
-        await Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "expanded" ? 1 : 0, 1);
-    }
+    internal static Task ExpandLibraryOnWatchPageAsync(IPage page) =>
+        page.Locator("[data-shell][data-watching]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
 
     [Fact]
     public async Task A_search_with_no_match_offers_to_clear_it()

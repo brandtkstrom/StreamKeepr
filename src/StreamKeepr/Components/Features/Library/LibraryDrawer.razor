@@ -212,6 +212,7 @@
     private IJSObjectReference? _drawerModule;
     private IJSObjectReference? _keys;
     private string? _selectedChannel;
+    private string? _awaitingWatched;
     private bool _signedIn;
     private Task<AuthenticationState>? _authState;
     private RecordingView? _deleteTarget;
@@ -228,8 +229,9 @@
     {
         _selectedId = ParseSelectedId(Navigation.Uri);
         _query = LibraryUrl.Parse(Navigation.Uri);
-        if (Compact)
-            _selectedChannel = ChannelOf(_selectedId);
+        // While watching, the library opens on the watched recording's channel (design system:
+        // LibraryDrawer); elsewhere on nothing, until a channel is picked.
+        FollowWatched(_selectedId);
         Library.Changed += OnLibraryChanged;
         Clock.Changed += OnClockChanged;
         Navigation.LocationChanged += OnLocationChanged;
@@ -408,7 +410,31 @@
         }
     }
 
-    private void OnLibraryChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnLibraryChanged() => _ = InvokeAsync(() =>
+    {
+        // A deep link can arrive before the library has loaded; pick its channel once it has.
+        if (_awaitingWatched is { } id && ChannelOf(id) is { } channel)
+        {
+            _selectedChannel = channel;
+            _awaitingWatched = null;
+        }
+
+        StateHasChanged();
+    });
+
+    // Selects the watched recording's channel, or waits for the library to know it. The open
+    // library is temporary, so this channel shows the next time it opens.
+    private void FollowWatched(string? recordingId)
+    {
+        _awaitingWatched = null;
+        if (recordingId is null)
+            return;
+
+        if (ChannelOf(recordingId) is { } channel)
+            _selectedChannel = channel;
+        else
+            _awaitingWatched = recordingId;
+    }
 
     private void OnClockChanged() => _ = InvokeAsync(StateHasChanged);
 
@@ -420,12 +446,11 @@
             return;
 
         _resetScroll |= query != _query;
+        // Picking a recording closes the library (the shell does that); it opens next time on
+        // the watched recording's channel. Other pages keep the channel last picked, for the
+        // session only.
         if (!string.Equals(selected, _selectedId, StringComparison.Ordinal) && selected is not null)
-        {
-            // Picking a recording closes the column Md and up; below Md the temporary drawer
-            // closes, and it opens next time on the watched recording's channel.
-            _selectedChannel = Compact ? ChannelOf(selected) : null;
-        }
+            FollowWatched(selected);
 
         _selectedId = selected;
         _query = query;

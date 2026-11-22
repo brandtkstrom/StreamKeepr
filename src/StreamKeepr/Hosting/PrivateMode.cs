@@ -34,14 +34,16 @@ public static class PrivateMode
     public static IServiceCollection AddStreamKeeprPrivateMode(this IServiceCollection services)
     {
         services.AddOptions<AuthorizationOptions>()
-            .Configure<IOptions<AuthOptions>>((options, auth) =>
+            .Configure<IOptionsMonitor<AuthOptions>>((options, auth) =>
             {
-                if (!auth.Value.IsPrivate)
+                // Private or open is decided at startup; the list itself is read on each request,
+                // so a login taken off it loses access without a restart.
+                if (!auth.CurrentValue.IsPrivate)
                     return;
 
                 options.FallbackPolicy = new AuthorizationPolicyBuilder(AdminAuth.CookieScheme)
                     .RequireAuthenticatedUser()
-                    .RequireAssertion(context => IsAllowed(context.User, auth.Value))
+                    .RequireAssertion(context => IsAllowed(context.User, auth.CurrentValue))
                     .Build();
             });
 
@@ -55,7 +57,7 @@ public static class PrivateMode
     public static IApplicationBuilder UseStreamKeeprPrivateMode(this IApplicationBuilder app) =>
         app.Use(async (context, next) =>
         {
-            AuthOptions auth = context.RequestServices.GetRequiredService<IOptions<AuthOptions>>().Value;
+            AuthOptions auth = context.RequestServices.GetRequiredService<IOptionsMonitor<AuthOptions>>().CurrentValue;
             if (auth.IsPrivate
                 && context.User.Identity is { IsAuthenticated: true, Name: var login }
                 && !IsAllowed(context.User, auth))
@@ -73,7 +75,7 @@ public static class PrivateMode
         && AdminAuth.IsLoginAllowed(TwitchLogin.Normalize(login), auth.AllowedTwitchLogins);
 
     public static bool IsPrivate(HttpContext context) =>
-        context.RequestServices.GetRequiredService<IOptions<AuthOptions>>().Value.IsPrivate;
+        context.RequestServices.GetRequiredService<IOptionsMonitor<AuthOptions>>().CurrentValue.IsPrivate;
 
     /// <summary>
     /// A browser navigation to a page, as opposed to media, API, circuit or script requests:

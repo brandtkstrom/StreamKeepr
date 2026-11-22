@@ -345,6 +345,29 @@ public sealed class TwitchAccountTests
     private static AngleSharp.Dom.IElement Menu(IRenderedComponent<MudPopoverProvider> popovers) =>
         popovers.Find("[role='menu']");
 
+    [Fact]
+    public async Task Private_mode_sends_a_login_taken_off_the_list_to_the_sign_in_page_as_not_allowed()
+    {
+        await using BunitContext context = CreateContext(out AdminSessionState session);
+        MakePrivate(context);
+        BunitAuthorizationContext authorization = context.AddAuthorization().SetAuthorized("mock_admin");
+        var navigation = context.Services.GetRequiredService<BunitNavigationManager>();
+        navigation.NavigateTo("/r/abc");
+        IRenderedComponent<TwitchAccount> cut = RenderAccount(context);
+
+        await cut.InvokeAsync(() =>
+        {
+            authorization.SetNotAuthorized();
+            session.MarkNotAllowed("mock_admin");
+        });
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("http://localhost/signin?returnUrl=%2Fr%2Fabc&authError=notAllowed&login=mock_admin", navigation.Uri);
+            Assert.True(Assert.IsType<NavigationOptions>(navigation.History.First().Options).ForceLoad);
+        });
+    }
+
     private static void MakePrivate(BunitContext context) =>
         context.Services.AddSingleton(Microsoft.Extensions.Options.Options.Create(
             new StreamKeepr.Configuration.AuthOptions { AllowedTwitchLogins = ["mock_admin"] }));

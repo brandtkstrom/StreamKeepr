@@ -37,7 +37,7 @@
     <div class="sk-stats-body" data-sk="stats-body" tabindex="@(Tab ? null : "0")">
         <div class="sk-stats">
             <div class="sk-stats-section">
-                <h3 class="sk-stats-heading video" data-series="video"><span class="swatch" aria-hidden="true"></span>Video</h3>
+                <h3 class="sk-stats-heading video" data-series="video"><span class="swatch" aria-hidden="true" data-series-swatch></span>Video</h3>
                 <div class="sk-tiles">
                     <div class="sk-tile">
                         <div class="lbl">Bitrate</div>
@@ -87,7 +87,7 @@
             </div>
 
             <div class="sk-stats-section">
-                <h3 class="sk-stats-heading network" data-series="network"><span class="swatch" aria-hidden="true"></span>Network</h3>
+                <h3 class="sk-stats-heading network" data-series="network"><span class="swatch" aria-hidden="true" data-series-swatch></span>Network</h3>
                 <div class="sk-tiles">
                     <div class="sk-tile">
                         <div class="lbl">Bandwidth</div>
@@ -142,7 +142,7 @@
                 @* The viewer count at the playhead, so fullscreen still shows it. The module shows
                    the row once ViewersPanel has samples for this recording. *@
                 <div class="sk-stats-section stream" data-sk="stats-stream" hidden>
-                    <h3 class="sk-stats-heading stream" data-series="stream"><span class="swatch" aria-hidden="true"></span>Stream</h3>
+                    <h3 class="sk-stats-heading stream" data-series="stream"><span class="swatch" aria-hidden="true" data-series-swatch></span>Stream</h3>
                     <dl class="sk-kv">
                         <dt data-sk="stream-at">Viewers at 0:00</dt>
                         <dd data-sk="stream-viewers">—</dd>

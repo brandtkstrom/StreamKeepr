@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
+using StreamKeepr.Configuration;
 using StreamKeepr.Ui;
 
 namespace StreamKeepr.Tests.Ui;
@@ -15,7 +16,7 @@ public sealed class AdminAuthenticationStateProviderTests
         var validator = new FakeValidator { Valid = false };
         var session = new AdminSessionState();
         using var provider = new AdminAuthenticationStateProvider(
-            validator, session, clock, NullLogger<AdminAuthenticationStateProvider>.Instance);
+            validator, Auth(), session, clock, NullLogger<AdminAuthenticationStateProvider>.Instance);
         int changes = 0;
         provider.AuthenticationStateChanged += _ => changes++;
 
@@ -41,7 +42,7 @@ public sealed class AdminAuthenticationStateProviderTests
         var validator = new FakeValidator { Valid = true };
         var session = new AdminSessionState();
         using var provider = new AdminAuthenticationStateProvider(
-            validator, session, clock, NullLogger<AdminAuthenticationStateProvider>.Instance);
+            validator, Auth(), session, clock, NullLogger<AdminAuthenticationStateProvider>.Instance);
 
         provider.SetAuthenticationState(SignedIn("mock_admin"));
         await WaitForTimerAsync(clock, 1);
@@ -66,7 +67,7 @@ public sealed class AdminAuthenticationStateProviderTests
         var validator = new FakeValidator { Throws = true };
         var session = new AdminSessionState();
         using var provider = new AdminAuthenticationStateProvider(
-            validator, session, clock, NullLogger<AdminAuthenticationStateProvider>.Instance);
+            validator, Auth(), session, clock, NullLogger<AdminAuthenticationStateProvider>.Instance);
 
         provider.SetAuthenticationState(SignedIn("mock_admin"));
         await WaitForTimerAsync(clock, 1);
@@ -76,6 +77,37 @@ public sealed class AdminAuthenticationStateProviderTests
         Assert.True((await provider.GetAuthenticationStateAsync()).User.Identity!.IsAuthenticated);
         Assert.False(session.Expired);
     }
+
+    [Fact]
+    public async Task In_private_mode_a_login_taken_off_the_list_is_signed_out_and_told_why()
+    {
+        var clock = new CountingClock();
+        var validator = new FakeValidator { Valid = true };
+        var session = new AdminSessionState();
+        TestOptionsMonitor<AuthOptions> auth = Auth("mock_admin", "other");
+        using var provider = new AdminAuthenticationStateProvider(
+            validator, auth, session, clock, NullLogger<AdminAuthenticationStateProvider>.Instance);
+
+        provider.SetAuthenticationState(SignedIn("mock_admin"));
+        await WaitForTimerAsync(clock, 1);
+        clock.Advance(AdminAuthenticationStateProvider.RevalidationInterval);
+        await WaitUntilAsync(() => validator.Calls == 1);
+        Assert.False(session.NotAllowed);
+
+        // The operator edits the list; the next check catches it, before the token check.
+        auth.CurrentValue.AllowedTwitchLogins = ["other"];
+        await WaitForTimerAsync(clock, 2);
+        clock.Advance(AdminAuthenticationStateProvider.RevalidationInterval);
+        await WaitUntilAsync(() => session.NotAllowed);
+
+        Assert.False((await provider.GetAuthenticationStateAsync()).User.Identity!.IsAuthenticated);
+        Assert.Equal("mock_admin", session.LastLogin);
+        Assert.False(session.Expired);
+        Assert.Equal(1, validator.Calls);
+    }
+
+    private static TestOptionsMonitor<AuthOptions> Auth(params string[] logins) =>
+        new(new AuthOptions { AllowedTwitchLogins = [.. logins] });
 
     internal static Task<AuthenticationState> SignedIn(string login) =>
         Task.FromResult(new AuthenticationState(new ClaimsPrincipal(
