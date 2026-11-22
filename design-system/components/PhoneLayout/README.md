@@ -4,7 +4,7 @@ The layout below MudBlazor's `Breakpoint.Md` (960px), phones and tablets: a dens
 
 - **Top bar:** `MudAppBar Dense` (48px). On Home, Library and Settings it holds the wordmark, a search icon (which opens a full-width search row), the GitHub and Twitch links, and the account avatar as a `MudMenu` activator (the name is in its menu). On a watch page it holds an `ArrowBack` button to Home, the recording title (`subtitle1` at Medium, ellipsised) and search.
 - **Bottom bar:** `BottomNav` (`MudAppBar Bottom`), with Home · Library · Settings. It is hidden on watch pages, so the player and tabs get the room.
-- **Library:** `MudDrawer Variant="Temporary"`, `drawer-width` (320px) but never wider than the screen less 48px, over `overlay-dark` at `elevation-4`, opened by Library in the bottom bar. Picking a recording closes it. Disk usage sits at its foot.
+- **Library:** `MudDrawer Variant="Temporary"`, `drawer-width` (320px) but never wider than the screen less 48px, over `overlay-dark` at `elevation-4`, opened by Library in the bottom bar. It drills in rather than showing two columns: the channels list first; tapping a channel slides its recordings over the list, with an `ArrowBack` "All channels" button and the channel's avatar and name in the header (the card shows this state). Picking a recording closes it. Disk usage sits at its foot.
 - **Home:** the two rows run edge to edge with `pa-4` gutters, as swipe rows. Large cards are 85% and default cards 60% of the screen width.
 - **Watching:**
   1. The player, edge to edge with square corners, at 16:9. On phones (Xs) it is `position: sticky` under the top bar, so it stays in view while the tabs scroll.

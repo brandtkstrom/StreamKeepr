@@ -536,3 +536,24 @@ mark.ds-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 /* An avatar with the channel's Twitch profile image fills the circle; the initial on the
    channel colour is the fallback when there is no image. */
 .ds-avatar > img { display: block; width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+
+/* Library drawer, two columns: channels on the left; selecting one opens its recordings in a
+   second column to the right, inside the same drawer. */
+.ds-library { display: flex; align-items: stretch; min-height: 0; background: var(--drawer-background); box-shadow: var(--elevation-8); }
+.ds-library > .ds-drawer { flex: none; }
+.ds-chan-row { position: relative; display: flex; align-items: center; gap: var(--space-3); width: 100%; border: 0; background: transparent; color: inherit; text-align: left; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); cursor: pointer; }
+.ds-chan-row:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
+.ds-chan-row .name { font: var(--text-subtitle1); display: block; }
+.ds-chan-row .meta { font: var(--text-caption); letter-spacing: 0.03333em; color: var(--text-secondary); display: block; }
+.ds-chan-row .ds-count { margin-left: auto; font: var(--text-caption); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.ds-chan-row > .ds-i:last-child { color: var(--drawer-icon); flex: none; }
+.ds-chan-row[aria-selected="true"] { background: var(--selection); }
+.ds-chan-row[aria-selected="true"] .meta, .ds-chan-row[aria-selected="true"] .ds-count, .ds-chan-row[aria-selected="true"] > .ds-i:last-child { color: var(--text-primary); }
+.ds-chan-row[aria-selected="true"]::before { content: ""; position: absolute; left: 0; top: var(--space-2); bottom: var(--space-2); width: 3px; border-radius: 0 2px 2px 0; background: var(--primary); }
+.ds-chan-row:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.ds-libcol { flex: none; width: 360px; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--divider); background: var(--drawer-background); color: var(--drawer-text); }
+.ds-libcol-head { display: flex; align-items: center; gap: var(--space-3); min-height: 64px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); border-bottom: 1px solid var(--divider); flex: none; }
+.ds-libcol-head h3 { margin: 0; font: var(--text-h6); }
+.ds-libcol-head .meta { display: block; font: var(--text-caption); letter-spacing: 0.03333em; color: var(--text-secondary); }
+.ds-libcol-head > span:not(.ds-avatar) { flex: 1; min-width: 0; }
+.ds-libcol-body { flex: 1; min-height: 0; overflow: auto; padding-bottom: var(--space-2); }

@@ -4,7 +4,7 @@ Focus rings on every ground, and the keyboard shortcuts StreamKeepr already defi
 
 - Every interactive element shows a solid 2px ring with a 2px offset when focused from the keyboard (`:focus-visible`): `primary` everywhere, `player-accent` inside the player. Set it once in app CSS (for example on `.mud-button-root`, `.mud-chip` and the island controls), so it looks the same on MudBlazor components and on StreamKeepr's own markup.
 - Text fields show focus with their own 2px `primary` border (MudTextField does this), not an extra ring.
-- Library tree rows sit edge to edge, so their ring is inset (`outline-offset: -2px`) and stays inside the drawer.
+- Library channel and recording rows sit edge to edge, so their ring is inset (`outline-offset: -2px`) and stays inside the drawer.
 - The chat log, the Stats overlay's buttons and the speed menu's items sit edge to edge in their islands too, so their rings are inset the same way (#180).
 - On the Twitch button the ring sits on the app bar ground, so it is told apart from the purple fill.
 
@@ -20,7 +20,7 @@ Focus rings on every ground, and the keyboard shortcuts StreamKeepr already defi
 | / | Focus search | `shortcuts.js` |
 | Esc (in the settings sheet or on the Settings page) | Close or exit Settings | `SettingsSheet`, `SettingsPage` |
 | Esc | Clear the search | `shortcuts.js` |
-| ↑ ↓ · ← → · Home End · Enter | Move · collapse/expand a streamer · first/last · open | `tree-nav.js` |
+| ↑ ↓ · → or Enter · ← or Esc · Home End | Move · open a channel's recordings column (focus moves in) · back to the channel · first/last | library keys (replaces `tree-nav.js`) |
 
 ## Rules
 

@@ -1,4 +1,4 @@
-<!-- @dsCard group="Navigation" height=700 width=760 subtitle="MudDrawer open with the disk-usage footer, and the mini rail: 32px avatars, live channels pulsing, with low disk" -->
+<!-- @dsCard group="Navigation" height=760 width=1180 subtitle="The library opens as two columns: channels, then the selected channel's recordings to the right; and the mini rail: 32px avatars, live channels pulsing, with low disk" -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -6,44 +6,56 @@
 <style>
   html, body { margin: 0; }
   .wrap { display: flex; gap: var(--space-6); padding: var(--space-4); align-items: flex-start; }
-  .ds-drawer { border: 1px solid var(--divider); border-radius: var(--radius-md); overflow: hidden; height: 660px; }
+  .ds-library { border: 1px solid var(--divider); border-radius: var(--radius-md); overflow: hidden; height: 700px; }
+  .cap { font: var(--text-caption); color: var(--text-secondary); margin: 0 0 var(--space-2); }
   .shot { background: color-mix(in srgb, var(--k) 34%, #000); }
   .s1 { --k: var(--channel-1); } .s2 { --k: var(--channel-2); } .s3 { --k: var(--channel-6); } .s4 { --k: var(--channel-5); }
-  .rail { height: 660px; width: var(--drawer-mini-width); background: var(--drawer-background); border: 1px solid var(--divider); border-radius: var(--radius-md); display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; }
-  .rail .sel { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
+  nav.rail { height: 700px; width: var(--drawer-mini-width); background: var(--drawer-background); border: 1px solid var(--divider); border-radius: var(--radius-md); display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; }
+  nav.rail .sel { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
   .note { display: flex; align-items: center; gap: var(--space-2); margin: 0 var(--space-4) var(--space-3); }
 </style>
 </head>
 <body class="ds">
 <div class="wrap">
-  <nav class="ds-drawer" aria-label="Library">
-    <div class="ds-drawer-head"><h2>Library</h2><span class="ds-sort"><i data-i="down" class="xs"></i>Newest first</span><button class="ds-ibtn sm" aria-label="Library options"><i data-i="more"></i></button></div>
-    <div class="ds-chips" role="group" aria-label="Filter recordings"><button class="ds-chip sel"><i data-i="check"></i>All</button><button class="ds-chip"><i data-i="dot" style="color:var(--rec)"></i>Recording</button><button class="ds-chip"><i data-i="inventory"></i>Saved</button></div>
-    <div class="ds-alert warning note" role="status" style="padding:6px 12px"><i data-i="cloudoff" class="sm"></i>Live updates paused</div>
-    <hr class="ds-divider">
-    <div role="tree" aria-label="Recordings">
-      <div class="ds-group-head" role="treeitem" aria-expanded="true"><span class="ds-avatar lg a1 live">N</span><span><span class="name">nightjar_tv</span><span class="meta">Recording now · 3 recordings</span></span><i data-i="expand" class="ds-chev"></i></div>
-      <div class="ds-day">Today</div>
-      <a class="ds-rec-row" href="#" aria-current="true"><span class="ds-thumb live"><span class="shot s1"></span><span class="dur">1:02:13</span><span class="prog"><i style="width:100%"></i></span></span><span class="text"><span class="title">Late-night <mark class="ds-mark">speed</mark>run practice: any% resets</span><span class="meta">Started 21:04 · 1h 02m</span><span class="ds-status rec">Rec</span></span></a>
-      <div class="ds-day">Yesterday</div>
-      <a class="ds-rec-row" href="#"><span class="ds-thumb"><span class="shot s2"></span><span class="dur">2:14:07</span><span class="prog"><i style="width:38%"></i></span></span><span class="text"><span class="title">Route planning with chat</span><span class="meta">20:30 · 2h 14m</span></span></a>
-      <a class="ds-rec-row" href="#"><span class="ds-thumb"><i data-i="movie"></i><span class="dur">0:48:20</span></span><span class="text"><span class="title">Morning <mark class="ds-mark">speed</mark>run warmup</span><span class="meta">09:12 · 48m</span><span class="ds-status processing"><i data-i="hourglass"></i>Processing</span></span></a>
-      <hr class="ds-divider">
-      <div class="ds-group-head" role="treeitem" aria-expanded="true"><span class="ds-avatar lg a3">C</span><span><span class="name">coppermoth</span><span class="meta">Wed, Nov 11 · 5 recordings</span></span><i data-i="expand" class="ds-chev"></i></div>
-      <div class="ds-day">Wed, Nov 11</div>
-      <a class="ds-rec-row" href="#"><span class="ds-thumb"><span class="shot s3"></span><span class="dur">3:40:52</span></span><span class="text"><span class="title">Cozy farm sim, year two</span><span class="meta">18:00 · 3h 40m</span><span class="ds-status partial"><i data-i="warning"></i>Partial</span></span></a>
-      <hr class="ds-divider">
-      <div class="ds-group-head" role="treeitem" aria-expanded="false"><span class="ds-avatar lg a2">P</span><span><span class="name">pixelwren</span><span class="meta">Mon, Nov 9 · 12 recordings</span></span><i data-i="expand" class="ds-chev"></i></div>
+  <div>
+    <p class="cap">Open while watching nightjar_tv: its column opens with it</p>
+    <div class="ds-library">
+      <nav class="ds-drawer" aria-label="Library">
+        <div class="ds-drawer-head"><h2>Library</h2><span class="ds-sort"><i data-i="down" class="xs"></i>Newest first</span><button class="ds-ibtn sm" aria-label="Library options"><i data-i="more"></i></button></div>
+        <div class="ds-chips" role="group" aria-label="Filter recordings"><button class="ds-chip sel"><i data-i="check"></i>All</button><button class="ds-chip"><i data-i="dot" style="color:var(--rec)"></i>Recording</button><button class="ds-chip"><i data-i="inventory"></i>Saved</button></div>
+        <div class="ds-alert warning note" role="status" style="padding:6px 12px"><i data-i="cloudoff" class="sm"></i>Live updates paused</div>
+        <hr class="ds-divider">
+        <div role="listbox" aria-label="Channels" aria-controls="sk-libcol" style="flex:1;min-height:0;overflow:auto">
+          <button class="ds-chan-row" role="option" aria-selected="true"><span class="ds-avatar lg a1 live"><img src="../sample-avatars/nightjar_tv.svg" alt=""></span><span><span class="name">nightjar_tv</span><span class="meta">Recording now</span></span><span class="ds-count">3</span><i data-i="chevronright"></i></button>
+          <button class="ds-chan-row" role="option" aria-selected="false"><span class="ds-avatar lg a4 live">S</span><span><span class="name">sablefinch</span><span class="meta">Recording now</span></span><span class="ds-count">8</span><i data-i="chevronright"></i></button>
+          <button class="ds-chan-row" role="option" aria-selected="false"><span class="ds-avatar lg a3">C</span><span><span class="name">coppermoth</span><span class="meta">Wed, Nov 11</span></span><span class="ds-count">5</span><i data-i="chevronright"></i></button>
+          <button class="ds-chan-row" role="option" aria-selected="false"><span class="ds-avatar lg a2">P</span><span><span class="name">pixelwren</span><span class="meta">Mon, Nov 9</span></span><span class="ds-count">12</span><i data-i="chevronright"></i></button>
+          <button class="ds-chan-row" role="option" aria-selected="false"><span class="ds-avatar lg a8">Q</span><span><span class="name">quietkoi</span><span class="meta">Oct 30</span></span><span class="ds-count">2</span><i data-i="chevronright"></i></button>
+        </div>
+        <div class="ds-drawer-foot" title="Recording disk: 1.2 TB free of 4 TB"><div class="row"><i data-i="storage" class="sm"></i><span class="t">1.2 TB free</span><span class="of">of 4 TB</span></div><div class="ds-progress" role="progressbar" aria-label="Recording disk used" aria-valuenow="70" aria-valuetext="70% used"><i style="width:70%"></i></div></div>
+      </nav>
+      <section class="ds-libcol" id="sk-libcol" aria-labelledby="sk-libcol-h">
+        <div class="ds-libcol-head"><span class="ds-avatar lg a1 live"><img src="../sample-avatars/nightjar_tv.svg" alt=""></span><span><h3 id="sk-libcol-h">nightjar_tv</h3><span class="meta">Recording now · 3 recordings</span></span><button class="ds-ibtn sm" aria-label="Close nightjar_tv's recordings"><i data-i="close"></i></button></div>
+        <div class="ds-libcol-body" role="list">
+          <div class="ds-day">Today</div>
+          <a class="ds-rec-row" href="#" aria-current="true"><span class="ds-thumb live"><span class="shot s1"></span><span class="dur">1:02:13</span><span class="prog"><i style="width:100%"></i></span></span><span class="text"><span class="title">Late-night <mark class="ds-mark">speed</mark>run practice: any% resets</span><span class="meta">Started 21:04 · 1h 02m</span><span class="ds-status rec">Rec</span></span></a>
+          <div class="ds-day">Yesterday</div>
+          <a class="ds-rec-row" href="#"><span class="ds-thumb"><span class="shot s2"></span><span class="dur">2:14:07</span><span class="prog"><i style="width:38%"></i></span></span><span class="text"><span class="title">Route planning with chat</span><span class="meta">20:30 · 2h 14m</span></span></a>
+          <a class="ds-rec-row" href="#"><span class="ds-thumb"><i data-i="movie"></i><span class="dur">0:48:20</span></span><span class="text"><span class="title">Morning <mark class="ds-mark">speed</mark>run warmup</span><span class="meta">09:12 · 48m</span><span class="ds-status processing"><i data-i="hourglass"></i>Processing</span></span></a>
+        </div>
+      </section>
     </div>
-    <div class="ds-drawer-foot" title="Recording disk: 1.2 TB free of 4 TB"><div class="row"><i data-i="storage" class="sm"></i><span class="t">1.2 TB free</span><span class="of">of 4 TB</span></div><div class="ds-progress" role="progressbar" aria-label="Recording disk used" aria-valuenow="70" aria-valuetext="70% used"><i style="width:70%"></i></div></div>
+  </div>
+  <div>
+    <p class="cap">Rail</p>
+    <nav class="rail" aria-label="Library (collapsed)">
+      <span class="ds-avatar rail a1 live sel" title="nightjar_tv"><img src="../sample-avatars/nightjar_tv.svg" alt=""></span>
+      <span class="ds-avatar rail a4 live" title="sablefinch">S</span>
+      <span class="ds-avatar rail a3" title="coppermoth">C</span>
+      <span class="ds-avatar rail a2" title="pixelwren">P</span>
+      <button class="ds-ibtn" style="margin-top:auto;color:var(--warning)" aria-label="Recording disk: 310 GB free of 4 TB, low space" title="Recording disk: 310 GB free of 4 TB"><i data-i="warning"></i></button>
     </nav>
-  <nav class="rail" aria-label="Library (collapsed)">
-    <span class="ds-avatar rail a1 live sel" title="nightjar_tv">N</span>
-    <span class="ds-avatar rail a3" title="coppermoth">C</span>
-    <span class="ds-avatar rail a2" title="pixelwren">P</span>
-    <span class="ds-avatar rail a4 live" title="sablefinch">S</span>
-    <button class="ds-ibtn" style="margin-top:auto;color:var(--warning)" aria-label="Recording disk: 310 GB free of 4 TB, low space" title="Recording disk: 310 GB free of 4 TB"><i data-i="warning"></i></button>
-  </nav>
+  </div>
 </div>
 <script src="../icons.js"></script>
 </body>

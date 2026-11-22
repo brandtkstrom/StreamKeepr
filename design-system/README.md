@@ -37,7 +37,7 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 
 ## Library ordering
 
-- Group recordings **by streamer**, and sort **newest first at every level**. Streamer groups sort by their latest recording, and a streamer being captured right now is always on top. Inside a group, recordings sort by start time, descending, under day headers: `Today`, `Yesterday`, then `Wed, Nov 4`.
+- Group recordings **by streamer**, and sort **newest first at every level**. The library lists the streamers; picking one opens its recordings in a column to the right (`LibraryDrawer`). Streamers sort by their latest recording, and a streamer being captured right now is always on top. Inside a streamer, recordings sort by start time, descending, under day headers: `Today`, `Yesterday`, then `Wed, Nov 4`.
 - The drawer header always states the order ("Newest first"), with the sort menu beside it.
 - Filter chips (All · Recording · Saved) sit under the header as a single-select `MudChipSet`. Search in the app bar filters the same list and marks matches with `highlight`.
 

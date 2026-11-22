@@ -2,7 +2,7 @@ One recording in the library: a 16:9 thumbnail with its duration and watch progr
 
 ## Build it from
 
-A real `<a class="sk-row" href="/r/{id}" role="treeitem" aria-current>` (so deep links and selection work without the circuit) containing:
+A real `<a class="sk-row" href="/r/{id}" role="listitem" aria-current>` inside the library's recordings column (`LibraryDrawer`; it was a `treeitem` in the old tree), so deep links and selection work without the circuit, containing:
 
 - `.sk-thumb` (`thumb-width` 112px, `radius-md`, `surface-raised` placeholder with `Icons.Material.Rounded.Movie`), a lazy `<img alt="">`, a `timecode` duration badge on `player-scrim`, and a 3px progress strip: `player-accent` for the resume position, a full `rec` strip while live.
 - The title in `MudText Typo.subtitle2` (two lines, then ellipsis), with search matches in `<MudHighlighter Text="@Recording.Title" HighlightedText="@Search" Class="sk-mark" />` (the class lands on each `<mark>`).
