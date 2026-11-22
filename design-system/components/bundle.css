@@ -163,7 +163,7 @@
 .ds-group-head[aria-expanded="false"] .ds-chev { transform: rotate(-90deg); }
 .ds-day { font: var(--text-label); color: var(--text-secondary); padding: var(--space-2) var(--space-4) var(--space-1); }
 
-/* Library row (Blazor-rendered link; tree-nav.js keyboard model) */
+/* Library recording row (Blazor-rendered link; the library keyboard model) */
 .ds-rec-row { display: flex; gap: var(--space-3); padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4); color: inherit; text-decoration: none; border-radius: 0; }
 .ds-rec-row:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
 .ds-rec-row[aria-current="true"] { background: var(--selection); }
