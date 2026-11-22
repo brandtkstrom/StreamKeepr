@@ -130,6 +130,8 @@ Serilog__MinimumLevel__Override__StreamKeepr: Debug
 
 `Debug` is noisy; switch it back once you've found what you need.
 
+The app also writes the same events as compact JSON under `/recordings/.streamkeepr/logs/`, one object per line. Files roll daily, are capped at 50 MB, and the newest seven are kept. The logs live on the recordings volume, so `docker compose down --volumes` deletes them; set `Serilog__File__Path` to a writable mounted directory (for example `/logs/log-.json`) to keep them elsewhere. An unwritable log directory fails startup, like an unwritable recordings root. Read a file with `jq`, for example `jq 'select(.Channel == "somechannel")' log-<date>.json`; `@t` is the timestamp, `@mt` the message template, `@x` an exception, and properties such as `Channel` appear at the top level. To turn the files off, set `Serilog__File__Enabled: "false"` under `environment:`. Override the per-file and retention limits with `Serilog__File__FileSizeLimitBytes` and `Serilog__File__RetainedFileCountLimit`. Failures before the configured pipeline is built, such as malformed `appsettings.json`, appear only on the console; the JSON files start with the host.
+
 Older `Logging__LogLevel__…` settings no longer have any effect. Replace them with the matching `Serilog__MinimumLevel__…` setting.
 
 ## Health

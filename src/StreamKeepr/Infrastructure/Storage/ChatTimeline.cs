@@ -59,10 +59,10 @@ public sealed class ChatTimeline
             if (playlist is null)
                 continue;
 
-            double duration;
+            PlaylistTimeline timeline;
             try
             {
-                duration = PlaylistStitcher.TotalDuration(playlist);
+                timeline = PlaylistTimeline.Parse(playlist);
             }
             catch (FormatException ex)
             {
@@ -70,8 +70,8 @@ public sealed class ChatTimeline
                 continue;
             }
 
-            DateTimeOffset? pdt = PlaylistStitcher.FirstProgramDateTime(playlist);
-            if (pdt is { } start && duration > 0)
+            double duration = timeline.Duration;
+            if (timeline.FirstProgramDateTime is { } start && duration > 0)
             {
                 parts.Add(new PartTiming(
                     part,

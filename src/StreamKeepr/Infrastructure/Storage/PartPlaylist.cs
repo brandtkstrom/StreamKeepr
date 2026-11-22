@@ -1,5 +1,3 @@
-using System.Collections.Immutable;
-
 namespace StreamKeepr.Infrastructure.Storage;
 
 /// <summary>
@@ -9,19 +7,13 @@ namespace StreamKeepr.Infrastructure.Storage;
 public sealed record PartPlaylist(int PartNumber, string Content);
 
 /// <summary>
-/// One part playlist plus the metadata and parsed body a live refresh compares before reading
-/// the file again. Content is retained for the exact prefix test that accepts an append.
+/// One parsed part playlist plus the file metadata a live refresh compares before reading the
+/// file again.
 /// </summary>
-internal sealed record PartSnapshot(
-    int PartNumber,
-    long Length,
-    long LastWriteTicks,
-    string Content,
-    ImmutableArray<string> BodyLines,
-    int TargetDuration)
+internal sealed record PartSnapshot(ParsedPart Parsed, long Length, long LastWriteTicks)
 {
+    public int PartNumber => Parsed.PartNumber;
+
     public bool Matches(long length, long lastWriteTicks) =>
         Length == length && LastWriteTicks == lastWriteTicks;
-
-    public ParsedPart ToParsed() => new(PartNumber, BodyLines, TargetDuration);
 }

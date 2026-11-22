@@ -57,6 +57,29 @@ public sealed partial class SerilogConfigurationTests
         Assert.InRange(text.Length, 1, 1024);
     }
 
+    [Theory]
+    [MemberData(nameof(ShippedProfiles))]
+    public void Shipped_profiles_configure_the_json_file_sink(string[] files)
+    {
+        IConfiguration configuration = Load(files);
+
+        // Mock inherits Enabled=true; the environment gate, not this setting, keeps it file-free.
+        Assert.True(configuration.GetValue("Serilog:File:Enabled", false));
+        Assert.Equal(50_000_000L, configuration.GetValue("Serilog:File:FileSizeLimitBytes", 0L));
+        Assert.Equal(7, configuration.GetValue("Serilog:File:RetainedFileCountLimit", 0));
+    }
+
+    [Fact]
+    public void Development_profile_logs_at_debug_by_default()
+    {
+        IConfiguration configuration = Load(["appsettings.json", "appsettings.Development.json"]);
+
+        Assert.Equal("Debug", configuration["Serilog:MinimumLevel:Default"]);
+        Assert.Equal("Warning", configuration["Serilog:MinimumLevel:Override:Microsoft"]);
+        Assert.Equal("Information",
+            configuration["Serilog:MinimumLevel:Override:Microsoft.Hosting.Lifetime"]);
+    }
+
     [Fact]
     public void Console_sink_uses_the_same_template_as_the_bootstrap_logger()
     {

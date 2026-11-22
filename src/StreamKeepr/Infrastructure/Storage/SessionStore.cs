@@ -270,10 +270,11 @@ public sealed class SessionStore(
         var latest = manifest.Metadata.Count > 0
             ? manifest.Metadata[^1]
             : throw new InvalidDataException($"Session manifest in {directory} has no metadata.");
+        PlaylistTimeline timeline = PlaylistTimeline.Parse(playlist);
 
         double? duration = manifest.Status == SessionStatus.Complete
             ? (File.Exists(Path.Combine(directory, IndexFileName))
-                ? PlaylistStitcher.TotalDuration(playlist)
+                ? timeline.Duration
                 : manifest.DurationSeconds)
             : null;
 
@@ -288,9 +289,9 @@ public sealed class SessionStore(
             duration,
             mediaSize,
             PartCount: parts.Count,
-            SegmentCount: PlaylistStitcher.SegmentCount(playlist),
+            SegmentCount: timeline.SegmentCount,
             HasThumbnail: File.Exists(Path.Combine(directory, ThumbnailFileName)),
-            Chapters: PlaylistStitcher.Chapters(playlist, manifest.Metadata),
+            Chapters: timeline.Chapters(manifest.Metadata),
             HasChat: ChatLogLayout.HasChat(directory, logger));
     }
 
@@ -361,7 +362,7 @@ public sealed class SessionStore(
         {
             Status = SessionStatus.Complete,
             EndedAt = manifest.EndedAt ?? clock.GetUtcNow(),
-            DurationSeconds = PlaylistStitcher.TotalDuration(index),
+            DurationSeconds = PlaylistTimeline.Parse(index).Duration,
             SizeBytes = sizeBytes,
         };
         await WriteManifestAsync(directory, complete, ct);
@@ -475,6 +476,24 @@ public sealed class SessionStore(
         }
     }
 
+    /// <summary>
+    /// Fresh length and last-write metadata for every valid part playlist, in ascending part
+    /// order. Cheap enough for every live refresh; reads no content and takes no lock.
+    /// </summary>
+    internal IReadOnlyList<PartFileObservation> ObservePartFiles(string directory)
+    {
+        List<(int Part, string Path)> files = PartPlaylistFiles(directory);
+        var observations = new PartFileObservation[files.Count];
+        for (int i = 0; i < files.Count; i++)
+        {
+            var info = new FileInfo(files[i].Path);
+            observations[i] = new PartFileObservation(
+                files[i].Part, files[i].Path, info.Length, info.LastWriteTimeUtc.Ticks);
+        }
+
+        return observations;
+    }
+
     private static bool IsSharingViolation(Exception exception) =>
         exception is UnauthorizedAccessException
         || (exception is IOException io
@@ -487,7 +506,7 @@ public sealed class SessionStore(
         foreach (var (number, path) in PartPlaylistFiles(directory))
         {
             string content = await PartPlaylistReader.ReadAllTextAsync(path, ct);
-            if (HasSegments(content))
+            if (PlaylistStitcher.ParsePart(number, content).HasSegments)
                 parts.Add(new PartPlaylist(number, content));
         }
 
@@ -522,18 +541,6 @@ public sealed class SessionStore(
 
         parts.Sort((left, right) => left.Part.CompareTo(right.Part));
         return parts;
-    }
-
-    private static bool HasSegments(string playlist)
-    {
-        foreach (string raw in playlist.Split('\n'))
-        {
-            string line = raw.Trim();
-            if (line.Length > 0 && line[0] != '#')
-                return true;
-        }
-
-        return false;
     }
 
     private static Task<string?> TryReadFileAsync(string path, CancellationToken ct) =>

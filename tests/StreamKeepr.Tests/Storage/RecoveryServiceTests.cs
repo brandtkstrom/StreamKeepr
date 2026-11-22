@@ -141,6 +141,45 @@ public sealed class RecoveryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Complete_session_whose_only_segment_line_is_unterminated_is_skipped_and_kept()
+    {
+        Session session = CreateSession("667", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(session, "667");
+        await _context.Store.FinalizeAsync(session, CancellationToken.None);
+        File.Delete(Path.Combine(session.Directory, SessionStore.IndexFileName));
+
+        // The part's only segment line never got its line feed, so it has no segments by the
+        // one definition. Recovery must not hand it to finalize, which would delete the folder.
+        await File.WriteAllTextAsync(
+            Path.Combine(session.Directory, "p001.m3u8"),
+            "#EXTM3U\n#EXT-X-MAP:URI=\"init_001.mp4\"\n#EXTINF:6.0,\np001_00000.m4s");
+
+        IReadOnlyDictionary<string, RecoveredChannel> recovered =
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.Null(recovered[Channel].Finished);
+        Assert.Null(_context.Library.Find(session.Id));
+        Assert.True(File.Exists(Path.Combine(session.Directory, "p001_00000.m4s")));
+        Assert.True(File.Exists(Path.Combine(session.Directory, SessionStore.ManifestFileName)));
+    }
+
+    [Fact]
+    public async Task Recording_session_keeps_an_init_file_named_by_a_map_with_attributes()
+    {
+        Session session = CreateSession("445", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(session, "445");
+        await File.WriteAllTextAsync(
+            Path.Combine(session.Directory, "p001.m3u8"),
+            "#EXTM3U\n#EXT-X-MAP:URI=\"init_001.mp4\",BYTERANGE=\"3@0\"\n#EXTINF:6.0,\n"
+                + "p001_00000.m4s\n");
+
+        await _recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.True(File.Exists(Path.Combine(session.Directory, "init_001.mp4")));
+        Assert.True(File.Exists(Path.Combine(session.Directory, "p001_00000.m4s")));
+    }
+
+    [Fact]
     public async Task Complete_session_without_an_index_or_parts_is_not_served()
     {
         Session session = CreateSession("666", SessionStoreTestContext.StartedAt);
