@@ -13,9 +13,6 @@ namespace StreamKeepr.Infrastructure.Runtime;
 /// </summary>
 public sealed class ChannelCoordinator
 {
-    /// <summary>Worst-case recorder shutdown (20 s) plus the finalize cap (15 s).</summary>
-    public static readonly TimeSpan JobStopBudget = TimeSpan.FromSeconds(35);
-
     /// <summary>The shortest gap between two viewer samples of one session, by observation time.</summary>
     public static readonly TimeSpan ViewerSampleInterval = TimeSpan.FromSeconds(60);
 
@@ -41,15 +38,12 @@ public sealed class ChannelCoordinator
     private RetryTimer? _retry;
     private int _queueDepth;
 
-    // Durable after an unverified shutdown: no later StartJob, StopJob, or ScheduleRetry may
-    // start another writer while the previous process tree may still be writing.
-    private RecorderShutdownException? _shutdownFault;
+    // Durable once set: the active job's writer may still be alive, so no later StartJob,
+    // StopJob, or ScheduleRetry may start another one, and the loop must fault. The job task sets
+    // it for an unverified shutdown; the loop sets it when a stop overruns its budget.
+    private WriterHazard? _hazard;
     private readonly TaskCompletionSource _faultSignal =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-    // A job whose stop budget already expired is abandoned in place; the loop is faulting and
-    // must not spend a second budget in its finally block.
-    private bool _jobStopTimedOut;
 
     public ChannelCoordinator(
         string channel,
@@ -115,19 +109,13 @@ public sealed class ChannelCoordinator
     internal JobId? ActiveJobId => _job?.Id;
 
     /// <summary>
-    /// Fails the channel loop when a recorder shutdown could not be verified. The active job is
-    /// retained: the previous writer may still be alive, so no command may start another one.
+    /// Fails the channel loop when the active job's writer may still be alive. The active job is
+    /// retained, so no command may start another writer.
     /// </summary>
-    private void ThrowIfShutdownFault()
+    private void ThrowIfWriterHazard()
     {
-        if (Volatile.Read(ref _shutdownFault) is not { } fault)
-            return;
-
-        throw new ChannelFatalException(
-            $"{_channel}: recorder {fault.Job} shutdown could not be verified "
-            + $"({fault.Tool}, pid {fault.ProcessId?.ToString() ?? "unknown"}); "
-            + "refusing to start another writer.",
-            fault);
+        if (Volatile.Read(ref _hazard) is { } hazard)
+            throw new ChannelFatalException($"{_channel}: {hazard.Describe()}; refusing to start another writer.");
     }
 
     public async Task RunAsync(CancellationToken ct)
@@ -147,7 +135,7 @@ public sealed class ChannelCoordinator
                 Task first = await Task.WhenAny(pending, _faultSignal.Task)
                     .ConfigureAwait(false);
                 if (first == _faultSignal.Task)
-                    ThrowIfShutdownFault();
+                    ThrowIfWriterHazard();
 
                 DvrEvent @event;
                 try
@@ -186,7 +174,7 @@ public sealed class ChannelCoordinator
                 }
 
                 await ExecuteCommandsAsync(step.Commands, ct);
-                ThrowIfShutdownFault();
+                ThrowIfWriterHazard();
                 await SampleViewersAsync(@event, ct);
             }
         }
@@ -214,7 +202,7 @@ public sealed class ChannelCoordinator
                 }
             }
             await CancelRetryAsync();
-            await StopJobCoreAsync(fatalOnTimeout: false);
+            await StopJobCoreAsync(throwOnHazard: false);
         }
     }
 
@@ -250,7 +238,7 @@ public sealed class ChannelCoordinator
                     break;
 
                 case DvrCommand.StopRecorder stop when _job?.Id == stop.Job:
-                    await StopJobAsync(fatalOnTimeout: true);
+                    await StopJobAsync();
                     break;
 
                 case DvrCommand.StopRecorder:
@@ -260,8 +248,10 @@ public sealed class ChannelCoordinator
                     if (skipRecorder)
                     {
                         skipRecorder = false;
-                        await PublishAsync(new DvrEvent.RecorderExited(
-                            start.Job, _clock.GetUtcNow(), RecorderExitKind.Exited, "open failed"));
+
+                        // The open failure already set the last error; this only ends the part.
+                        await CompletePartAsync(
+                            start.Job, new PartOutcome(RecorderExitKind.Exited, "open failed"));
                         break;
                     }
 
@@ -343,108 +333,118 @@ public sealed class ChannelCoordinator
     private async Task StartJobAsync(Session session, JobId job, CancellationToken ct)
     {
         // Never start a second writer while the previous job may still be writing.
-        await StopJobAsync(fatalOnTimeout: true);
-        ThrowIfShutdownFault();
+        await StopJobAsync();
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         Task completion = Task.Run(() => RecordPartAsync(session, job, cts.Token), CancellationToken.None);
         _job = new ActiveJob(job, cts, completion);
-        _jobStopTimedOut = false;
     }
 
     private async Task RecordPartAsync(Session session, JobId job, CancellationToken stopRequested)
     {
+        PartOutcome outcome;
         try
         {
             // The disk probe is inside the failure boundary: an I/O error here must still
             // become one visible RecorderExited instead of a dead job with no event.
-            if (!_disk.HasRoomToRecord())
-            {
-                await FailPartAsync(job, "not enough free disk space");
-                return;
-            }
-
-            await _recorder.RunAsync(
-                session,
-                job,
-                PublishAsync,
-                stopRequested,
-                ReportProgress);
-        }
-        catch (RecorderShutdownException ex)
-        {
-            // The previous writer may still be alive. Publish exactly one Killed exit for status
-            // and streak, make the fault durable, and fail the loop; never synthesize Exited.
-            Volatile.Write(ref _shutdownFault, ex);
-            _logger.LogError(
-                ex, "{Channel}: recorder {Job} shutdown could not be verified", _channel, job);
-            _status.Failed(_channel, ex.Message);
-            await PublishAsync(new DvrEvent.RecorderExited(
-                job, _clock.GetUtcNow(), RecorderExitKind.Killed, ex.Message));
-            _faultSignal.TrySetResult();
-            throw;
+            outcome = _disk.HasRoomToRecord()
+                ? await _recorder.RunAsync(session, job, PublishAsync, stopRequested, ReportProgress)
+                : new PartOutcome(RecorderExitKind.Exited, "not enough free disk space", Failed: true);
         }
         catch (OperationCanceledException) when (stopRequested.IsCancellationRequested)
         {
-            await PublishAsync(new DvrEvent.RecorderExited(
-                job, _clock.GetUtcNow(), RecorderExitKind.Stopped, "recorder canceled"));
+            outcome = new PartOutcome(RecorderExitKind.Stopped, "recorder canceled");
         }
         catch (Exception ex)
         {
+            // The recorder reports every failure after its tools start; this covers a failure
+            // before any tool ran, so there is no writer to verify.
             _logger.LogError(ex, "{Channel}: recorder {Job} failed", _channel, job);
-            await FailPartAsync(job, ex.Message);
+            outcome = new PartOutcome(RecorderExitKind.Exited, ex.Message, Failed: true);
         }
+
+        await CompletePartAsync(job, outcome);
     }
 
-    private async Task FailPartAsync(JobId job, string detail)
+    /// <summary>
+    /// The single place a part's <see cref="DvrEvent.RecorderExited"/> is published. An unverified
+    /// shutdown publishes one Killed exit for status and streak, makes the fault durable, and
+    /// fails the job task so the active job is retained and no second writer can start.
+    /// </summary>
+    private async Task CompletePartAsync(JobId job, PartOutcome outcome)
     {
-        _status.Failed(_channel, detail);
+        if (outcome.Fault is { } shutdown)
+        {
+            Volatile.Write(ref _hazard, new WriterHazard.ShutdownUnverified(job, shutdown));
+            _logger.LogError(
+                "{Channel}: recorder {Job} shutdown could not be verified: {Fault}",
+                _channel,
+                job,
+                shutdown);
+            _status.Failed(_channel, shutdown.ToString());
+        }
+        else if (outcome.Failed)
+        {
+            _status.Failed(_channel, outcome.Detail);
+        }
+
         await PublishAsync(new DvrEvent.RecorderExited(
-            job, _clock.GetUtcNow(), RecorderExitKind.Exited, detail));
+            job, _clock.GetUtcNow(), outcome.Kind, outcome.Detail));
+
+        if (outcome.Fault is not null)
+        {
+            _faultSignal.TrySetResult();
+            ThrowIfWriterHazard();
+        }
     }
 
     private void ReportProgress(JobId job, long bytes, TimeSpan mediaTime) =>
         _status.ReportProgress(_channel, job, bytes, mediaTime, _clock.GetUtcNow());
 
-    private async Task StopJobAsync(bool fatalOnTimeout)
+    /// <summary>Stops the active job and fails the loop if its writer may still be alive.</summary>
+    private async Task StopJobAsync()
     {
-        ThrowIfShutdownFault();
-        await StopJobCoreAsync(fatalOnTimeout);
-        if (fatalOnTimeout)
-            ThrowIfShutdownFault();
+        ThrowIfWriterHazard();
+        await StopJobCoreAsync(throwOnHazard: true);
+        ThrowIfWriterHazard();
     }
 
-    private async Task StopJobCoreAsync(bool fatalOnTimeout)
+    /// <summary>
+    /// Stops the active job within the recorder's stop budget. An overrun records a durable
+    /// <see cref="WriterHazard.StopBudgetExceeded"/>. Only the loop's finally block passes
+    /// <paramref name="throwOnHazard"/> false: it is already ending and must not mask its cause.
+    /// </summary>
+    private async Task StopJobCoreAsync(bool throwOnHazard)
     {
         if (_job is not { } job)
             return;
 
-        if (_jobStopTimedOut)
+        // A job behind a hazard is abandoned in place; never spend a second budget on it.
+        if (Volatile.Read(ref _hazard) is not null)
         {
-            if (fatalOnTimeout)
-                throw StopTimedOut(job.Id);
-
+            if (throwOnHazard)
+                ThrowIfWriterHazard();
             return;
         }
 
         if (!job.Completion.IsCompleted)
             await job.Cts.CancelAsync();
 
+        TimeSpan stopBudget = _recorder.StopBudget;
         using var budgetCts = new CancellationTokenSource();
-        Task budget = Task.Delay(JobStopBudget, _clock, budgetCts.Token);
+        Task budget = Task.Delay(stopBudget, _clock, budgetCts.Token);
         Task finished = await Task.WhenAny(job.Completion, budget);
         if (finished != job.Completion)
         {
-            _jobStopTimedOut = true;
+            Volatile.Write(ref _hazard, new WriterHazard.StopBudgetExceeded(job.Id, stopBudget));
             _logger.LogError(
                 "{Channel}: recorder {Job} did not stop within {Budget}.",
                 _channel,
                 job.Id,
-                JobStopBudget);
+                stopBudget);
 
-            if (fatalOnTimeout)
-                throw StopTimedOut(job.Id);
-
+            if (throwOnHazard)
+                ThrowIfWriterHazard();
             return;
         }
 
@@ -455,22 +455,16 @@ public sealed class ChannelCoordinator
         // Only a successful completion proves the recorder returned on its own terms. A faulted
         // shutdown keeps the active job so no later command can start a second writer.
         if (job.Completion.Status == TaskStatus.RanToCompletion)
-        {
             _job = null;
-            _jobStopTimedOut = false;
-        }
     }
-
-    private static ChannelFatalException StopTimedOut(JobId job) =>
-        new($"Recorder {job} did not stop within {JobStopBudget}; refusing to start another writer.");
 
     private async Task ScheduleRetryAsync(JobId job, TimeSpan baseDelay, CancellationToken ct)
     {
-        ThrowIfShutdownFault();
+        ThrowIfWriterHazard();
 
         // The previous part is over, but its task may still be unwinding. Never leave two
         // writers or a stale retry timer behind.
-        await StopJobAsync(fatalOnTimeout: true);
+        await StopJobAsync();
         await CancelRetryAsync();
 
         TimeSpan delay;
@@ -532,6 +526,29 @@ public sealed class ChannelCoordinator
     private sealed record RetryTimer(JobId Job, CancellationTokenSource Cts, Task Completion);
 
     private sealed record ViewerSampleMark(string SessionId, DateTimeOffset At);
+}
+
+/// <summary>
+/// Why a channel's active Job may still have a live writer. Every cause is fatal for the channel
+/// loop and blocks any later writer; a new cause is a new case here, not a new flag.
+/// </summary>
+internal abstract record WriterHazard(JobId Job)
+{
+    public abstract string Describe();
+
+    /// <summary>The recorder could not prove its tools stopped.</summary>
+    public sealed record ShutdownUnverified(JobId Job, UnverifiedShutdown Shutdown) : WriterHazard(Job)
+    {
+        public override string Describe() =>
+            $"recorder {Job} shutdown could not be verified "
+            + $"({Shutdown.Tool}, pid {Shutdown.ProcessId?.ToString() ?? "unknown"})";
+    }
+
+    /// <summary>The recorder did not return within its own stop budget.</summary>
+    public sealed record StopBudgetExceeded(JobId Job, TimeSpan Budget) : WriterHazard(Job)
+    {
+        public override string Describe() => $"recorder {Job} did not stop within {Budget}";
+    }
 }
 
 /// <summary>A channel loop fault that must stop the host rather than risk a second writer.</summary>

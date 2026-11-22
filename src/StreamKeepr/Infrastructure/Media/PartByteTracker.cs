@@ -65,12 +65,6 @@ public sealed class PartByteTracker
         return _highWater;
     }
 
-    /// <summary>
-    /// One authoritative scan of the part's init and completed segments, used when the part ends.
-    /// Callers fall back to <see cref="Total"/> if the scan fails.
-    /// </summary>
-    public long Reconcile() => PartFiles.TotalBytes(_directory, _part);
-
     private void Refresh(PlaylistStamp? stamp)
     {
         _retryNextRead = false;

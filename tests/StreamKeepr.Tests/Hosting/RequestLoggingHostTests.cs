@@ -7,8 +7,10 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using StreamKeepr.Domain;
 using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Tests.Storage;
 
 namespace StreamKeepr.Tests.Hosting;
 
@@ -123,15 +125,21 @@ public sealed class RequestLoggingHostTests
                 ["LivePlaylist:RefreshSeconds"] = "3600",
             });
         using HttpClient client = factory.CreateClient();
-        factory.Services.GetRequiredService<RecordingLibrary>().Upsert(new RecordingSummary(
-            "r1", "ann", "Title", "Game", StartedAt, EndedAt: null, IsRecording: true,
-            DurationSeconds: null, SizeBytes: null, PartCount: 1, SegmentCount: 1,
-            HasThumbnail: false, Chapters: []));
-        factory.Services.GetRequiredService<LivePlaylistCache>().Publish(
-            LivePlaylistSnapshot.Create(
-                "r1", 1, "#EXTM3U\n#EXTINF:6,\np001_00001.m4s\n", 1, StartedAt));
+        var live = new LiveStream("123456789", "Title", "Game", StartedAt, null);
+        Session session = Session.For(live, "ann", factory.RecordingsRoot);
+        Directory.CreateDirectory(session.Directory);
+        await File.WriteAllTextAsync(
+            Path.Combine(session.Directory, "p001.m3u8"),
+            PlaylistTestData.LivePlaylist(
+                6, "init_001.mp4", PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T16:35:00Z", 6)));
+        await factory.Services.GetRequiredService<SessionStore>()
+            .OpenAsync(session, live, CancellationToken.None);
+        await factory.Services.GetRequiredService<LiveIndex>().RefreshOneAsync(
+            factory.Services.GetRequiredService<RecordingLibrary>().Find(session.Id)!,
+            CancellationToken.None);
 
-        using HttpResponseMessage response = await client.GetAsync("/media/ann/r1/index.m3u8");
+        using HttpResponseMessage response = await client.GetAsync(
+            $"/media/{session.Channel}/{session.Id}/index.m3u8");
         _ = await response.Content.ReadAsByteArrayAsync();
 
         Assert.Equal(StatusCodes.Status499ClientClosedRequest, (int)response.StatusCode);

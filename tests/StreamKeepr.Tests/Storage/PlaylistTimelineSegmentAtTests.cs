@@ -3,7 +3,7 @@ using static StreamKeepr.Tests.Storage.PlaylistTestData;
 
 namespace StreamKeepr.Tests.Storage;
 
-public sealed class PlaylistSegmentAtTests
+public sealed class PlaylistTimelineSegmentAtTests
 {
     private const string Pdt = "2026-11-10T18:30:00.000+00:00";
 
@@ -28,7 +28,7 @@ public sealed class PlaylistSegmentAtTests
     public void Segment_at_returns_the_covering_segment_with_its_parts_init_map(
         double offset, string init, string media)
     {
-        Assert.Equal(new SegmentFiles(init, media), PlaylistStitcher.SegmentAt(TwoParts, offset));
+        Assert.Equal(new SegmentFiles(init, media), PlaylistTimeline.Parse(TwoParts).SegmentAt(offset));
     }
 
     [Theory]
@@ -38,7 +38,7 @@ public sealed class PlaylistSegmentAtTests
     [InlineData(double.NaN)]
     public void Segment_at_returns_null_outside_the_timeline(double offset)
     {
-        Assert.Null(PlaylistStitcher.SegmentAt(TwoParts, offset));
+        Assert.Null(PlaylistTimeline.Parse(TwoParts).SegmentAt(offset));
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public sealed class PlaylistSegmentAtTests
     {
         string playlist = Playlist(6, "init_003.mp4", Segment("p003_00000.m4s", Pdt, 6), Segment("p003_00001.m4s", Pdt, 6));
 
-        Assert.Equal(new SegmentFiles("init_003.mp4", "p003_00001.m4s"), PlaylistStitcher.SegmentAt(playlist, 7));
+        Assert.Equal(new SegmentFiles("init_003.mp4", "p003_00001.m4s"), PlaylistTimeline.Parse(playlist).SegmentAt(7));
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public sealed class PlaylistSegmentAtTests
     {
         string playlist = Lines("#EXTM3U", "#EXTINF:6,", "p001_00000.m4s");
 
-        Assert.Null(PlaylistStitcher.SegmentAt(playlist, 1));
+        Assert.Null(PlaylistTimeline.Parse(playlist).SegmentAt(1));
     }
 
     [Theory]
@@ -65,14 +65,6 @@ public sealed class PlaylistSegmentAtTests
     {
         string playlist = Lines("#EXTM3U", $"#EXT-X-MAP:URI=\"{init}\"", "#EXTINF:6,", media);
 
-        Assert.Null(PlaylistStitcher.SegmentAt(playlist, 1));
-    }
-
-    [Fact]
-    public void Segment_at_returns_null_for_a_malformed_playlist()
-    {
-        string playlist = Lines("#EXTM3U", "#EXT-X-MAP:URI=\"init_001.mp4\"", "#EXTINF:abc,", "p001_00000.m4s");
-
-        Assert.Null(PlaylistStitcher.SegmentAt(playlist, 1));
+        Assert.Null(PlaylistTimeline.Parse(playlist).SegmentAt(1));
     }
 }

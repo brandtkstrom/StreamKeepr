@@ -20,8 +20,6 @@ public sealed class RecoveryService(
     TimeProvider clock,
     ILogger<RecoveryService> logger)
 {
-    private const string MapPrefix = "#EXT-X-MAP:URI=\"";
-
     public async Task<IReadOnlyDictionary<string, RecoveredChannel>> RecoverAsync(
         IReadOnlyList<ChannelEntry> channels, CancellationToken ct)
     {
@@ -180,7 +178,7 @@ public sealed class RecoveryService(
                 return Inspection.Skipped;
             }
 
-            if (parts.Count == 0 || parts.All(part => part.SegmentCount == 0))
+            if (!parts.Any(part => part.HasSegments))
             {
                 logger.LogWarning(
                     "Skipping complete session without an index or media parts at {Directory}.",
@@ -238,23 +236,7 @@ public sealed class RecoveryService(
         foreach (ScannedPart scanned in parts)
         {
             lastPart = Math.Max(lastPart, scanned.Playlist.PartNumber);
-
-            foreach (string raw in scanned.Playlist.Content.Split('\n'))
-            {
-                string line = raw.Trim();
-                if (line.Length == 0)
-                    continue;
-
-                if (line.StartsWith(MapPrefix, StringComparison.Ordinal))
-                {
-                    if (line.EndsWith('"') && line.Length > MapPrefix.Length)
-                        referenced.Add(line[MapPrefix.Length..^1]);
-                }
-                else if (line[0] != '#')
-                {
-                    referenced.Add(line);
-                }
-            }
+            referenced.UnionWith(PlaylistStitcher.ReferencedMedia(scanned.Playlist.Content));
         }
 
         int removed = 0;
@@ -290,9 +272,13 @@ public sealed class RecoveryService(
         {
             try
             {
-                string content = await File.ReadAllTextAsync(path, ct);
-                int segments = PlaylistStitcher.SegmentCount(content);
-                parts.Add(new ScannedPart(new PartPlaylist(part, content), segments));
+                string content = await PartPlaylistReader.ReadAllTextAsync(path, ct);
+                // The strict timeline parse validates the whole set before anything is
+                // deleted; whether the part has segments uses the one stitcher definition.
+                _ = PlaylistTimeline.Parse(content);
+                parts.Add(new ScannedPart(
+                    new PartPlaylist(part, content),
+                    PlaylistStitcher.ParsePart(part, content).HasSegments));
             }
             catch (Exception ex) when (IsReadFailure(ex))
             {
@@ -315,9 +301,8 @@ public sealed class RecoveryService(
 
         try
         {
-            string index = await File.ReadAllTextAsync(path, ct);
-            return PlaylistStitcher.SegmentCount(index) > 0
-                && index.Contains("#EXT-X-ENDLIST", StringComparison.Ordinal);
+            string index = await PartPlaylistReader.ReadAllTextAsync(path, ct);
+            return PlaylistStitcher.IsFinalIndex(index);
         }
         catch (Exception ex) when (IsReadFailure(ex))
         {
@@ -352,5 +337,5 @@ public sealed class RecoveryService(
         exception is FormatException or IOException or UnauthorizedAccessException
             or InvalidDataException or NotSupportedException;
 
-    private sealed record ScannedPart(PartPlaylist Playlist, int SegmentCount);
+    private sealed record ScannedPart(PartPlaylist Playlist, bool HasSegments);
 }

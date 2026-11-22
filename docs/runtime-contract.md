@@ -13,8 +13,8 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 | `ChannelStore` | Singleton | `channels.json`, the watched-channel snapshot, pause flag, profile fields |
 | `SessionStore` | Singleton | `session.json`, `index.m3u8`, thumbnails, session locks |
 | `RecordingLibrary` | Singleton | In-memory recording summaries and `Changed` |
-| `LivePlaylistCache` | Singleton | Immutable per-session live playlist snapshots served by the live index endpoint |
-| `LivePlaylistService` | Singleton `BackgroundService` | Live playlist refresh, per-session last-known-good retention and pruning, and thumbnail playlist fallback |
+| `LiveIndex` | Singleton | The live index of every Recording session: one entry per session (refresh gate, parsed parts, published snapshot, backoff), last-known-good retention, eviction, and the thumbnail playlist read |
+| `LiveIndexRefresher` | Singleton `BackgroundService` | Ticks `LiveIndex.RefreshAllAsync` every `LivePlaylist:RefreshSeconds` |
 | `ThumbnailService` | Singleton `BackgroundService` | Thumbnail frame grabs (FFmpeg) and `.streamkeepr/thumbnails/` scratch files |
 | `DvrStatus` | Singleton | Read-only runtime snapshots for UI and health |
 | `RecorderJob` | Transient worker per part | Streamlink/FFmpeg processes and part files |
@@ -52,7 +52,7 @@ Only the coordinator loop mutates domain state. Readers use `DvrStatus` and `Rec
 
 - Each coordinator has one unbounded `Channel<DvrEvent>` with `SingleReader = true`.
 - `PublishAsync` uses `TryWrite`, never blocks, and never throws. Events are not dropped while the loop is running; after the loop completes, late events are dropped.
-- Unbounded is intentional: the loop can await a job stop for up to 35 s, and a bounded channel would deadlock if the job’s stdout callback also publishes.
+- Unbounded is intentional: the loop can await a job stop for up to the recorder's stop budget (35 s by default), and a bounded channel would deadlock if the job’s stdout callback also publishes.
 - Log a warning when the queue depth exceeds 1,000; do not drop.
 - Producers: the poller and EventSub route `StreamStatusObserved` per channel; the recorder publishes `PartProducingMedia` and `RecorderExited`; the supervisor publishes `StopRequested`, `ResumeRequested`, and `SessionRecovered`.
 - Per-producer order is preserved. Cross-producer ordering is not significant: the reducer filters stale job events by `JobId`, and observations carry timestamps.
@@ -74,10 +74,11 @@ A command failure other than the fatal cases is logged and surfaced through `Dvr
 ## 4. Job supervision
 
 - One active job per channel. `StartRecorder` and `ScheduleRetry` first stop the previous job.
-- `JobStopBudget` is 35 s, matching the recorder contract’s worst case (20 s + 15 s finalize cap).
+- The stop budget is `IRecorder.StopBudget`: the recorder contract’s worst case (20 s + `FinalizeTimeoutSeconds`) plus a 5 s margin, so 35 s by default and 40 s at the cap. The coordinator never keeps its own figure.
+- A stop that overruns the budget and a recorder outcome with an unverified shutdown are the two cases of one durable `WriterHazard`: either one retains the active job, blocks every later writer, and faults the loop. The loop's own `finally` records an overrun without throwing, so it never masks the fault that ended the loop.
 - If the job does not stop within the budget, the coordinator throws a fatal supervisor fault. The channel loop faults; the supervisor’s fault handler logs critical and stops the host. Recovery runs on restart. Never start a second job while the first may still write.
 - `RecordPartAsync` checks `DiskGuard.HasRoomToRecord()` before starting. A full disk produces a `RecorderExited` without launching the recorder.
-- `RecordPartAsync` catches every recorder exception and always publishes exactly one `RecorderExited` with the detail. `RecorderJob` itself returns one; the coordinator synthesizes only when the job throws or is skipped.
+- `RecordPartAsync` turns every part into one `PartOutcome` (from the recorder, or built when the disk check fails or the recorder throws before its tools start) and publishes exactly one `RecorderExited` from it. A failed outcome sets the channel's last error; an outcome with an unverified-shutdown fault records the durable fault and faults the loop (see `docs/recorder-contract.md` §5).
 - A channel loop that faults for any reason stops the host. A channel loop is not restarted in-process: its state may be inconsistent.
 - The poller and EventSub are supervised with exponential backoff (5 s, doubling to 5 min). Polling is the fallback whenever EventSub is unavailable.
 - Stale job events are filtered by the reducer; the coordinator does not need a separate job-generation check beyond the `JobId`.
@@ -127,7 +128,7 @@ public sealed record DvrSnapshot(
    - Paused: `Paused(Finished)`.
    - Unpaused: `Idle(Finished)`; if an unfinished session exists, publish `SessionRecovered(Unfinished)`.
 6. Start the supervised poller and EventSub loops.
-7. Start `LivePlaylistService` after recovery has loaded the library and before `ThumbnailService`. It publishes the first live snapshots for Recording sessions; a live endpoint request before the first refresh returns `503` with `Retry-After: 1`.
+7. Start `LiveIndexRefresher` after recovery has loaded the library and before `ThumbnailService`. It publishes the first live snapshots for Recording sessions; a live endpoint request before the first refresh returns `503` with `Retry-After: 1`.
 
 A startup recovery failure stops the host with a clear error; do not start a partial set of channels.
 
@@ -136,8 +137,8 @@ A startup recovery failure stops the host with a clear error; do not start a par
 - The stopping token cancels every channel loop and the shared loops.
 - Each coordinator’s `finally` stops its active job gracefully; the recorder’s bounded shutdown finalizes the part.
 - The supervisor awaits all channel loops, then the poller/EventSub loops.
-- The live playlist refresher stops with the hosted services; it owns no durable state and does not block finalization.
-- Channels stop in parallel; the 35 s job budget and 40 s host timeout are the bounds. Compose’s 50 s grace is the backstop.
+- The live index refresher stops with the hosted services; it owns no durable state and does not block finalization.
+- Channels stop in parallel; the recorder's stop budget and the host timeout (budget + 5 s) are the bounds. Compose’s 50 s grace is the backstop.
 - The host timeout is not a substitute for finalization: if it fires, the container kills the children and recovery repairs on the next start.
 
 ## 9. Failure isolation

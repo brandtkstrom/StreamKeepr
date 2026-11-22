@@ -64,6 +64,8 @@ nunit-*.xml
 
 # Development
 */**/*.Development.json
+# The shipped Development profile sets the default log level; keep it versioned.
+!src/StreamKeepr/appsettings.Development.json
 
 # Local IDE and agent tool state
 .idea/

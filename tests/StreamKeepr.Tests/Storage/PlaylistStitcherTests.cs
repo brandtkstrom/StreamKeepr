@@ -250,62 +250,73 @@ public sealed class PlaylistStitcherTests
         Assert.Throws<ArgumentException>(() => PlaylistStitcher.Stitch([first, duplicate], 12, final: false));
     }
 
-    [Theory]
-    [InlineData(6, 4, 5.5, 4.5, 20)]
-    [InlineData(6, 6, 6, 6, 24)]
-    public void TotalDuration_is_the_sum_of_segment_durations(
-        double firstPartDuration1,
-        double firstPartDuration2,
-        double secondPartDuration1,
-        double secondPartDuration2,
-        double expected)
+    [Fact]
+    public void A_stitched_final_index_is_final()
     {
-        var first = new PartPlaylist(1, Playlist(6, "init_001.mp4",
-            Segment("p001_00001.m4s", "2026-01-01T00:00:00+00:00", firstPartDuration1),
-            Segment("p001_00002.m4s", "2026-01-01T00:00:06+00:00", firstPartDuration2)));
-        var second = new PartPlaylist(2, Playlist(6, "init_002.mp4",
-            Segment("p002_00001.m4s", "2026-01-01T00:00:12+00:00", secondPartDuration1),
-            Segment("p002_00002.m4s", "2026-01-01T00:00:18+00:00", secondPartDuration2)));
-        string stitched = PlaylistStitcher.Stitch([first, second], 12, final: true);
+        var part = new PartPlaylist(1, Playlist(6, "init_001.mp4",
+            Segment("p001_00001.m4s", "2026-01-01T00:00:00+00:00", 6)));
 
-        Assert.Equal(expected, PlaylistStitcher.TotalDuration(stitched), precision: 10);
+        Assert.True(PlaylistStitcher.IsFinalIndex(PlaylistStitcher.Stitch([part], 12, final: true)));
+        Assert.False(PlaylistStitcher.IsFinalIndex(PlaylistStitcher.Stitch([part], 12, final: false)));
     }
 
     [Fact]
-    public void SegmentCount_counts_segment_uris_and_ignores_init_maps_and_tags()
+    public void An_index_with_endlist_but_no_segments_is_not_final()
     {
-        var first = new PartPlaylist(1, Playlist(6, "init_001.mp4",
+        Assert.False(PlaylistStitcher.IsFinalIndex(PlaylistStitcher.Stitch([], 12, final: true)));
+    }
+
+    [Fact]
+    public void A_malformed_index_cannot_be_judged_final()
+    {
+        string index = Lines("#EXTM3U", "#EXTINF:abc,", "p001_00000.m4s", "#EXT-X-ENDLIST", "");
+
+        Assert.Throws<FormatException>(() => PlaylistStitcher.IsFinalIndex(index));
+    }
+
+    [Fact]
+    public void Referenced_media_lists_init_maps_and_segment_uris()
+    {
+        string content = Playlist(6, "init_001.mp4",
             Segment("p001_00001.m4s", "2026-01-01T00:00:00+00:00", 6),
-            Segment("p001_00002.m4s", "2026-01-01T00:00:06+00:00", 6)));
-        var second = new PartPlaylist(2, Playlist(6, "init_002.mp4",
-            Segment("p002_00001.m4s", "2026-01-01T00:00:12+00:00", 6)));
+            Segment("p001_00002.m4s", "2026-01-01T00:00:06+00:00", 6));
 
-        string stitched = PlaylistStitcher.Stitch([first, second], 12, final: true);
-
-        Assert.Equal(2, PlaylistStitcher.SegmentCount(Playlist(6, "init_001.mp4",
-            Segment("p001_00001.m4s", "2026-01-01T00:00:00+00:00", 6),
-            Segment("p001_00002.m4s", "2026-01-01T00:00:06+00:00", 6))));
-        Assert.Equal(3, PlaylistStitcher.SegmentCount(stitched));
+        Assert.Equal(
+            ["init_001.mp4", "p001_00001.m4s", "p001_00002.m4s"],
+            PlaylistStitcher.ReferencedMedia(content).Order(StringComparer.Ordinal));
     }
 
     [Fact]
-    public void SegmentCount_ignores_a_trailing_extinf_without_a_uri()
+    public void Referenced_media_keeps_an_unterminated_segment_line_so_recovery_never_deletes_it()
     {
-        string playlist = Lines(
-            "#EXTM3U",
-            "#EXTINF:6,",
-            "segment.m4s",
-            "#EXTINF:6,");
+        // Stricter than ParsePart on purpose: this set decides what recovery may delete, so a
+        // segment whose playlist line was still being written stays referenced.
+        string content = "#EXTM3U\n#EXT-X-MAP:URI=\"init_001.mp4\"\n#EXTINF:6,\np001_00000.m4s\n"
+            + "#EXTINF:6,\np001_00001.m4s";
 
-        Assert.Equal(1, PlaylistStitcher.SegmentCount(playlist));
-        Assert.Equal(6, PlaylistStitcher.TotalDuration(playlist), precision: 10);
+        Assert.Contains("p001_00001.m4s", PlaylistStitcher.ReferencedMedia(content));
+        Assert.Empty(PlaylistStitcher.ParsePart(1, content).BodyLines.Where(line => line == "p001_00001.m4s"));
     }
 
     [Fact]
-    public void TotalDuration_rejects_a_segment_uri_without_an_extinf()
+    public void Referenced_media_reads_an_init_map_that_carries_attributes()
     {
-        string playlist = Lines("#EXTM3U", "#EXTINF:not-a-number,", "segment.m4s");
+        string content = "#EXTM3U\n#EXT-X-MAP:URI=\"init_001.mp4\",BYTERANGE=\"3@0\"\n"
+            + "#EXTINF:6,\np001_00000.m4s\n";
 
-        Assert.Throws<FormatException>(() => PlaylistStitcher.TotalDuration(playlist));
+        Assert.Equal(
+            ["init_001.mp4", "p001_00000.m4s"],
+            PlaylistStitcher.ReferencedMedia(content).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            new SegmentFiles("init_001.mp4", "p001_00000.m4s"),
+            PlaylistTimeline.Parse(content).SegmentAt(1));
+    }
+
+    [Fact]
+    public void Referenced_media_ignores_an_unclosed_init_map()
+    {
+        string content = "#EXTM3U\n#EXT-X-MAP:URI=\"init_001.mp4\n#EXTINF:6,\np001_00000.m4s\n";
+
+        Assert.Equal(["p001_00000.m4s"], PlaylistStitcher.ReferencedMedia(content));
     }
 }

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - dev
   pull_request:
 
 permissions:
@@ -20,6 +21,12 @@ jobs:
   # check, while a workflow that never runs leaves it pending forever.
   # Downstream jobs run unless this job reports code=false, so a failure here
   # fails safe (jobs run) instead of skipping, which would count as passing.
+  #
+  # The dev branch runs only the fast jobs (Build and test, JS lint and test).
+  # Pull requests into dev and pushes to dev skip Docker image, E2E (Mock
+  # profile) and Compose deployment; everything else, including pull requests
+  # into main, runs the full suite. The dev ruleset must require only the fast
+  # checks. Like `code`, `full` fails safe: only an explicit 'false' skips.
   changes:
     name: Detect changes
     runs-on: ubuntu-26.04
@@ -29,6 +36,7 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      full: ${{ github.base_ref != 'dev' && github.ref != 'refs/heads/dev' }}
 
     steps:
       - name: Check for changes outside docs/
@@ -156,7 +164,7 @@ jobs:
   docker:
     name: Docker image
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' && needs.changes.outputs.full != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 20
 
@@ -272,7 +280,7 @@ jobs:
   e2e:
     name: E2E (Mock profile)
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' && needs.changes.outputs.full != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 25
 
@@ -348,7 +356,7 @@ jobs:
   compose:
     name: Compose deployment
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' && needs.changes.outputs.full != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 30
 

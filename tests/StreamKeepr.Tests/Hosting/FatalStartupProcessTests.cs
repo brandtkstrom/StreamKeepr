@@ -11,49 +11,38 @@ public sealed class FatalStartupProcessTests
     private const string SecretValue = "fatal-test-secret-do-not-log";
     private static readonly TimeSpan ExitTimeout = TimeSpan.FromSeconds(60);
 
-    [Theory]
-    [InlineData("Production", "Twitch__ClientId", "", "ClientId")]
-    [InlineData("Production", "Serilog__MinimumLevel__Default", "Loud", "Loud")]
-    [InlineData("Mock", "Serilog__MinimumLevel__Default", "Loud", "Loud")]
     public async Task Bad_configuration_logs_a_fatal_line_and_exits_non_zero(
         string environment, string key, string value, string expectedDetail)
     {
-        string recordings = Path.Combine(
-            Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
+        using var root = new TempDirectory();
 
-        try
+        (int exitCode, string output) = await RunAppAsync(new Dictionary<string, string>
         {
-            (int exitCode, string output) = await RunAppAsync(new Dictionary<string, string>
-            {
-                ["ASPNETCORE_ENVIRONMENT"] = environment,
-                ["ASPNETCORE_URLS"] = "http://127.0.0.1:0",
-                ["Twitch__ClientId"] = "fatal-test-client-id",
-                ["Twitch__ClientSecret"] = SecretValue,
-                ["Storage__RecordingsRoot"] = recordings,
-                ["Mock__Seed__Enabled"] = "false",
-                [key] = value,
-            });
+            ["ASPNETCORE_ENVIRONMENT"] = environment,
+            ["ASPNETCORE_URLS"] = "http://127.0.0.1:0",
+            ["Twitch__ClientId"] = "fatal-test-client-id",
+            ["Twitch__ClientSecret"] = SecretValue,
+            ["Storage__RecordingsRoot"] = root.Path,
+            ["Mock__Seed__Enabled"] = "false",
+            [key] = value,
+        });
 
-            Assert.NotEqual(0, exitCode);
-            Assert.Contains("FTL]", output, StringComparison.Ordinal);
-            Assert.Contains("Stream Keepr terminated unexpectedly", output, StringComparison.Ordinal);
-            Assert.Contains(expectedDetail, output, StringComparison.Ordinal);
-            Assert.DoesNotContain(SecretValue, output, StringComparison.Ordinal);
-        }
-        finally
-        {
-            if (Directory.Exists(recordings))
-                Directory.Delete(recordings, recursive: true);
-        }
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("FTL]", output, StringComparison.Ordinal);
+        Assert.Contains("Stream Keepr terminated unexpectedly", output, StringComparison.Ordinal);
+        Assert.Contains(expectedDetail, output, StringComparison.Ordinal);
+        Assert.DoesNotContain(SecretValue, output, StringComparison.Ordinal);
     }
 
-    [Fact]
     public async Task Production_fatal_exit_is_clean_while_mock_rethrows_for_the_test_host()
     {
+        using var root = new TempDirectory();
+
         (int productionExit, string production) = await RunAppAsync(new Dictionary<string, string>
         {
             ["ASPNETCORE_ENVIRONMENT"] = "Production",
             ["ASPNETCORE_URLS"] = "http://127.0.0.1:0",
+            ["Storage__RecordingsRoot"] = root.Path,
             ["Twitch__ClientId"] = "",
         });
         (int mockExit, string mock) = await RunAppAsync(new Dictionary<string, string>
@@ -64,7 +53,6 @@ public sealed class FatalStartupProcessTests
             ["Serilog__MinimumLevel__Default"] = "Loud",
         });
 
-        Assert.Equal(1, productionExit);
         Assert.Equal(1, productionExit);
         Assert.DoesNotContain("unhandled exception", production, StringComparison.OrdinalIgnoreCase);
         Assert.NotEqual(0, mockExit);

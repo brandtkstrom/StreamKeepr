@@ -1,5 +1,4 @@
 using System.IO.Pipelines;
-using CliWrap;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
@@ -10,8 +9,9 @@ namespace StreamKeepr.Infrastructure.Media;
 
 /// <summary>
 /// Runs Streamlink and FFmpeg for exactly one part of one session. The job publishes
-/// <see cref="DvrEvent.PartProducingMedia"/> at most once and publishes exactly one
-/// <see cref="DvrEvent.RecorderExited"/> when the job completes.
+/// <see cref="DvrEvent.PartProducingMedia"/> at most once and returns one
+/// <see cref="PartOutcome"/> on every path, including an unverified shutdown and an unexpected
+/// error after the tools started.
 /// </summary>
 public sealed class RecorderJob(
     IOptions<RecorderOptions> options,
@@ -24,10 +24,12 @@ public sealed class RecorderJob(
     private readonly IRecorderProcessRunner _processRunner = new CliWrapProcessRunner();
     private readonly Func<int?, DateTime?, ProcessIdentity> _identityProbe =
         ProcessIdentityInspector.Inspect;
+    private readonly Func<string, int, long> _partBytesScan = PartFiles.TotalBytes;
 
     /// <summary>
-    /// Test seam: production uses the CliWrap runner and the real process table. Tests substitute
-    /// both so an unverified stop is deterministic without long-lived processes.
+    /// Test seam: production uses the CliWrap runner, the real process table, and a full scan of
+    /// the part's files. Tests substitute them so an unverified stop or an unreadable part size is
+    /// deterministic without long-lived processes.
     /// </summary>
     internal RecorderJob(
         IOptions<RecorderOptions> options,
@@ -35,25 +37,48 @@ public sealed class RecorderJob(
         ILogger<RecorderJob> logger,
         StreamKeeprTelemetry telemetry,
         IRecorderProcessRunner processRunner,
-        Func<int?, DateTime?, ProcessIdentity>? identityProbe = null)
+        Func<int?, DateTime?, ProcessIdentity>? identityProbe = null,
+        Func<string, int, long>? partBytesScan = null)
         : this(options, clock, logger, telemetry)
     {
         _processRunner = processRunner;
         if (identityProbe is not null)
             _identityProbe = identityProbe;
+        if (partBytesScan is not null)
+            _partBytesScan = partBytesScan;
     }
 
     private static readonly TimeSpan WatchdogInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan GracefulStopTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ForceStopTimeout = TimeSpan.FromSeconds(5);
 
+    /// <summary>Headroom over the waits, so the guard never races a stop still inside them.</summary>
+    private static readonly TimeSpan StopBudgetMargin = TimeSpan.FromSeconds(5);
+
+    public TimeSpan StopBudget => StopBudgetFor(options.Value);
+
+    /// <summary>
+    /// The longest a requested stop may take: Streamlink's graceful and force waits, FFmpeg's
+    /// finalize wait and its own graceful and force waits, plus a margin. 35 s with the default
+    /// 10 s finalize and 40 s at the 15 s cap.
+    /// </summary>
+    internal static TimeSpan StopBudgetFor(RecorderOptions recorder)
+    {
+        ArgumentNullException.ThrowIfNull(recorder);
+        TimeSpan streamlink = GracefulStopTimeout + ForceStopTimeout;
+        TimeSpan ffmpeg = TimeSpan.FromSeconds(recorder.FinalizeTimeoutSeconds)
+            + GracefulStopTimeout
+            + ForceStopTimeout;
+        return streamlink + ffmpeg + StopBudgetMargin;
+    }
+
     /// <summary>
     /// Records the job's part into <see cref="Session.Directory"/>. A part that already has any
-    /// file is never overwritten; the job reports an exit without starting either process.
+    /// file is never overwritten; the job returns an outcome without starting either process.
     /// A requested <paramref name="stopRequested"/> runs the bounded shutdown and reports
     /// <see cref="RecorderExitKind.Stopped"/> unless a force path was needed.
     /// </summary>
-    public async Task RunAsync(
+    public async Task<PartOutcome> RunAsync(
         Session session,
         JobId job,
         Func<DvrEvent, CancellationToken, ValueTask> publish,
@@ -78,27 +103,13 @@ public sealed class RecorderJob(
 
         if (PartFiles.Exists(session.Directory, job.Part))
         {
-            await publish(
-                new DvrEvent.RecorderExited(
-                    job,
-                    clock.GetUtcNow(),
-                    RecorderExitKind.Exited,
-                    $"part {job.Part:D3} already exists; refusing to overwrite"),
-                CancellationToken.None);
-            return;
+            return new PartOutcome(
+                RecorderExitKind.Exited,
+                $"part {job.Part:D3} already exists; refusing to overwrite");
         }
 
         if (stopRequested.IsCancellationRequested)
-        {
-            await publish(
-                new DvrEvent.RecorderExited(
-                    job,
-                    clock.GetUtcNow(),
-                    RecorderExitKind.Stopped,
-                    "stop requested before start"),
-                CancellationToken.None);
-            return;
-        }
+            return new PartOutcome(RecorderExitKind.Stopped, "stop requested before start");
 
         var tail = new StderrTail(StderrCapacity);
         var parser = new FfmpegProgressParser();
@@ -127,106 +138,189 @@ public sealed class RecorderJob(
         using var streamlinkGraceful = new CancellationTokenSource();
         using var streamlinkForce = new CancellationTokenSource();
 
-        Command ffmpegCommand = Cli.Wrap(recorder.FfmpegPath)
-            .WithWorkingDirectory(session.Directory)
-            .WithArguments(FfmpegArgs.ForPart(session.Directory, job.Part, recorder.SegmentSeconds))
-            .WithValidation(CommandResultValidation.None)
-            .WithStandardInputPipe(PipeSource.FromStream(pipe.Reader.AsStream()))
-            .WithStandardOutputPipe(PipeTarget.ToDelegate(async line =>
+        async ValueTask OnFfmpegStdout(string line)
+        {
+            if (parser.Feed(line) is not { } sample)
+                return;
+
+            // total_size is N/A for the HLS muxer. The tracker reads the part playlist
+            // incrementally, so a progress sample never enumerates the part directory.
+            long bytes = byteTracker.Sample();
+            logger.LogDebug(
+                "Recorder {Job} progress: {Bytes} bytes, media {MediaTime}",
+                job,
+                bytes,
+                sample.MediaTime);
+            reportProgress?.Invoke(job, bytes, sample.MediaTime);
+
+            if (!sample.Advanced)
+                return;
+
+            DateTimeOffset advancedAt = clock.GetUtcNow();
+            Interlocked.Exchange(ref lastMediaAdvanceTicks, advancedAt.UtcTicks);
+            if (Interlocked.Exchange(ref producing, 1) == 0)
             {
-                if (parser.Feed(line) is not { } sample)
-                    return;
+                await publish(
+                    new DvrEvent.PartProducingMedia(job, advancedAt),
+                    CancellationToken.None);
+            }
+        }
 
-                // total_size is N/A for the HLS muxer. The tracker reads the part playlist
-                // incrementally, so a progress sample never enumerates the part directory.
-                long bytes = byteTracker.Sample();
-                logger.LogDebug(
-                    "Recorder {Job} progress: {Bytes} bytes, media {MediaTime}",
-                    job,
-                    bytes,
-                    sample.MediaTime);
-                reportProgress?.Invoke(job, bytes, sample.MediaTime);
+        void OnFfmpegStderr(string line)
+        {
+            string safe = ForLog(line);
+            tail.Add("ffmpeg", safe);
+            logger.LogDebug("[ffmpeg {Job}] {Line}", job, safe);
+        }
 
-                if (!sample.Advanced)
-                    return;
+        void OnStreamlinkStderr(string line)
+        {
+            string safe = ForLog(line);
 
-                DateTimeOffset advancedAt = clock.GetUtcNow();
-                Interlocked.Exchange(ref lastMediaAdvanceTicks, advancedAt.UtcTicks);
-                if (Interlocked.Exchange(ref producing, 1) == 0)
+            // Streamlink announces skipped ads before it starves FFmpeg of media. Extend the
+            // grace window before logging so a later stall check observes the new deadline.
+            if (StreamlinkAdBreak.TryGetGraceUntil(line, clock.GetUtcNow(), out DateTimeOffset graceUntil))
+            {
+                long candidate = graceUntil.UtcTicks;
+                long current = Interlocked.Read(ref adGraceUntilTicks);
+                while (candidate > current)
                 {
-                    await publish(
-                        new DvrEvent.PartProducingMedia(job, advancedAt),
-                        CancellationToken.None);
+                    long seen = Interlocked.CompareExchange(
+                        ref adGraceUntilTicks, candidate, current);
+                    if (seen == current)
+                        break;
+                    current = seen;
                 }
-            }))
-            .WithStandardErrorPipe(PipeTarget.ToDelegate(line =>
-            {
-                string safe = ForLog(line);
-                tail.Add("ffmpeg", safe);
-                logger.LogDebug("[ffmpeg {Job}] {Line}", job, safe);
-            }));
+            }
 
-        Command streamlinkCommand = Cli.Wrap(recorder.StreamlinkPath)
-            .WithWorkingDirectory(session.Directory)
-            .WithArguments(StreamlinkArgs.For(session.Channel, recorder))
-            .WithValidation(CommandResultValidation.None)
-            .WithStandardOutputPipe(PipeTarget.ToStream(pipe.Writer.AsStream()))
-            .WithStandardErrorPipe(PipeTarget.ToDelegate(line =>
-            {
-                string safe = ForLog(line);
+            tail.Add("streamlink", safe);
+            logger.LogDebug("[streamlink {Job}] {Line}", job, safe);
+        }
 
-                // Streamlink announces skipped ads before it starves FFmpeg of media. Extend the
-                // grace window before logging so a later stall check observes the new deadline.
-                if (StreamlinkAdBreak.TryGetGraceUntil(line, clock.GetUtcNow(), out DateTimeOffset graceUntil))
-                {
-                    long candidate = graceUntil.UtcTicks;
-                    long current = Interlocked.Read(ref adGraceUntilTicks);
-                    while (candidate > current)
-                    {
-                        long seen = Interlocked.CompareExchange(
-                            ref adGraceUntilTicks, candidate, current);
-                        if (seen == current)
-                            break;
-                        current = seen;
-                    }
-                }
-
-                tail.Add("streamlink", safe);
-                logger.LogDebug("[streamlink {Job}] {Line}", job, safe);
-            }));
+        var ffmpegLaunch = new ToolLaunch(
+            "ffmpeg",
+            recorder.FfmpegPath,
+            FfmpegArgs.ForPart(session.Directory, job.Part, recorder.SegmentSeconds),
+            session.Directory,
+            StandardInput: pipe.Reader.AsStream());
+        var streamlinkLaunch = new ToolLaunch(
+            "streamlink",
+            recorder.StreamlinkPath,
+            StreamlinkArgs.For(session.Channel, recorder),
+            session.Directory,
+            StandardOutput: pipe.Writer.AsStream());
 
         RunningProcess ffmpeg = _processRunner.Start(
-            ffmpegCommand, ffmpegForce.Token, ffmpegGraceful.Token);
+            ffmpegLaunch, OnFfmpegStdout, OnFfmpegStderr, ffmpegForce.Token, ffmpegGraceful.Token);
         RunningProcess streamlink = _processRunner.Start(
-            streamlinkCommand, streamlinkForce.Token, streamlinkGraceful.Token);
+            streamlinkLaunch,
+            onStdoutLine: null,
+            OnStreamlinkStderr,
+            streamlinkForce.Token,
+            streamlinkGraceful.Token);
         Task<ProcessOutcome> ffmpegTask = ffmpeg.Completion;
         Task<ProcessOutcome> streamlinkTask = streamlink.Completion;
 
+        // Both tools are running from here on: every later failure, including in this setup, must
+        // still stop and verify them, finalize the part, and report it.
         var stopSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using CancellationTokenRegistration stopRegistration = stopRequested.Register(
-            static state => ((TaskCompletionSource)state!).TrySetResult(),
-            stopSignal);
-
         var stalled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var watchdog = new CancellationTokenSource();
-        Task watchdogTask = WatchForStallAsync(
-            () => Math.Max(
-                Interlocked.Read(ref lastMediaAdvanceTicks),
-                Interlocked.Read(ref adGraceUntilTicks)),
-            TimeSpan.FromSeconds(recorder.StallTimeoutSeconds),
-            stalled,
-            watchdog.Token);
+        CancellationTokenRegistration stopRegistration = default;
+        Task watchdogTask = Task.CompletedTask;
 
-        string reason;
+        // Assigned once the first task completes; the initial value names an earlier failure.
+        string reason = "recorder failed before a tool ended";
         bool forcedKill = false;
         bool finalizeTimedOut = false;
         bool stalledEnd = false;
         ProcessStop streamlinkStop = ProcessStop.AlreadyStopped;
         ProcessStop ffmpegStop = ProcessStop.AlreadyStopped;
+        UnverifiedShutdown? fault = null;
+        Exception? unexpected = null;
+
+        // Records one tool's stop: a forced stop counts as a force kill, and the first
+        // unverified stop is the part's fault.
+        ProcessStop Record(ToolStop stop)
+        {
+            forcedKill |= stop.Stop == ProcessStop.Forced;
+            fault ??= stop.Fault;
+            return stop.Stop;
+        }
+
+        // One authoritative scan for telemetry, the finish log, and their equality. A metadata
+        // error must never fail the recorder; the size is then unknown, never a guessed number.
+        long? ScanPartBytes()
+        {
+            try
+            {
+                return _partBytesScan(session.Directory, job.Part);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Could not read the part size; the tracked total was {TrackedBytes} bytes.",
+                    byteTracker.Total);
+                return null;
+            }
+        }
+
+        string AppendTailAndRedact(string text)
+        {
+            string stderr = tail.ToString();
+            if (stderr.Length > 0)
+                text = $"{text}; {stderr}";
+
+            // Diagnostic text can include a tool exception message; redact once more at the
+            // boundary so the subscriber token can never leak through the detail or the log.
+            return ProcessOutput.Redact(text, recorder.TwitchUserOAuthToken);
+        }
+
+        // Every path on which the tools ran ends here, including an unverified shutdown, so the
+        // part is always counted and its finish is always logged.
+        void ReportPart(RecorderExitKind kind, bool stall, bool forceKill, long? bytes, string detail)
+        {
+            telemetry.PartExited(kind, clock.GetElapsedTime(startedAt), bytes);
+            if (stall)
+                telemetry.Stall();
+            if (forceKill)
+                telemetry.ForceKill();
+
+            // Bytes are what the part left on disk: zero when an empty part was removed, null
+            // when the size could not be read. Only the log copy of the detail is escaped.
+            double elapsedMs = clock.GetElapsedTime(startedAt).TotalMilliseconds;
+            logger.LogInformation(
+                "Recorder {Job} finished ({Kind}) after {ElapsedMs:F0} ms with {Bytes} bytes: {Detail}",
+                job,
+                kind,
+                elapsedMs,
+                bytes,
+                ProcessOutput.Sanitize(detail));
+        }
+
         try
         {
+            stopRegistration = stopRequested.Register(
+                static state => ((TaskCompletionSource)state!).TrySetResult(),
+                stopSignal);
+            watchdogTask = WatchForStallAsync(
+                () => Math.Max(
+                    Interlocked.Read(ref lastMediaAdvanceTicks),
+                    Interlocked.Read(ref adGraceUntilTicks)),
+                TimeSpan.FromSeconds(recorder.StallTimeoutSeconds),
+                stalled,
+                watchdog.Token);
+
+            // A failed watchdog ends the wait too: without it no stall could ever be detected.
             Task first = await Task.WhenAny(
-                streamlinkTask, ffmpegTask, stopSignal.Task, stalled.Task);
+                streamlinkTask, ffmpegTask, stopSignal.Task, stalled.Task, watchdogTask);
+            if (first == watchdogTask)
+            {
+                // The watchdog only returns before cancellation after a stall; a fault throws here.
+                await watchdogTask;
+                first = stalled.Task;
+            }
 
             stalledEnd = first == stalled.Task;
             reason = first == streamlinkTask ? "streamlink exited"
@@ -247,73 +341,75 @@ public sealed class RecorderJob(
             // process group and never use stdin EOF to stop it.
             if (!streamlinkTask.IsCompleted)
             {
-                ProcessStop stop = await StopAsync(
-                    job, "streamlink", streamlink, streamlinkGraceful, streamlinkForce);
-                streamlinkStop = stop;
-                forcedKill |= stop == ProcessStop.Forced;
+                streamlinkStop = Record(await StopAsync(
+                    "streamlink", streamlink, streamlinkGraceful, streamlinkForce));
             }
 
-            // Only now deliver EOF: it is FFmpeg's graceful finish.
-            await pipe.Writer.CompleteAsync();
-
-            if (!ffmpegTask.IsCompleted)
+            // After an unverified Streamlink stop, FFmpeg is force-cancelled below instead of
+            // being finalized: the previous writer may still be running.
+            if (fault is null)
             {
-                if (!await CompletesWithinAsync(
+                // Only now deliver EOF: it is FFmpeg's graceful finish.
+                await pipe.Writer.CompleteAsync();
+
+                if (!ffmpegTask.IsCompleted
+                    && !await CompletesWithinAsync(
                         ffmpegTask, TimeSpan.FromSeconds(recorder.FinalizeTimeoutSeconds)))
                 {
                     reason = $"{reason}; ffmpeg did not finalize";
                     finalizeTimedOut = true;
-                    ProcessStop stop = await StopAsync(
-                        job, "ffmpeg", ffmpeg, ffmpegGraceful, ffmpegForce);
-                    ffmpegStop = stop;
-                    forcedKill |= stop == ProcessStop.Forced;
+                    ffmpegStop = Record(await StopAsync(
+                        "ffmpeg", ffmpeg, ffmpegGraceful, ffmpegForce));
                 }
+
+                if (!readerCompleted)
+                    await pipe.Reader.CompleteAsync();
             }
-
-            if (!readerCompleted)
-                await pipe.Reader.CompleteAsync();
-        }
-        catch
-        {
-            // Never leave the other process running when the job fails unexpectedly.
-            await streamlinkForce.CancelAsync();
-            await ffmpegForce.CancelAsync();
-            throw;
-        }
-        finally
-        {
-            await watchdog.CancelAsync();
-            await watchdogTask;
-        }
-
-        if (PartFiles.HasSegments(session.Directory, job.Part)
-            && Interlocked.Exchange(ref producing, 1) == 0)
-        {
-            // A very short part may produce only its final progress block, or no progress at all.
-            await publish(
-                new DvrEvent.PartProducingMedia(job, clock.GetUtcNow()),
-                CancellationToken.None);
-        }
-
-        if (Volatile.Read(ref producing) == 0)
-            PartFiles.Delete(session.Directory, job.Part);
-
-        // One authoritative scan for telemetry, the finish log, and their equality. The
-        // incremental tracker is the fallback; a metadata error must never fail the recorder.
-        long bytes;
-        try
-        {
-            bytes = byteTracker.Reconcile();
         }
         catch (Exception ex)
         {
-            logger.LogWarning(
-                ex,
-                "Could not read the part size; using the tracked total of {Bytes} bytes.",
-                byteTracker.Total);
-            bytes = byteTracker.Total;
+            // An unexpected error must not skip verification, finalize, or the report: force
+            // both tools and verify each stop exactly as the bounded shutdown would.
+            unexpected = ex;
+            logger.LogError(ex, "Recorder {Job} failed; force-stopping both tools", job);
+            if (!streamlinkTask.IsCompleted)
+                streamlinkStop = Record(await ForceStopAsync("streamlink", streamlink, streamlinkForce));
+            if (!ffmpegTask.IsCompleted)
+                ffmpegStop = Record(await ForceStopAsync("ffmpeg", ffmpeg, ffmpegForce));
         }
-        long? partBytes = telemetry.Enabled ? bytes : null;
+        finally
+        {
+            stopRegistration.Dispose();
+            await watchdog.CancelAsync();
+            await watchdogTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+
+        // A watchdog that failed after the wait above ended is reported here, never rethrown.
+        if (watchdogTask.Exception is { } watchdogError && unexpected is null)
+        {
+            logger.LogError(watchdogError, "Recorder {Job} stall watchdog failed", job);
+            unexpected = watchdogError.InnerException ?? watchdogError;
+        }
+
+        if (unexpected is not null)
+            reason = $"{reason}; recorder failed: {unexpected.Message}";
+
+        if (fault is not null)
+        {
+            // The writer may still be alive: force-cancel whatever is left and never delete part
+            // files. The coordinator publishes the Killed exit and stops the host.
+            await streamlinkForce.CancelAsync();
+            await ffmpegForce.CancelAsync();
+            string faultDetail = AppendTailAndRedact($"{reason}; {fault}");
+            long? faultBytes = ScanPartBytes();
+            ReportPart(RecorderExitKind.Killed, stalledEnd, forceKill: true, faultBytes, faultDetail);
+            return new PartOutcome(
+                RecorderExitKind.Killed,
+                faultDetail,
+                faultBytes,
+                clock.GetElapsedTime(startedAt),
+                Fault: fault);
+        }
 
         // The watchdog and force-kill paths beat a requested stop; an escalated finalize did not
         // end on its own, so it is reported as killed rather than as a self exit.
@@ -323,40 +419,39 @@ public sealed class RecorderJob(
                 ? RecorderExitKind.Stopped
                 : RecorderExitKind.Exited;
 
-        telemetry.PartExited(kind, clock.GetElapsedTime(startedAt), partBytes);
-        if (stalledEnd)
-            telemetry.Stall();
-        if (forcedKill || finalizeTimedOut)
-            telemetry.ForceKill();
+        bool failed = unexpected is not null;
+        try
+        {
+            if (PartFiles.HasSegments(session.Directory, job.Part)
+                && Interlocked.Exchange(ref producing, 1) == 0)
+            {
+                // A very short part may produce only its final progress block, or no progress.
+                await publish(
+                    new DvrEvent.PartProducingMedia(job, clock.GetUtcNow()),
+                    CancellationToken.None);
+            }
 
-        string detail =
+            if (Volatile.Read(ref producing) == 0)
+                PartFiles.Delete(session.Directory, job.Part);
+        }
+        catch (Exception ex)
+        {
+            // Both tools are stopped and verified; a failed media check, publish, or cleanup only
+            // fails the part. It never skips the report.
+            logger.LogError(ex, "Recorder {Job} could not finalize its part files", job);
+            reason = $"{reason}; finalize failed: {ex.Message}";
+            failed = true;
+        }
+
+        long? bytes = ScanPartBytes();
+
+        // The detail is display text, and a newline in it is harmless.
+        string detail = AppendTailAndRedact(
             $"{reason}; streamlink {Describe(streamlink, streamlinkStop)}, "
-            + $"ffmpeg {Describe(ffmpeg, ffmpegStop)}";
-        string stderr = tail.ToString();
-        if (stderr.Length > 0)
-            detail = $"{detail}; {stderr}";
+            + $"ffmpeg {Describe(ffmpeg, ffmpegStop)}");
 
-        // Diagnostic text can include a tool exception message; redact once more at the boundary
-        // so the subscriber token can never leak through the detail or the log. Only the log
-        // copy is escaped: the published detail is display text, and a newline in it is harmless.
-        detail = ProcessOutput.Redact(detail, recorder.TwitchUserOAuthToken);
-
-        // Bytes are what the part left on disk: zero when an empty part was removed.
-        double elapsedMs = clock.GetElapsedTime(startedAt).TotalMilliseconds;
-        logger.LogInformation(
-            "Recorder {Job} finished ({Kind}) after {ElapsedMs:F0} ms with {Bytes} bytes: {Detail}",
-            job,
-            kind,
-            elapsedMs,
-            bytes,
-            ProcessOutput.Sanitize(detail));
-        await publish(
-            new DvrEvent.RecorderExited(
-                job,
-                clock.GetUtcNow(),
-                kind,
-                detail),
-            CancellationToken.None);
+        ReportPart(kind, stalledEnd, forcedKill || finalizeTimedOut, bytes, detail);
+        return new PartOutcome(kind, detail, bytes, clock.GetElapsedTime(startedAt), Failed: failed);
     }
 
     /// <summary>
@@ -390,57 +485,86 @@ public sealed class RecorderJob(
 
     /// <summary>
     /// Stops one process within the bounded graceful then force-kill budget. CliWrap's graceful
-    /// token signals the single child PID; it never signals the process group. A force kill is
-    /// accepted only when the captured PID is gone or was reused; an unreadable identity fails
-    /// closed because a descendant may still be writing.
+    /// token signals the single child PID; it never signals the process group.
     /// </summary>
-    private async Task<ProcessStop> StopAsync(
-        JobId job,
+    private async Task<ToolStop> StopAsync(
         string tool,
         RunningProcess process,
         CancellationTokenSource gracefulStop,
         CancellationTokenSource forceKill)
     {
         if (process.Completion.IsCompleted)
-            return ProcessStop.AlreadyStopped;
+            return new ToolStop(ProcessStop.AlreadyStopped, null);
 
         await gracefulStop.CancelAsync();
         if (await CompletesWithinAsync(process.Completion, GracefulStopTimeout))
-            return ProcessStop.Graceful;
+            return new ToolStop(ProcessStop.Graceful, null);
 
+        return await ForceStopAsync(tool, process, forceKill);
+    }
+
+    /// <summary>
+    /// Force-kills one process and verifies it. A force kill is accepted only when the captured
+    /// PID is gone or was reused; a pending task or an unreadable identity is an unverified
+    /// shutdown, because a descendant may still be writing.
+    /// </summary>
+    private async Task<ToolStop> ForceStopAsync(
+        string tool,
+        RunningProcess process,
+        CancellationTokenSource forceKill)
+    {
         await forceKill.CancelAsync();
         if (!await CompletesWithinAsync(process.Completion, ForceStopTimeout))
         {
-            throw ShutdownFault(
-                job, tool, process, ProcessStop.TimedOut, taskPending: true, identity: null);
+            ProcessIdentity observed = Probe(tool, process);
+            return new ToolStop(
+                ProcessStop.TimedOut,
+                Unverified(tool, process, ProcessStop.TimedOut, taskPending: true, observed));
         }
 
-        ProcessIdentity identity = _identityProbe(process.ProcessId, process.StartTime);
+        ProcessIdentity identity = Probe(tool, process);
         return identity.IsVerifiedGone
-            ? ProcessStop.Forced
-            : throw ShutdownFault(
-                job, tool, process, ProcessStop.Unverified, taskPending: false, identity);
+            ? new ToolStop(ProcessStop.Forced, null)
+            : new ToolStop(
+                ProcessStop.Unverified,
+                Unverified(tool, process, ProcessStop.Unverified, taskPending: false, identity));
     }
 
-    private RecorderShutdownException ShutdownFault(
-        JobId job,
+    /// <summary>
+    /// Reads the captured PID's identity. A probe that throws proves nothing, so it is an
+    /// unknown identity and the stop fails closed.
+    /// </summary>
+    private ProcessIdentity Probe(string tool, RunningProcess process)
+    {
+        try
+        {
+            return _identityProbe(process.ProcessId, process.StartTime);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Could not read the {Tool} process identity; treating its stop as unverified.",
+                tool);
+            return new ProcessIdentity(
+                ProcessIdentityKind.Unknown,
+                process.ProcessId,
+                process.StartTime,
+                ObservedStartTime: null,
+                $"identity could not be read: {ex.Message}");
+        }
+    }
+
+    /// <summary>How one tool stopped, and the unverified shutdown when it could not be proven.</summary>
+    private readonly record struct ToolStop(ProcessStop Stop, UnverifiedShutdown? Fault);
+
+    private static UnverifiedShutdown Unverified(
         string tool,
         RunningProcess process,
         ProcessStop stop,
         bool taskPending,
-        ProcessIdentity? identity)
-    {
-        ProcessIdentity observed =
-            identity ?? _identityProbe(process.ProcessId, process.StartTime);
-        return new RecorderShutdownException(
-            job,
-            tool,
-            process.ProcessId,
-            process.StartTime,
-            stop,
-            taskPending,
-            observed.Detail);
-    }
+        ProcessIdentity observed) =>
+        new(tool, process.ProcessId, process.StartTime, stop, taskPending, observed.Detail);
 
     private async Task<bool> CompletesWithinAsync(Task task, TimeSpan timeout)
     {

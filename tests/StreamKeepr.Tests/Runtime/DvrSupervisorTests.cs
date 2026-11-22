@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
+using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
@@ -156,9 +157,7 @@ public sealed class DvrSupervisorTests
         var status = new DvrStatus();
         var recorder = new FakeRecorder
         {
-            OnRun = async (call, _) =>
-                await call.PublishAsync(new DvrEvent.RecorderExited(
-                    call.Job, clock.GetUtcNow(), RecorderExitKind.Exited, "no media")),
+            OnRun = (_, _) => Task.FromResult(new PartOutcome(RecorderExitKind.Exited, "no media")),
         };
         var factory = new ChannelCoordinatorFactory(
             Options.Create(new RecorderOptions { SegmentSeconds = 2 }),

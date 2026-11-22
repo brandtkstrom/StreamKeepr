@@ -48,6 +48,18 @@ _Avoid_: Finished session, finalized session, done session
 One recorder run's media within a session, stored as `pNNN` files.
 _Avoid_: Segment, chunk, file
 
+**Part playlist**:
+The HLS playlist FFmpeg writes for one part (`pNNN.m3u8`). It counts as having segments only when it holds at least one complete segment line.
+_Avoid_: Part index, sub-playlist
+
+**Session index**:
+The one playlist for a whole Complete session (`index.m3u8`): every part playlist that has segments, stitched in part order and closed with `#EXT-X-ENDLIST`.
+_Avoid_: Final playlist, master playlist
+
+**Live index**:
+The stitched playlist served while a session is Recording. It is built by the same rules as the session index but never ends with `#EXT-X-ENDLIST`.
+_Avoid_: Live playlist, live stitch
+
 **Job**:
 One recorder execution for one part, identified by `JobId` (session + part number).
 _Avoid_: Task, process (unless referring to the OS process)
@@ -87,6 +99,14 @@ _Avoid_: Error, offline
 **Recorder exit kind**:
 Why a recorder process ended: `Exited` (on its own), `Stopped` (coordinator requested), or `Killed` (watchdog or force kill).
 _Avoid_: Exit code, status
+
+**Part outcome**:
+The result of one Job, built on every path: exit kind, the part's size on disk (or unknown), duration, diagnostic detail, and an unverified shutdown if one occurred. The Recorder exit kind and all recorder metrics derive from it.
+_Avoid_: Job result, exit status
+
+**Unverified shutdown**:
+A Job end where Stream Keepr cannot prove the recorder processes stopped writing. It is fatal: the channel keeps the Job and the host stops, so no second writer starts.
+_Avoid_: Hung recorder, zombie, failed stop
 
 **Session recovery**:
 The startup reconstruction of the newest session for a channel as resumable or complete.

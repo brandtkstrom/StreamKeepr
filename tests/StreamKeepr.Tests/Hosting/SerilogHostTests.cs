@@ -59,6 +59,19 @@ public sealed class SerilogHostTests
     }
 
     [Fact]
+    public void Testing_host_does_not_write_json_log_files()
+    {
+        using var factory = new StreamKeeprAppFactory();
+
+        factory.Services.GetRequiredService<ILoggerFactory>()
+               .CreateLogger(ProbeCategory)
+               .LogInformation("probe");
+
+        Assert.False(Directory.Exists(
+            Path.Combine(factory.RecordingsRoot, ".streamkeepr", "logs")));
+    }
+
+    [Fact]
     public void Testing_host_registers_no_default_console_provider_that_would_duplicate_lines()
     {
         using var factory = new StreamKeeprAppFactory();

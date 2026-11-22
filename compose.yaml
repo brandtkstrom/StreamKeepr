@@ -7,7 +7,8 @@ services:
     container_name: ${STREAMKEEP_CONTAINER_NAME:-stream-keepr}
     restart: unless-stopped
     init: true
-    # Above HostOptions.ShutdownTimeout (40 s) so an active part can finalize.
+    # Above HostOptions.ShutdownTimeout (40 s by default, 45 s at the 15 s finalize cap) so an
+    # active part can finalize.
     stop_grace_period: 50s
     ports:
       - "${STREAMKEEP_PORT:-8080}:8080"

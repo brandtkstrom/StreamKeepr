@@ -74,6 +74,25 @@ public sealed class SessionStoreFinalizeTests
     }
 
     [Fact]
+    public async Task Finalize_deletes_a_session_whose_only_segment_line_is_unterminated()
+    {
+        using var context = new SessionStoreTestContext();
+        await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
+
+        // A segment line without its line feed is still being written; the part playlist has
+        // no complete segment line, so it is not media and the session has none.
+        await File.WriteAllTextAsync(
+            context.PartPath(1),
+            "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\np001_00000.m4s",
+            CancellationToken.None);
+
+        await context.Store.FinalizeAsync(context.Session, CancellationToken.None);
+
+        Assert.False(Directory.Exists(context.Directory));
+        Assert.Null(context.Library.Find(context.Session.Id));
+    }
+
+    [Fact]
     public async Task AppendMetadata_records_changes_and_skips_repeated_observations()
     {
         using var context = new SessionStoreTestContext();

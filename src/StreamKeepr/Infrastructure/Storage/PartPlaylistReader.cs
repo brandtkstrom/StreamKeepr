@@ -39,10 +39,11 @@ internal static class PartPlaylistReader
 }
 
 /// <summary>
-/// The content-read seam for the live path. Production wraps <see cref="PartPlaylistReader"/>;
-/// tests record or block reads without touching the filesystem.
+/// The content-read seam for the live index: reads one part playlist's text. Production
+/// registers <see cref="FilePartPlaylistSource"/>; tests register a double that counts, fails,
+/// or holds reads.
 /// </summary>
-internal interface IPartPlaylistSource
+public interface IPartPlaylistSource
 {
     Task<string> ReadAsync(string path, CancellationToken ct);
 }

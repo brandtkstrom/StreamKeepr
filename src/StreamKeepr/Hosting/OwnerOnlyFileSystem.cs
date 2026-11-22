@@ -43,11 +43,9 @@ internal static class OwnerOnlyFileSystem
     {
         try
         {
-            Directory.CreateDirectory(keyDirectory);
+            EnsureWritablePrivateDirectory(keyDirectory);
             SetOwnerOnlyDirectory(Path.GetDirectoryName(keyDirectory)!);
-            SetOwnerOnlyDirectory(keyDirectory);
             EnforceOwnerOnlyKeyFiles(keyDirectory);
-            WriteProbe(keyDirectory, ownerOnly: true);
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
@@ -66,6 +64,26 @@ internal static class OwnerOnlyFileSystem
     {
         Directory.CreateDirectory(directory);
         SetOwnerOnlyDirectory(directory);
+    }
+
+    /// <summary>
+    /// Creates the private directory, proves it accepts writes, and gives the owner
+    /// exclusive access.
+    /// </summary>
+    public static void EnsureWritablePrivateDirectory(string directory)
+    {
+        EnsurePrivateDirectory(directory);
+        WriteProbe(directory, ownerOnly: true);
+    }
+
+    /// <summary>
+    /// Creates the directory and proves it accepts writes without changing its
+    /// permissions, for paths the operator owns.
+    /// </summary>
+    public static void EnsureWritableDirectory(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        WriteProbe(directory, ownerOnly: false);
     }
 
     /// <summary>
