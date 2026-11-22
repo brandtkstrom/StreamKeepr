@@ -21,6 +21,7 @@ Focus rings on every ground, and the keyboard shortcuts StreamKeepr already defi
 | Esc (in the settings sheet or on the Settings page) | Close or exit Settings | `SettingsSheet`, `SettingsPage` |
 | Esc | Clear the search | `shortcuts.js` |
 | ↑ ↓ · → or Enter · ← or Esc · Home End | Move · open a channel's recordings column (focus moves in) · back to the channel · first/last | library keys (replaces `tree-nav.js`) |
+| Delete | On a focused recording in the library: open "Delete recording?" (does nothing while the row's Delete is blocked) | library keys |
 
 ## Rules
 

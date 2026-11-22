@@ -1,4 +1,4 @@
-Confirmation dialogs for destructive actions: delete a recording, stop a recording, remove a channel.
+Confirmation dialogs for destructive actions: delete a recording (from the title block's More menu or from a row in the library), stop a recording, remove a channel.
 
 ## Build it from
 

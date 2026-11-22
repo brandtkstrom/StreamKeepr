@@ -557,3 +557,16 @@ mark.ds-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .ds-libcol-head .meta { display: block; font: var(--text-caption); letter-spacing: 0.03333em; color: var(--text-secondary); }
 .ds-libcol-head > span:not(.ds-avatar) { flex: 1; min-width: 0; }
 .ds-libcol-body { flex: 1; min-height: 0; overflow: auto; padding-bottom: var(--space-2); }
+
+/* Recording row with its Delete button (LibraryDrawer). The button is a sibling of the
+   row's link, never inside it; the row reserves its width so nothing reflows on hover. */
+.ds-rec-item { position: relative; }
+.ds-rec-item > .ds-rec-row { padding-right: calc(var(--space-2) + 32px + var(--space-2)); }
+.ds-rec-item:hover > .ds-rec-row, .ds-rec-item.hover > .ds-rec-row { background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
+.ds-rec-item > .ds-rec-row[aria-current="true"] { background: var(--selection); }
+.ds-rec-del { position: absolute; right: var(--space-2); top: var(--space-2); opacity: 0; }
+.ds-rec-item:hover > .ds-rec-del, .ds-rec-item.hover > .ds-rec-del, .ds-rec-item:focus-within > .ds-rec-del,
+.ds-rec-item:has(> [aria-current="true"]) > .ds-rec-del, .ds-rec-item.touch > .ds-rec-del { opacity: 1; }
+@media (hover: none) { .ds-rec-del { opacity: 1; } }
+.ds-rec-del:not([disabled]):hover, .ds-rec-item.hover > .ds-rec-del:not([disabled]) { color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); }
+.ds-rec-item > .ds-tip { position: absolute; right: var(--space-2); top: calc(var(--space-2) + 32px + var(--space-1)); z-index: 3; }

@@ -1,4 +1,4 @@
-<!-- @dsCard group="Navigation" height=760 width=1180 subtitle="The library opens as two columns: channels, then the selected channel's recordings to the right; and the mini rail: 32px avatars, live channels pulsing, with low disk" -->
+<!-- @dsCard group="Navigation" height=760 width=1180 subtitle="The library opens as two columns: channels, then the selected channel's recordings to the right, each with a Delete button on hover; and the mini rail: 32px avatars, live channels pulsing, with low disk" -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -12,13 +12,15 @@
   .s1 { --k: var(--channel-1); } .s2 { --k: var(--channel-2); } .s3 { --k: var(--channel-6); } .s4 { --k: var(--channel-5); }
   nav.rail { height: 700px; width: var(--drawer-mini-width); background: var(--drawer-background); border: 1px solid var(--divider); border-radius: var(--radius-md); display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; }
   nav.rail .sel { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
+  .banner { margin: 0; padding: var(--space-3); border-radius: var(--radius-md); background: color-mix(in srgb, var(--error) 14%, transparent); color: var(--text-primary); display: flex; gap: var(--space-3); }
+  .banner .ds-i { color: var(--error); }
   .note { display: flex; align-items: center; gap: var(--space-2); margin: 0 var(--space-4) var(--space-3); }
 </style>
 </head>
 <body class="ds">
 <div class="wrap">
   <div>
-    <p class="cap">Open while watching nightjar_tv: its column opens with it</p>
+    <p class="cap">Open while watching nightjar_tv: its column opens with it. Hovering a recording shows its Delete button</p>
     <div class="ds-library">
       <nav class="ds-drawer" aria-label="Library">
         <div class="ds-drawer-head"><h2>Library</h2><span class="ds-sort"><i data-i="down" class="xs"></i>Newest first</span><button class="ds-ibtn sm" aria-label="Library options"><i data-i="more"></i></button></div>
@@ -38,10 +40,10 @@
         <div class="ds-libcol-head"><span class="ds-avatar lg a1 live"><img src="../sample-avatars/nightjar_tv.svg" alt=""></span><span><h3 id="sk-libcol-h">nightjar_tv</h3><span class="meta">Recording now · 3 recordings</span></span><button class="ds-ibtn sm" aria-label="Close nightjar_tv's recordings"><i data-i="close"></i></button></div>
         <div class="ds-libcol-body" role="list">
           <div class="ds-day">Today</div>
-          <a class="ds-rec-row" href="#" aria-current="true"><span class="ds-thumb live"><span class="shot s1"></span><span class="dur">1:02:13</span><span class="prog"><i style="width:100%"></i></span></span><span class="text"><span class="title">Late-night <mark class="ds-mark">speed</mark>run practice: any% resets</span><span class="meta">Started 21:04 · 1h 02m</span><span class="ds-status rec">Rec</span></span></a>
+          <div class="ds-rec-item" role="listitem"><a class="ds-rec-row" href="#" aria-current="true"><span class="ds-thumb live"><span class="shot s1"></span><span class="dur">1:02:13</span><span class="prog"><i style="width:100%"></i></span></span><span class="text"><span class="title">Late-night <mark class="ds-mark">speed</mark>run practice: any% resets</span><span class="meta">Started 21:04 · 1h 02m</span><span class="ds-status rec">Rec</span></span></a><button class="ds-ibtn sm ds-rec-del" aria-label="Delete recording: Late-night speedrun practice" disabled title="Available when the recording finishes"><i data-i="delete"></i></button></div>
           <div class="ds-day">Yesterday</div>
-          <a class="ds-rec-row" href="#"><span class="ds-thumb"><span class="shot s2"></span><span class="dur">2:14:07</span><span class="prog"><i style="width:38%"></i></span></span><span class="text"><span class="title">Route planning with chat</span><span class="meta">20:30 · 2h 14m</span></span></a>
-          <a class="ds-rec-row" href="#"><span class="ds-thumb"><i data-i="movie"></i><span class="dur">0:48:20</span></span><span class="text"><span class="title">Morning <mark class="ds-mark">speed</mark>run warmup</span><span class="meta">09:12 · 48m</span><span class="ds-status processing"><i data-i="hourglass"></i>Processing</span></span></a>
+          <div class="ds-rec-item hover" role="listitem"><a class="ds-rec-row" href="#"><span class="ds-thumb"><span class="shot s2"></span><span class="dur">2:14:07</span><span class="prog"><i style="width:38%"></i></span></span><span class="text"><span class="title">Route planning with chat</span><span class="meta">20:30 · 2h 14m</span></span></a><button class="ds-ibtn sm ds-rec-del" aria-label="Delete recording: Route planning with chat"><i data-i="delete"></i></button><span class="ds-tip" role="tooltip">Delete recording</span></div>
+          <div class="ds-rec-item" role="listitem"><a class="ds-rec-row" href="#"><span class="ds-thumb"><i data-i="movie"></i><span class="dur">0:48:20</span></span><span class="text"><span class="title">Morning <mark class="ds-mark">speed</mark>run warmup</span><span class="meta">09:12 · 48m</span><span class="ds-status processing"><i data-i="hourglass"></i>Processing</span></span></a><button class="ds-ibtn sm ds-rec-del" aria-label="Delete recording: Morning speedrun warmup"><i data-i="delete"></i></button></div>
         </div>
       </section>
     </div>
@@ -55,6 +57,16 @@
       <span class="ds-avatar rail a2" title="pixelwren">P</span>
       <button class="ds-ibtn" style="margin-top:auto;color:var(--warning)" aria-label="Recording disk: 310 GB free of 4 TB, low space" title="Recording disk: 310 GB free of 4 TB"><i data-i="warning"></i></button>
     </nav>
+  </div>
+  <div style="width:340px">
+    <p class="cap">Delete opens the confirmation; the drawer stays open behind it</p>
+    <div class="ds-dialog" role="dialog" aria-labelledby="sk-del-h" style="width:auto">
+      <h2 id="sk-del-h">Delete recording?</h2>
+      <div class="content"><p class="banner"><i data-i="warning" class="sm"></i><span><b>Route planning with chat · nightjar_tv</b><br>The files and watch progress are removed permanently.</span></p></div>
+      <div class="actions"><button class="ds-btn text default">Cancel</button><button class="ds-btn filled error">Delete</button></div>
+    </div>
+    <p class="cap" style="margin-top:var(--space-4)">Then the row leaves, the counts drop by one, and</p>
+    <div class="ds-snack" role="status">Recording deleted</div>
   </div>
 </div>
 <script src="../icons.js"></script>
