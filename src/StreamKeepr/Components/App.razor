@@ -21,12 +21,27 @@
 </head>
 
 <body>
-    <Routes @rendermode="InteractiveServer" />
-    <ReconnectModal />
-    <script src="@Assets["_framework/blazor.web.js"]"></script>
-    <script src="@Assets["_content/MudBlazor/MudBlazor.min.js"]"></script>
-    <script type="module" src="@Assets["js/prefs.js"]"></script>
-    <script type="module" src="@Assets["js/shortcuts.js"]"></script>
+    @* Every page is interactive except one marked ExcludeFromInteractiveRouting (the sign-in
+       page), which renders statically: no circuit, so nothing it loads needs a session. *@
+    @if (Interactive)
+    {
+        <Routes @rendermode="InteractiveServer" />
+        <ReconnectModal />
+        <script src="@Assets["_framework/blazor.web.js"]"></script>
+        <script src="@Assets["_content/MudBlazor/MudBlazor.min.js"]"></script>
+        <script type="module" src="@Assets["js/prefs.js"]"></script>
+        <script type="module" src="@Assets["js/shortcuts.js"]"></script>
+    }
+    else
+    {
+        <Routes />
+    }
 </body>
 
 </html>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
+    private bool Interactive => HttpContext.AcceptsInteractiveRouting();
+}

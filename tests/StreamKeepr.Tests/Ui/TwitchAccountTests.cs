@@ -222,6 +222,48 @@ public sealed class TwitchAccountTests
     }
 
     [Fact]
+    public async Task Private_mode_labels_disconnect_sign_out_and_returns_to_the_sign_in_page()
+    {
+        await using BunitContext context = CreateContext(out _);
+        MakePrivate(context);
+        context.AddAuthorization().SetAuthorized("mock_admin");
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/r/abc?state=saved");
+        IRenderedComponent<TwitchAccount> cut = RenderAccount(context, out var popovers);
+
+        Assert.Equal(
+            "/signin?returnUrl=%2Fr%2Fabc%3Fstate%3Dsaved&signedOut=true",
+            cut.Find($"form#{TwitchAccount.LogoutFormId} input[name='returnUrl']").GetAttribute("value"));
+        Activator(cut).QuerySelector("[data-account-trigger]")!.Click();
+        cut.WaitForAssertion(() => Assert.Equal(
+            ["Manage Twitch connection", "Settings", "Sign out"],
+            Menu(popovers).QuerySelectorAll("[role='menuitem']").Select(item => item.TextContent.Trim())));
+    }
+
+    [Fact]
+    public async Task Private_mode_sends_an_expired_session_to_the_sign_in_page_instead_of_the_chip()
+    {
+        await using BunitContext context = CreateContext(out AdminSessionState session);
+        MakePrivate(context);
+        BunitAuthorizationContext authorization = context.AddAuthorization().SetAuthorized("mock_admin");
+        var navigation = context.Services.GetRequiredService<BunitNavigationManager>();
+        navigation.NavigateTo("/r/abc");
+        IRenderedComponent<TwitchAccount> cut = RenderAccount(context);
+
+        await cut.InvokeAsync(() =>
+        {
+            authorization.SetNotAuthorized();
+            session.MarkExpired("mock_admin");
+        });
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("http://localhost/signin?returnUrl=%2Fr%2Fabc&authError=expired", navigation.Uri);
+            Assert.True(Assert.IsType<NavigationOptions>(navigation.History.First().Options).ForceLoad);
+        });
+        Assert.Empty(cut.FindAll("[data-auth-state='expired']"));
+    }
+
+    [Fact]
     public async Task Admin_controls_and_the_top_bar_follow_the_revalidating_provider()
     {
         await using BunitContext context = CreateContext(out AdminSessionState session);
@@ -302,6 +344,10 @@ public sealed class TwitchAccountTests
 
     private static AngleSharp.Dom.IElement Menu(IRenderedComponent<MudPopoverProvider> popovers) =>
         popovers.Find("[role='menu']");
+
+    private static void MakePrivate(BunitContext context) =>
+        context.Services.AddSingleton(Microsoft.Extensions.Options.Options.Create(
+            new StreamKeepr.Configuration.AuthOptions { AllowedTwitchLogins = ["mock_admin"] }));
 
     private static BunitContext CreateContext(out AdminSessionState session)
     {

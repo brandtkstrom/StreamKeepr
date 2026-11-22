@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-11-21). Amends ADR-0003, whose "viewing stays open" now holds only while `Auth:AllowedTwitchLogins` is empty. Designed in the design system's `SignIn` card; not yet implemented.
+Accepted (2026-11-21). Amends ADR-0003, whose "viewing stays open" now holds only while `Auth:AllowedTwitchLogins` is empty. Designed in the design system's `SignIn` card. Implemented by `Hosting/PrivateMode.cs` (fallback authorization policy and session check) and the `/signin` page; the player and chat islands do not yet send a mid-watch `401` to `/signin`.
 
 ## Context
 

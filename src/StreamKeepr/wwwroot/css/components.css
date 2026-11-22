@@ -1136,3 +1136,14 @@ a.sk-card:focus-visible { outline: 2px solid var(--primary); outline-offset: -2p
   .sk-shelf-row > li { flex-basis: 60vw; }
   .sk-shelf-row.large > li { flex-basis: 85vw; }
 }
+
+/* ---------- sign-in page (design system: SignIn; private mode, ADR-0013) ---------- */
+.sk-signin { display: grid; place-items: center; min-height: 100dvh; padding: var(--space-4); background: var(--background); }
+.sk-signin-card.mud-paper { width: 100%; max-width: 400px; padding: var(--space-8) var(--space-6) var(--space-6); background: var(--surface); border-radius: var(--radius-lg); display: flex; flex-direction: column; align-items: center; gap: var(--space-4); text-align: center; }
+.sk-signin-brand { margin: 0; font-size: 24px; }
+.sk-signin-brand .sk-logo img { width: 24px; height: 24px; }
+.sk-signin-card h1 { margin-top: var(--space-2); }
+.sk-signin-intro, .sk-signin-fine { color: var(--text-secondary); }
+.sk-signin-alert.mud-alert { width: 100%; text-align: left; align-items: flex-start; }
+.sk-signin-alert b { display: block; }
+.sk-signin-twitch { width: 100%; height: 44px; justify-content: center; text-decoration: none; }

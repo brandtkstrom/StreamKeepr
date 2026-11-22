@@ -361,6 +361,7 @@ try
     }
 
     builder.Services.AddAuthorization();
+    builder.Services.AddStreamKeeprPrivateMode();
     builder.Services.AddCascadingAuthenticationState();
 
     // Re-checks the admin's Twitch token every 30 minutes; on failure the circuit signs out
@@ -443,12 +444,16 @@ try
     if (mock)
         app.UseStreamKeeprMockAuth();
 
+    // A non-empty allowlist makes the app private (ADR-0013): sessions whose login left the list
+    // end here, and the fallback policy below gates everything not marked AllowAnonymous.
+    app.UseStreamKeeprPrivateMode();
     app.UseAuthorization();
     app.UseAntiforgery();
 
     app.UseRecordingsMedia();
 
-    app.MapStaticAssets();
+    // Public in both modes: app code and styles only, which the sign-in page needs.
+    app.MapStaticAssets().AllowAnonymous();
 
     app.MapRazorComponents<App>()
        .AddInteractiveServerRenderMode();
@@ -460,8 +465,8 @@ try
     }
     else
     {
-        app.MapGet(AdminAuth.LoginPath, AdminAuth.HandleLogin);
-        app.MapPost(AdminAuth.LogoutPath, AdminAuth.HandleLogoutAsync);
+        app.MapGet(AdminAuth.LoginPath, AdminAuth.HandleLogin).AllowAnonymous();
+        app.MapPost(AdminAuth.LogoutPath, AdminAuth.HandleLogoutAsync).AllowAnonymous();
     }
 
     app.MapMethods(LiveIndexEndpoint.Route,
@@ -483,12 +488,12 @@ try
     app.MapHealthChecks("/health/live", new HealthCheckOptions
     {
         Predicate = registration => registration.Tags.Contains("live"),
-    }).DisableHttpMetrics();
+    }).DisableHttpMetrics().AllowAnonymous();
 
     app.MapHealthChecks("/health/ready", new HealthCheckOptions
     {
         Predicate = registration => registration.Tags.Contains("ready"),
-    }).DisableHttpMetrics();
+    }).DisableHttpMetrics().AllowAnonymous();
 
     await app.RunAsync();
 

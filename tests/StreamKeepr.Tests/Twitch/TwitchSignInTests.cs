@@ -162,7 +162,7 @@ public sealed class TwitchSignInTests
 
         Assert.Equal(HttpStatusCode.Redirect, result.CallbackStatus);
         Assert.Equal(
-            $"/?{AdminAuth.AuthErrorQueryKey}={AdminAuth.NotAllowedAuthError}",
+            "/signin?returnUrl=%2F&authError=notAllowed&login=intruder",
             result.CallbackLocation);
         Assert.Null(result.AuthCookie);
         Assert.DoesNotContain(result.SetCookies,
