@@ -200,9 +200,9 @@ body[data-sk-reconnect="show"] .sk-drawer-note.mud-alert, body[data-sk-reconnect
 .sk-channel[aria-selected="true"]::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 2px 2px 0; background: var(--primary); }
 .sk-channel[aria-selected="true"] :is(.meta, .count) { color: var(--text-primary); }
 .sk-channel[data-library-skeleton] { cursor: default; }
-/* Long lists stay in the DOM (E-19): skip off-screen layout and paint, keep remembered sizes. */
+/* Long lists stay in the DOM (E-19): days and rows (.sk-row-item, below) skip off-screen layout and
+   paint, and keep remembered sizes. */
 .sk-day { content-visibility: auto; contain-intrinsic-size: auto 28px; }
-.sk-row-item { content-visibility: auto; contain-intrinsic-size: auto 80px; }
 .sk-drawer :is(.sk-row, .sk-channel):focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .sk-day { padding: var(--space-2) var(--space-2) var(--space-1); color: var(--text-secondary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
 /* The live badge on a channel avatar (MudBadge Dot) is the rec colour, never a state colour. */
@@ -230,7 +230,9 @@ body[data-sk-reconnect="show"] .sk-drawer-note.mud-alert, body[data-sk-reconnect
 
 /* A recording row: the link, and its Delete button at the top right. The link reserves the
    button's width, so titles never reflow when it appears. */
-.sk-row-item { position: relative; margin-bottom: 2px; }
+.sk-row-item { position: relative; margin-bottom: 2px; content-visibility: auto; contain-intrinsic-size: auto 80px; }
+/* A deleted row collapsing out (library-keys.js animates its height). */
+.sk-row-item[data-collapsing] { overflow: hidden; pointer-events: none; }
 .sk-row {
   position: relative; display: flex; gap: var(--space-3); align-items: flex-start; width: 100%; padding: var(--space-2) 44px var(--space-2) var(--space-2);
   border-radius: var(--radius-md); color: var(--text-primary); text-decoration: none; text-align: left;
@@ -738,7 +740,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-stats-panel[data-chrome="overlay"] .sk-tile .val { font: var(--text-stat-value); font-variant-numeric: var(--text-stat-value-numeric); letter-spacing: var(--text-stat-value-letter-spacing); }
 .sk-stats-panel[data-chrome="overlay"] .sk-tile svg { height: 20px; }
 .sk-stats-panel[data-chrome="overlay"] :is(.sk-tile .lbl, .sk-tile .val small, .sk-kv dt) { color: color-mix(in srgb, var(--player-text) 72%, transparent); }
-.sk-stats-panel[data-chrome="overlay"] :is(.sk-tile .val, .sk-kv dd) { text-shadow: 0 1px 2px rgb(0 0 0 / 0.5); }
+.sk-stats-panel[data-chrome="overlay"] :is(.sk-tile .val, .sk-kv dd) { text-shadow: var(--text-shadow-overlay); }
 .sk-stats-panel[data-chrome="overlay"] .sk-tiles { margin-bottom: var(--space-2); }
 .sk-stats-panel[data-chrome="overlay"] .sk-stats-section.stream { padding-top: 0; border-top: 0; }
 /* A narrow player (a small window with chat open): half the width, no sparklines. */

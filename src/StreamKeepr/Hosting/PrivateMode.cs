@@ -71,8 +71,7 @@ public static class PrivateMode
         });
 
     private static bool IsAllowed(ClaimsPrincipal user, AuthOptions auth) =>
-        user.Identity?.Name is { } login
-        && AdminAuth.IsLoginAllowed(TwitchLogin.Normalize(login), auth.AllowedTwitchLogins);
+        AdminAuth.IsLoginAllowed(user.Identity?.Name, auth.AllowedTwitchLogins);
 
     public static bool IsPrivate(HttpContext context) =>
         context.RequestServices.GetRequiredService<IOptionsMonitor<AuthOptions>>().CurrentValue.IsPrivate;
@@ -83,9 +82,9 @@ public static class PrivateMode
     /// </summary>
     public static bool IsPageRequest(HttpRequest request) =>
         (HttpMethods.IsGet(request.Method) || HttpMethods.IsHead(request.Method))
-        && !request.Path.StartsWithSegments("/api")
-        && !request.Path.StartsWithSegments("/media")
-        && !request.Path.StartsWithSegments("/_blazor")
+        && !request.Path.StartsWithSegments(RequestPaths.Api)
+        && !request.Path.StartsWithSegments(RequestPaths.Media)
+        && !request.Path.StartsWithSegments(RequestPaths.BlazorHub)
         && request.Headers.Accept.Any(value => value?.Contains("text/html", StringComparison.OrdinalIgnoreCase) == true);
 
     /// <summary>
@@ -122,18 +121,9 @@ public static class PrivateMode
     }
 
     // A return URL that already failed once must not carry that error into the next attempt.
-    private static string? WithoutAuthError(string? returnUrl)
-    {
-        if (string.IsNullOrEmpty(returnUrl) || returnUrl[0] != '/')
-            return returnUrl;
-
-        int queryIndex = returnUrl.IndexOf('?');
-        if (queryIndex < 0)
-            return returnUrl;
-
-        var kept = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(returnUrl[queryIndex..])
-            .Where(pair => !string.Equals(pair.Key, AdminAuth.AuthErrorQueryKey, StringComparison.OrdinalIgnoreCase))
-            .SelectMany(pair => pair.Value.Select(value => new KeyValuePair<string, string?>(pair.Key, value)));
-        return returnUrl[..queryIndex] + QueryString.Create(kept);
-    }
+    // Only local URLs are edited; anything else is replaced by ResolveReturnUrl anyway.
+    private static string? WithoutAuthError(string? returnUrl) =>
+        string.IsNullOrEmpty(returnUrl) || returnUrl[0] != '/'
+            ? returnUrl
+            : UrlQuery.Without(returnUrl, AdminAuth.AuthErrorQueryKey);
 }

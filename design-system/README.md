@@ -77,7 +77,7 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 
 - Spacing uses MudBlazor's 4px unit: `space-1` 4 (`pa-1`) · `space-2` 8 · `space-3` 12 · `space-4` 16 · `space-6` 24 · `space-8` 32. Use Mud's spacing classes (`pa-4`, `gap-3`, `mb-3`), not inline pixels.
 - Corners: `radius-md` (8px) is `DefaultBorderRadius` and covers buttons, fields, menus, thumbnails and tiles. `radius-lg` (12px) is for the player frame, every panel and dialogs. `radius-full` is for chips, avatars, icon buttons and the seek knob. `radius-sm` (4px) is for duration badges and progress bars.
-- Panels are flat: `MudPaper Elevation="0" Outlined="true"` on `surface`, with a `lines-default` hairline. The app bar is `Elevation="0"` with a `divider` rule under it. Shadows appear only where something floats: `elevation-8` on menus, popovers and snackbars, `elevation-24` on dialogs, and `elevation-4` on the temporary drawer.
+- Panels are flat: `MudPaper Elevation="0" Outlined="true"` on `surface`, with a `lines-default` hairline. The app bar is `Elevation="0"` with a `divider` rule under it. Shadows appear only where something floats: `elevation-8` on menus, popovers and snackbars, `elevation-24` on dialogs, and `elevation-4` on the temporary drawer. Text drawn over video (the Statistics overlay's values) carries `text-shadow-overlay`.
 
 ## States and motion
 

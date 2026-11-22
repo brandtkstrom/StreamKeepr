@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.WebUtilities;
+using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Twitch;
 
 namespace StreamKeepr.Ui;
@@ -39,15 +40,21 @@ public static class AuthLinks
     }
 
     /// <summary>Path plus query with every <c>authError</c> key removed and other keys kept in order.</summary>
-    public static string WithoutAuthError(string uri)
-    {
-        var parameters = Query(uri)
-            .Where(pair => !string.Equals(pair.Key, AdminAuth.AuthErrorQueryKey, StringComparison.OrdinalIgnoreCase))
-            .ToList();
+    public static string WithoutAuthError(string uri) =>
+        UrlQuery.Without(new Uri(uri, UriKind.Absolute).PathAndQuery, AdminAuth.AuthErrorQueryKey);
 
-        string path = new Uri(uri, UriKind.Absolute).AbsolutePath;
-        return path + QueryString.Create(parameters);
-    }
+    /// <summary>
+    /// The account's sign-out button, in the menu and on the Settings page: "Sign out" in private
+    /// mode (ADR-0013), where it leads to the sign-in page, and "Disconnect" otherwise.
+    /// </summary>
+    public static string SignOutLabel(bool isPrivate) => isPrivate ? "Sign out" : "Disconnect";
+
+    /// <summary>
+    /// Where the logout form returns: the sign-in page saying "You're signed out" in private
+    /// mode, since every other page would only redirect there, or the page itself otherwise.
+    /// </summary>
+    public static string SignOutReturnUrl(string returnUrl, bool isPrivate) =>
+        isPrivate ? PrivateMode.SignInUrl(returnUrl, signedOut: true) : returnUrl;
 
     private static List<KeyValuePair<string, string?>> Query(string uri)
     {

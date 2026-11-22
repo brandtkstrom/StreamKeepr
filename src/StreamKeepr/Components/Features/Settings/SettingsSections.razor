@@ -1,7 +1,10 @@
 @using StreamKeepr.Infrastructure.Twitch
 @using StreamKeepr.Components.Features.Library
 @using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.Extensions.Options
+@using StreamKeepr.Configuration
 @inject NavigationManager Navigation
+@inject IOptions<AuthOptions> Auth
 @inject AdminSessionState Session
 @implements IDisposable
 
@@ -37,11 +40,11 @@
                 </span>
                 <form method="post" action="@AdminAuth.LogoutPath" class="actions">
                     <AntiforgeryToken />
-                    <input type="hidden" name="returnUrl" value="/settings" />
+                    <input type="hidden" name="returnUrl" value="@AuthLinks.SignOutReturnUrl(SettingsSheetUrl.PagePath, Auth.Value.IsPrivate)" />
                     <MudBlazor.MudButton Variant="MudBlazor.Variant.Outlined"
                                          ButtonType="MudBlazor.ButtonType.Submit"
                                          data-settings-disconnect>
-                        Disconnect
+                        @AuthLinks.SignOutLabel(Auth.Value.IsPrivate)
                     </MudBlazor.MudButton>
                 </form>
             </div>

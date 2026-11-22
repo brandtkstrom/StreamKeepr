@@ -36,5 +36,5 @@ The alert takes `role="alert"` for errors and `role="status"` otherwise. On this
 ## Rules
 
 - `twitch` purple is still only for the Twitch button.
-- Nothing about the library leaks onto this page or its `<title>` ("Sign in · StreamKeepr").
+- Nothing about the library leaks onto this page or its `<title>` ("Sign in · Stream Keepr", like the app's other titles).
 - Focus starts on the Twitch button; with an alert showing, the alert is read first.

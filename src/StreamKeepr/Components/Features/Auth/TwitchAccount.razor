@@ -72,7 +72,7 @@ else
                     <MudBlazor.MudDivider />
                     <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.ManageAccounts" Href="/settings#twitch">Manage Twitch connection</MudBlazor.MudMenuItem>
                     <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Settings" Href="/settings">Settings</MudBlazor.MudMenuItem>
-                    <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Logout" OnClick="DisconnectAsync">@(Private ? "Sign out" : "Disconnect")</MudBlazor.MudMenuItem>
+                    <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Logout" OnClick="DisconnectAsync">@AuthLinks.SignOutLabel(Private)</MudBlazor.MudMenuItem>
                 </ChildContent>
             </MudBlazor.MudMenu>
             <form id="@LogoutFormId" method="post" action="@AdminAuth.LogoutPath" hidden>
@@ -102,10 +102,7 @@ else
 
     private bool Private => Auth.Value.IsPrivate;
 
-    // Private mode: Sign out leads to the sign-in page with "You're signed out".
-    private string LogoutReturnUrl => Private
-        ? PrivateMode.SignInUrl(ReturnUrl, signedOut: true)
-        : ReturnUrl;
+    private string LogoutReturnUrl => AuthLinks.SignOutReturnUrl(ReturnUrl, Private);
 
     private string LoginHref => AuthLinks.LoginHref(Navigation.Uri);
 

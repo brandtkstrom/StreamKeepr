@@ -108,7 +108,7 @@ public static class MockAuth
         {
             MockAuthOptions options = context.RequestServices
                 .GetRequiredService<IOptions<MockAuthOptions>>().Value;
-            AuthOptions auth = context.RequestServices.GetRequiredService<IOptions<AuthOptions>>().Value;
+            AuthOptions auth = context.RequestServices.GetRequiredService<IOptionsMonitor<AuthOptions>>().CurrentValue;
 
             // The same allowlist rule as the Twitch callback, so E2E can reach Not allowed.
             string login = TwitchLogin.Normalize(options.Login);

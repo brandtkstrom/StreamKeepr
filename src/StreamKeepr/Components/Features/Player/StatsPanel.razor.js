@@ -18,6 +18,7 @@ import { drawSparkline, formatSparklineTip, sparklinePointAt } from "/js/sparkli
 import { formatTimecode } from "/js/timecode.js";
 import { viewerCountAt, viewerSummary } from "/js/viewer-chart.js";
 import { subscribeViewers, viewersFor } from "/js/viewer-store.js";
+import { isLiveState } from "/js/recording-state.js";
 
 // Mirrors the data-sk hooks StatsPanel.razor renders (StatsPanelTests guards the markup).
 const HOOKS = [
@@ -42,10 +43,6 @@ function formatNumber(value, digits) {
   if (!Number.isFinite(value)) return "—";
   const factor = 10 ** digits;
   return String(Math.round(value * factor) / factor);
-}
-
-function isLive(state) {
-  return state === "recording" || state === "reconnecting";
 }
 
 // The overlay sits inside the player's frame; the phone tab finds the player on the page.
@@ -290,7 +287,7 @@ export function createStatsPanel(root, {
     const snapshot = buildSnapshot({
       recordingId: options.recordingId ?? metrics?.recordingId,
       capturedAt: new Date().toISOString(),
-      mode: metrics?.mode ?? (isLive(options.state) ? "live" : "vod"),
+      mode: metrics?.mode ?? (isLiveState(options.state) ? "live" : "vod"),
       playlistUrl: options.playlistUrl ?? metrics?.playlistUrl,
       level: metrics?.level ?? null,
       samples: samples.values(),

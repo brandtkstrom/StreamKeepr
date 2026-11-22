@@ -4,7 +4,7 @@
 
 The chart is drawn by `wwwroot/js/viewer-chart.js` and fed from `GET /api/recordings/{id}/viewers` (once, or every 60 s while live), as built in #211. Move that wiring out of `StatsPanel.razor.js` into this panel's own island; nothing about the chart itself changes.
 
-- **Header** (48px, a real disclosure button like `Chapters`): `Groups` in `action-default` (like every panel header), "Viewers" in `h6` (the page's `h2`), a live hint in `caption` ("1,489 at 54:40 · peak 1,658"), then the chevron. It is expanded by default and remembers its open state per viewer in `UiPreferences` (the slot the old Stats switch used).
+- **Header** (48px, a real disclosure button like `Chapters`): `Groups` in `action-default` (like every panel header), "Viewers" in `h6` (the page's `h2`), a live hint in `caption` ("1,489 at 54:40 · peak 1,658"), then the chevron. It is expanded by default and remembers its open state per viewer in `UiPreferences`, in its own `viewers` slot (the Statistics overlay keeps the `stats` slot).
 - **Body**: the 220px tile ("Viewers at 54:40" in `overline`, the count at the playhead in `stat-hero`, then Now, Peak with its time, and Average) beside the chart on `surface-raised`.
 
 ## The chart

@@ -4,12 +4,17 @@
 // ↑ ↓ move between recordings, ← or Escape go back to the selected channel, and Delete opens the
 // focused row's "Delete recording?" unless its Delete is blocked. Selecting goes through the
 // option's own click, the only call back to .NET; everything else is focus on the rendered DOM.
+// The module also owns the drawer's other DOM-only effects: the selected row scrolled into view,
+// the deleted row's collapse, and where focus goes after a delete.
 
 const OPTION = '[role="option"]';
 const ROW = "a.sk-row";
 const COLUMN = "[data-recordings-column]";
 
 const drawers = new WeakMap();
+// The row watched while its "Delete recording?" is open, per drawer.
+const collapses = new WeakMap();
+const COLLAPSE_MS = 150;
 
 function drawerOf(list) {
   return list?.closest(".sk-drawer") ?? list?.parentElement ?? null;
@@ -19,8 +24,9 @@ function options(drawer) {
   return [...drawer.querySelectorAll(`[data-channel-list] ${OPTION}`)];
 }
 
+// A collapsing row is already deleted; it is never a focus target.
 function rows(drawer) {
-  return [...drawer.querySelectorAll(`${COLUMN} ${ROW}`)];
+  return [...drawer.querySelectorAll(`${COLUMN} ${ROW}`)].filter((row) => !row.closest("[data-collapsing]"));
 }
 
 /** Moves the roving tab stop to one option and focuses it. */
@@ -177,9 +183,77 @@ export function scrollToTop(list) {
   if (list) list.scrollTop = 0;
 }
 
+/** Scrolls the current recording's row (aria-current) into view in its column, if it shows. */
+export function scrollCurrentIntoView(list) {
+  const drawer = drawerOf(list);
+  drawer?.querySelector(`${COLUMN} ${ROW}[aria-current="true"]`)?.scrollIntoView?.({ block: "nearest" });
+}
+
+/**
+ * Watches a row while its "Delete recording?" is open. The library removes the row as soon as
+ * the recording is deleted, before .NET hears back from the dialog, so the row is put back where
+ * it was, inert and stripped of its hooks, and collapses out over 150 ms (design system:
+ * LibraryDrawer). Nothing moves under reduced motion. Cancelling disarms it.
+ * @param {Element} list the drawer list
+ * @param {string} recordingId the recording the dialog would delete
+ */
+export function armRowCollapse(list, recordingId) {
+  const drawer = drawerOf(list);
+  if (!drawer) return;
+  disarmRowCollapse(list);
+  const link = withData(drawer.querySelectorAll(`${COLUMN} [data-recording-id]`), "data-recording-id", recordingId);
+  const item = link?.closest("[data-row-item]");
+  const parent = item?.parentNode;
+  if (!item || !parent) return;
+
+  const height = item.getBoundingClientRect().height;
+  const observer = new MutationObserver((records) => {
+    const removal = records.find((record) => [...record.removedNodes].includes(item));
+    if (!removal) return;
+    disarmRowCollapse(list);
+    collapseOut(item, parent, removal.nextSibling, height);
+  });
+  observer.observe(parent, { childList: true });
+  collapses.set(drawer, observer);
+}
+
+export function disarmRowCollapse(list) {
+  const drawer = drawerOf(list);
+  if (!drawer) return;
+  collapses.get(drawer)?.disconnect();
+  collapses.delete(drawer);
+}
+
+function collapseOut(item, parent, next, height) {
+  const view = parent.ownerDocument?.defaultView;
+  const reduced = view?.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  // A closed column (the channel's last recording) leaves nothing to collapse in.
+  if (reduced || !parent.isConnected || typeof item.animate !== "function") return;
+
+  // Blazor has let go of this element, so putting it back does not disturb its bookkeeping.
+  item.setAttribute("data-collapsing", "");
+  item.setAttribute("aria-hidden", "true");
+  item.removeAttribute("role");
+  item.removeAttribute("data-row-item");
+  item.inert = true;
+  for (const element of item.querySelectorAll("[data-recording-id]")) element.removeAttribute("data-recording-id");
+  parent.insertBefore(item, next?.parentNode === parent ? next : null);
+
+  const animation = item.animate(
+    [
+      { height: `${height}px`, opacity: 1 },
+      { height: "0px", marginBottom: "0px", opacity: 0 },
+    ],
+    { duration: COLLAPSE_MS, easing: "cubic-bezier(0.4, 0, 0.2, 1)" },
+  );
+  const remove = () => item.remove();
+  animation.finished.then(remove, remove);
+}
+
 export function dispose(list) {
   const drawer = drawerOf(list);
   if (!drawer) return;
+  disarmRowCollapse(list);
   drawers.get(drawer)?.abort();
   drawers.delete(drawer);
 }

@@ -1311,11 +1311,13 @@ describe("VideoPlayer.razor.js", () => {
       hook("speed").click();
       vi.advanceTimersByTime(5_000);
       expect(root().classList.contains("idle")).toBe(false);
+      expect(root().hasAttribute("data-idle")).toBe(false);
       hook("speed").click();
 
       hook("play").click();
       vi.advanceTimersByTime(5_000);
       expect(root().classList.contains("idle")).toBe(false);
+      expect(root().hasAttribute("data-idle")).toBe(false);
     });
 
     it("neither wakes nor idles while the pointer is on the Statistics card, which would otherwise move", async () => {
@@ -1331,21 +1333,26 @@ describe("VideoPlayer.razor.js", () => {
 
       vi.advanceTimersByTime(3_000);
       expect(root().classList.contains("idle")).toBe(true);
+      expect(root().hasAttribute("data-idle")).toBe(true);
 
       spark.dispatchEvent(new Event("pointermove", { bubbles: true }));
       expect(root().classList.contains("idle")).toBe(true);
+      expect(root().hasAttribute("data-idle")).toBe(true);
 
       // Awake with the pointer on the card: the overlays stay up until it leaves.
       root().dispatchEvent(new Event("pointermove"));
       expect(root().classList.contains("idle")).toBe(false);
+      expect(root().hasAttribute("data-idle")).toBe(false);
       spark.dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
       vi.advanceTimersByTime(10_000);
       expect(root().classList.contains("idle")).toBe(false);
+      expect(root().hasAttribute("data-idle")).toBe(false);
 
       spark.dispatchEvent(new MouseEvent("pointerout", { bubbles: true, relatedTarget: root() }));
       root().dispatchEvent(new Event("pointermove"));
       vi.advanceTimersByTime(3_000);
       expect(root().classList.contains("idle")).toBe(true);
+      expect(root().hasAttribute("data-idle")).toBe(true);
     });
 
     it("runs the global shortcuts and leaves typing alone", async () => {

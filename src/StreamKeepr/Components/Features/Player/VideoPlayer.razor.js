@@ -12,6 +12,7 @@ import { readPlayerPrefs, writePlayerPrefs } from "/js/player-prefs.js";
 import { playerAction } from "/js/player-keys.js";
 import { formatTimecode } from "/js/timecode.js";
 import { iconMarkup, setIcon } from "/js/island-icons.js";
+import { isLiveState } from "/js/recording-state.js";
 
 // Defaults plus the contract's overrides. The stitched playlist targets 12 s segments, so one
 // target duration behind the end is the live edge.
@@ -1104,7 +1105,7 @@ export function createPlayer(
       // Route change: the previous recording's position goes out before its engine is torn down.
       if (view && view.recordingId !== next.recordingId) progress.flush();
       view = next;
-      live = next.state === "recording" || next.state === "reconnecting";
+      live = isLiveState(next.state);
       progress.track({
         recordingId: next.recordingId,
         position: () => video.currentTime,
@@ -1141,7 +1142,7 @@ export function createPlayer(
       renderView();
       renderPosition();
 
-      const nowLive = next.state === "recording" || next.state === "reconnecting";
+      const nowLive = isLiveState(next.state);
       if (nowLive && !live) {
         // VOD→live: a finished session reopened. Reload the same playlist where the viewer
         // is, keeping play/pause; Live edge is theirs to press.

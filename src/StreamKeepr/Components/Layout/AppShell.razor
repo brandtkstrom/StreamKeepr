@@ -148,10 +148,12 @@
                         @* The drawer's contents differ in the rail (avatars, the storage icon, a
                            rightward sort menu), so they learn the mode from the shell. *@
                         <CascadingValue Name="LibraryRail" Value="@(!_compact && !_modalOpen)">
+                        <CascadingValue Name="@LibraryOpenCascade" Value="_modalOpen">
                         <CascadingValue Name="@CompactCascade" Value="_compact">
                         @* The drawer asks the shell to open the library (a rail avatar, the storage icon). *@
                         <CascadingValue Value="this" IsFixed="true">
                             @Drawer
+                        </CascadingValue>
                         </CascadingValue>
                         </CascadingValue>
                         </CascadingValue>
@@ -208,6 +210,9 @@
 
     /// <summary>The cascade carrying <c>_compact</c> to pages such as the watch layout.</summary>
     public const string CompactCascade = "ShellCompact";
+
+    /// <summary>The library is open: the overlay Md and up, the temporary drawer below Md.</summary>
+    public const string LibraryOpenCascade = "LibraryOpen";
 
     private IJSObjectReference? _module;
     private DotNetObjectReference<AppShell>? _self;

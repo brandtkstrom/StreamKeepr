@@ -2,6 +2,7 @@
 // auto-scroll, and the C shortcut, and applies the viewer's chat sync offset, which .NET sends
 // from Settings › Chat. The player owns the <video> element.
 import { shortcutBlocked } from "/js/player-keys.js";
+import { isLiveState } from "/js/recording-state.js";
 
 const HOOKS = [
   "chat-state", "chat-body", "chat-log", "chat-jump", "chat-notice",
@@ -586,7 +587,7 @@ export function createChatPane(root, {
   }
 
   function liveState() {
-    return view?.state === "recording" || view?.state === "reconnecting";
+    return isLiveState(view?.state);
   }
 
   function messageKey(message) {

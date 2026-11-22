@@ -12,6 +12,7 @@ import {
   viewerSummary,
 } from "/js/viewer-chart.js";
 import { publishViewers } from "/js/viewer-store.js";
+import { isLiveState } from "/js/recording-state.js";
 
 // The Viewers panel's chart island (design system: Viewers; the chart itself is #211). It loads
 // the samples once, or every 60 s while the recording is live, draws the tile and chart, writes
@@ -37,10 +38,6 @@ function readSamples(body) {
   return list
     .filter((sample) => Number.isFinite(sample?.at) && Number.isFinite(sample?.count))
     .map((sample) => ({ at: sample.at, count: sample.count }));
-}
-
-function isLive(state) {
-  return state === "recording" || state === "reconnecting";
 }
 
 /** "1,489 at 54:40 · peak 1,658": the panel header's hint. */
@@ -131,7 +128,7 @@ export function createViewerChart(root, {
   function render() {
     const { samples } = viewers;
     const has = samples.length > 0;
-    const live = isLive(options.state);
+    const live = isLiveState(options.state);
 
     el["viewer-chart"]?.setAttribute("aria-label", viewerChartLabel(samples, { live }));
     renderTable(samples);
@@ -218,9 +215,9 @@ export function createViewerChart(root, {
   function start() {
     stop();
     if (disposed) return;
-    if (isLive(options.state) || !viewers.loaded || viewers.recordingId !== options.recordingId)
+    if (isLiveState(options.state) || !viewers.loaded || viewers.recordingId !== options.recordingId)
       void load();
-    if (isLive(options.state)) timer = setInterval(() => void load(), refreshMs);
+    if (isLiveState(options.state)) timer = setInterval(() => void load(), refreshMs);
   }
 
   function fraction(event) {
@@ -319,8 +316,8 @@ export function createViewerChart(root, {
     }
 
     // A capture that has just finished needs one last fetch for its final samples and duration.
-    const wasLive = isLive(previous.state);
-    if (wasLive !== isLive(options.state)) {
+    const wasLive = isLiveState(previous.state);
+    if (wasLive !== isLiveState(options.state)) {
       if (wasLive) viewers = { ...viewers, loaded: false };
       start();
     }

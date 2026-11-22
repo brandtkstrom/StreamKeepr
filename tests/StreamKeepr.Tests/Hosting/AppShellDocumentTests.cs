@@ -263,7 +263,7 @@ public sealed class AppShellDocumentTests
     }
 
     [Fact]
-    public async Task Prerender_reads_the_drawer_mode_from_the_ui_cookie()
+    public async Task Prerender_starts_on_the_rail_whatever_an_older_ui_cookie_saved()
     {
         using var factory = new StreamKeeprAppFactory();
         using var client = factory.CreateClient();

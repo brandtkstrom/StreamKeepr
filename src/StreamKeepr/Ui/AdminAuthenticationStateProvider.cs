@@ -117,7 +117,7 @@ public sealed class AdminAuthenticationStateProvider :
                 // same as an expiry, but it is told why (ADR-0013).
                 AuthOptions auth = _auth.CurrentValue;
                 if (auth.IsPrivate
-                    && !AdminAuth.IsLoginAllowed(TwitchLogin.Normalize(user.Identity?.Name), auth.AllowedTwitchLogins))
+                    && !AdminAuth.IsLoginAllowed(user.Identity?.Name, auth.AllowedTwitchLogins))
                 {
                     _logger.LogInformation("The signed-in login is no longer allowed; signing this circuit out.");
                     _state = Anonymous;

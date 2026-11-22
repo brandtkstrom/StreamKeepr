@@ -202,6 +202,9 @@
     /// <summary>Below Md the drawer is temporary and the recordings column drills in.</summary>
     [CascadingParameter(Name = AppShell.CompactCascade)] public bool Compact { get; set; }
 
+    /// <summary>True while the library is open, at every width (set by <c>AppShell</c>).</summary>
+    [CascadingParameter(Name = AppShell.LibraryOpenCascade)] public bool Open { get; set; }
+
     [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
 
     /// <summary>The shell, which opens the library over the page (absent in isolated tests).</summary>
@@ -213,6 +216,8 @@
     private IJSObjectReference? _keys;
     private string? _selectedChannel;
     private string? _awaitingWatched;
+    private bool _wasOpen;
+    private bool _scrollToCurrent;
     private bool _signedIn;
     private Task<AuthenticationState>? _authState;
     private RecordingView? _deleteTarget;
@@ -229,9 +234,7 @@
     {
         _selectedId = ParseSelectedId(Navigation.Uri);
         _query = LibraryUrl.Parse(Navigation.Uri);
-        // While watching, the library opens on the watched recording's channel (design system:
-        // LibraryDrawer); elsewhere on nothing, until a channel is picked.
-        FollowWatched(_selectedId);
+        ResetChannel();
         Library.Changed += OnLibraryChanged;
         Clock.Changed += OnClockChanged;
         Navigation.LocationChanged += OnLocationChanged;
@@ -242,6 +245,13 @@
     // and render the drawer twice, and the extra renders slowed rapid input elsewhere.
     protected override async Task OnParametersSetAsync()
     {
+        // The library is temporary: closing it forgets the channel picked in it.
+        if (_wasOpen && !Open)
+            ResetChannel();
+        // Opening shows the watched recording's row, however long its channel's list is.
+        _scrollToCurrent |= Open && !_wasOpen;
+        _wasOpen = Open;
+
         if (ReferenceEquals(_authState, AuthenticationState))
             return;
 
@@ -290,6 +300,12 @@
         {
             _resetScroll = false;
             await InvokeKeysAsync("scrollToTop", _list);
+        }
+
+        if (_scrollToCurrent)
+        {
+            _scrollToCurrent = false;
+            await InvokeKeysAsync("scrollCurrentIntoView", _list);
         }
 
         if (_focusAfterDelete is var (index, deletedId))
@@ -343,16 +359,18 @@
 
     // Why a row's Delete is unavailable: signed out, then the title block's rules.
     private string? DeleteBlockedReason(RecordingView recording) =>
-        !_signedIn ? RecordingDelete.SignedOut
+        !_signedIn ? RequiresTwitch.SignedOutMessage
         : RecordingDelete.BlockedReason(recording, Exports.FindByRecording(recording.Id) is { IsActive: true });
 
-    private void OpenDelete(RecordingView recording)
+    private async Task OpenDelete(RecordingView recording)
     {
         if (DeleteBlockedReason(recording) is not null)
             return;
 
         _deleteTarget = recording;
         _deleteOpen = true;
+        // The row collapses out once the library drops it (library-keys.js).
+        await InvokeKeysAsync("armRowCollapse", _list, recording.Id);
     }
 
     private async Task OnDeleteOpenChanged(bool open)
@@ -362,6 +380,7 @@
         {
             // Cancelled: back to the row's own Delete button.
             _deleteTarget = null;
+            await InvokeKeysAsync("disarmRowCollapse", _list);
             await FocusAsync($"[data-recording-id='{target.Id}'] ~ [data-row-delete]");
         }
     }
@@ -417,23 +436,26 @@
         {
             _selectedChannel = channel;
             _awaitingWatched = null;
+            _scrollToCurrent = true;
         }
 
         StateHasChanged();
     });
 
-    // Selects the watched recording's channel, or waits for the library to know it. The open
-    // library is temporary, so this channel shows the next time it opens.
-    private void FollowWatched(string? recordingId)
+    // What the library opens on (design system: LibraryDrawer): the watched recording's channel
+    // on a watch page, or no channel elsewhere. A deep link can arrive before the library knows
+    // the recording; OnLibraryChanged picks its channel once it does.
+    private void ResetChannel()
     {
+        _selectedChannel = null;
         _awaitingWatched = null;
-        if (recordingId is null)
+        if (_selectedId is null)
             return;
 
-        if (ChannelOf(recordingId) is { } channel)
+        if (ChannelOf(_selectedId) is { } channel)
             _selectedChannel = channel;
         else
-            _awaitingWatched = recordingId;
+            _awaitingWatched = _selectedId;
     }
 
     private void OnClockChanged() => _ = InvokeAsync(StateHasChanged);
@@ -446,14 +468,14 @@
             return;
 
         _resetScroll |= query != _query;
-        // Picking a recording closes the library (the shell does that); it opens next time on
-        // the watched recording's channel. Other pages keep the channel last picked, for the
-        // session only.
-        if (!string.Equals(selected, _selectedId, StringComparison.Ordinal) && selected is not null)
-            FollowWatched(selected);
-
+        bool pageChanged = !string.Equals(selected, _selectedId, StringComparison.Ordinal);
         _selectedId = selected;
         _query = query;
+        // Picking a recording closes the library (the shell does that, which resets the channel
+        // too). A closed library follows the page, so it opens on the right channel; an open one
+        // keeps what is shown while only the query changes.
+        if (pageChanged && !Open)
+            ResetChannel();
         _ = InvokeAsync(StateHasChanged);
     }
 

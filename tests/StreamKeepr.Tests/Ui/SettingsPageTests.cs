@@ -71,6 +71,19 @@ public sealed class SettingsPageTests
         Assert.Equal("pause", cut.Find("[data-channel='bob'] [data-channel-state]").GetAttribute("data-status-icon"));
     }
 
+    [Theory]
+    [InlineData(false, "Disconnect", "/settings")]
+    [InlineData(true, "Sign out", "/signin?returnUrl=%2Fsettings&signedOut=true")]
+    public async Task The_account_section_signs_out_as_the_account_menu_does(bool isPrivate, string label, string returnUrl)
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true, isPrivate: isPrivate);
+
+        IRenderedComponent<Settings> cut = context.Render<Settings>();
+
+        Assert.Equal(label, cut.Find("[data-settings-disconnect]").TextContent.Trim());
+        Assert.Equal(returnUrl, cut.Find("#twitch form input[name='returnUrl']").GetAttribute("value"));
+    }
+
     [Fact]
     public async Task The_channels_section_is_the_target_of_settings_channels()
     {
@@ -489,12 +502,19 @@ public sealed class SettingsPageTests
         cut.Find("button[aria-label='Exit settings']");
 
     private static BunitContext CreateContext(
-        out TestChannelsView channels, bool signedIn, string? baseUri = null, string accountImage = AccountImage)
+        out TestChannelsView channels, bool signedIn, string? baseUri = null, string accountImage = AccountImage,
+        bool isPrivate = false)
     {
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddStreamKeeprMudServices();
         context.Services.AddLogging();
+        if (isPrivate)
+        {
+            // ADR-0013: a non-empty allowlist makes the app private.
+            context.Services.AddSingleton(Microsoft.Extensions.Options.Options.Create(
+                new StreamKeepr.Configuration.AuthOptions { AllowedTwitchLogins = ["mock_admin"] }));
+        }
         context.Services.AddSingleton(new AdminSessionState());
         context.Services.AddSingleton<AntiforgeryStateProvider>(new FixedAntiforgery());
         channels = new TestChannelsView();

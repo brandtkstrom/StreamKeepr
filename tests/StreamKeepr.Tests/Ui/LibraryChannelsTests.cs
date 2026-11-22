@@ -79,27 +79,46 @@ public sealed class LibraryChannelsTests
     }
 
     [Fact]
-    public async Task Md_and_up_the_library_opens_on_the_watched_channel_and_keeps_the_last_pick_elsewhere()
+    public async Task The_library_opens_on_the_watched_channel_on_a_watch_page_and_on_nothing_elsewhere()
     {
         var view = View();
         view.FindById["b1"] = view.RecordingsByLogin["beta"][0];
         await using BunitContext context = CreateContext(out _, view);
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
-        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
-        // Elsewhere it opens on nothing; a pick is remembered for the session.
+        IRenderedComponent<CascadingValue<bool>> cut = RenderOpen(context, open: true);
+
+        // Home: it opens on nothing, and a pick lasts only until it closes.
         Assert.Empty(cut.FindAll("[data-recordings-column]"));
-        Option(cut, "alpha").Click();
-        navigation.NavigateTo("/settings");
-        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("[data-recordings-column='alpha']")));
+        cut.Find("[data-library-channel='alpha']").Click();
+        Assert.Single(cut.FindAll("[data-recordings-column='alpha']"));
+        SetOpen(cut, open: false);
+        Assert.Empty(cut.FindAll("[data-recordings-column]"));
 
-        // Watching b1, the library (next time it opens) is on b1's channel.
+        // Watching b1, it opens on b1's channel, and goes back to it after another pick.
         navigation.NavigateTo("/r/b1");
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("[data-recordings-column='beta']")));
+        SetOpen(cut, open: true);
+        cut.Find("[data-library-channel='alpha']").Click();
+        SetOpen(cut, open: false);
+        Assert.Single(cut.FindAll("[data-recordings-column='beta']"));
+        Assert.Equal("true", cut.Find("[data-library-channel='beta']").GetAttribute("aria-selected"));
 
-        cut.WaitForAssertion(() =>
-        {
-            Assert.Single(cut.FindAll("[data-recordings-column='beta']"));
-            Assert.Equal("true", Option(cut, "beta").GetAttribute("aria-selected"));
-        });
+        // Back on another page, nothing is selected again.
+        navigation.NavigateTo("/settings");
+        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll("[data-recordings-column]")));
+    }
+
+    [Fact]
+    public async Task An_open_library_keeps_its_channel_while_only_the_query_changes()
+    {
+        await using BunitContext context = CreateContext(out _);
+        NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
+        IRenderedComponent<CascadingValue<bool>> cut = RenderOpen(context, open: true);
+        cut.Find("[data-library-channel='alpha']").Click();
+
+        navigation.NavigateTo("/?sort=oldest");
+
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("[data-recordings-column='alpha']")));
     }
 
     [Fact]
@@ -250,6 +269,9 @@ public sealed class LibraryChannelsTests
         cut.Find("[data-recording-id='a1'] ~ button[data-row-delete]").Click();
         dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog("Delete recording?")));
         Assert.Contains("Title a1 — alpha", dialogs.Find("[data-delete-banner]").TextContent);
+        // The row is watched from here, so it can collapse out once the library drops it.
+        Assert.Contains(module.Invocations,
+            call => call.Identifier == "armRowCollapse" && Equals(call.Arguments[1], "a1"));
 
         dialogs.Find("[data-delete-confirm]").Click();
 
@@ -261,6 +283,24 @@ public sealed class LibraryChannelsTests
         cut.WaitForAssertion(() => Assert.Contains(
             module.Invocations,
             call => call.Identifier == "focusAfterDelete" && Equals(call.Arguments[1], 0) && Equals(call.Arguments[2], "a1")));
+    }
+
+    [Fact]
+    public async Task Cancelling_delete_stops_watching_the_row()
+    {
+        var view = View();
+        view.FindById["a1"] = view.RecordingsByLogin["alpha"][0];
+        await using BunitContext context = CreateContext(out BunitJSModuleInterop module, view, signedIn: true);
+        var dialogs = context.Render<MudBlazor.MudDialogProvider>();
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+        Option(cut, "alpha").Click();
+        cut.Find("[data-recording-id='a1'] ~ button[data-row-delete]").Click();
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog("Delete recording?")));
+
+        dialogs.Find("[data-delete-cancel]").Click();
+
+        cut.WaitForAssertion(() => Assert.Contains(module.Invocations, call => call.Identifier == "disarmRowCollapse"));
+        Assert.Single(cut.FindAll("[data-recording-id='a1']"));
     }
 
     [Fact]
@@ -285,6 +325,18 @@ public sealed class LibraryChannelsTests
 
     private static AngleSharp.Dom.IElement Option(IRenderedComponent<LibraryDrawer> cut, string login) =>
         cut.Find($"[data-library-channel='{login}']");
+
+    // The shell's LibraryOpen cascade, which the test opens and closes.
+    private static IRenderedComponent<CascadingValue<bool>> RenderOpen(BunitContext context, bool open) =>
+        context.Render<CascadingValue<bool>>(parameters => parameters
+            .Add(component => component.Name, AppShell.LibraryOpenCascade)
+            .Add(component => component.Value, open)
+            .AddChildContent<LibraryDrawer>());
+
+    private static void SetOpen(IRenderedComponent<CascadingValue<bool>> cut, bool open) =>
+        cut.Render(parameters => parameters
+            .Add(component => component.Value, open)
+            .AddChildContent<LibraryDrawer>());
 
     private static IRenderedComponent<CascadingValue<bool>> RenderCompact(BunitContext context) =>
         context.Render<CascadingValue<bool>>(parameters => parameters

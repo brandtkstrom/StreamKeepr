@@ -104,7 +104,7 @@ public static class AdminAuth
                 else
                     context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             }
-            else if (context.Request.Path.StartsWithSegments("/api"))
+            else if (context.Request.Path.StartsWithSegments(RequestPaths.Api))
             {
                 context.Response.StatusCode = status;
             }
@@ -289,11 +289,13 @@ public static class AdminAuth
 
     /// <summary>
     /// An empty allowlist admits every authenticated Twitch user; otherwise only
-    /// the configured logins are admitted.
+    /// the configured logins are admitted. The login is normalized here, so every caller (the
+    /// Twitch callback, the private-mode policy, the circuit's revalidation and the Mock login)
+    /// applies the same rule to the raw name.
     /// </summary>
-    public static bool IsLoginAllowed(string login, IReadOnlyCollection<string> allowedLogins) =>
+    public static bool IsLoginAllowed(string? login, IReadOnlyCollection<string> allowedLogins) =>
         allowedLogins.Count == 0
-        || allowedLogins.Contains(login, StringComparer.OrdinalIgnoreCase);
+        || allowedLogins.Contains(TwitchLogin.Normalize(login), StringComparer.OrdinalIgnoreCase);
 
     private static bool HasControlCharacter(ReadOnlySpan<char> value)
     {
@@ -309,7 +311,7 @@ public static class AdminAuth
     private static async Task CreateAdminTicketAsync(OAuthCreatingTicketContext context)
     {
         var services = context.HttpContext.RequestServices;
-        var auth = services.GetRequiredService<IOptions<AuthOptions>>().Value;
+        var auth = services.GetRequiredService<IOptionsMonitor<AuthOptions>>().CurrentValue;
 
         // The Twitch handler already called /helix/users with the app's client id and
         // mapped that response's login to ClaimTypes.Name before this event runs.
@@ -451,14 +453,6 @@ public static class AdminAuth
     }
 
     // The Twitch handler always sends force_verify (false unless the option is set); replace it.
-    private static string WithForceVerify(string authorizeUrl)
-    {
-        var queryIndex = authorizeUrl.IndexOf('?');
-        var path = queryIndex < 0 ? authorizeUrl : authorizeUrl[..queryIndex];
-        var parameters = QueryHelpers.ParseQuery(queryIndex < 0 ? string.Empty : authorizeUrl[queryIndex..])
-            .Where(pair => pair.Key != "force_verify")
-            .SelectMany(pair => pair.Value.Select(value => new KeyValuePair<string, string?>(pair.Key, value)))
-            .Append(new("force_verify", "true"));
-        return path + QueryString.Create(parameters);
-    }
+    private static string WithForceVerify(string authorizeUrl) =>
+        UrlQuery.With(authorizeUrl, "force_verify", "true");
 }

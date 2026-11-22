@@ -57,13 +57,19 @@ function onKeyDown(event) {
   if (!modalOpen) return;
 
   if (event.key === "Escape") {
-    // An open menu or popover takes its own Escape first.
+    // An open menu, popover or dialog (a row's Delete) takes its own Escape first, and the
+    // library stays open behind a dialog.
     const target = event.target instanceof Element ? event.target : null;
-    if (event.defaultPrevented || target?.closest("[role='menu'], .mud-popover")) return;
+    if (
+      event.defaultPrevented ||
+      target?.closest("[role='menu'], .mud-popover, .mud-dialog-container") ||
+      document.querySelector(".mud-dialog-container")
+    )
+      return;
     event.preventDefault();
     void dotNetRef
       ?.invokeMethodAsync("CloseModalDrawer")
-      .catch((error) => console.warn("StreamKeepr: could not close the library drawer.", error));
+      .catch((error) => console.warn("Stream Keepr: could not close the library drawer.", error));
     return;
   }
 
@@ -116,19 +122,23 @@ function onClick(event) {
   event.preventDefault();
   void dotNetRef
     .invokeMethodAsync("ToggleSettingsAsync")
-    .catch((error) => console.warn("StreamKeepr: could not open the settings sheet.", error));
+    .catch((error) => console.warn("Stream Keepr: could not open the settings sheet.", error));
 }
 
-// Md and up the open library closes on a press outside it. The menu button toggles it itself,
-// and MudBlazor's popovers and dialogs live outside the drawer but belong to what is open.
+// Md and up the open library closes on a press outside it, the rest of the app bar included.
+// Not outside: the menu button, which toggles it itself; the app bar's search, which filters the
+// open library live; and MudBlazor's popovers and dialogs, which live outside the drawer but
+// belong to what is open.
+const INSIDE_LIBRARY =
+  ".sk-drawer-frame, [data-drawer-toggle], .sk-search, .sk-appbar-search, .mud-popover, .mud-dialog-container";
+
 function onPointerDown(event) {
   if (!modalOpen || trapFocus || !dotNetRef) return;
   const target = event.target instanceof Element ? event.target : null;
-  // The app bar is not "outside": its search filters the open library live.
-  if (!target || target.closest(".sk-drawer-frame, header, .mud-popover, .mud-dialog-container")) return;
+  if (!target || target.closest(INSIDE_LIBRARY)) return;
   void dotNetRef
     .invokeMethodAsync("CloseModalDrawer")
-    .catch((error) => console.warn("StreamKeepr: could not close the library.", error));
+    .catch((error) => console.warn("Stream Keepr: could not close the library.", error));
 }
 
 function onReconnectState(event) {

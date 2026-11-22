@@ -255,6 +255,9 @@ public sealed class LibraryDrawerTests
             Recording("r1", "alpha", RecordingState.Saved, Now.AddHours(-1)),
             Recording("r2", "alpha", RecordingState.Saved, Now.AddHours(-2)),
         ];
+        // A closed library follows the watched recording to its channel, so it must know both.
+        view.FindById["r1"] = view.RecordingsByLogin["alpha"][0];
+        view.FindById["r2"] = view.RecordingsByLogin["alpha"][1];
 
         await using BunitContext context = CreateContext(view);
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();

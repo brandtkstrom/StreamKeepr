@@ -1,5 +1,5 @@
 using System.Globalization;
-using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.JSInterop;
 using StreamKeepr.Ui;
@@ -8,101 +8,62 @@ namespace StreamKeepr.Tests.Ui;
 
 public sealed class UiPreferencesTests
 {
-    private const string DefaultJson =
-        """{"v":1,"drawer":"expanded","theater":false,"stats":false,"details":true,"collapsed":[]}""";
-
     [Fact]
     public void Missing_cookie_uses_defaults()
     {
         var preferences = Create();
 
-        Assert.Equal(DrawerMode.Expanded, preferences.Drawer);
         Assert.False(preferences.Theater);
         Assert.False(preferences.StatsOpen);
         Assert.True(preferences.DetailsOpen);
-        Assert.Empty(preferences.CollapsedStreamers);
+        Assert.True(preferences.ViewersOpen);
+        Assert.False(preferences.ChatOpen);
     }
 
     [Fact]
     public void Parses_the_versioned_cookie()
     {
         var preferences = Create(
-            """{"v":1,"drawer":"rail","theater":true,"stats":true,"details":false,"collapsed":["pixelwren"]}""");
+            """{"v":1,"theater":true,"stats":true,"details":false,"viewers":false,"chat":true}""");
 
-        Assert.Equal(DrawerMode.Rail, preferences.Drawer);
         Assert.True(preferences.Theater);
         Assert.True(preferences.StatsOpen);
         Assert.False(preferences.DetailsOpen);
-        Assert.True(preferences.IsCollapsed("pixelwren"));
+        Assert.False(preferences.ViewersOpen);
+        Assert.True(preferences.ChatOpen);
     }
 
     [Fact]
     public void Encoded_cookie_is_decoded()
     {
-        var json = """{"v":1,"drawer":"hidden","theater":false,"stats":false,"details":true,"collapsed":[]}""";
+        var json = """{"v":1,"theater":true,"stats":false,"details":true}""";
         var preferences = Create(Uri.EscapeDataString(json));
 
-        Assert.Equal(DrawerMode.Hidden, preferences.Drawer);
+        Assert.True(preferences.Theater);
     }
 
     [Theory]
     [InlineData("not json")]
-    [InlineData("""{"v":2,"drawer":"rail"}""")]
-    [InlineData("""{"drawer":"rail"}""")]
+    [InlineData("""{"v":2,"theater":true}""")]
+    [InlineData("""{"theater":true}""")]
     public void Malformed_or_unknown_version_falls_back_to_defaults(string cookie)
     {
         var preferences = Create(cookie);
 
-        Assert.Equal(DrawerMode.Expanded, preferences.Drawer);
+        Assert.False(preferences.Theater);
         Assert.True(preferences.DetailsOpen);
     }
 
     [Fact]
-    public void Unknown_fields_and_invalid_values_are_ignored()
+    public void Unknown_fields_invalid_values_and_an_older_versions_keys_are_ignored()
     {
+        // drawer, watch and collapsed are what the tree library and its remembered drawer wrote.
         var preferences = Create(
-            """{"v":1,"drawer":"sideways","theater":null,"stats":true,"details":false,"extra":"ignored","collapsed":[null,"","pixelwren","PIXELWREN"]}""");
+            """{"v":1,"drawer":"sideways","watch":"expanded","theater":null,"stats":true,"details":false,"extra":"ignored","collapsed":[null,"","pixelwren"]}""");
 
-        Assert.Equal(DrawerMode.Expanded, preferences.Drawer);
         Assert.False(preferences.Theater);
         Assert.True(preferences.StatsOpen);
         Assert.False(preferences.DetailsOpen);
-        Assert.Single(preferences.CollapsedStreamers);
-    }
-
-    [Fact]
-    public void Collapsed_streamers_are_capped_to_the_newest_fifty()
-    {
-        var collapsed = Enumerable.Range(0, 60).Select(index => $"login{index}").ToArray();
-        var cookie =
-            $$"""{"v":1,"drawer":"expanded","theater":false,"stats":false,"details":true,"collapsed":[{{string.Join(',', collapsed.Select(login => $"\"{login}\""))}}]}""";
-
-        var preferences = Create(cookie);
-
-        Assert.Equal(UiPreferences.MaxCollapsedStreamers, preferences.CollapsedStreamers.Count);
-        Assert.False(preferences.IsCollapsed("login9"));
-        Assert.True(preferences.IsCollapsed("login10"));
-        Assert.True(preferences.IsCollapsed("login59"));
-    }
-
-    [Fact]
-    public void Cookie_size_is_capped_at_four_kilobytes()
-    {
-        var collapsed = Enumerable.Range(0, 50)
-            .Select(index => $"{index:D2}{new string('x', 120)}")
-            .ToArray();
-        var cookie =
-            $$"""{"v":1,"drawer":"expanded","theater":false,"stats":false,"details":true,"collapsed":[{{string.Join(',', collapsed.Select(login => $"\"{login}\""))}}]}""";
-
-        var preferences = Create(cookie);
-        var json = string.Join(
-            ',',
-            preferences.CollapsedStreamers.Select(login => $"\"{login}\""));
-        var shape =
-            $$"""{"v":1,"drawer":"{{preferences.Drawer.ToString().ToLowerInvariant()}}","theater":{{preferences.Theater.ToString().ToLowerInvariant()}},"stats":{{preferences.StatsOpen.ToString().ToLowerInvariant()}},"details":{{preferences.DetailsOpen.ToString().ToLowerInvariant()}},"collapsed":[{{json}}]}""";
-
-        Assert.True(preferences.CollapsedStreamers.Count < UiPreferences.MaxCollapsedStreamers);
-        Assert.True(Encoding.UTF8.GetByteCount(shape) <= UiPreferences.MaxCookieBytes);
     }
 
     [Fact]
@@ -112,17 +73,15 @@ public sealed class UiPreferencesTests
         var changes = 0;
         preferences.Changed += () => changes++;
 
-        preferences.ToggleDrawer();
-        preferences.ToggleDrawer();
         preferences.SetTheater(true);
         preferences.SetTheater(true);
         preferences.SetStatsOpen(true);
         preferences.SetDetailsOpen(false);
-        preferences.SetCollapsed("pixelwren", true);
-        preferences.SetCollapsed("pixelwren", true);
-        preferences.SetCollapsed("pixelwren", false);
+        preferences.SetViewersOpen(false);
+        preferences.SetViewersOpen(false);
+        preferences.SetChatOpen(true);
 
-        Assert.Equal(7, changes);
+        Assert.Equal(5, changes);
     }
 
     [Fact]
@@ -196,9 +155,9 @@ public sealed class UiPreferencesTests
     public async Task Persist_writes_the_same_versioned_shape_through_prefs_js()
     {
         var js = new RecordingJSRuntime();
-        var preferences = Create(js: js);
-        preferences.ToggleDrawer();
-        preferences.SetCollapsed("pixelwren", true);
+        var preferences = Create(
+            """{"v":1,"drawer":"rail","collapsed":["pixelwren"]}""", js: js);
+        preferences.SetTheater(true);
 
         await preferences.PersistAsync();
 
@@ -206,9 +165,13 @@ public sealed class UiPreferencesTests
         Assert.Equal("skPrefs.writeUi", invocation.Identifier);
         var state = Assert.IsType<UiPreferencesState>(Assert.Single(invocation.Arguments));
         Assert.Equal(1, state.Version);
-        Assert.Equal("rail", state.Drawer);
+        Assert.True(state.Theater);
         Assert.True(state.Details);
-        Assert.Equal(new[] { "pixelwren" }, state.Collapsed);
+        // An older version's keys are not written back.
+        using JsonDocument json = JsonDocument.Parse(JsonSerializer.Serialize(state));
+        Assert.Equal(
+            ["v", "theater", "stats", "details", "chat", "chatSync", "viewers"],
+            json.RootElement.EnumerateObject().Select(property => property.Name));
     }
 
     [Fact]
@@ -226,7 +189,7 @@ public sealed class UiPreferencesTests
     {
         var prerenderStore = new TestClientStateStore();
         prerenderStore.Cookies[UiPreferences.CookieName] =
-            """{"v":1,"drawer":"hidden","theater":true,"stats":true,"details":false,"collapsed":["mossbyte"]}""";
+            """{"v":1,"theater":true,"stats":true,"details":false,"viewers":false}""";
 
         _ = Create(store: prerenderStore);
         var persisted = Assert.IsType<string>(prerenderStore.Persisted[UiPreferences.CookieName]);
@@ -235,88 +198,10 @@ public sealed class UiPreferencesTests
         circuitStore.Persist(UiPreferences.CookieName, persisted);
         var preferences = Create(store: circuitStore);
 
-        Assert.Equal(DrawerMode.Hidden, preferences.Drawer);
         Assert.True(preferences.Theater);
         Assert.True(preferences.StatsOpen);
         Assert.False(preferences.DetailsOpen);
-        Assert.True(preferences.IsCollapsed("mossbyte"));
-    }
-
-    [Fact]
-    public void Watch_pages_default_to_the_rail_and_home_to_the_full_library()
-    {
-        var preferences = Create();
-
-        Assert.Equal(DrawerMode.Rail, preferences.WatchDrawer);
-        Assert.Equal(DrawerMode.Rail, preferences.DrawerFor(watching: true));
-        Assert.Equal(DrawerMode.Expanded, preferences.DrawerFor(watching: false));
-    }
-
-    [Theory]
-    [InlineData("expanded", DrawerMode.Expanded)]
-    [InlineData("rail", DrawerMode.Rail)]
-    [InlineData("hidden", DrawerMode.Hidden)]
-    [InlineData("sideways", DrawerMode.Rail)]
-    public void Parses_the_watch_page_drawer_choice(string value, DrawerMode expected)
-    {
-        var preferences = Create(
-            $$"""{"v":1,"drawer":"expanded","watch":"{{value}}","theater":false,"stats":false,"details":true,"collapsed":[]}""");
-
-        Assert.Equal(expected, preferences.WatchDrawer);
-        Assert.Equal(DrawerMode.Expanded, preferences.Drawer);
-    }
-
-    [Fact]
-    public void Each_page_kind_remembers_its_own_drawer_choice()
-    {
-        var preferences = Create();
-        var changes = 0;
-        preferences.Changed += () => changes++;
-
-        preferences.ToggleDrawer(watching: true);
-        Assert.Equal(DrawerMode.Expanded, preferences.WatchDrawer);
-        Assert.Equal(DrawerMode.Expanded, preferences.Drawer);
-
-        preferences.ToggleDrawer(watching: false);
-        Assert.Equal(DrawerMode.Rail, preferences.Drawer);
-        Assert.Equal(DrawerMode.Expanded, preferences.WatchDrawer);
-
-        preferences.SetDrawer(DrawerMode.Rail, watching: true);
-        preferences.SetDrawer(DrawerMode.Rail, watching: true);
-        Assert.Equal(DrawerMode.Rail, preferences.DrawerFor(watching: true));
-        Assert.Equal(3, changes);
-    }
-
-    [Fact]
-    public async Task Persist_writes_the_watch_page_choice()
-    {
-        var js = new RecordingJSRuntime();
-        var preferences = Create(js: js);
-        preferences.SetDrawer(DrawerMode.Expanded, watching: true);
-
-        await preferences.PersistAsync();
-
-        var state = Assert.IsType<UiPreferencesState>(Assert.Single(Assert.Single(js.Invocations).Arguments));
-        Assert.Equal("expanded", state.Watch);
-        Assert.Equal("expanded", state.Drawer);
-    }
-
-    [Fact]
-    public void Prerender_state_restores_the_watch_page_choice()
-    {
-        var prerenderStore = new TestClientStateStore();
-        prerenderStore.Cookies[UiPreferences.CookieName] =
-            """{"v":1,"drawer":"rail","watch":"expanded","theater":false,"stats":false,"details":true,"collapsed":[]}""";
-
-        _ = Create(store: prerenderStore);
-        var circuitStore = new TestClientStateStore();
-        circuitStore.Persist(
-            UiPreferences.CookieName,
-            Assert.IsType<string>(prerenderStore.Persisted[UiPreferences.CookieName]));
-        var preferences = Create(store: circuitStore);
-
-        Assert.Equal(DrawerMode.Rail, preferences.Drawer);
-        Assert.Equal(DrawerMode.Expanded, preferences.WatchDrawer);
+        Assert.False(preferences.ViewersOpen);
     }
 
     private static UiPreferences Create(

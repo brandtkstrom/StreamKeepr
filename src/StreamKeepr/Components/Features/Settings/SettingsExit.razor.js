@@ -30,7 +30,7 @@ export function install(component, doc = document) {
     event.preventDefault();
     void component
       .invokeMethodAsync("ExitAsync")
-      .catch((error) => console.warn("StreamKeepr: could not exit Settings.", error));
+      .catch((error) => console.warn("Stream Keepr: could not exit Settings.", error));
   };
   doc.addEventListener("keydown", listener);
   installed = { doc, listener };

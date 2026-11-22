@@ -57,7 +57,7 @@
     // The chat endpoint's limit bounds the slider; invariant culture keeps "-30" and "30".
     private static readonly string SyncMax = Invariant(ChatReader.MaxSyncOffsetSeconds);
     private static readonly string SyncMin = Invariant(-ChatReader.MaxSyncOffsetSeconds);
-    private const string SyncStep = "0.5";
+    private static readonly string SyncStep = Invariant(UiPreferences.ChatSyncStepSeconds);
 
     // What the slider shows: the thumb while dragging, the saved offset otherwise.
     private double _shown;

@@ -17,8 +17,8 @@ const COLUMN = `
   <section data-recordings-column="beta">
     <button data-column-close>Close</button>
     <div role="list">
-      <div role="listitem"><a class="sk-row" href="/r/b1" data-recording-id="b1">B1</a><button data-row-delete>Delete</button></div>
-      <div role="listitem"><a class="sk-row" href="/r/b2" data-recording-id="b2">B2</a><button data-row-delete aria-disabled="true">Delete</button></div>
+      <div role="listitem" data-row-item><a class="sk-row" href="/r/b1" data-recording-id="b1">B1</a><button data-row-delete>Delete</button></div>
+      <div role="listitem" data-row-item><a class="sk-row" href="/r/b2" data-recording-id="b2">B2</a><button data-row-delete aria-disabled="true">Delete</button></div>
     </div>
   </section>`;
 
@@ -132,6 +132,83 @@ describe("library-keys.js", () => {
     keys.focusAfterDelete(list(), 0, "b2");
     vi.advanceTimersByTime(50);
     expect(document.activeElement).toBe(document.querySelector("[data-column-close]"));
+  });
+
+  it("scrolls the current recording's row into view", () => {
+    openColumn();
+    row("b2").setAttribute("aria-current", "true");
+    const scrolled = vi.fn();
+    row("b2").scrollIntoView = scrolled;
+
+    keys.scrollCurrentIntoView(list());
+
+    expect(scrolled).toHaveBeenCalledWith({ block: "nearest" });
+  });
+
+  describe("a deleted row", () => {
+    let finish;
+    let animate;
+
+    beforeEach(() => {
+      openColumn();
+      animate = vi.fn(() => ({ finished: new Promise((resolve) => { finish = resolve; }) }));
+      Element.prototype.animate = animate;
+      window.matchMedia = vi.fn(() => ({ matches: false }));
+    });
+
+    afterEach(() => {
+      delete Element.prototype.animate;
+      delete window.matchMedia;
+    });
+
+    // What Blazor does once the library drops the recording.
+    const blazorRemoves = (id) => row(id).closest("[role=listitem]").remove();
+
+    it("collapses out where it was, out of reach, once the library removes it", async () => {
+      keys.armRowCollapse(list(), "b1");
+      blazorRemoves("b1");
+      await Promise.resolve();
+
+      const ghost = document.querySelector("[data-collapsing]");
+      expect(ghost).not.toBeNull();
+      expect(ghost.nextElementSibling).toBe(row("b2").closest("[role=listitem]"));
+      expect(ghost.inert).toBe(true);
+      expect(ghost.getAttribute("aria-hidden")).toBe("true");
+      expect(ghost.hasAttribute("role")).toBe(false);
+      expect(row("b1")).toBeNull();
+      expect(animate).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ height: "0px", opacity: 0 })]),
+        expect.objectContaining({ duration: 150 }),
+      );
+
+      // Focus after the delete skips it.
+      keys.focusAfterDelete(list(), 0, "b1");
+      expect(document.activeElement).toBe(row("b2"));
+
+      finish();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(document.querySelector("[data-collapsing]")).toBeNull();
+    });
+
+    it("stays gone when Delete was cancelled first", async () => {
+      keys.armRowCollapse(list(), "b1");
+      keys.disarmRowCollapse(list());
+      blazorRemoves("b1");
+      await Promise.resolve();
+
+      expect(document.querySelector("[data-collapsing]")).toBeNull();
+    });
+
+    it("does not move under reduced motion", async () => {
+      window.matchMedia = vi.fn(() => ({ matches: true }));
+      keys.armRowCollapse(list(), "b1");
+      blazorRemoves("b1");
+      await Promise.resolve();
+
+      expect(document.querySelector("[data-collapsing]")).toBeNull();
+      expect(animate).not.toHaveBeenCalled();
+    });
   });
 
   it("ignores modified keys", () => {
