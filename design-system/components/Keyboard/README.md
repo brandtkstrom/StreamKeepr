@@ -15,7 +15,7 @@ Focus rings on every ground, and the keyboard shortcuts StreamKeepr already defi
 | Space, K | Play or pause | `player-keys.js` |
 | J / L | Back / forward 10 s | `player-keys.js` |
 | ← / → | Back / forward 5 s (not inside sliders or the library) | `player-keys.js` |
-| M · F · T · I | Mute · full screen · theater · Stats for nerds overlay | `player-keys.js` |
+| M · F · T · I | Mute · full screen · theater · Statistics overlay | `player-keys.js` |
 | C | Open or close chat | `ChatPane.razor.js` |
 | / | Focus search | `shortcuts.js` |
 | Esc (in the settings sheet or on the Settings page) | Close or exit Settings | `SettingsSheet`, `SettingsPage` |

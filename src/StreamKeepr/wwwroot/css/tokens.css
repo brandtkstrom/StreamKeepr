@@ -25,9 +25,9 @@
   --gray-darken-4: #212121; /* Colors.Gray.Darken4. Feeds every `*-contrast-text` on a bright fill, and `background-gray`. */
   --primary: var(--purple-accent-1); /* Palette.Primary → --mud-palette-primary. The main action on a screen (Export MP4, Add, Connect), the selected filter chip, active toggles, the focus ring and progress. Text-safe on every ground (≥ 5.0:1 on `surface`, 4.3:1 on `surface-raised`, so icons only there). */
   --primary-contrast-text: var(--gray-darken-4); /* Palette.PrimaryContrastText → --mud-palette-primary-text. Label and icon on a `primary` fill (6.9:1). */
-  --secondary: var(--cyan-accent-3); /* Palette.Secondary. Network series in Stats for nerds, the Processing status and the export progress bar. */
+  --secondary: var(--cyan-accent-3); /* Palette.Secondary. Network series in Statistics, the Processing status and the export progress bar. */
   --secondary-contrast-text: var(--gray-darken-4); /* Palette.SecondaryContrastText (10.5:1). */
-  --tertiary: var(--indigo-accent-1); /* Palette.Tertiary. The stream itself: the viewer-count chart in Stats for nerds, chapter offsets and chapter ticks on the seek bar, so these read apart from playback (`primary`) and network (`secondary`). */
+  --tertiary: var(--indigo-accent-1); /* Palette.Tertiary. The stream itself: the viewer-count chart in Statistics, chapter offsets and chapter ticks on the seek bar, so these read apart from playback (`primary`) and network (`secondary`). */
   --tertiary-contrast-text: var(--gray-darken-4); /* Palette.TertiaryContrastText (6.5:1). */
   --info: var(--light-blue-accent-2); /* Palette.Info. Info alerts (the plain-HTTP note on Settings, the coverage note). Always with the info icon. */
   --info-contrast-text: var(--gray-darken-4); /* Palette.InfoContrastText (8.1:1). */

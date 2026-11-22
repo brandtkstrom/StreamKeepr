@@ -11,7 +11,7 @@ StreamKeepr's hand-built primitives (`Components/Primitives/`) give way to MudBl
 | `Chip` (filter) | `MudChipSet` + `MudChip` | `SelectionMode.SingleSelection`, `SelectedColor="Color.Primary"`. |
 | `StatusChip` | `MudChip` `Size.Small`, class `sk-status` | See `StatusChip`. The label stays `text-primary`, and the icon takes the status colour. |
 | `Avatar` | `MudAvatar` + `MudBadge` | The live ring is `MudBadge Dot Overlap Origin="Origin.BottomRight" BadgeClass="sk-live"`, with `.sk-live` filled `rec` (no `Color` maps to `rec`). |
-| `Collapsible` | `MudCollapse` under a real disclosure button | Chapters uses `MudPaper` + `MudCollapse`: 9.12's `MudExpansionPanel` header has no button role or `aria-expanded`. Viewers uses the same pattern. Stats for nerds is an overlay inside the player island (see islands). |
+| `Collapsible` | `MudCollapse` under a real disclosure button | Chapters uses `MudPaper` + `MudCollapse`: 9.12's `MudExpansionPanel` header has no button role or `aria-expanded`. Viewers uses the same pattern. Statistics is an overlay inside the player island (see islands). |
 | `Dialog` | `ConfirmDialog`: an inline `MudDialog` (shown through `IDialogService` by the `MudDialogProvider`) that its owner keeps open; `ShowMessageBoxAsync` for a plain confirm | See `Dialog`. |
 | `Menu`, `MenuItem` | `MudMenu`, `MudMenuItem` | `AnchorOrigin="Origin.BottomRight"`, `TransformOrigin="Origin.TopRight"`. |
 | `Snackbar`, `SnackbarHost` | `ISnackbar` + `MudSnackbarProvider` | Bottom left; one at a time; an action, never a close icon alone. |
