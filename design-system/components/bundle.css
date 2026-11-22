@@ -527,3 +527,7 @@ mark.ds-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 
 /* The viewer chart, moved out of Stats into its own panel under Chapters. */
 .ds-viewers.panel { margin: 0; padding: 0; border: 0; }
+
+/* An avatar with the channel's Twitch profile image fills the circle; the initial on the
+   channel colour is the fallback when there is no image. */
+.ds-avatar > img { display: block; width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }

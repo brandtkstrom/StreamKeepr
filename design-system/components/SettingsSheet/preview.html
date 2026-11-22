@@ -7,9 +7,9 @@
   html, body { margin: 0; }
   .shell { display: flex; flex-direction: column; height: 800px; }
   .body { flex: 1; display: flex; min-height: 0; }
-  .rail { width: var(--drawer-mini-width); background: var(--drawer-background); border-right: 1px solid var(--divider); display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; flex: none; }
-  .rail .sel { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
-  .rail hr { width: 40px; border: 0; height: 1px; background: var(--divider); margin: 0; }
+  nav.rail { width: var(--drawer-mini-width); background: var(--drawer-background); border-right: 1px solid var(--divider); display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; flex: none; }
+  nav.rail .sel { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
+  nav.rail hr { width: 40px; border: 0; height: 1px; background: var(--divider); margin: 0; }
   main { flex: 1; min-width: 0; overflow: hidden; padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
   .ds-watch > .ds-chat { flex: 0 0 360px; }
   .ds-chat-log { justify-content: flex-end; }
@@ -83,7 +83,7 @@
       <section class="ds-panel">
         <div class="ds-vinfo">
           <h3 class="vtitle">Late-night speedrun practice: any% resets</h3>
-          <div class="vrow"><div class="ds-meta"><span class="ds-status rec">Rec</span><span class="who"><span class="ds-avatar a1" style="width:24px;height:24px">N</span>nightjar_tv</span><span><i data-i="sportsesports"></i>Speedrunning</span><span><i data-i="event"></i>Today, 21:04</span><span><i data-i="timer"></i>1h 02m</span><span><i data-i="storage"></i>4.1 GB · 1 part</span></div><div class="acts"><button class="ds-btn outlined error"><i data-i="stop"></i>Stop recording</button> <button class="ds-btn outlined"><i data-i="playlist"></i>Copy playlist URL</button> <button class="ds-btn filled"><i data-i="output"></i>Export MP4</button> <button class="ds-ibtn" aria-label="Delete recording"><i data-i="delete"></i></button></div></div>
+          <div class="vrow"><div class="ds-meta"><span class="ds-status rec">Rec</span><span class="who"><span class="ds-avatar a1" style="width:24px;height:24px"><img src="../sample-avatars/nightjar_tv.svg" alt=""></span>nightjar_tv</span><span><i data-i="sportsesports"></i>Speedrunning</span><span><i data-i="event"></i>Today, 21:04</span><span><i data-i="timer"></i>1h 02m</span><span><i data-i="storage"></i>4.1 GB · 1 part</span></div><div class="acts"><button class="ds-btn outlined error"><i data-i="stop"></i>Stop recording</button> <button class="ds-btn outlined"><i data-i="playlist"></i>Copy playlist URL</button> <button class="ds-btn filled"><i data-i="output"></i>Export MP4</button> <button class="ds-ibtn" aria-label="Delete recording"><i data-i="delete"></i></button></div></div>
         </div>
       </section>
       <section class="ds-panel"><div class="ds-panel-head ds-ihead" aria-expanded="false" role="button"><i data-i="groups"></i><h2>Viewers</h2><span class="ds-cap">1,489 at 54:40 · peak 1,658</span><i data-i="expand" class="ds-chev"></i></div></section>
@@ -97,11 +97,11 @@
         </section>
         <section class="ds-sheet-sec" aria-labelledby="s-ch">
           <h3 id="s-ch"><i data-i="livetv"></i>Channels</h3>
+          <div class="ds-row-flex" style="flex-wrap:nowrap;margin-bottom:var(--space-2)"><span class="ds-field ds-grow"><input placeholder="Add a Twitch channel" aria-label="Add channel" spellcheck="false"></span><button class="ds-btn filled" disabled><i data-i="add"></i>Add</button></div>
           <ul class="ds-list">
             <li><span class="ds-avatar a1 live">N</span><span class="who ds-grow"><b>Nightjar</b><span>nightjar_tv</span></span><span class="ds-status rec">Rec</span><button class="ds-ibtn sm" aria-label="Actions for Nightjar"><i data-i="more"></i></button></li>
             <li><span class="ds-avatar a3">C</span><span class="who ds-grow"><b>Copper Moth</b><span>coppermoth</span></span><span class="ds-status partial"><i data-i="schedule"></i>Polling</span><button class="ds-ibtn sm" aria-label="Actions for Copper Moth"><i data-i="more"></i></button></li>
           </ul>
-          <div class="ds-row-flex" style="flex-wrap:nowrap;margin-top:var(--space-2)"><span class="ds-field ds-grow"><input placeholder="Add a Twitch login" aria-label="Add channel" spellcheck="false"></span><button class="ds-btn filled" disabled><i data-i="add"></i>Add</button></div>
         </section>
         <section class="ds-sheet-sec" aria-labelledby="s-chat">
           <h3 id="s-chat"><i data-i="chat"></i>Chat</h3>
@@ -125,11 +125,11 @@
         </section>
         <section class="ds-sheet-sec" aria-labelledby="s-ch">
           <h3 id="s-ch"><i data-i="livetv"></i>Channels</h3>
+          <div class="ds-row-flex" style="flex-wrap:nowrap;margin-bottom:var(--space-2)"><span class="ds-field ds-grow"><input placeholder="Add a Twitch channel" aria-label="Add channel" spellcheck="false"></span><button class="ds-btn filled" disabled><i data-i="add"></i>Add</button></div>
           <ul class="ds-list">
             <li><span class="ds-avatar a1 live">N</span><span class="who ds-grow"><b>Nightjar</b><span>nightjar_tv</span></span><span class="ds-status rec">Rec</span><button class="ds-ibtn sm" aria-label="Actions for Nightjar"><i data-i="more"></i></button></li>
             <li><span class="ds-avatar a3">C</span><span class="who ds-grow"><b>Copper Moth</b><span>coppermoth</span></span><span class="ds-status partial"><i data-i="schedule"></i>Polling</span><button class="ds-ibtn sm" aria-label="Actions for Copper Moth"><i data-i="more"></i></button></li>
           </ul>
-          <div class="ds-row-flex" style="flex-wrap:nowrap;margin-top:var(--space-2)"><span class="ds-field ds-grow"><input placeholder="Add a Twitch login" aria-label="Add channel" spellcheck="false"></span><button class="ds-btn filled" disabled><i data-i="add"></i>Add</button></div>
         </section>
         <section class="ds-sheet-sec" aria-labelledby="s-chat">
           <h3 id="s-chat"><i data-i="chat"></i>Chat</h3>
