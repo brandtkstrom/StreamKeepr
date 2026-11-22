@@ -1,0 +1,73 @@
+@using StreamKeepr.Ui
+
+@* One channel in the library's listbox (design system: LibraryDrawer). The shell re-renders the
+   drawer on every preference change, so an option renders again only when what it shows
+   changes, as the old streamer group did. *@
+<button type="button"
+        class="sk-channel"
+        role="option"
+        aria-selected="@(Selected ? "true" : "false")"
+        tabindex="@(TabStop ? "0" : "-1")"
+        data-library-channel="@Streamer.Login"
+        data-current="@(Current ? "true" : null)"
+        @onclick="OnSelect">
+    @if (Rail)
+    {
+        @* The rail shows avatars alone, so the name is in a tooltip (LibraryDrawer card). *@
+        <MudBlazor.MudTooltip Text="@Streamer.DisplayName" Placement="MudBlazor.Placement.Right" data-rail-name>
+            <ChannelAvatar Login="@Streamer.Login"
+                           Name="@Streamer.DisplayName"
+                           ImageUrl="@Streamer.AvatarUrl"
+                           Live="@Streamer.IsRecording"
+                           Size="MudBlazor.Size.Medium" />
+        </MudBlazor.MudTooltip>
+    }
+    else
+    {
+        <ChannelAvatar Login="@Streamer.Login"
+                       Name="@Streamer.DisplayName"
+                       ImageUrl="@Streamer.AvatarUrl"
+                       Live="@Streamer.IsRecording"
+                       Decorative="true" />
+        <span class="who">
+            <span class="name"><MudBlazor.MudHighlighter Text="@Streamer.DisplayName" HighlightedText="@Search" Class="sk-mark" /></span>
+            <span class="meta" data-channel-meta>@Meta</span>
+        </span>
+        <span class="count" data-channel-count>@Count</span>
+        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.ChevronRight" Class="chev" aria-hidden="true" />
+    }
+</button>
+
+@code {
+    [Parameter, EditorRequired] public StreamerView Streamer { get; set; } = null!;
+
+    /// <summary>The recordings matching the current view.</summary>
+    [Parameter] public int Count { get; set; }
+
+    [Parameter] public string Meta { get; set; } = "";
+
+    [Parameter] public bool Selected { get; set; }
+
+    /// <summary>The channel being watched (ringed in the rail).</summary>
+    [Parameter] public bool Current { get; set; }
+
+    [Parameter] public bool TabStop { get; set; }
+
+    [Parameter] public bool Rail { get; set; }
+
+    [Parameter] public string? Search { get; set; }
+
+    [Parameter] public EventCallback OnSelect { get; set; }
+
+    private (StreamerView, int, string, bool, bool, bool, bool, string?)? _last;
+
+    protected override bool ShouldRender()
+    {
+        var current = (Streamer, Count, Meta, Selected, Current, TabStop, Rail, Search);
+        if (_last is { } last && last.Equals(current))
+            return false;
+
+        _last = current;
+        return true;
+    }
+}

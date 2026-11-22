@@ -165,7 +165,7 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 
 /* ---------- library drawer (design system: LibraryDrawer, RecordingRow) ----------
    New rules read tokens.css directly (ADR 0012). The MudDrawer frame sets the width (320px
-   library, 72px rail); the library fills it, with the tree scrolling between head and footer. */
+   library, 72px rail); the library fills it, with the channels scrolling between head and footer. */
 .sk-drawer { width: 100%; height: 100%; display: flex; flex-direction: column; min-height: 0; overflow: hidden; color: var(--drawer-text); }
 .sk-drawer-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-4) var(--space-2) var(--space-2) var(--space-4); }
 .sk-drawer-head h2 { flex: 1; margin: 0; white-space: nowrap; color: var(--text-primary); }
@@ -184,38 +184,81 @@ body[data-sk-reconnect="show"] .sk-drawer-note.mud-alert, body[data-sk-reconnect
 .sk-storage-line .of { margin-left: auto; }
 .sk-storage.low .sk-storage-line .free { color: var(--warning); }
 
-.sk-group + .sk-group { border-top: 1px solid var(--divider); }
-/* Long lists stay in the DOM (E-19): skip off-screen layout and paint, keep remembered sizes. */
-.sk-group { content-visibility: auto; contain-intrinsic-size: auto 72px; }
-.sk-day { content-visibility: auto; contain-intrinsic-size: auto 28px; }
-.sk-row { content-visibility: auto; contain-intrinsic-size: auto 80px; }
-/* Containment clips anything drawn outside a group, so drawer focus rings sit inside the item. */
-.sk-drawer :is(.sk-row, .sk-group-head):focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
-.sk-group-head {
-  position: relative; display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 72px; padding: var(--space-2);
-  border-radius: var(--radius-md); color: var(--text-primary); text-align: left; cursor: pointer; user-select: none;
+/* Channels (a listbox): each option a full-width button. The selected channel is on selection
+   with a 3px primary bar at its left edge, every line text-primary. */
+.sk-channels { display: flex; flex-direction: column; gap: 2px; }
+.sk-channel {
+  position: relative; display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 64px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-primary); font: inherit; text-align: left; cursor: pointer;
 }
-.sk-group-head .who { flex: 1; min-width: 0; }
-.sk-group-head .name { display: block; font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing); }
-.sk-group-head .meta { display: block; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sk-group-head .chev { color: var(--action-default); transition: transform 300ms cubic-bezier(0.2, 0, 0, 1); }
-.sk-group-head[aria-expanded="false"] .chev { transform: rotate(-90deg); }
-.sk-group-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 300ms cubic-bezier(0.2, 0, 0, 1); }
-.sk-group-body > div { min-height: 0; overflow: hidden; }
-.sk-group-head[aria-expanded="false"] + .sk-group-body { grid-template-rows: 0fr; }
+.sk-channel .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sk-channel .name { font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-channel .meta { color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-channel .count { color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); font-variant-numeric: tabular-nums; }
+.sk-channel .chev { color: var(--action-default); }
+.sk-channel[aria-selected="true"] { background: var(--selection); }
+.sk-channel[aria-selected="true"]::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 2px 2px 0; background: var(--primary); }
+.sk-channel[aria-selected="true"] :is(.meta, .count) { color: var(--text-primary); }
+.sk-channel[data-library-skeleton] { cursor: default; }
+/* Long lists stay in the DOM (E-19): skip off-screen layout and paint, keep remembered sizes. */
+.sk-day { content-visibility: auto; contain-intrinsic-size: auto 28px; }
+.sk-row-item { content-visibility: auto; contain-intrinsic-size: auto 80px; }
+.sk-drawer :is(.sk-row, .sk-channel):focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .sk-day { padding: var(--space-2) var(--space-2) var(--space-1); color: var(--text-secondary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
 /* The live badge on a channel avatar (MudBadge Dot) is the rec colour, never a state colour. */
 .sk-channel-avatar .mud-badge.sk-live { background-color: var(--rec); }
 
+/* The recordings column (360px). Md and up it opens to the right of the channels, over the page,
+   so nothing reflows; the drawer frame lets it overflow. Below Md it drills in over the list. */
+.sk-drawer-frame:not(.mud-drawer-temporary), .sk-drawer-frame:not(.mud-drawer-temporary) > .mud-drawer-content,
+.sk-drawer-frame:not(.mud-drawer-temporary) .sk-drawer { overflow: visible; }
+.sk-rec-col {
+  position: absolute; z-index: 1; top: 0; bottom: 0; left: 100%; width: 360px; display: flex; flex-direction: column;
+  background: var(--drawer-background); border-left: 1px solid var(--divider); box-shadow: var(--elevation-8);
+  animation: sk-col-in 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+.sk-rec-col.drill { left: 0; right: 0; width: auto; border-left: 0; box-shadow: none; animation-name: sk-drill-in; }
+@keyframes sk-col-in { from { transform: translateX(-24px); opacity: 0; } }
+@keyframes sk-drill-in { from { transform: translateX(32px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .sk-rec-col { animation: none; } }
+.sk-rec-col-head { flex: none; display: flex; align-items: center; gap: var(--space-3); min-height: 64px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); border-bottom: 1px solid var(--divider); }
+.sk-rec-col.drill .sk-rec-col-head { padding-left: var(--space-1); }
+.sk-rec-col-head .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sk-rec-col-head h3 { margin: 0; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-rec-col-head .meta { color: var(--text-secondary); }
+.sk-rec-col-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--space-2) var(--space-4); scrollbar-width: thin; scrollbar-color: var(--lines-default) transparent; }
+
+/* A recording row: the link, and its Delete button at the top right. The link reserves the
+   button's width, so titles never reflow when it appears. */
+.sk-row-item { position: relative; margin-bottom: 2px; }
 .sk-row {
-  position: relative; display: flex; gap: var(--space-3); align-items: flex-start; width: 100%; padding: var(--space-2); margin-bottom: 2px;
+  position: relative; display: flex; gap: var(--space-3); align-items: flex-start; width: 100%; padding: var(--space-2) 44px var(--space-2) var(--space-2);
   border-radius: var(--radius-md); color: var(--text-primary); text-decoration: none; text-align: left;
 }
 /* Hover lays text-primary at hover-opacity over the row; selection fills it and keeps every line text-primary. */
-.sk-row::after, .sk-group-head::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--text-primary); opacity: 0; pointer-events: none; }
-.sk-row:hover::after, .sk-group-head:hover::after { opacity: var(--hover-opacity); }
+.sk-row::after, .sk-channel::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--text-primary); opacity: 0; pointer-events: none; }
+.sk-row:hover::after, .sk-channel:hover::after { opacity: var(--hover-opacity); }
 .sk-row[aria-current="true"] { background: var(--selection); }
 .sk-row[aria-current="true"] .sk-row-meta { color: var(--text-primary); }
+/* Delete: shown on hover, on focus anywhere in the row, on the selected row, and always on touch.
+   Hidden is opacity 0, never display none, so it stays in the tab order. */
+.sk-row-del {
+  position: absolute; top: var(--space-1); right: var(--space-1); display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
+  border: 0; border-radius: var(--radius-full); background: transparent; color: var(--action-default); cursor: pointer; opacity: 0;
+}
+.sk-row-del svg[data-icon] { width: 20px; height: 20px; fill: currentColor; }
+.sk-row-item:is(:hover, :focus-within) .sk-row-del, .sk-row[aria-current="true"] + .sk-row-del { opacity: 1; }
+@media (hover: none) { .sk-row-del { opacity: 1; } }
+.sk-row-del:not([aria-disabled="true"]):hover { color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); }
+.sk-row-del[aria-disabled="true"] { color: var(--action-disabled); cursor: default; }
+.sk-row-del:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+/* The tooltip: "Delete recording", or why it is blocked. */
+.sk-row-del::after {
+  content: attr(data-tip); position: absolute; z-index: 2; right: 0; top: calc(100% + 4px); padding: 4px 8px; border-radius: var(--radius-sm);
+  background: var(--tooltip-background); color: var(--tooltip-text); font: var(--text-caption); white-space: nowrap; pointer-events: none;
+  opacity: 0; transition: opacity 120ms;
+}
+.sk-row-del:is(:hover, :focus-visible)::after { opacity: 1; }
 .sk-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 1px; }
 .sk-row-title { font: var(--text-subtitle2); letter-spacing: var(--text-subtitle2-letter-spacing); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 /* One meta line for drawer rows and Home cards. */
@@ -242,18 +285,22 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
    menu against it, leaving an opened menu stranded mid-slide. */
 .sk-drawer-frame.mud-drawer-mini { transition: none; }
 
-/* rail (desktop mini drawer): Home, avatars, the storage icon */
+/* rail (desktop mini drawer): Home, 32px avatars, the storage icon */
 .sk-rail-home { display: grid; justify-items: center; gap: var(--space-2); padding: var(--space-2) 0 0; }
 .sk-rail-home .mud-divider { width: 32px; }
 .sk-drawer.rail .sk-drawer-head h2, .sk-drawer.rail .sk-sort, .sk-drawer.rail .sk-filters,
-.sk-drawer.rail .sk-group-body, .sk-drawer.rail .who, .sk-drawer.rail .chev { display: none; }
+.sk-drawer.rail .who, .sk-drawer.rail .chev, .sk-drawer.rail .count { display: none; }
 .sk-drawer.rail .sk-drawer-head { justify-content: center; padding: var(--space-2) 0; }
-.sk-drawer.rail .sk-group-head { justify-content: center; padding: var(--space-2) 0; min-height: 0; }
-.sk-drawer.rail .sk-group + .sk-group { border-top: 0; }
-.sk-drawer.rail .sk-row[aria-current="true"] { background: none; }
+.sk-drawer.rail .sk-channel { justify-content: center; padding: var(--space-2) 0; min-height: 0; }
 .sk-drawer.rail .sk-drawer-foot { display: grid; justify-items: center; padding: var(--space-2) 0; }
-/* The open streamer's avatar is ringed in primary. */
-.sk-drawer.rail .sk-group:has(.sk-row[aria-current="true"]) .sk-group-head .mud-avatar { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
+.sk-drawer.rail .sk-channel .mud-avatar { width: 32px; height: 32px; font: var(--text-subtitle2); }
+/* The watched channel's avatar is ringed in primary. */
+.sk-drawer.rail .sk-channel[data-current="true"] .mud-avatar { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
+/* A capturing channel carries the logo's live dot, larger: 14px, ringed, pulsing. */
+.sk-drawer.rail .sk-channel-avatar .mud-badge.sk-live {
+  width: 14px; height: 14px; min-width: 14px; border: 2px solid var(--drawer-background); animation: sk-pulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .sk-drawer.rail .sk-channel-avatar .mud-badge.sk-live { animation: none; } }
 
 /* ---------- player (design system: VideoPlayer, Keyboard; JS island, #180) ----------
    VideoPlayer.razor.js owns this DOM, so it holds no MudBlazor components: plain markup on the
@@ -928,7 +975,7 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sk-search-field, .sk-group-body, .sk-group-head .chev { transition: none; }
+  .sk-search-field { transition: none; }
   /* MudBlazor's own transitions and ripples (drawer, app bar, buttons, menus, tooltips,
      overlays) use longer selectors than ours, so reduced motion overrides them outright. */
   [class*="mud-"], [class*="mud-"]::before, [class*="mud-"]::after { transition: none !important; animation: none !important; }

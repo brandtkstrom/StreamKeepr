@@ -151,31 +151,13 @@
                OnConfirm="ConfirmStopAsync">
     <MudBlazor.MudText Typo="MudBlazor.Typo.body1">The current capture is finalized, and the channel stays paused until you resume.</MudBlazor.MudText>
 </ConfirmDialog>
-<ConfirmDialog Visible="@_deleteOpen"
-               VisibleChanged="OnDeleteOpenChanged"
-               Title="Delete recording?"
-               ConfirmLabel="Delete"
-               HookPrefix="delete"
-               Busy="@_deleting"
-               ConfirmDisabled="@(DeleteBlockedReason is not null)"
-               OnCancel="CancelDelete"
-               OnConfirm="ConfirmDeleteAsync">
-    @* The banner is an alert only once it carries an error; before that it states the
-       consequence, which the dialog's name already introduces. *@
-    <MudBlazor.MudAlert Severity="MudBlazor.Severity.Error"
-                        Variant="MudBlazor.Variant.Text"
-                        Dense="true"
-                        role="@(_deleteError is null ? "note" : "alert")"
-                        data-delete-banner>
-        <b>@Recording.Title — @Recording.StreamerLogin</b><br />
-        @(_deleteError ?? "The files and watch progress are removed permanently.")
-    </MudBlazor.MudAlert>
-</ConfirmDialog>
+<DeleteRecordingDialog Recording="Recording"
+                       Visible="@_deleteOpen"
+                       VisibleChanged="OnDeleteOpenChanged"
+                       BlockedReason="@DeleteBlockedReason" />
 
 @code {
     private const string ModulePath = "./Components/Features/Details/RecordingDetails.razor.js";
-    private const string DeleteSessionEnded =
-        "Your Twitch session ended. Reconnect to delete recordings.";
 
     private IJSObjectReference? _module;
 
@@ -189,8 +171,6 @@
     private bool _stopping;
     private string? _stopRecordingId;
     private bool _deleteOpen;
-    private bool _deleting;
-    private string? _deleteError;
     private string? _deleteRecordingId;
 
     [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
@@ -237,10 +217,7 @@
         : null;
 
     // Why Delete is disabled with a tooltip; null when the icon button is live.
-    private string? DeleteBlockedReason =>
-        IsLive ? "Available when the recording finishes"
-        : ExportActive ? "Cancel the export before deleting"
-        : null;
+    private string? DeleteBlockedReason => RecordingDelete.BlockedReason(Recording, ExportActive);
 
     private bool ShowSize =>
         Recording.State is RecordingState.Partial or RecordingState.Saved;
@@ -275,7 +252,6 @@
         {
             _deleteRecordingId = Recording.Id;
             _deleteOpen = false;
-            _deleteError = null;
         }
     }
 
@@ -301,69 +277,10 @@
         if (DeleteBlockedReason is not null)
             return;
 
-        _deleteError = null;
         _deleteOpen = true;
     }
 
-    private void OnDeleteOpenChanged(bool open)
-    {
-        // A native Esc/close must not hide the dialog while the server call is in flight.
-        if (!open && _deleting)
-            return;
-
-        _deleteOpen = open;
-        if (!open)
-            _deleteError = null;
-    }
-
-    private void CancelDelete()
-    {
-        if (_deleting)
-            return;
-
-        _deleteOpen = false;
-        _deleteError = null;
-    }
-
-    private async Task ConfirmDeleteAsync()
-    {
-        if (_deleting || AuthenticationState is null)
-            return;
-
-        _deleting = true;
-        _deleteError = null;
-        try
-        {
-            ClaimsPrincipal user = (await AuthenticationState).User;
-            await Admin.DeleteAsync(Recording.Id, user, CancellationToken.None);
-            _deleteOpen = false;
-        }
-        catch (KeyNotFoundException)
-        {
-            _deleteOpen = false;
-            Snackbars.Show("Recording was already deleted");
-        }
-        catch (UnauthorizedAccessException)
-        {
-            _deleteOpen = false;
-            Snackbars.Show(DeleteSessionEnded);
-        }
-        catch (InvalidOperationException ex)
-        {
-            // Live or leased: the dialog stays open and the server's user-safe text replaces
-            // the permanence copy. A concurrent export may have started in another tab.
-            _deleteError = ex.Message;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Deleting recording {RecordingId} failed.", Recording.Id);
-            _deleteError = "Could not delete the recording. Try again.";
-        }
-        finally
-        {
-            _deleting = false;
-        }
-    }
+    private void OnDeleteOpenChanged(bool open) => _deleteOpen = open;
 
     private void OnExportsChanged() => _ = InvokeAsync(StateHasChanged);
 

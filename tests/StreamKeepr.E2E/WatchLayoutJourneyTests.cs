@@ -236,7 +236,7 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
 
     private static async Task OpenRecordingAsync(IPage page, string title)
     {
-        string href = (await page.Locator(LibraryHooks.Row, new() { HasTextString = title }).First
+        string href = (await (await LibraryHooks.RowAsync(page, LibraryHooks.Row, title)).First
             .GetAttributeAsync("href"))!;
         await page.GotoAsync(new Uri(new Uri(page.Url), href).ToString(),
             new() { WaitUntil = WaitUntilState.DOMContentLoaded });
@@ -245,7 +245,7 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
 
     private static async Task OpenFirstRecordingAsync(IPage page)
     {
-        string href = (await page.Locator(LibraryHooks.SavedRow).First
+        string href = (await (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow))
             .GetAttributeAsync("href"))!;
         await page.GotoAsync(new Uri(new Uri(page.Url), href).ToString(),
             new() { WaitUntil = WaitUntilState.DOMContentLoaded });

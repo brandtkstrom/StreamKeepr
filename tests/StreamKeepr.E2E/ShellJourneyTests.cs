@@ -101,7 +101,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
 
         await page.Locator("input[data-search-input]").FillAsync("NIGHT");
         await page.WaitForURLAsync(url => url.Contains("q=NIGHT", StringComparison.Ordinal));
-        await page.Locator(LibraryHooks.Row).First.ClickAsync();
+        await (await LibraryHooks.RowAsync(page)).ClickAsync();
         await page.WaitForURLAsync(url => url.Contains("/r/", StringComparison.Ordinal));
         await page.Locator("[data-sk='seek'][aria-disabled='false']")
             .WaitForAsync(new() { Timeout = 20_000 });
@@ -136,11 +136,11 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             app.BaseUrl,
             new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
 
-        await page.Locator(LibraryHooks.Group).First.WaitForAsync(
+        await page.Locator(LibraryHooks.Channel).First.WaitForAsync(
             new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
 
-        Assert.True(await page.Locator(LibraryHooks.Group).CountAsync() >= 4);
-        Assert.True(await page.Locator(LibraryHooks.Row).CountAsync() >= 7);
+        Assert.True(await page.Locator(LibraryHooks.Channel).CountAsync() >= 4);
+        Assert.True(await LibraryJourneyTests.TotalRecordingsAsync(page) >= 7);
 
         await page.Locator("[data-rec-dot]").WaitForAsync(
             new LocatorWaitForOptions
@@ -148,6 +148,14 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 State = WaitForSelectorState.Visible,
                 Timeout = 30_000,
             });
+
+        // A recording channel sorts to the top; its column shows the live row.
+        await Assertions.Expect(page.Locator(LibraryHooks.Channel).First)
+            .ToContainTextAsync(
+                "Recording now",
+                new LocatorAssertionsToContainTextOptions { Timeout = 30_000 });
+        await LibraryHooks.OpenChannelAsync(
+            page, (await page.Locator(LibraryHooks.Channel).First.GetAttributeAsync("data-library-channel"))!);
         await page.Locator($"{LibraryHooks.Row} [data-status=rec]").First.WaitForAsync(
             new LocatorWaitForOptions
             {
@@ -155,12 +163,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 Timeout = 30_000,
             });
 
-        await Assertions.Expect(page.Locator(LibraryHooks.Group).First)
-            .ToContainTextAsync(
-                "Recording now",
-                new LocatorAssertionsToContainTextOptions { Timeout = 30_000 });
-
-        string href = await page.Locator(LibraryHooks.Row).First.GetAttributeAsync("href") ?? "";
+        string href = await (await LibraryHooks.RowAsync(page)).GetAttributeAsync("href") ?? "";
         Assert.StartsWith("/r/", href);
 
         ILocator storage = page.Locator("[data-storage]");
@@ -188,21 +191,16 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
 
         // The drawer row: Home's cards carry the same hook (#182).
-        ILocator row = page.Locator(LibraryHooks.Row, new PageLocatorOptions
-        {
-            HasText = "Ranked climb to Diamond",
-        });
-        await row.WaitForAsync(new LocatorWaitForOptions
-        {
-            State = WaitForSelectorState.Visible,
-            Timeout = 30_000,
-        });
+        await page.Locator("input[data-search-input][data-sk-ready]").WaitForAsync();
+        ILocator row = await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Ranked climb to Diamond");
 
         string id = await row.GetAttributeAsync("data-recording-id") ?? "";
         await row.ClickAsync();
         await page.WaitForURLAsync($"**/r/{id}", new PageWaitForURLOptions { Timeout = 30_000 });
         await ExpandLibraryOnWatchPageAsync(page);
 
+        // Picking it closed the column; reopened, the row is marked current.
+        row = await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Ranked climb to Diamond");
         await Assertions.Expect(row).ToHaveAttributeAsync(
             "aria-current",
             "true",
@@ -219,12 +217,8 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             WaitUntil = WaitUntilState.DOMContentLoaded,
         });
 
-        row = page.Locator($"a[data-recording-id='{id}']");
-        await row.WaitForAsync(new LocatorWaitForOptions
-        {
-            State = WaitForSelectorState.Visible,
-            Timeout = 30_000,
-        });
+        await page.Locator("input[data-search-input][data-sk-ready]").WaitForAsync();
+        row = await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Ranked climb to Diamond");
         await Assertions.Expect(row).ToHaveAttributeAsync(
             "aria-current",
             "true",
@@ -331,15 +325,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
                 new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
             await page.Locator("input[data-search-input][data-sk-ready]").WaitForAsync();
 
-            ILocator first = page.Locator(LibraryHooks.Row, new PageLocatorOptions
-            {
-                HasText = "Ranked climb to Diamond",
-            });
-            await first.WaitForAsync(new LocatorWaitForOptions
-            {
-                State = WaitForSelectorState.Visible,
-                Timeout = 30_000,
-            });
+            ILocator first = await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Ranked climb to Diamond");
             string firstId = (await first.GetAttributeAsync("data-recording-id"))!;
             await first.ClickAsync();
             await page.WaitForURLAsync(
@@ -441,10 +427,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             Assert.Equal(playlistUrl, copied);
 
             // Swapping recordings updates the one details card instead of adding another.
-            ILocator second = page.Locator(LibraryHooks.Row, new PageLocatorOptions
-            {
-                HasText = "Co-op horror night",
-            });
+            ILocator second = await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Co-op horror night");
             string secondId = (await second.GetAttributeAsync("data-recording-id"))!;
             await second.ClickAsync();
             await page.WaitForURLAsync(

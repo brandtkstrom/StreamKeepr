@@ -17,7 +17,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             await LibraryJourneyTests.OpenAsync(app.BaseUrl);
         IPage page = session.Page;
 
-        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -52,7 +52,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             await LibraryJourneyTests.OpenAsync(app.BaseUrl);
         IPage page = session.Page;
 
-        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -92,8 +92,8 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             """
             id => {
               const name = document.querySelector("[data-message-id='seed-streamer'] [data-chat-name]");
-              const avatar = document.querySelector(`a[data-recording-id="${id}"]`)
-                .closest('[data-streamer-group]').querySelector('[data-channel-color]');
+              // The watched channel's option carries data-current.
+              const avatar = document.querySelector('nav[aria-label=Library] [data-library-channel][data-current="true"] [data-channel-color]');
               return {
                 chat: name.dataset.channelColor ?? '',
                 drawer: avatar.dataset.channelColor,
@@ -130,7 +130,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
                 offsets.Enqueue(offset);
         };
 
-        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -227,8 +227,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
                 Interlocked.Increment(ref chatRequests);
         };
 
-        ILocator growing = page.Locator(
-            LibraryHooks.Row, new() { HasTextString = "Community day" });
+        ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
         await growing.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -263,8 +262,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             await LibraryJourneyTests.OpenAsync(app.BaseUrl);
         IPage page = session.Page;
 
-        ILocator growing = page.Locator(
-            LibraryHooks.Row, new() { HasTextString = "Community day" });
+        ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
         await growing.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -336,7 +334,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             await LibraryJourneyTests.OpenAsync(app.BaseUrl);
         IPage page = session.Page;
 
-        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -387,7 +385,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             await LibraryJourneyTests.OpenAsync(app.BaseUrl);
         IPage page = session.Page;
 
-        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));

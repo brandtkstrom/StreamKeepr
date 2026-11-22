@@ -56,17 +56,32 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         IPage page = session.Page;
         ILocator bar = page.GetByRole(AriaRole.Navigation, new() { Name = "Main" });
         ILocator library = bar.GetByRole(AriaRole.Button, new() { Name = "Library" });
-        ILocator row = page.Locator(LibraryHooks.Row).First;
+        ILocator channel = page.Locator(LibraryHooks.Channel).First;
 
-        Assert.False(await IsOnScreenAsync(row), "the drawer starts closed");
+        Assert.False(await IsOnScreenAsync(channel), "the drawer starts closed");
         Assert.Equal("false", await library.GetAttributeAsync("aria-expanded"));
 
         await library.TapAsync();
         await page.Locator("[data-shell][data-drawer-modal-open]").WaitForAsync();
         await Assertions.Expect(library).ToHaveAttributeAsync("aria-expanded", "true");
         await Assertions.Expect(library).ToHaveAttributeAsync("aria-current", "page");
-        await LibraryJourneyTests.Expect(async () => await IsOnScreenAsync(row) ? 1 : 0, 1);
+        await LibraryJourneyTests.Expect(async () => await IsOnScreenAsync(channel) ? 1 : 0, 1);
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "phone-library-drawer");
+
+        // There is no room for two columns: a channel's recordings drill in over the list, with
+        // a way back, and every row shows its Delete button (touch has no hover).
+        string login = (await channel.GetAttributeAsync("data-library-channel"))!;
+        await channel.TapAsync();
+        ILocator column = page.Locator($"{LibraryHooks.Drawer} [data-recordings-column='{login}']");
+        await Assertions.Expect(column.GetByRole(AriaRole.Button, new() { Name = "All channels" })).ToBeVisibleAsync();
+        await column.EvaluateAsync("c => Promise.all(c.getAnimations().map(a => a.finished))");
+        LocatorBoundingBoxResult drawerBox = (await page.Locator(LibraryHooks.Drawer).BoundingBoxAsync())!;
+        LocatorBoundingBoxResult columnBox = (await column.BoundingBoxAsync())!;
+        Assert.Equal(drawerBox.X, columnBox.X, 1.0);
+        Assert.True(columnBox.Width <= drawerBox.Width + 1, "the column drills in inside the drawer");
+        Assert.Equal("1", await column.Locator("button[data-row-delete]").First.EvaluateAsync<string>("b => getComputedStyle(b).opacity"));
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "phone-library-drill-in");
+        ILocator row = column.Locator("a[data-recording-id]").First;
 
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
         await row.TapAsync();
@@ -136,7 +151,7 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         // MudDrawer must actually be open, not just labelled expanded: the frame shows the full library.
         await LibraryJourneyTests.Expect(async () => await VisibleWidthAsync(drawer) >= 280 ? 1 : 0, 1);
 
-        await page.Locator(LibraryHooks.Row).First.ClickAsync();
+        await (await LibraryHooks.RowAsync(page)).ClickAsync();
         await page.WaitForURLAsync(url => url.Contains("/r/", StringComparison.Ordinal));
         await LibraryJourneyTests.Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
         await LibraryJourneyTests.Expect(async () => await VisibleWidthAsync(drawer) <= 80 ? 1 : 0, 1);
@@ -197,7 +212,7 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         switch (screen)
         {
             case "recording":
-                string href = (await page.Locator(LibraryHooks.Row).First.GetAttributeAsync("href"))!;
+                string href = (await (await LibraryHooks.RowAsync(page)).GetAttributeAsync("href"))!;
                 await page.GotoAsync($"{app.BaseUrl}{href}", new() { WaitUntil = WaitUntilState.DOMContentLoaded });
                 await page.Locator("[data-sk='seek'][aria-disabled='false']")
                     .WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 30_000 });

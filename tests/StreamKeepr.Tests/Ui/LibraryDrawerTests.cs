@@ -21,7 +21,7 @@ public sealed class LibraryDrawerTests
         new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task Renders_streamer_groups_and_rows_as_real_links()
+    public async Task Renders_channels_and_the_picked_channels_rows_as_real_links()
     {
         var view = new TestLibraryView
         {
@@ -45,13 +45,16 @@ public sealed class LibraryDrawerTests
         await using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
-        var groups = cut.FindAll("[role='treeitem'][aria-level='1']");
-        Assert.Equal(2, groups.Count);
-        Assert.Contains("Live Star", groups[0].TextContent);
-        Assert.Contains("Recording now", groups[0].TextContent);
-        Assert.Contains("Idle Star", groups[1].TextContent);
+        var channels = cut.FindAll("[role='option']");
+        Assert.Equal(2, channels.Count);
+        Assert.Contains("Live Star", channels[0].TextContent);
+        Assert.Equal("Recording now", channels[0].QuerySelector("[data-channel-meta]")!.TextContent);
+        Assert.Contains("Idle Star", channels[1].TextContent);
+        // The day of the channel's latest recording.
+        Assert.Equal(Format.DayHeader(Now.AddDays(-3), Now, TimeZoneInfo.Utc), channels[1].QuerySelector("[data-channel-meta]")!.TextContent);
 
-        Assert.Equal(3, cut.FindAll("a[data-recording-id]").Count);
+        Open(cut, "live");
+        Assert.Equal(2, cut.FindAll("a[data-recording-id]").Count);
         Assert.Equal("/r/r1", cut.Find("a[data-recording-id='r1']").GetAttribute("href"));
     }
 
@@ -76,12 +79,12 @@ public sealed class LibraryDrawerTests
 
         foreach (string login in new[] { "live", "removed_one" })
         {
-            var avatar = cut.Find($"[data-tree-key='g:{login}'] [role='img']");
+            var avatar = cut.Find($"[data-library-channel='{login}'] [data-channel-color]");
             Assert.Equal(ChannelColor.For(login).ToString(), avatar.GetAttribute("data-channel-color"));
         }
 
-        Assert.NotNull(cut.Find("[data-tree-key='g:live'] [data-live-ring]"));
-        Assert.Empty(cut.FindAll("[data-tree-key='g:removed_one'] [data-live-ring]"));
+        Assert.NotNull(cut.Find("[data-library-channel='live'] [data-live-ring]"));
+        Assert.Empty(cut.FindAll("[data-library-channel='removed_one'] [data-live-ring]"));
     }
 
     [Fact]
@@ -125,8 +128,8 @@ public sealed class LibraryDrawerTests
             .Add(component => component.Value, rail)
             .AddChildContent<LibraryDrawer>());
 
-        Assert.Equal(rail ? 1 : 0, cut.FindAll("[data-tree-key='g:live'] [data-rail-name]").Count);
-        Assert.Null(cut.Find("[data-tree-key='g:live']").GetAttribute("title"));
+        Assert.Equal(rail ? 1 : 0, cut.FindAll("[data-library-channel='live'] [data-rail-name]").Count);
+        Assert.Null(cut.Find("[data-library-channel='live']").GetAttribute("title"));
     }
 
     [Theory]
@@ -205,6 +208,7 @@ public sealed class LibraryDrawerTests
 
         await using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+        Open(cut, "alpha");
 
         var image = cut.Find("a[data-recording-id='r1'] img");
         Assert.Equal("/media/alpha/r1/thumb.jpg", image.GetAttribute("src"));
@@ -233,6 +237,7 @@ public sealed class LibraryDrawerTests
 
         await using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+        Open(cut, "alpha");
 
         Assert.Contains("Rec", cut.Find("[data-recording-id='rec'] [data-status='rec']").TextContent);
         Assert.Contains(
@@ -262,17 +267,18 @@ public sealed class LibraryDrawerTests
         navigation.NavigateTo("/r/r2");
 
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+        Open(cut, "alpha");
 
         Assert.Equal("true", cut.Find("[data-recording-id='r2']").GetAttribute("aria-current"));
         Assert.Null(cut.Find("[data-recording-id='r1']").GetAttribute("aria-current"));
 
+        // Picking a recording closes the column; reopened, it marks the new one.
         navigation.NavigateTo("/r/r1");
+        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll("[data-recordings-column]")));
+        Open(cut, "alpha");
 
-        cut.WaitForAssertion(() =>
-        {
-            Assert.Equal("true", cut.Find("[data-recording-id='r1']").GetAttribute("aria-current"));
-            Assert.Null(cut.Find("[data-recording-id='r2']").GetAttribute("aria-current"));
-        });
+        Assert.Equal("true", cut.Find("[data-recording-id='r1']").GetAttribute("aria-current"));
+        Assert.Null(cut.Find("[data-recording-id='r2']").GetAttribute("aria-current"));
     }
 
     [Fact]
@@ -291,6 +297,7 @@ public sealed class LibraryDrawerTests
 
         await using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+        Open(cut, "alpha");
 
         IReadOnlyList<string> days = cut.FindAll("[data-day-header]").Select(day => day.TextContent).ToArray();
         Assert.Equal(
@@ -326,33 +333,6 @@ public sealed class LibraryDrawerTests
     }
 
     [Fact]
-    public async Task Collapsing_a_group_sets_aria_expanded()
-    {
-        var view = new TestLibraryView
-        {
-            StreamerItems = [Streamer("alpha", "Alpha", recording: false, count: 1, last: Now)],
-        };
-        view.RecordingsByLogin["alpha"] =
-        [
-            Recording("r1", "alpha", RecordingState.Saved, Now.AddHours(-1)),
-        ];
-
-        await using BunitContext context = CreateContext(view);
-        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
-
-        cut.Find("[role='treeitem'][aria-level='1']").Click();
-
-        cut.WaitForAssertion(() =>
-        {
-            var header = cut.Find("[role='treeitem'][aria-level='1']");
-            Assert.Equal("false", header.GetAttribute("aria-expanded"));
-            Assert.Equal(
-                header.GetAttribute("aria-controls"),
-                cut.Find("[role='tree'] [role='group']").GetAttribute("id"));
-        });
-    }
-
-    [Fact]
     public async Task Reused_view_models_skip_rendering_and_changed_rows_render()
     {
         var view = new TestLibraryView
@@ -365,24 +345,27 @@ public sealed class LibraryDrawerTests
 
         await using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+        Open(cut, "alpha");
 
-        IRenderedComponent<StreamerGroup> group = cut.FindComponent<StreamerGroup>();
         IRenderedComponent<RecordingRow> row = cut.FindComponent<RecordingRow>();
-        int groupRenders = 0;
+        IRenderedComponent<ChannelOption> option = cut.FindComponent<ChannelOption>();
         int rowRenders = 0;
-        group.OnAfterRender += (_, _) => groupRenders++;
+        int optionRenders = 0;
         row.OnAfterRender += (_, _) => rowRenders++;
+        option.OnAfterRender += (_, _) => optionRenders++;
 
-        // Deliver the initial render's lifecycle before measuring the reused update.
+        // Deliver the opening render's lifecycle before measuring the reused update.
         await cut.InvokeAsync(view.RaiseChanged);
-        cut.WaitForAssertion(() => Assert.True(groupRenders > 0));
-        groupRenders = 0;
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-recording-id='r1']")));
         rowRenders = 0;
+        optionRenders = 0;
 
+        // The shell re-renders the drawer on every preference change; unchanged channels and
+        // rows must not render again, or rapid input elsewhere (a slider) loses keys.
         await cut.InvokeAsync(view.RaiseChanged);
 
-        Assert.Equal(0, groupRenders);
         Assert.Equal(0, rowRenders);
+        Assert.Equal(0, optionRenders);
 
         view.RecordingsByLogin["alpha"] =
         [
@@ -412,6 +395,7 @@ public sealed class LibraryDrawerTests
 
         await using BunitContext context = CreateContext(view, timeZoneId: "Asia/Tokyo");
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+        Open(cut, "alpha");
 
         Assert.Equal("Today", cut.Find("[data-day-header]").TextContent);
     }
@@ -456,17 +440,16 @@ public sealed class LibraryDrawerTests
     [Fact]
     public async Task A_paused_streamer_shows_paused_without_a_live_ring()
     {
-        await using BunitContext context = CreateContext(new TestLibraryView());
-        StreamerView paused = Streamer(
-            "ann", "Ann", recording: false, count: 2, last: Now, paused: true);
+        var view = new TestLibraryView
+        {
+            StreamerItems = [Streamer("ann", "Ann", recording: false, count: 1, last: Now, paused: true)],
+        };
+        view.RecordingsByLogin["ann"] = [Recording("r1", "ann", RecordingState.Saved, Now)];
+        await using BunitContext context = CreateContext(view);
 
-        IRenderedComponent<StreamerGroup> cut = context.Render<StreamerGroup>(parameters => parameters
-            .Add(component => component.Streamer, paused)
-            .Add(component => component.Recordings, [Recording("r1", "ann", RecordingState.Saved, Now)])
-            .Add(component => component.Expanded, true)
-            .Add(component => component.Now, Now));
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
-        Assert.Contains("Paused", cut.Find("[data-group-meta]").TextContent);
+        Assert.Equal("Paused", cut.Find("[data-library-channel='ann'] [data-channel-meta]").TextContent);
         Assert.Empty(cut.FindAll("[data-live-ring]"));
     }
 
@@ -556,6 +539,10 @@ public sealed class LibraryDrawerTests
 
     private static IRenderedComponent<LibraryDrawer> RenderDrawer(BunitContext context) =>
         context.Render<LibraryDrawer>();
+
+    // Rows show in the picked channel's column.
+    private static void Open(IRenderedComponent<LibraryDrawer> cut, string login) =>
+        cut.Find($"[data-library-channel='{login}']").Click();
 
     private static BunitContext CreateContext(
         TestLibraryView view,

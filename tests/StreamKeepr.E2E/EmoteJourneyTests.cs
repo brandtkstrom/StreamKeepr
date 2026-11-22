@@ -48,7 +48,7 @@ public sealed class EmoteJourneyTests(MockAppFixture app)
             });
         });
 
-        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));

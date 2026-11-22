@@ -12,7 +12,7 @@ public sealed class ExportJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator saved = page.Locator(LibraryHooks.SavedRow).First;
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -59,7 +59,7 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
         // A different finished recording from the download journey, so the two never share a job.
-        ILocator saved = page.Locator(LibraryHooks.SavedRow).Nth(1);
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow, index: 1));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await saved.ClickAsync();
         await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
@@ -89,7 +89,7 @@ public sealed class ExportJourneyTests(MockAppFixture app)
     {
         await using Session session = await OpenAsync(app.BaseUrl);
         IPage page = session.Page;
-        ILocator growing = page.Locator(LibraryHooks.Row, new() { HasTextString = "Community day" });
+        ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
         await growing.ClickAsync();
 
         ILocator export = page.Locator("button[data-export]");

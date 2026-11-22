@@ -65,7 +65,8 @@ public sealed class RecordingStopTests
         dialogs.Find("[data-stop-confirm]").Click();
 
         Assert.Equal(["stop:ann"], channels.Calls);
-        Assert.False(dialogs.HasOpenDialog(StopName));
+        // MudBlazor closes dialogs asynchronously, as it opens them.
+        dialogs.WaitForAssertion(() => Assert.False(dialogs.HasOpenDialog(StopName)));
         Assert.Equal("Channel paused", context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
     }
 

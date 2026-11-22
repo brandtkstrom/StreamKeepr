@@ -53,40 +53,42 @@ nav.sk-drawer#sk-drawer
   .sk-drawer-head: h2 "Library" (MudText h6), [data-sort] order caption, sort MudMenu ("Library options")
   MudAlert Warning Dense [data-updates-paused] (polite status; shown while reconnecting) with a Retry [data-reconnect-retry]
   MudChipSet .sk-filters ([data-filter] chips)
-  [data-drawer-list] [role=tree]
-    .sk-group (streamer)
-      .sk-group-head (ChannelAvatar, name, count · state, chevron)
+  [data-drawer-list] [role=listbox] "Channels" [data-channel-list]
+    button.sk-channel [role=option] [data-library-channel] (ChannelAvatar, name, meta, count, chevron)
+  section.sk-rec-col [data-recordings-column] (the selected channel; Md and up beside the list, below Md over it)
+    .sk-rec-col-head (avatar, h3 name, meta; Close, or ArrowBack "All channels" below Md)
+    [role=list] [data-column-body]
       .sk-day
-        .sk-row (recording)
+      .sk-row-item [role=listitem]: a.sk-row (recording), button [data-row-delete]
   .sk-drawer-foot: StorageMeter ([data-storage]; rail: [data-storage-rail] icon button)
 ```
 
-- `StreamerGroup`: a `ChannelAvatar` (`MudAvatar Size.Large`: the channel's image, or its initial in `channel-contrast-text` on its **channel colour**; a `rec` `MudBadge` dot while any item is Recording, with an empty `aria-hidden` `[data-live-ring]` hook beside it); name in `subtitle1`; `14 recordings · Recording now` (or `· Reconnecting`, or `· last capture`); chevron; `aria-expanded`; independent collapse stored in `sk-ui`. Collapsing hides the group's day headers and rows and removes them from selection and focus (`inert`); expanding restores visibility and focusability.
+- **Channels** (design system: LibraryDrawer): a single-select `listbox` of `option` buttons, replacing the old tree. Each option: a `ChannelAvatar` (`MudAvatar Size.Large`: the channel's image, or its initial in `channel-contrast-text` on its **channel colour**; a `rec` `MudBadge` dot while any item is Recording, with an empty `aria-hidden` `[data-live-ring]` hook beside it); name in `subtitle1`; the meta in `caption` (`[data-channel-meta]`: "Recording now", "Paused", or the day of the latest matching recording); the count of matching recordings (`[data-channel-count]`); a `ChevronRight`. Picking one sets `aria-selected` (on `selection` with a 3px `primary` bar) and opens its **recordings column**. Options do not expand.
+- **Recordings column** (`RecordingsColumn`, `[data-recordings-column]`, 360px): the selected channel's header (avatar, name as `h3`, "Recording now · 3 recordings") and its rows under day headers in a `list`. Md and up it is positioned to the right of the 320px channels, over the page, so the page never reflows; a `Close` icon button ("Close {name}'s recordings") closes it and focuses the channel. Below Md it drills in over the list, with an `ArrowBack` "All channels" button. Picking a recording closes the column Md and up; below Md the temporary drawer closes and opens next time on the watched recording's channel. A channel the search or filter drops closes its column. The open channel is session state in the drawer, not `UiPreferences` (the old collapsed-groups preference is unused).
+- **Deleting from a row** (design system: RecordingRow): every row has a `button[data-row-delete]` beside its link ("Delete recording: {title}", a 32px `Delete` icon at the top right, shown on hover, focus in the row, the selected row, and always under `hover: none`; hidden is `opacity: 0`). It opens the shared `DeleteRecordingDialog` (the title block's dialog); Delete on a focused row does the same. When blocked (`RecordingDelete.BlockedReason`: live, exporting; or signed out, "Connect Twitch to use this") it is `aria-disabled` with the reason as its tooltip and `aria-describedby`. It is plain markup with a CSS tooltip, not a `MudIconButton` in a `MudTooltip`, because a column can hold a thousand rows. After a delete the drawer stays open, the counts drop, a snackbar says "Recording deleted" (the watch page says it instead when the watched recording goes), and focus moves to the row in its place, the one before, or Close.
 - `RecordingRow`: thumbnail (16:9, `thumb-width`, `surface-raised` placeholder; the `ThumbnailUrl` image as a decorative `<img alt="" loading="lazy">` with `object-fit: cover`, or the `movie` placeholder icon when it is null; duration badge in timecode on `player-scrim`), resume bar in `player-accent` when `ResumeSec` exists, live bar in `rec` while Recording, two-line `subtitle2` title, `caption` meta line, status chip except Saved; hover lays `text-primary` at `hover-opacity` over the row; selected row `aria-current="true"` on `selection` with every line `text-primary`; the row is `<a href="/r/{id}">` and works with or without the circuit.
 - **Channel colour**: `ChannelColor.For(login)` picks `channel-1` … `channel-8` by 32-bit FNV-1a over the trimmed, lower-cased login's UTF-8 bytes, mod 8. It belongs to the login, so the drawer, the rail and (later) chat agree and a removed channel's recordings keep it; the pinned values in `ChannelColorTests` must never change. The avatar carries `data-channel-color`.
-- `DayHeader`: not focusable; hidden when its group/filter is empty.
-- `LibraryRail`: a Home icon button and a short divider, then the avatars with their live badge (the open streamer's ringed in `primary`); clicking an avatar expands the drawer and scrolls to the group; keyboard-reachable; one tab stop per rail item or roving focus consistent with the tree. The footer shrinks to a `Storage` icon button (`Warning` in `warning` under 10% free) named by its tooltip text; it expands the drawer. `AppShell` cascades the rail state to the drawer (`LibraryRail`).
+- `DayHeader`: not focusable (`role="presentation"`).
+- `LibraryRail`: a Home icon button and a short divider, then the channel options as 32px avatars (`Size.Medium`) named in a tooltip; the watched channel's avatar ringed in `primary`; a capturing channel's badge is a 14px `rec` dot that pulses like the logo's (still under reduced motion). Clicking an avatar expands the drawer with that channel selected and its column open. The footer shrinks to a `Storage` icon button (`Warning` in `warning` under 10% free) named by its tooltip text; it expands the drawer. `AppShell` cascades the rail state to the drawer (`LibraryRail`).
 - The sort menu is a `MudMenu` (`MoreVert`, "Library options") with Newest first, Oldest first and A–Z by streamer as `menuitem`s, the current one marked by a check icon and `aria-current="true"`. In the desktop rail it opens rightward (anchor bottom-left), elsewhere leftward (anchor bottom-right); MudBlazor renders it in the popover provider, so the drawer never clips it. Opening it focuses the current choice (`LibraryDrawer.razor.js`), so one Escape closes it and returns focus to the trigger. The desktop drawer switches between library and rail without a slide, so an opened menu is never placed against a moving trigger.
-- **Disk usage footer** (`StorageMeter`, `[data-storage]` `ok|low`): pinned below the tree above a `divider` rule; the `Storage` icon, "1.2 TB free" and "of 4 TB", and a `MudProgressLinear` of the space used in `primary`; under 10% free the icon becomes `Warning` and the figure and bar turn `warning`. `title` gives "Recording disk: 1.2 TB free of 4 TB". While the size is unknown the meter renders nothing (the footer keeps only its rule).
+- **Disk usage footer** (`StorageMeter`, `[data-storage]` `ok|low`): pinned below the channels above a `divider` rule; the `Storage` icon, "1.2 TB free" and "of 4 TB", and a `MudProgressLinear` of the space used in `primary`; under 10% free the icon becomes `Warning` and the figure and bar turn `warning`. `title` gives "Recording disk: 1.2 TB free of 4 TB". While the size is unknown the meter renders nothing (the footer keeps only its rule).
 - The drawer lives in the layout and survives navigation; selecting a recording preserves drawer scroll. Changing search/filter/sort resets the list to the top; on load, the selected row scrolls into view.
-- Loading: six `MudSkeleton` rows (`[data-library-skeleton]`) until `RecordingLibrary.IsLoaded`. Empty library: the drawer says “No recordings yet” and `/` shows `LibraryEmptyState` in the main column (`[data-library-empty-home]`): a 48px `VideoLibrary` icon in `action-default` (`data-empty-icon="video_library"`), an `h4` “No recordings yet”, one `body1` sentence, and one action. Signed in it is a filled “Add a channel” link to `/settings#channels`; signed out it is the Connect with Twitch link instead (`[data-twitch-connect]`, so it shows the top bar's “Waiting for Twitch…”), because adding a channel needs Twitch. No-results: the no-match state above. Neither empty state shows while loading. The `AppShell`/`Home` owns the unknown `/r/{id}` message.
+- Loading: six `MudSkeleton` channel rows (`[data-library-skeleton]`) until `RecordingLibrary.IsLoaded`. Empty library: the drawer says “No recordings yet” and `/` shows `LibraryEmptyState` in the main column (`[data-library-empty-home]`): a 48px `VideoLibrary` icon in `action-default` (`data-empty-icon="video_library"`), an `h4` “No recordings yet”, one `body1` sentence, and one action. Signed in it is a filled “Add a channel” link to `/settings#channels`; signed out it is the Connect with Twitch link instead (`[data-twitch-connect]`, so it shows the top bar's “Waiting for Twitch…”), because adding a channel needs Twitch. No-results: the no-match state above. Neither empty state shows while loading. The `AppShell`/`Home` owns the unknown `/r/{id}` message.
 
-## 6. Keyboard tree
+## 6. Keyboard
 
-- One tab stop for the whole flattened list; roving `tabindex` on items.
-- `role="tree"` on the list; group heads and rows are `treeitem` with `aria-level`/`aria-expanded`/`aria-current`.
-- ↑/↓ move between visible group heads and rows (day headers skipped); Home/End jump to first/last.
-- ←/→ collapse/expand a group (the only calls back to .NET); Enter opens the selected recording; Enter on a group toggles it.
-- Focus movement is handled by `tree-nav.js` on the rendered DOM, without a server round-trip. Focus ring is the design-system 2 px `primary`.
-- Global `/` focuses search; Esc clears search; typing in an input is never intercepted. The player's shortcuts (later) must ignore editable targets and not conflict; the library tree handles keys only while focus is inside the drawer.
-- Collapse/expand and selection changes re-render through the normal Blazor state; focus returns to the same logical item after a re-render.
-- #56 ships the drawer with ordinary navigation semantics (`nav` plus real links and `aria-current`) and defers `role="tree"`, roving tabindex, and the key handling above to #58. Until then the drawer remains keyboard-usable through its normal links and group buttons.
+- The channels are one tab stop (roving `tabindex` on the options); ↑/↓ move, Home/End jump to the first and last.
+- Enter, Space or → select the channel (the option's own click, the only call to .NET), open its column and move focus to its first recording.
+- In the column ↑/↓ move between recordings and Home/End jump; ← or Escape go back to the selected channel (Escape stops there and does not close a temporary drawer); Enter opens the recording (it is a link); Delete opens its "Delete recording?" unless blocked.
+- Escape on the channels is left to the shell, which closes the temporary drawer.
+- `library-keys.js` does this on the rendered DOM (replacing `tree-nav.js`). Focus ring is the 2 px `primary`, inset.
+- Global `/` focuses search; Esc clears search; typing in an input is never intercepted. The player's arrow shortcuts ignore keys inside the drawer.
 
 ## 7. Long lists (F2-T7 revision)
 
 The plan's `<Virtualize>` over a flattened list of variable-height group heads, day headers, and rows breaks focus and scroll behavior. Replace it with:
 
-- All items rendered in one flattened container; `.sk-group`/`.sk-day`/`.sk-row` use `content-visibility: auto` and `contain-intrinsic-size` estimates.
+- The open column renders all of its channel's rows; `.sk-day`/`.sk-row-item` use `content-visibility: auto` and `contain-intrinsic-size` estimates. With two columns only one channel's rows are in the DOM, so the largest list is now a channel's, not the library's.
 - Keyboard, focus, `aria-current`, and scroll position work against real DOM.
 - Revisit virtualization only if measurements exceed roughly 2,000 flattened items or a real performance issue appears; then use a measured variable-height virtualizer, not a fixed `ItemSize`.
 
@@ -109,7 +111,7 @@ Timings include Playwright round trips, so they err slow. Budgets are several ti
 ## 8. Live updates
 
 - `ILibraryView.Changed` coalesces `RecordingLibrary`, `DvrStatus`, `ProgressStore`, and `StorageMonitor` changes and fires at most every 500 ms, only when the visible state differs.
-- The drawer (with its disk-usage footer), REC dot, and group counts re-render through `InvokeAsync`; rows/groups use `@key` and skip rendering when their reused `RecordingView`/`StreamerView` instance is unchanged.
+- The drawer (with its disk-usage footer), REC dot, and channel counts re-render through `InvokeAsync`; rows (`RecordingRow`) and channel options (`ChannelOption`) use `@key` and skip rendering when what they show is unchanged. The shell re-renders the drawer on every preference change, so this matters beyond the library: without it, rapid input elsewhere (the chat sync slider) lost key presses.
 - `LibraryView` reuses view-model instances when the underlying values are equal.
 - The Mock profile produces started/updated/ended/deleted/storage changes on a timer for bUnit/E2E.
 - F8-T3 (open capture live→VOD, deleted recording opens next) is owned by the player ticket; the library raises `Changed` and exposes the updated list.
@@ -120,7 +122,7 @@ Timings include Playwright round trips, so they err slow. Budgets are several ti
 
 - `SearchField.razor.js` debounces input 250 ms and calls .NET with the trimmed query; it does not call the server per keystroke.
 - `shortcuts.js` owns `/` (focus search) and Esc (clear/exit); it ignores editable elements and leaves player shortcuts to the player module.
-- `tree-nav.js` owns roving focus, arrow keys, Home/End, and calls .NET only for collapse/expand and Enter activation.
+- `library-keys.js` owns the channels' roving focus and the column's keys (§6), and moves focus after a delete once the row is gone and the dialog has closed.
 - `LibraryDrawer.razor.js` (collocated) focuses the sort menu's current choice once the popover renders it.
 - All modules are plain ES modules (under `wwwroot/js`, or collocated with their component); no Node at runtime.
 
@@ -145,16 +147,16 @@ bUnit:
 - Search/filter/state/sort query parsing; invalid values; no-results.
 - Row/group markup, status chips, selected `aria-current`, thumbnails/resume/live bars, rail behavior, channel colour per login, disk-usage footer and rail storage button.
 - Collapse persistence, skeleton/empty states, `Changed`/targeted re-render, reconnect note, dispose.
-- Keyboard ARIA/roving tabindex with `tree-nav.js` interop mocked.
+- Channels listbox ARIA, the column, row Delete (blocked reasons, confirm, focus call), the rail and the drill-in, with `library-keys.js` interop mocked.
 - Home rows: row sets and order, the 20 cap, the nothing-recording note, skeletons, a session moving rows on `Changed`, Show all, the chevrons; `RecordingCard` name, chips, meta, strip and sizes; `AppShell.ShowLibraryAsync` wide and compact.
 
 Vitest:
 
-- `tree-nav.js` movement/Home/End/collapse callbacks/one tab stop; `shortcuts.js` `/`/Esc and editable guards; search debounce; `LibraryDrawer.razor.js` focus once present.
+- `library-keys.js` channel and row movement, select and focus-in, back, Delete, focus after delete; `shortcuts.js` `/`/Esc and editable guards; search debounce; `LibraryDrawer.razor.js` focus once present.
 
 Playwright:
 
-- Drawer expand/rail/theater; search debounce/highlight/clear; filters; sort; keyboard tree; rail jump; reload restores `sk-ui`/URL; live update/reconnect note; axe clean; keyboard-only.
+- Drawer expand/rail/theater; search debounce/highlight/clear; filters; sort; keyboard channels and column; rail jump; row delete; reload restores `sk-ui`/URL; live update/reconnect note; axe clean; keyboard-only.
 - Home: an open session stopped from another tab moves from Recording now to Recent recordings without a reload; at 375 a touch swipe scrolls a row with no sideways page or main-column scroll and the cards are 85%/60% of the screen; at 1280 the chevron pages the row; Show all opens the Saved library at 1280 and 375; axe clean.
 
 Vitest: `HomeRows.razor.js` `scrollRow` (both directions, reduced motion, a missing row).
@@ -164,7 +166,7 @@ No automatic retries; flaky tests are fixed or quarantined per the testing contr
 
 ## 12. Binding versus implementation freedom
 
-Binding: grouping/sort/query/search/filter rules, day-header behavior, state/chip mapping, drawer structure and selected/rail/loading states, keyboard tree and focus rules, all-DOM long-list decision, `Changed`/targeted-render contract, F8-T3/F8-T4 boundary, JS module ownership, and the Home rows' sets, order, cap, card link and name, and Show all.
+Binding: grouping/sort/query/search/filter rules, day-header behavior, state/chip mapping, drawer structure and selected/rail/loading states, keyboard and focus rules, all-DOM long-list decision, `Changed`/targeted-render contract, F8-T3/F8-T4 boundary, JS module ownership, and the Home rows' sets, order, cap, card link and name, and Show all.
 
 Deviations from the Home and RecordingCard cards (#182), also recorded on the cards themselves:
 

@@ -79,7 +79,7 @@ public sealed class SettingsSheetJourneyTests(MockAppFixture app)
             app.BaseUrl, viewport: new ViewportSize { Width = 375, Height = 812 }, hasTouch: true);
         IPage page = session.Page;
         await page.Locator("[data-shell][data-layout='compact']").WaitForAsync();
-        string href = (await page.Locator(LibraryHooks.SavedRow).First.GetAttributeAsync("href"))!;
+        string href = (await (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow)).GetAttributeAsync("href"))!;
         await page.GotoAsync($"{app.BaseUrl}{href}");
         string path = await StartPlaybackAsync(page);
 
@@ -118,7 +118,7 @@ public sealed class SettingsSheetJourneyTests(MockAppFixture app)
 
     private static async Task<string> PlayFirstSavedRecordingAsync(IPage page)
     {
-        ILocator row = page.Locator(LibraryHooks.SavedRow).First;
+        ILocator row = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
         await row.ClickAsync();
         await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == $"/r/{id}");
