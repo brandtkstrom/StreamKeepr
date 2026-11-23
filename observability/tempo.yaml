@@ -1,0 +1,32 @@
+# Single-binary Tempo 3 with local storage, for compose.observability.yaml.
+# Based on grafana/tempo example/docker-compose/single-binary (v3.1.1), without
+# the metrics generator. Tempo 3 has no compactor block: the backend scheduler and
+# worker compact, and retention is set once in overrides below.
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+  log_level: warn
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+overrides:
+  defaults:
+    compaction:
+      block_retention: 168h # 7 days
+
+usage_report:
+  reporting_enabled: false
