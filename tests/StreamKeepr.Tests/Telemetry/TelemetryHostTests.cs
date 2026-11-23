@@ -156,6 +156,57 @@ public sealed class TelemetryHostTests
         Assert.Empty(duration.GetMeasurementSnapshot());
     }
 
+    [Fact]
+    public void Enabled_host_exports_zeroed_event_counters_once_started()
+    {
+        // increase() ignores a new series' first sample, so a counter whose first export is
+        // already 1 shows nothing. The zero points must reach the exporter, which only listens
+        // once the host has started.
+        var exported = new List<Metric>();
+        using var factory = new StreamKeeprAppFactory(
+            configureTestServices: services => services
+                .ConfigureOpenTelemetryMeterProvider(
+                    metrics => metrics.AddInMemoryExporter(exported)),
+            telemetry: true);
+        using var client = factory.CreateClient();
+
+        Assert.True(factory.Services.GetRequiredService<MeterProvider>().ForceFlush(5000));
+
+        string transport = factory.Services
+            .GetRequiredService<StreamKeepr.Infrastructure.Twitch.IEventSubClient>().Transport;
+        Dictionary<string, List<(string Tags, long Value)>> points = exported
+            .Where(metric => metric.MeterName == StreamKeeprTelemetry.MeterName
+                && metric.MetricType == MetricType.LongSum)
+            .GroupBy(metric => metric.Name)
+            .ToDictionary(group => group.Key, group => group.SelectMany(Points).ToList());
+
+        Assert.Equal(
+            ["recorder.exit_kind=exited", "recorder.exit_kind=killed", "recorder.exit_kind=stopped"],
+            points["streamkeepr.recorder.parts"].Select(point => point.Tags).Order(StringComparer.Ordinal));
+        Assert.Equal([("", 0L)], points["streamkeepr.recorder.stalls"]);
+        Assert.Equal([("", 0L)], points["streamkeepr.recorder.force_kills"]);
+        Assert.Equal([("", 0L)], points["streamkeepr.chat.dropped"]);
+        Assert.Equal(3, points["streamkeepr.export.jobs"].Count);
+        Assert.Equal(
+            [($"eventsub.transport={transport}", 0L)], points["streamkeepr.eventsub.reconnects"]);
+        Assert.All(points["streamkeepr.recorder.parts"], point => Assert.Equal(0, point.Value));
+        Assert.All(points["streamkeepr.export.jobs"], point => Assert.Equal(0, point.Value));
+    }
+
+    private static IEnumerable<(string Tags, long Value)> Points(Metric metric)
+    {
+        var points = new List<(string, long)>();
+        foreach (ref readonly MetricPoint point in metric.GetMetricPoints())
+        {
+            var tags = new List<string>();
+            foreach (KeyValuePair<string, object?> tag in point.Tags)
+                tags.Add($"{tag.Key}={tag.Value}");
+            points.Add((string.Join(",", tags), point.GetSumLong()));
+        }
+
+        return points;
+    }
+
     private static IDisposable SetVariable(string name, string? value)
     {
         string? previous = Environment.GetEnvironmentVariable(name);

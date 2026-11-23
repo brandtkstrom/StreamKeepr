@@ -19,6 +19,11 @@ public sealed class StreamKeeprTelemetry : IDisposable
     public const string ExportOutcomeAttribute = "export.outcome";
     public const string EventSubTransportAttribute = "eventsub.transport";
     public const string DvrStateAttribute = "dvr.state";
+    public const string ExportSucceeded = "succeeded";
+    public const string ExportFailed = "failed";
+    public const string ExportCancelled = "cancelled";
+
+    private static readonly string[] ExportOutcomes = [ExportSucceeded, ExportFailed, ExportCancelled];
 
     public static readonly string ServiceVersion =
         typeof(StreamKeeprTelemetry).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
@@ -142,6 +147,32 @@ public sealed class StreamKeeprTelemetry : IDisposable
             _eventSubReconnects.Add(
                 1,
                 new KeyValuePair<string, object?>(EventSubTransportAttribute, transport));
+    }
+
+    /// <summary>
+    /// Records a zero on every event-counter series whose labels are known up front. Prometheus
+    /// <c>increase()</c> ignores a series' first sample, so without a zero the first part, stall,
+    /// export or reconnect after a start would never show. Call it once the meter provider is
+    /// listening, after the host has started: measurements made before that are dropped.
+    /// </summary>
+    public void InitializeCounters(string eventSubTransport)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(eventSubTransport);
+        if (!Enabled)
+            return;
+
+        foreach (RecorderExitKind kind in Enum.GetValues<RecorderExitKind>())
+            _parts.Add(0, new KeyValuePair<string, object?>(RecorderExitKindAttribute, ExitKind(kind)));
+
+        _stalls.Add(0);
+        _forceKills.Add(0);
+        _chatDropped.Add(0);
+
+        foreach (string outcome in ExportOutcomes)
+            _exportJobs.Add(0, new KeyValuePair<string, object?>(ExportOutcomeAttribute, outcome));
+
+        _eventSubReconnects.Add(
+            0, new KeyValuePair<string, object?>(EventSubTransportAttribute, eventSubTransport));
     }
 
     public void Dispose() => ActivitySource.Dispose();
