@@ -711,8 +711,8 @@ describe("chat replay pane", () => {
       ({ ...message, id: `m${i}`, mt: i, text: `message ${i}`, emotes: [] }));
 
     /**
-     * Gives the log a layout jsdom lacks: 20 px rows in a 40 px viewport. An instant scrollTo
-     * lands at once; a smooth one is recorded but left running, as a browser animates it.
+     * Gives the log a layout jsdom lacks: 20 px rows in a 40 px viewport. scrollTop rounds to
+     * whole pixels and clamps to the end, as a browser on a 1x display does.
      */
     function layout(log) {
       let top = 0;
@@ -721,10 +721,9 @@ describe("chat replay pane", () => {
         configurable: true, get: () => log.children.length * 20,
       });
       Object.defineProperty(log, "scrollTop", {
-        configurable: true, get: () => top, set: (value) => { top = value; },
-      });
-      log.scrollTo = vi.fn(({ top: target, behavior }) => {
-        if (behavior !== "smooth") top = target;
+        configurable: true,
+        get: () => top,
+        set: (value) => { top = Math.min(Math.max(Math.round(value), 0), end(log)); },
       });
       return log;
     }
@@ -736,6 +735,8 @@ describe("chat replay pane", () => {
         { fetch, storage: storage() });
       await pane.load({ ...view });
       await flush();
+      // From here on animation frames run only when a test advances them.
+      vi.useFakeTimers();
       return { pane, log };
     }
 
@@ -745,8 +746,21 @@ describe("chat replay pane", () => {
     }
 
     const rows = (log) => [...log.querySelectorAll(".sk-chat-row")];
-    const lastScroll = (log) => log.scrollTo.mock.calls.at(-1)?.[0];
+    const end = (log) => Math.max(log.scrollHeight - log.clientHeight, 0);
     const jump = () => document.querySelector("[data-sk='chat-jump']");
+    const frames = (count) => vi.advanceTimersByTime(count * 16);
+    // Long enough for any glide to land.
+    const settle = () => frames(120);
+
+    /** Each frame's scrollTop over `count` frames. */
+    function track(log, count) {
+      const tops = [];
+      for (let i = 0; i < count; i++) {
+        frames(1);
+        tops.push(log.scrollTop);
+      }
+      return tops;
+    }
 
     function scrollAway(log) {
       log.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
@@ -769,12 +783,57 @@ describe("chat replay pane", () => {
       pane.dispose();
     });
 
-    it("jumps instantly on a fresh window and scrolls new rows in smoothly", async () => {
+    it("glides new rows in over several frames, easing in and landing on the end", async () => {
       const { pane, log } = await openPane();
-      expect(lastScroll(log)).toEqual({ top: 20, behavior: "instant" });
-
       playOn(1, 3);
-      expect(lastScroll(log)).toEqual({ top: 80, behavior: "smooth" });
+      settle();
+      const start = log.scrollTop;
+      expect(start).toBe(end(log));
+
+      playhead(4);
+      expect(log.scrollTop).toBe(start);
+      const tops = track(log, 40);
+      const steps = tops.map((top, i) => top - (i === 0 ? start : tops[i - 1]));
+
+      expect(steps.every((step) => step >= 0)).toBe(true);
+      expect(steps.filter((step) => step > 0).length).toBeGreaterThan(5);
+      // Eases in: the first frame moves less than the fastest one.
+      expect(steps[0]).toBeLessThan(Math.max(...steps));
+      expect(tops.at(-1)).toBe(end(log));
+
+      pane.dispose();
+    });
+
+    it("keeps its speed when more rows arrive mid-glide instead of starting over", async () => {
+      const { pane, log } = await openPane();
+      playOn(1, 3);
+      settle();
+      playhead(4);
+      // Still speeding up, where a restart from rest shows most.
+      frames(3);
+      const before = log.scrollTop;
+      frames(1);
+      const stepBefore = log.scrollTop - before;
+      expect(stepBefore).toBeGreaterThan(0);
+
+      playhead(5);
+      const at = log.scrollTop;
+      frames(1);
+      // A restarted animation would start again from rest; the glide only gains distance.
+      expect(log.scrollTop - at).toBeGreaterThanOrEqual(stepBefore);
+      settle();
+      expect(log.scrollTop).toBe(end(log));
+
+      pane.dispose();
+    });
+
+    it("lands instantly when the end is more than a screen away", async () => {
+      const { pane, log } = await openPane();
+      playOn(1, 3);
+      settle();
+      // Three rows (60 px) arrive before any frame runs, as after a throttled tab.
+      playOn(4, 6);
+      expect(log.scrollTop).toBe(end(log));
 
       pane.dispose();
     });
@@ -782,9 +841,10 @@ describe("chat replay pane", () => {
     it("lands instantly after a short seek ahead within the kept window", async () => {
       const { pane, log } = await openPane();
       playOn(1, 2);
+      settle();
       // Eight seconds ahead keeps the scrollback but must not sweep through the burst.
       playhead(10);
-      expect(lastScroll(log)).toEqual({ top: 220, behavior: "instant" });
+      expect(log.scrollTop).toBe(end(log));
 
       pane.dispose();
     });
@@ -793,49 +853,63 @@ describe("chat replay pane", () => {
       vi.stubGlobal("matchMedia", (query) =>
         ({ matches: query === "(prefers-reduced-motion: reduce)" }));
       const { pane, log } = await openPane();
-
       playOn(1, 3);
-      expect(lastScroll(log)).toEqual({ top: 80, behavior: "instant" });
+      settle();
+
+      playhead(4);
+      expect(log.scrollTop).toBe(end(log));
 
       pane.dispose();
     });
 
-    it("keeps following while its own smooth scroll is under way", async () => {
+    it("keeps following while its own glide is under way", async () => {
       const { pane, log } = await openPane();
-      playOn(1, 5);
-      // Mid-animation the log is still well above the bottom; that is not the viewer leaving.
-      log.scrollTop = 30;
+      playOn(1, 3);
+      settle();
+      // Two rows (40 px), so the glide is still short of the bottom after a frame.
+      playOn(4, 5);
+      frames(1);
+      // Mid-glide the log is still above the bottom; that is not the viewer leaving.
+      expect(end(log) - log.scrollTop).toBeGreaterThan(24);
       log.dispatchEvent(new Event("scroll"));
+      settle();
       playhead(6);
-      expect(lastScroll(log)).toEqual({ top: 140, behavior: "smooth" });
+      settle();
+      expect(log.scrollTop).toBe(end(log));
       expect(jump().hidden).toBe(true);
 
       pane.dispose();
     });
 
-    it("keeps following when the viewer clicks a row or scrolls down mid-animation", async () => {
+    it("keeps following when the viewer clicks a row or scrolls down mid-glide", async () => {
       const { pane, log } = await openPane();
-      playOn(1, 5);
+      playOn(1, 3);
+      settle();
+      playhead(4);
+      frames(2);
       rows(log)[0].dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
       log.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
       log.dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true }));
-      log.scrollTop = 30;
       log.dispatchEvent(new Event("scroll"));
-      playhead(6);
-      expect(lastScroll(log)).toEqual({ top: 140, behavior: "smooth" });
+      settle();
+      expect(log.scrollTop).toBe(end(log));
 
       pane.dispose();
     });
 
-    it("stops following when the viewer scrolls up during a smooth scroll", async () => {
+    it("stops gliding and following when the viewer scrolls up mid-glide", async () => {
       const { pane, log } = await openPane();
-      playOn(1, 5);
-      const calls = log.scrollTo.mock.calls.length;
+      playOn(1, 3);
+      settle();
+      playhead(4);
+      frames(2);
 
       scrollAway(log);
-      playhead(7);
+      settle();
+      playhead(5);
+      settle();
 
-      expect(log.scrollTo.mock.calls).toHaveLength(calls);
+      // Neither the glide under way nor the new row pulls the log back down.
       expect(log.scrollTop).toBe(0);
 
       pane.dispose();
@@ -847,55 +921,44 @@ describe("chat replay pane", () => {
         (log) => log.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })),
       ]) {
         const { pane, log } = await openPane();
-        playOn(1, 5);
-        const calls = log.scrollTo.mock.calls.length;
+        playOn(1, 3);
+        settle();
+        playhead(4);
+        frames(2);
         intent(log);
         log.scrollTop = 0;
         log.dispatchEvent(new Event("scroll"));
-        playhead(6);
-        expect(log.scrollTo.mock.calls).toHaveLength(calls);
+        playhead(5);
+        settle();
+        expect(log.scrollTop).toBe(0);
         pane.dispose();
+        vi.useRealTimers();
       }
     });
 
     it("jumps to the current time instantly", async () => {
       const { pane, log } = await openPane();
       playOn(1, 5);
+      settle();
       scrollAway(log);
       playOn(6, 8);
 
       jump().click();
-      expect(lastScroll(log)).toEqual({ top: 180, behavior: "instant" });
-      expect(log.scrollTop).toBe(180);
+      expect(log.scrollTop).toBe(end(log));
 
       pane.dispose();
     });
 
-    it("chases the bottom again when a smooth scroll ends short of it", async () => {
+    it("stops its glide when the pane is disposed", async () => {
       const { pane, log } = await openPane();
-      playOn(1, 5);
-      // The animation's target was read before later rows grew the log.
-      log.scrollTop = 40;
-      const calls = log.scrollTo.mock.calls.length;
-      log.dispatchEvent(new Event("scrollend"));
-      expect(log.scrollTo.mock.calls).toHaveLength(calls + 1);
-      expect(lastScroll(log)).toEqual({ top: 120, behavior: "smooth" });
-
+      playOn(1, 3);
+      settle();
+      playhead(4);
+      frames(1);
+      const top = log.scrollTop;
       pane.dispose();
-    });
-
-    it("chases the bottom once scrolling goes idle where scrollend never fires", async () => {
-      const { pane, log } = await openPane();
-      vi.useFakeTimers();
-      playOn(1, 5);
-      log.scrollTop = 40;
-      log.dispatchEvent(new Event("scroll"));
-      const calls = log.scrollTo.mock.calls.length;
-      await vi.advanceTimersByTimeAsync(200);
-      expect(log.scrollTo.mock.calls).toHaveLength(calls + 1);
-      expect(lastScroll(log)).toEqual({ top: 120, behavior: "smooth" });
-
-      pane.dispose();
+      settle();
+      expect(log.scrollTop).toBe(top);
     });
 
     it("lands at the end when backfill fills the log above a following view", async () => {
@@ -928,8 +991,7 @@ describe("chat replay pane", () => {
       await vi.advanceTimersByTimeAsync(2000);
 
       expect(rows(log).length).toBeGreaterThan(2);
-      expect(lastScroll(log)).toEqual({ top: log.scrollHeight, behavior: "instant" });
-      expect(log.scrollTop).toBe(log.scrollHeight);
+      expect(log.scrollTop).toBe(end(log));
 
       pane.dispose();
     });
@@ -966,6 +1028,31 @@ describe("chat replay pane", () => {
         child.classList.contains("sk-chat-gap") ? "gap" : child.dataset.messageId);
       expect(order).toEqual(["m0", "m1", "m2", "gap", "m3", "m4"]);
       expect(rows(log)[0]).toBe(kept);
+
+      pane.dispose();
+    });
+
+    it("keeps a later gap hidden, so new rows glide in at the end", async () => {
+      const fetch = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          v: 1, recordingId: "r1", state: "complete", hasChat: true, source: "mock",
+          leadInSec: 0, fromSec: 0, toSec: 120, syncOffsetSec: 0,
+          gaps: [{ from: 20, to: 20, seconds: 40 }],
+          hasMoreBefore: false, hasMoreAfter: false, messages: steady,
+        }),
+      }));
+      const { pane, log } = await openPane({ fetch });
+      playOn(1, 3);
+      settle();
+      expect(log.querySelector(".sk-chat-gap")).toBeNull();
+
+      playhead(4);
+      expect(log.lastElementChild.dataset.messageId).toBe("m4");
+      // An append glides; a row put in above another would land instantly.
+      expect(log.scrollTop).toBeLessThan(end(log));
+      settle();
+      expect(log.scrollTop).toBe(end(log));
 
       pane.dispose();
     });
