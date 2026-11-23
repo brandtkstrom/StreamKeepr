@@ -1210,27 +1210,54 @@ public sealed class EventSubClientTests : IDisposable
     [Fact]
     public async Task Keepalive_silence_reconnects()
     {
-        var subscribed = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        int subscriptions = 0;
-        _httpHandler.Handler = _ =>
-        {
-            if (Interlocked.Increment(ref subscriptions) == 2)
-                subscribed.TrySetResult();
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Accepted));
-        };
-        EventSubClient client = CreateClient();
+        using var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        EventSubClient client = CreateClient(logger: loggerFactory.CreateLogger<EventSubClient>());
         using var stop = new CancellationTokenSource();
         Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+        Task connected = NextStatusAsync(PushStatus.AllConnected);
 
         await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
         _socketFactory.LastSocket.Push(Welcome("session-1", keepaliveSeconds: 1));
-        await subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        _clock.Advance(TimeSpan.FromSeconds(11));
-        await _socketFactory.SocketTwo.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Coverage is reported after both subscription requests finished, so their clock-based
+        // timeouts are gone and only the keepalive watchdog is left to fire.
+        await connected.WaitAsync(TimeSpan.FromSeconds(5));
+        TimeSpan silence = await AdvanceUntilAsync(_socketFactory.SocketTwo.Task);
+
+        // A 1 s keepalive plus the 10 s grace: never earlier.
+        Assert.True(silence >= TimeSpan.FromSeconds(11), $"reconnected after {silence} of silence");
+        Assert.Contains(
+            (LogLevel.Warning, "EventSub WebSocket restart: keepalive timeout."),
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
 
         stop.Cancel();
         await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Advances the fake clock a second at a time until <paramref name="done"/> completes and
+    /// returns how much fake time passed. The client arms its watchdog after the step the test
+    /// waits on, on another thread; a timer armed after one large jump would be due a full period
+    /// later and never fire, so stepping keeps the test independent of that ordering.
+    /// </summary>
+    private async Task<TimeSpan> AdvanceUntilAsync(Task done)
+    {
+        TimeSpan step = TimeSpan.FromSeconds(1);
+        TimeSpan limit = TimeSpan.FromMinutes(2);
+        TimeSpan advanced = TimeSpan.Zero;
+        while (!done.IsCompleted)
+        {
+            if (advanced >= limit)
+                throw new TimeoutException($"Not done after {advanced} of fake time.");
+
+            _clock.Advance(step);
+            advanced += step;
+            await Task.WhenAny(done, Task.Delay(TimeSpan.FromMilliseconds(20)));
+        }
+
+        await done;
+        return advanced;
     }
 
     [Fact]
