@@ -276,15 +276,19 @@ public sealed class EventSubClient(
                     }
                     else
                     {
+                        Task? observed = null;
                         if (receive is not null)
                         {
                             await receiveCts.CancelAsync();
-                            await ObserveAsync(receive);
+                            observed = ObserveAsync(receive);
                         }
 
                         // Cancelling ct also completes the watchdog, so it can win WhenAny. That
-                        // is a requested restart, not a keepalive or handoff timeout.
+                        // is a requested restart, not a keepalive or handoff timeout. Check before
+                        // waiting for a socket that may acknowledge cancellation slowly.
                         ct.ThrowIfCancellationRequested();
+                        if (observed is not null)
+                            await observed;
 
                         if (handoff is null)
                             throw new EventSubRestartException("keepalive timeout");

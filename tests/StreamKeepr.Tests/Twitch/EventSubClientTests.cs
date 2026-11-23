@@ -658,8 +658,9 @@ public sealed class EventSubClientTests : IDisposable
     public async Task Channel_change_is_not_reported_as_a_keepalive_timeout_when_the_watchdog_completes_first()
     {
         // Cancelling the session completes both the receive and the keepalive watchdog. With a
-        // socket that finishes its cancelled receive late, the watchdog always wins the race.
-        _socketFactory.SlowReceiveCancellation = true;
+        // socket that holds its cancelled receive until the test releases it, the watchdog wins
+        // the race without a wall-clock delay.
+        _socketFactory.HoldCancelledReceive = true;
         using var logs = new ListLoggerProvider();
         using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
         EventSubClient client = CreateClient(logger: loggerFactory.CreateLogger<EventSubClient>());
@@ -669,9 +670,13 @@ public sealed class EventSubClientTests : IDisposable
         await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
         _socketFactory.LastSocket.Push(Welcome("session-1"));
         await _socketFactory.LastSocket.Subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        FakeEventSubSocket socket = _socketFactory.LastSocket;
+        await socket.SecondReceiveStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await _channels.AddAsync(
             new ChannelEntry("other", UserId: "456", DisplayName: "Other"), CancellationToken.None);
+        await socket.CancelledReceiveHeld.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await logs.WaitForAsync("reconnecting immediately");
+        socket.ReleaseCancelledReceive.TrySetResult();
 
         stop.Cancel();
         await run.WaitAsync(TimeSpan.FromSeconds(5));
