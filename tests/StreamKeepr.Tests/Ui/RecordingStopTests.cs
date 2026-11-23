@@ -38,14 +38,21 @@ public sealed class RecordingStopTests
     }
 
     [Fact]
-    public async Task Signed_out_stop_is_inert_behind_requires_twitch()
+    public async Task Signed_out_stop_is_disabled_in_the_public_menu()
     {
         await using BunitContext context = CreateContext(out _, signedIn: false);
         var dialogs = context.Render<MudBlazor.MudDialogProvider>();
 
         var cut = Render(context, Recording(RecordingState.Reconnecting));
 
-        Assert.NotNull(cut.Find("[data-requires-twitch] [inert] button[aria-label='More actions']"));
+        var item = MoreActions.Item(context, cut, "data-stop-recording");
+        Assert.Equal("true", item.GetAttribute("aria-disabled"));
+        var wrapper = item.ParentElement!;
+        Assert.Equal("group", wrapper.GetAttribute("role"));
+        Assert.Equal("0", wrapper.GetAttribute("tabindex"));
+        Assert.Equal(
+            "Connect Twitch to use this",
+            wrapper.QuerySelector("[role='tooltip']")!.TextContent);
     }
 
     [Fact]

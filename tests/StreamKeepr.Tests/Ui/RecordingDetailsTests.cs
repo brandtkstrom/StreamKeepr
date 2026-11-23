@@ -32,7 +32,7 @@ public sealed class RecordingDetailsTests
         Assert.Equal("1,342 segments", cut.Find("[data-details-segments]").TextContent);
         Assert.Equal("3 parts", cut.Find("[data-details-parts]").TextContent);
         Assert.Equal("9.8 GB", cut.Find("[data-details-size]").TextContent);
-        Assert.Equal("Copy playlist URL", cut.Find("[data-copy-playlist]").GetAttribute("aria-label"));
+        Assert.Single(cut.FindAll("button[aria-label='More actions']"));
     }
 
     [Fact]
@@ -219,19 +219,20 @@ public sealed class RecordingDetailsTests
             cut.Find("[data-details-start]").TextContent));
     }
 
-    [Fact]
-    public async Task Copy_playlist_builds_the_absolute_url_and_confirms_without_auth()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Copy_playlist_builds_the_absolute_url_and_confirms_from_the_menu(bool signedIn)
     {
-        await using BunitContext context = CreateContext(out BunitJSModuleInterop module);
-        context.AddAuthorization().SetNotAuthorized();
+        await using BunitContext context = CreateContext(out BunitJSModuleInterop module, signedIn: signedIn);
         module.Setup<bool>("copyText", _ => true).SetResult(true);
         MudBlazor.ISnackbar snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
-        // Copying needs no sign-in; only admin actions such as Export sit behind RequiresTwitch.
-        Assert.Empty(cut.FindAll("[data-requires-twitch] [data-copy-playlist]"));
+        // Copying needs no sign-in; the public More actions menu holds it.
+        Assert.Empty(cut.FindAll("[data-requires-twitch] button[aria-label='More actions']"));
 
-        cut.Find("[data-copy-playlist]").Click();
+        MoreActions.Item(context, cut, "data-copy-playlist").Click();
 
         cut.WaitForAssertion(() =>
         {
@@ -251,7 +252,7 @@ public sealed class RecordingDetailsTests
         MudBlazor.ISnackbar snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
-        cut.Find("[data-copy-playlist]").Click();
+        MoreActions.Item(context, cut, "data-copy-playlist").Click();
 
         cut.WaitForAssertion(() =>
             Assert.Equal("Could not copy playlist URL", snackbars.CurrentMessage()));
@@ -272,7 +273,8 @@ public sealed class RecordingDetailsTests
     private static BunitContext CreateContext(
         out BunitJSModuleInterop module,
         string? timeZoneId = null,
-        string? detailsCookie = null)
+        string? detailsCookie = null,
+        bool signedIn = false)
     {
         var context = new BunitContext();
         context.Services.AddStreamKeeprMudServices();
@@ -295,7 +297,11 @@ public sealed class RecordingDetailsTests
         context.Services.AddSingleton<IExportService>(new TestExportService());
         context.Services.AddSingleton<IChannelsView>(new TestChannelsView());
         context.Services.AddSingleton<IRecordingAdmin>(new TestRecordingAdmin());
-        context.AddAuthorization().SetNotAuthorized();
+        BunitAuthorizationContext auth = context.AddAuthorization();
+        if (signedIn)
+            auth.SetAuthorized("mock_admin");
+        else
+            auth.SetNotAuthorized();
         return context;
     }
 
