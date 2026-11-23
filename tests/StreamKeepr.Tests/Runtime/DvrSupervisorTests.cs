@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -87,6 +88,74 @@ public sealed class DvrSupervisorTests
                 Assert.Equal(LogLevel.Information, entry.Level);
                 Assert.Equal("new_channel", entry.Properties["Channel"]);
             });
+
+            await supervisor.StopAsync(CancellationToken.None);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task A_channel_added_inside_a_request_does_not_carry_its_log_scope_or_activity()
+    {
+        string root = NewRoot();
+
+        try
+        {
+            var poller = new ScriptedStreamPoller();
+            poller.Profiles["new_channel"] = new ChannelProfile(
+                "123456", "New Channel", "https://example/avatar.png");
+            var logs = new ListLoggerProvider();
+            using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+            ILogger probe = loggerFactory.CreateLogger("Probe");
+            Activity? recorderActivity = null;
+            var recorderRan = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var recorder = new FakeRecorder
+            {
+                OnRun = async (_, stopRequested) =>
+                {
+                    recorderActivity = Activity.Current;
+                    probe.LogInformation("Recorder ran.");
+                    recorderRan.TrySetResult();
+                    try
+                    {
+                        await Task.Delay(Timeout.InfiniteTimeSpan, stopRequested);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+
+                    return new PartOutcome(RecorderExitKind.Stopped, "stopped");
+                },
+            };
+            using DvrSupervisor supervisor = CreateSupervisor(
+                root, poller, new FakeHostApplicationLifetime(), loggerFactory, [], recorder: recorder);
+            await supervisor.StartAsync(CancellationToken.None);
+            await poller.Started.WaitAsync(TimeSpan.FromSeconds(5));
+
+            // Stands in for the Blazor circuit's request: its logging scope and activity are
+            // ambient while the channel is added, and must stay with the request.
+            using (var request = new Activity("request").Start())
+            using (probe.BeginScope(new Dictionary<string, object> { ["RequestPath"] = "/_blazor" }))
+            {
+                await supervisor.AddChannelAsync("new_channel", CancellationToken.None);
+            }
+
+            poller.Send("new_channel", new StreamObservation.Live(
+                new LiveStream(
+                    "123456789",
+                    "A stream",
+                    "Just Chatting",
+                    new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero),
+                    ThumbnailUrl: null)));
+            await recorderRan.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            CapturedLogEntry ran = Assert.Single(
+                logs.Entries, entry => entry.Message == "Recorder ran.");
+            Assert.DoesNotContain("RequestPath", ran.Scopes.Keys);
+            Assert.Null(recorderActivity);
 
             await supervisor.StopAsync(CancellationToken.None);
         }
@@ -298,7 +367,8 @@ public sealed class DvrSupervisorTests
         ILoggerFactory loggerFactory,
         string[] channels,
         RecordingLibrary? library = null,
-        DvrStatus? status = null)
+        DvrStatus? status = null,
+        FakeRecorder? recorder = null)
     {
         var clock = new FakeTimeProvider(
             new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
@@ -314,7 +384,7 @@ public sealed class DvrSupervisorTests
             storageOptions,
             new FakeDiskSpace(DiskGuard.BytesPerGib * 2, DiskGuard.BytesPerGib * 4));
         status ??= new DvrStatus();
-        var recorder = new FakeRecorder
+        recorder ??= new FakeRecorder
         {
             OnRun = (_, _) => Task.FromResult(new PartOutcome(RecorderExitKind.Exited, "no media")),
         };

@@ -133,4 +133,61 @@ public sealed class StreamKeeprTelemetryTests
         Assert.Equal(1, reconnect.Value);
         Assert.Equal("WebSocket", reconnect.Tags["eventsub.transport"]);
     }
+
+    [Fact]
+    public void Initialize_counters_publishes_a_zero_for_every_known_series()
+    {
+        using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
+        var factory = services.GetRequiredService<IMeterFactory>();
+        using var telemetry = new StreamKeeprTelemetry(factory, enabled: true);
+        using var parts = new MetricCollector<long>(
+            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.parts");
+        using var stalls = new MetricCollector<long>(
+            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.stalls");
+        using var kills = new MetricCollector<long>(
+            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.force_kills");
+        using var dropped = new MetricCollector<long>(
+            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.chat.dropped");
+        using var jobs = new MetricCollector<long>(
+            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.export.jobs");
+        using var reconnects = new MetricCollector<long>(
+            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.eventsub.reconnects");
+
+        telemetry.InitializeCounters("Conduit");
+
+        Assert.All(
+            new[] { parts, stalls, kills, dropped, jobs, reconnects }.SelectMany(
+                collector => collector.GetMeasurementSnapshot()),
+            measurement => Assert.Equal(0, measurement.Value));
+        Assert.Equal(
+            ["exited", "killed", "stopped"],
+            parts.GetMeasurementSnapshot()
+                .Select(measurement => (string)measurement.Tags["recorder.exit_kind"]!)
+                .Order(StringComparer.Ordinal));
+        Assert.Single(stalls.GetMeasurementSnapshot());
+        Assert.Single(kills.GetMeasurementSnapshot());
+        Assert.Single(dropped.GetMeasurementSnapshot());
+        Assert.Equal(
+            ["cancelled", "failed", "succeeded"],
+            jobs.GetMeasurementSnapshot()
+                .Select(measurement => (string)measurement.Tags["export.outcome"]!)
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            "Conduit",
+            Assert.Single(reconnects.GetMeasurementSnapshot()).Tags["eventsub.transport"]);
+    }
+
+    [Fact]
+    public void Initialize_counters_publishes_nothing_when_disabled()
+    {
+        using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
+        var factory = services.GetRequiredService<IMeterFactory>();
+        using var telemetry = new StreamKeeprTelemetry(factory, enabled: false);
+        using var parts = new MetricCollector<long>(
+            factory, StreamKeeprTelemetry.MeterName, "streamkeepr.recorder.parts");
+
+        telemetry.InitializeCounters("WebSocket");
+
+        Assert.Empty(parts.GetMeasurementSnapshot());
+    }
 }

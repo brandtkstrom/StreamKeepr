@@ -282,6 +282,10 @@ public sealed class EventSubClient(
                             await ObserveAsync(receive);
                         }
 
+                        // Cancelling ct also completes the watchdog, so it can win WhenAny. That
+                        // is a requested restart, not a keepalive or handoff timeout.
+                        ct.ThrowIfCancellationRequested();
+
                         if (handoff is null)
                             throw new EventSubRestartException("keepalive timeout");
 
