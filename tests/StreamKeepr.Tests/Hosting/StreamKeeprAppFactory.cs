@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
+using StreamKeepr.Infrastructure.Storage;
 
 namespace StreamKeepr.Tests.Hosting;
 
@@ -25,19 +26,28 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
         exit 1
         """;
 
+    private static readonly TimeSpan StartupRecoveryTimeout = TimeSpan.FromSeconds(30);
+
     private readonly string _testRoot;
     private readonly bool _ownsTestRoot;
     private readonly string _toolsRoot;
     private readonly Dictionary<string, string?> _settings;
     private readonly Action<IServiceCollection>? _configureTestServices;
     private readonly bool _telemetry;
+    private readonly bool _waitForStartupRecovery;
 
+    /// <param name="waitForStartupRecovery">
+    /// When true (the default), the host is returned only after startup recovery has loaded the
+    /// library. Pass false only for a test that expects recovery to fail and the host to stop.
+    /// </param>
     public StreamKeeprAppFactory(
         IReadOnlyDictionary<string, string?>? overrides = null,
         string? recordingsRoot = null,
         Action<IServiceCollection>? configureTestServices = null,
-        bool telemetry = false)
+        bool telemetry = false,
+        bool waitForStartupRecovery = true)
     {
+        _waitForStartupRecovery = waitForStartupRecovery;
         _ownsTestRoot = recordingsRoot is null;
         _testRoot = recordingsRoot ??
             Path.Combine(Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
@@ -80,7 +90,61 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
                 ["Telemetry:Enabled"] = _telemetry ? "true" : "false",
             }));
 
-        return base.CreateHost(builder);
+        IHost host = base.CreateHost(builder);
+        if (_waitForStartupRecovery)
+            WaitForStartupRecovery(host);
+
+        return host;
+    }
+
+    /// <summary>
+    /// Startup recovery runs after the server starts listening (DvrSupervisor.ExecuteAsync), and
+    /// its library scan replaces the library's contents. Returning before it finishes would let
+    /// a test seed or open a recording that the scan then wipes, so this waits for the library
+    /// to load.
+    /// </summary>
+    /// <remarks>
+    /// A host that stops first fails here instead of being returned: the host disposes its
+    /// services as it stops, and WebApplicationFactory reads them right after CreateHost.
+    /// </remarks>
+    private static void WaitForStartupRecovery(IHost host)
+    {
+        RecordingLibrary library = host.Services.GetRequiredService<RecordingLibrary>();
+        CancellationToken stopping =
+            host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
+        var loaded = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void OnChanged()
+        {
+            if (library.IsLoaded)
+                loaded.TrySetResult(true);
+        }
+
+        library.Changed += OnChanged;
+        try
+        {
+            // Covers a scan that finished before the subscription.
+            OnChanged();
+            using CancellationTokenRegistration onStopping =
+                stopping.Register(() => loaded.TrySetResult(false));
+
+            if (!loaded.Task.Wait(StartupRecoveryTimeout))
+            {
+                throw new TimeoutException(
+                    $"Startup recovery did not load the recording library within {StartupRecoveryTimeout}.");
+            }
+
+            if (!loaded.Task.Result)
+            {
+                throw new InvalidOperationException(
+                    "The host stopped before startup recovery loaded the recording library. " +
+                    "A test that expects recovery to fail must pass waitForStartupRecovery: false.");
+            }
+        }
+        finally
+        {
+            library.Changed -= OnChanged;
+        }
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
