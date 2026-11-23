@@ -1,0 +1,125 @@
+# Observability stack for the Compose deployment. Layer it on compose.yaml, which
+# still builds the app image and owns every production setting:
+#
+#   docker compose -f compose.yaml -f compose.observability.yaml up -d --build
+#
+# (Or set COMPOSE_FILE=compose.yaml:compose.observability.yaml in .env.)
+#
+#   stream-keepr ──OTLP traces+metrics──▶ otel-collector ──▶ Tempo (traces)
+#        │                                     │  ▲      └──▶ Prometheus (metrics)
+#        └─ compact-JSON log files (app-logs) ─┘  │      └──▶ Loki (logs)
+#                         /health/live + /health/ready probes (httpcheck)
+#
+# Grafana (http://localhost:3000) has all three wired up, with links from a
+# log line to its trace and back, plus a provisioned "Stream Keepr" dashboard.
+# UI ports bind to 127.0.0.1 only; nothing here is meant to face the internet.
+# See observability/README.md.
+
+services:
+  stream-keepr:
+    environment:
+      Telemetry__Enabled: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      # Serilog is the only logging pipeline (README "Telemetry"), so logs reach
+      # the collector as the compact-JSON file sink on a volume they share.
+      Serilog__File__Path: /logs/log-.json
+    volumes:
+      - app-logs:/logs
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+
+  # Fresh named volumes are root-owned unless the image already has the path.
+  # The app runs as 1654 (see Dockerfile); Tempo and the collector as 10001.
+  volume-init:
+    image: busybox:1.37.0
+    command: ["sh", "-c", "chown 1654:1654 /logs && chown 10001:10001 /tempo /otelcol"]
+    volumes:
+      - app-logs:/logs
+      - tempo-data:/tempo
+      - otel-collector-data:/otelcol
+    restart: "no"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.165.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - app-logs:/logs:ro
+      # The filelog receiver remembers its read offsets here, so a collector
+      # restart does not resend or skip log lines.
+      - otel-collector-data:/var/lib/otelcol
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+      prometheus:
+        condition: service_started
+
+  tempo:
+    image: grafana/tempo:2.10.10
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+
+  loki:
+    image: grafana/loki:3.6.20
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${OBSERVABILITY_METRICS_RETENTION:-15d}
+      - --web.enable-otlp-receiver
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:13.2.5
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    environment:
+      # Default admin/admin; Grafana asks for a new password at first sign-in.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+volumes:
+  app-logs:
+  otel-collector-data:
+  tempo-data:
+  loki-data:
+  prometheus-data:
+  grafana-data:

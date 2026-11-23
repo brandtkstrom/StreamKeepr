@@ -45,6 +45,16 @@ callback, media, Blazor WebSocket, and health paths, and never exports tokens, O
 chat text, or channel logins. See [`docs/runtime-contract.md`](docs/runtime-contract.md) for the
 full contract.
 
+For a ready-made backend, `compose.observability.yaml` adds an OpenTelemetry Collector,
+Prometheus, Loki, Tempo, and Grafana to the Compose deployment, with structured logs, health
+probes, metrics, and traces wired together and a provisioned dashboard:
+
+```bash
+docker compose -f compose.yaml -f compose.observability.yaml up -d --build
+```
+
+See [`observability/README.md`](observability/README.md).
+
 ## Mock profile (no Twitch credentials)
 
 The `Mock` launch profile runs the whole app without Twitch, OAuth, or production data. It is a

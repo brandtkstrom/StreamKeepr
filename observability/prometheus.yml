@@ -1,0 +1,22 @@
+# Metrics arrive by OTLP push from the collector (--web.enable-otlp-receiver),
+# so nothing is scraped except Prometheus itself.
+global:
+  scrape_interval: 30s
+
+otlp:
+  # Copy these resource attributes onto every series so queries can filter
+  # on service_name without joining target_info.
+  promote_resource_attributes:
+    - service.name
+    - service.version
+    - deployment.environment.name
+
+storage:
+  tsdb:
+    # OTLP batches can arrive slightly out of order.
+    out_of_order_time_window: 30m
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: [localhost:9090]

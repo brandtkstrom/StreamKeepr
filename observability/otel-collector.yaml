@@ -1,0 +1,117 @@
+# OpenTelemetry Collector for compose.observability.yaml.
+#
+# In:  OTLP traces and metrics from the app, the app's compact-JSON Serilog files,
+#      and HTTP probes of /health/live and /health/ready.
+# Out: traces → Tempo, metrics → Prometheus (OTLP receiver), logs → Loki (OTLP).
+
+extensions:
+  file_storage:
+    directory: /var/lib/otelcol
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Serilog's CompactJsonFormatter: one JSON object per line with @t timestamp,
+  # @mt message template, @l level (absent means Information), @x exception,
+  # @tr/@sp trace and span ids, and every event property at the top level.
+  file_log:
+    include: [/logs/log-*.json]
+    start_at: beginning
+    storage: file_storage
+    resource:
+      service.name: streamkeepr
+    operators:
+      - type: json_parser
+        timestamp:
+          parse_from: attributes["@t"]
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05.999999999Z07:00"
+      - type: add
+        if: 'attributes["@l"] == nil'
+        field: attributes["@l"]
+        value: Information
+      - type: severity_parser
+        parse_from: attributes["@l"]
+        mapping:
+          trace: Verbose
+          debug: Debug
+          info: Information
+          warn: Warning
+          error: Error
+          fatal: Fatal
+      - type: trace_parser
+        if: 'attributes["@tr"] != nil'
+        trace_id:
+          parse_from: attributes["@tr"]
+        span_id:
+          parse_from: attributes["@sp"]
+      - type: move
+        from: attributes["@mt"]
+        to: body
+      - type: move
+        if: 'attributes["@x"] != nil'
+        from: attributes["@x"]
+        to: attributes["exception.stacktrace"]
+      - type: remove
+        field: attributes["@t"]
+      - type: remove
+        field: attributes["@l"]
+      - type: remove
+        if: 'attributes["@tr"] != nil'
+        field: attributes["@tr"]
+      - type: remove
+        if: 'attributes["@sp"] != nil'
+        field: attributes["@sp"]
+
+  # httpcheck_status{http_url=...,http_status_class="2xx"} is 1 while a probe
+  # answers 2xx. /health/ready answers 503 when unhealthy (see Program.cs).
+  http_check:
+    collection_interval: 15s
+    targets:
+      - endpoint: http://stream-keepr:8080/health/live
+        method: GET
+      - endpoint: http://stream-keepr:8080/health/ready
+        method: GET
+
+processors:
+  batch: {}
+  resource/health:
+    attributes:
+      - key: service.name
+        value: streamkeepr-healthcheck
+        action: upsert
+
+exporters:
+  otlp_grpc/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  otlp_http/prometheus:
+    endpoint: http://prometheus:9090/api/v1/otlp
+  otlp_http/loki:
+    endpoint: http://loki:3100/otlp
+
+service:
+  extensions: [file_storage]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp_grpc/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp_http/prometheus]
+    metrics/health:
+      receivers: [http_check]
+      processors: [resource/health, batch]
+      exporters: [otlp_http/prometheus]
+    logs:
+      receivers: [file_log, otlp]
+      processors: [batch]
+      exporters: [otlp_http/loki]
