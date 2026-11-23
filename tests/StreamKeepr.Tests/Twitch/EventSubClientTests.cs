@@ -655,6 +655,34 @@ public sealed class EventSubClientTests : IDisposable
     }
 
     [Fact]
+    public async Task Channel_change_is_not_reported_as_a_keepalive_timeout_when_the_watchdog_completes_first()
+    {
+        // Cancelling the session completes both the receive and the keepalive watchdog. With a
+        // socket that finishes its cancelled receive late, the watchdog always wins the race.
+        _socketFactory.SlowReceiveCancellation = true;
+        using var logs = new ListLoggerProvider();
+        using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+        EventSubClient client = CreateClient(logger: loggerFactory.CreateLogger<EventSubClient>());
+        using var stop = new CancellationTokenSource();
+        Task run = client.RunAsync((_, _, _) => ValueTask.CompletedTask, stop.Token);
+
+        await _socketFactory.LastSocket!.Connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _socketFactory.LastSocket.Push(Welcome("session-1"));
+        await _socketFactory.LastSocket.Subscribed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await _channels.AddAsync(
+            new ChannelEntry("other", UserId: "456", DisplayName: "Other"), CancellationToken.None);
+        await logs.WaitForAsync("reconnecting immediately");
+
+        stop.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Contains(
+            (LogLevel.Information, "EventSub WebSocket session closed: watched channels changed."),
+            logs.Entries.Select(entry => (entry.Level, entry.Message)));
+        Assert.DoesNotContain(logs.Entries, entry => entry.Level >= LogLevel.Warning);
+    }
+
+    [Fact]
     public async Task Revocation_backoff_logs_the_reason_without_the_token_or_payload()
     {
         using var logs = new ListLoggerProvider();
