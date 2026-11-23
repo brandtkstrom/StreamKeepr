@@ -12,6 +12,13 @@
       unchanged. Remove when the SDK serves compressed build assets correctly.
     -->
     <DisableBuildCompression Condition="'$(Configuration)' == 'Debug'">true</DisableBuildCompression>
+    <!--
+      The Web SDK infers this from .razor Content items, but the Dockerfile restores with only
+      this file copied, so restore saw none and skipped the package that ships
+      _framework/blazor.web.js. Without it the published app 404s that script and never goes
+      interactive. Set explicitly so restore does not depend on which sources are present.
+    -->
+    <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
   </PropertyGroup>
 
   <ItemGroup>
