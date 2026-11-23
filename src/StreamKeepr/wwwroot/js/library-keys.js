@@ -40,14 +40,24 @@ function selectedOption(drawer) {
   return drawer.querySelector(`[data-channel-list] ${OPTION}[aria-selected="true"]`);
 }
 
-/** Waits a few frames for Blazor to render the column for `login`, then focuses its first row. */
-function focusColumnWhenOpen(drawer, login, frames = 30) {
+// How long a selected channel's column may take to render before its focus move is dropped.
+const COLUMN_WAIT_MS = 5_000;
+
+/**
+ * Focuses the first row of `login`'s column once Blazor renders it. The render waits on a round
+ * trip to the server, which can take seconds on a slow link, so this waits by time rather than
+ * frames. It gives up once focus has left the drawer, so it never pulls the viewer back.
+ */
+function focusColumnWhenOpen(drawer, login, deadline = Date.now() + COLUMN_WAIT_MS) {
+  const doc = drawer.ownerDocument;
+  const active = doc.activeElement;
+  if (active && active !== doc.body && !drawer.contains(active)) return;
   const row = withData(drawer.querySelectorAll(COLUMN), "data-recordings-column", login)?.querySelector(ROW);
   if (row) {
     row.focus();
     return;
   }
-  if (frames > 0) requestAnimationFrame(() => focusColumnWhenOpen(drawer, login, frames - 1));
+  if (Date.now() < deadline) requestAnimationFrame(() => focusColumnWhenOpen(drawer, login, deadline));
 }
 
 // Matches a data attribute by value without building a selector from it.

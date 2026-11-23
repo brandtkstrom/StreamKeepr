@@ -1,5 +1,7 @@
 // App-bar search: debounces typing so the circuit sees one query per pause, never one per
 // keystroke. shortcuts.js asks for an immediate clear with an `sk:search-clear` event.
+import { callDotNet } from "/js/circuit.js";
+
 export const DEBOUNCE_MS = 250;
 
 const state = new WeakMap();
@@ -12,7 +14,7 @@ export function init(input, dotNetRef, delay = DEBOUNCE_MS) {
   const send = (value) => {
     clearTimeout(entry.timer);
     entry.timer = 0;
-    void entry.dotNetRef?.invokeMethodAsync("Search", value).catch(() => {});
+    void callDotNet(entry.dotNetRef, "Search", value).catch(() => {});
   };
 
   entry.onInput = () => {

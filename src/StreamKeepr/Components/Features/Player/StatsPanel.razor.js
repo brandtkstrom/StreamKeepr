@@ -1,3 +1,4 @@
+import { callDotNet } from "/js/circuit.js";
 import {
   buildSnapshot,
   copyText,
@@ -237,7 +238,7 @@ export function createStatsPanel(root, {
 
   async function persistOpen(value) {
     try {
-      await dotNet?.invokeMethodAsync("SetStatsOpen", value);
+      await callDotNet(dotNet, "SetStatsOpen", value);
     } catch (error) {
       // A closed circuit has no snackbar or preference store left to update; the DOM
       // already reflects the user's action.
@@ -247,7 +248,7 @@ export function createStatsPanel(root, {
 
   async function notify(message) {
     try {
-      await dotNet?.invokeMethodAsync("Notify", message);
+      await callDotNet(dotNet, "Notify", message);
     } catch (error) {
       console.debug("Stream Keepr: stats snackbar was not delivered.", error);
     }
