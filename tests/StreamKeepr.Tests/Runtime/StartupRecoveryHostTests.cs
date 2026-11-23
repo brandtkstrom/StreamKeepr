@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -44,7 +45,7 @@ public sealed class StartupRecoveryHostTests
     }
 
     [Fact]
-    public async Task Recovery_failure_stops_host_startup()
+    public async Task Recovery_failure_stops_the_host_without_starting_channels()
     {
         using var context = new SessionStoreTestContext();
         await SeedAsync(context, context.Session, context.Live);
@@ -69,7 +70,17 @@ public sealed class StartupRecoveryHostTests
             },
             recordingsRoot: context.Root);
 
-        Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+        // Recovery runs after the server starts listening, so the host comes up and then
+        // stops itself; it never loads the library or starts a channel.
+        using var client = factory.CreateClient();
+        CancellationToken stopping = factory.Services
+            .GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
+        await Task.Delay(Timeout.Infinite, stopping)
+            .ContinueWith(_ => { }, TaskScheduler.Default)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(factory.Services.GetRequiredService<RecordingLibrary>().IsLoaded);
+        Assert.Empty(factory.Services.GetRequiredService<DvrStatus>().Current);
     }
 
     [Fact]

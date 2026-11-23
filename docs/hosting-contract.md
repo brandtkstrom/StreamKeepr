@@ -102,7 +102,7 @@ Runs only `DvrHealthCheck`, tagged `live`.
 
 Runs all checks: DVR, disk, and a `LibraryLoadedHealthCheck` that requires `RecordingLibrary.IsLoaded`.
 
-- False until startup recovery has scanned the disk.
+- False until startup recovery has scanned the disk. Recovery runs after the server starts listening (runtime contract §7), so `/health/live` and the UI answer during the scan.
 - Disk: unhealthy below `MinFreeGb`, degraded below twice that.
 - Readiness is for monitoring and orchestration; Docker’s image healthcheck uses `/health/live`.
 
@@ -183,7 +183,7 @@ Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6
 | Stuck poller | `/health/live` unhealthy after the push-aware budget |
 | Stuck channel loop or stalled media | `/health/live` unhealthy |
 | Disk below `MinFreeGb` | `/health/ready` unhealthy; recording stops |
-| Library still recovering | `/health/ready` false |
+| Library still recovering | `/health/ready` false; the UI shows skeletons |
 | Missing ffmpeg/ffprobe/streamlink | Startup fails with a clear message |
 | Unwritable recordings/keys | Startup fails with UID 1654 guidance |
 | Missing secrets | Options validation fails startup |
