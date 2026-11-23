@@ -7,6 +7,7 @@
   "timezone": "browser",
   "schemaVersion": 41,
   "version": 1,
+  "description": "service is StreamKeeprTelemetry.ServiceName; keep it in step with observability/otel-collector.yaml.",
   "refresh": "30s",
   "time": {
     "from": "now-3h",
@@ -15,6 +16,18 @@
   "editable": false,
   "templating": {
     "list": [
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "constant",
+        "hide": 2,
+        "query": "streamkeepr",
+        "description": "StreamKeeprTelemetry.ServiceName",
+        "current": {
+          "text": "streamkeepr",
+          "value": "streamkeepr"
+        }
+      },
       {
         "name": "level",
         "label": "Log level",
@@ -69,7 +82,6 @@
       "targets": [
         {
           "expr": "max(httpcheck_status{http_url=\"http://stream-keepr:8080/health/live\",http_status_class=\"2xx\"})",
-          "instant": false,
           "refId": "A",
           "datasource": {
             "type": "prometheus",
@@ -140,7 +152,6 @@
       "targets": [
         {
           "expr": "max(httpcheck_status{http_url=\"http://stream-keepr:8080/health/ready\",http_status_class=\"2xx\"})",
-          "instant": false,
           "refId": "A",
           "datasource": {
             "type": "prometheus",
@@ -210,7 +221,7 @@
       },
       "targets": [
         {
-          "expr": "max(streamkeepr_storage_free_bytes{service_name=\"streamkeepr\"})",
+          "expr": "max(streamkeepr_storage_free_bytes{service_name=\"$service\"})",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
@@ -249,7 +260,7 @@
       },
       "targets": [
         {
-          "expr": "max(streamkeepr_twitch_poll_age_seconds{service_name=\"streamkeepr\"})",
+          "expr": "max(streamkeepr_twitch_poll_age_seconds{service_name=\"$service\"})",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
@@ -307,7 +318,7 @@
     {
       "id": 7,
       "type": "row",
-      "title": "Recorder",
+      "title": "Twitch",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -319,7 +330,7 @@
     },
     {
       "id": 8,
-      "title": "Channels by DVR state",
+      "title": "EventSub push coverage",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -328,12 +339,119 @@
       "gridPos": {
         "x": 0,
         "y": 12,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "expr": "max(streamkeepr_twitch_push_coverage_ratio{service_name=\"$service\"})",
+          "legendFormat": "covered",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "title": "EventSub connected",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 12,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "expr": "max(streamkeepr_eventsub_connected_ratio{service_name=\"$service\"})",
+          "legendFormat": "connected",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "title": "EventSub reconnects (per hour)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 12,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "expr": "sum by (eventsub_transport) (increase(streamkeepr_eventsub_reconnects_total{service_name=\"$service\"}[1h]))",
+          "legendFormat": "{{eventsub_transport}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Recorder",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "title": "Channels by DVR state",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "sum by (dvr_state) (streamkeepr_dvr_channels{service_name=\"streamkeepr\"})",
+          "expr": "sum by (dvr_state) (streamkeepr_dvr_channels{service_name=\"$service\"})",
           "legendFormat": "{{dvr_state}}",
           "refId": "A",
           "datasource": {
@@ -355,7 +473,7 @@
       }
     },
     {
-      "id": 9,
+      "id": 13,
       "title": "Recorder events (per hour)",
       "type": "timeseries",
       "datasource": {
@@ -364,13 +482,13 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 12,
+        "y": 20,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "sum by (recorder_exit_kind) (increase(streamkeepr_recorder_parts_total[1h]))",
+          "expr": "sum by (recorder_exit_kind) (increase(streamkeepr_recorder_parts_total{service_name=\"$service\"}[1h]))",
           "legendFormat": "parts: {{recorder_exit_kind}}",
           "refId": "A",
           "datasource": {
@@ -379,7 +497,7 @@
           }
         },
         {
-          "expr": "sum(increase(streamkeepr_recorder_stalls_total[1h]))",
+          "expr": "sum(increase(streamkeepr_recorder_stalls_total{service_name=\"$service\"}[1h]))",
           "legendFormat": "stalls",
           "refId": "B",
           "datasource": {
@@ -388,18 +506,9 @@
           }
         },
         {
-          "expr": "sum(increase(streamkeepr_recorder_force_kills_total[1h]))",
+          "expr": "sum(increase(streamkeepr_recorder_force_kills_total{service_name=\"$service\"}[1h]))",
           "legendFormat": "force kills",
           "refId": "C",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          }
-        },
-        {
-          "expr": "sum(increase(streamkeepr_eventsub_reconnects_total[1h]))",
-          "legendFormat": "EventSub reconnects",
-          "refId": "D",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -408,21 +517,8 @@
       ]
     },
     {
-      "id": 10,
-      "type": "row",
-      "title": "HTTP",
-      "collapsed": false,
-      "gridPos": {
-        "x": 0,
-        "y": 20,
-        "w": 24,
-        "h": 1
-      },
-      "panels": []
-    },
-    {
-      "id": 11,
-      "title": "Request rate by route",
+      "id": 14,
+      "title": "Part duration p50 / p95",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -430,45 +526,13 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 21,
-        "w": 12,
+        "y": 28,
+        "w": 8,
         "h": 8
       },
       "targets": [
         {
-          "expr": "sum by (http_route, http_response_status_code) (rate(http_server_request_duration_seconds_count{service_name=\"streamkeepr\"}[$__rate_interval]))",
-          "legendFormat": "{{http_route}} {{http_response_status_code}}",
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps"
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 12,
-      "title": "Request latency p50 / p95",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 21,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"streamkeepr\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(streamkeepr_recorder_part_duration_seconds_bucket{service_name=\"$service\"}[$__rate_interval])))",
           "legendFormat": "p50",
           "refId": "A",
           "datasource": {
@@ -477,7 +541,7 @@
           }
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"streamkeepr\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(streamkeepr_recorder_part_duration_seconds_bucket{service_name=\"$service\"}[$__rate_interval])))",
           "legendFormat": "p95",
           "refId": "B",
           "datasource": {
@@ -494,7 +558,169 @@
       }
     },
     {
-      "id": 13,
+      "id": 15,
+      "title": "Part size p50 / p95",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 28,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(streamkeepr_recorder_part_size_bytes_bucket{service_name=\"$service\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(streamkeepr_recorder_part_size_bytes_bucket{service_name=\"$service\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 16,
+      "title": "Chat drops and export jobs (per hour)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 28,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(streamkeepr_chat_dropped_total{service_name=\"$service\"}[1h]))",
+          "legendFormat": "chat messages dropped",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "sum by (export_outcome) (increase(streamkeepr_export_jobs_total{service_name=\"$service\"}[1h]))",
+          "legendFormat": "exports: {{export_outcome}}",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "HTTP",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 18,
+      "title": "Request rate by route",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (http_route, http_response_status_code) (rate(http_server_request_duration_seconds_count{service_name=\"$service\"}[$__rate_interval]))",
+          "legendFormat": "{{http_route}} {{http_response_status_code}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 19,
+      "title": "Request latency p50 / p95",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 37,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"$service\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"$service\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 20,
       "title": "Twitch API calls (HTTP client)",
       "type": "timeseries",
       "datasource": {
@@ -503,13 +729,13 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 29,
+        "y": 45,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "sum by (server_address, http_response_status_code) (rate(http_client_request_duration_seconds_count{service_name=\"streamkeepr\"}[$__rate_interval]))",
+          "expr": "sum by (server_address, http_response_status_code) (rate(http_client_request_duration_seconds_count{service_name=\"$service\"}[$__rate_interval]))",
           "legendFormat": "{{server_address}} {{http_response_status_code}}",
           "refId": "A",
           "datasource": {
@@ -526,7 +752,7 @@
       }
     },
     {
-      "id": 14,
+      "id": 21,
       "title": ".NET runtime",
       "type": "timeseries",
       "datasource": {
@@ -535,13 +761,13 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 29,
+        "y": 45,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "max(dotnet_process_memory_working_set_bytes{service_name=\"streamkeepr\"})",
+          "expr": "max(dotnet_process_memory_working_set_bytes{service_name=\"$service\"})",
           "legendFormat": "working set",
           "refId": "A",
           "datasource": {
@@ -550,7 +776,7 @@
           }
         },
         {
-          "expr": "max(dotnet_gc_last_collection_heap_size_bytes{service_name=\"streamkeepr\"})",
+          "expr": "max(dotnet_gc_last_collection_heap_size_bytes{service_name=\"$service\"})",
           "legendFormat": "GC heap",
           "refId": "B",
           "datasource": {
@@ -567,20 +793,20 @@
       }
     },
     {
-      "id": 15,
+      "id": 22,
       "type": "row",
       "title": "Logs and traces",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 37,
+        "y": 53,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 16,
+      "id": 23,
       "title": "Warnings and errors",
       "type": "timeseries",
       "datasource": {
@@ -589,13 +815,13 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 38,
+        "y": 54,
         "w": 24,
         "h": 6
       },
       "targets": [
         {
-          "expr": "sum by (severity_text) (count_over_time({service_name=\"streamkeepr\"} | severity_text=~\"Warning|Error|Fatal\" [$__auto]))",
+          "expr": "sum by (severity_text) (count_over_time({service_name=\"$service\"} | severity_text=~\"Warning|Error|Fatal\" [$__auto]))",
           "legendFormat": "{{severity_text}}",
           "refId": "A",
           "datasource": {
@@ -615,7 +841,7 @@
       }
     },
     {
-      "id": 17,
+      "id": 24,
       "title": "Logs",
       "type": "logs",
       "datasource": {
@@ -624,13 +850,13 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 44,
+        "y": 60,
         "w": 24,
         "h": 12
       },
       "targets": [
         {
-          "expr": "{service_name=\"streamkeepr\"} | severity_text=~\"$level\"",
+          "expr": "{service_name=\"$service\"} | severity_text=~\"$level\"",
           "refId": "A",
           "datasource": {
             "type": "loki",
@@ -647,7 +873,7 @@
       }
     },
     {
-      "id": 18,
+      "id": 25,
       "title": "Recent traces",
       "type": "table",
       "datasource": {
@@ -656,14 +882,14 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 56,
+        "y": 72,
         "w": 24,
         "h": 10
       },
       "targets": [
         {
           "queryType": "traceql",
-          "query": "{resource.service.name=\"streamkeepr\"}",
+          "query": "{resource.service.name=\"$service\"}",
           "limit": 20,
           "tableType": "traces",
           "refId": "A",

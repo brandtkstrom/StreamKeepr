@@ -1,15 +1,16 @@
-# Metrics arrive by OTLP push from the collector (--web.enable-otlp-receiver),
-# so nothing is scraped except Prometheus itself.
+# Metrics arrive by OTLP push from the collector (--web.enable-otlp-receiver in
+# compose.observability.yaml) rather than a scrape of a collector Prometheus
+# exporter, so the collector exposes no metrics port. scrape_interval below only
+# applies to Prometheus scraping itself.
 global:
   scrape_interval: 30s
 
 otlp:
-  # Copy these resource attributes onto every series so queries can filter
-  # on service_name without joining target_info.
+  # Only service.name is copied onto every series so queries can filter on
+  # service_name. Version and instance stay on target_info: as labels they would
+  # start new series on every deploy (docs/research/opentelemetry.md §7).
   promote_resource_attributes:
     - service.name
-    - service.version
-    - deployment.environment.name
 
 storage:
   tsdb:

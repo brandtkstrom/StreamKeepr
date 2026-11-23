@@ -38,6 +38,7 @@ datasources:
         spanEndTimeShift: "5m"
         filterByTraceID: true
         customQuery: true
+        # service_name is StreamKeeprTelemetry.ServiceName (see otel-collector.yaml).
         query: '{service_name="streamkeepr"} | trace_id="$${__span.traceId}"'
       nodeGraph:
         enabled: true

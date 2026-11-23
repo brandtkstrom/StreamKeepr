@@ -1,5 +1,6 @@
 # Single-binary Loki with filesystem storage, for compose.observability.yaml.
-# Logs arrive over OTLP; event properties become structured metadata.
+# The app writes Serilog JSON files; the collector tails them and pushes each line
+# to Loki's OTLP endpoint, where event properties become structured metadata.
 auth_enabled: false
 
 server:

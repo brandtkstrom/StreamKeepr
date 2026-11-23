@@ -148,7 +148,7 @@ Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6
 
 ### `.dockerignore`
 
-`**/bin/`, `**/obj/`, `.git/`, `.vs/`, `.idea/`, `.agents/`, `.claude/`, `.serena/`, `.github/`, `**/secrets/`, `**/.env`, `recordings/`, `tests/`, `*.md`, `docs/`, `AGENTS.md`, `GLOSSARY.md`, `*.sln.DotSettings.user`.
+`**/bin/`, `**/obj/`, `.git/`, `.vs/`, `.idea/`, `.agents/`, `.claude/`, `.serena/`, `.github/`, `**/secrets/`, `**/.env`, `recordings/`, `tests/`, `observability/`, `*.md`, `docs/`, `AGENTS.md`, `GLOSSARY.md`, `*.sln.DotSettings.user`.
 
 ### Compose
 
@@ -159,6 +159,17 @@ Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6
 - Volume: `recordings:/recordings`; bind mount requires `chown -R 1654:1654 ./recordings`.
 - Logging: `json-file`, `max-size: 10m`, `max-file: 5`. The app writes through Serilog's console sink, configured by the `Serilog` section; outside Testing and Mock it also writes the same events as compact JSON to `<recordings>/.streamkeepr/logs/`, rolling daily with a 50 MB per-file cap and seven retained files. `Serilog__MinimumLevel__…` environment variables change levels on restart; `Serilog__File__Enabled=false` disables the JSON files and `Serilog__File__Path` relocates them. An unwritable log directory fails startup like an unwritable recordings root.
 - The image healthcheck is inherited; no Compose override.
+
+### Observability overlay
+
+`compose.observability.yaml` is optional and applies only when passed with `-f` after `compose.yaml`. Passing the file is the opt-in, so it has no Compose profile and sets `Telemetry__Enabled=true` itself. `compose.yaml` stays unchanged. Configuration lives in `observability/`; usage is in `observability/README.md`.
+
+- Services: `otel-collector`, `tempo`, `loki`, `prometheus`, `grafana`, and a one-off `volume-init`. Images are pinned by exact tag. Each long-running service has a `mem_limit`, and the collector runs `memory_limiter` first in every pipeline.
+- The app exports OTLP/gRPC to `otel-collector:4317`. The collector pushes metrics to Prometheus's OTLP receiver, which promotes only `service.name` to a label, so deploys do not start new series. Traces go to Tempo, logs to Loki.
+- Logs: the overlay sets `Serilog__File__Path=/logs/log-.json` on an `app-logs` volume, so the JSON files move there from `<recordings>/.streamkeepr/logs/`. The collector reads them read-only. Serilog remains the only logging pipeline; no OTLP log export.
+- Health: the collector probes `/health/live` and `/health/ready` every 15 s and records `httpcheck_status` in Prometheus. The image healthcheck is unchanged.
+- `volume-init` runs as root only to `chown` fresh volumes (`app-logs` to 1654, `tempo-data` and `otel-collector-data` to 10001), then exits. Every long-running service keeps its image's non-root user. The app waits for it to finish, because an unwritable log directory fails startup. The app does not need the collector: exports time out after 3 s and are dropped.
+- Ports: Grafana `3000` and Prometheus `9090` bind to `127.0.0.1` only. Tempo, Loki, and the collector publish nothing. Grafana's admin password comes from the `grafana_admin_password` secret file.
 
 ## 9. Shutdown
 

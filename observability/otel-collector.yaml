@@ -1,8 +1,13 @@
 # OpenTelemetry Collector for compose.observability.yaml.
 #
-# In:  OTLP traces and metrics from the app, the app's compact-JSON Serilog files,
+# In:  OTLP/gRPC traces and metrics from the app, the app's compact-JSON Serilog
+#      files (Serilog is the only logging pipeline; OTLP logs are deferred to #197),
 #      and HTTP probes of /health/live and /health/ready.
-# Out: traces → Tempo, metrics → Prometheus (OTLP receiver), logs → Loki (OTLP).
+# Out: traces → Tempo, metrics pushed to Prometheus's OTLP receiver, logs pushed to
+#      Loki's OTLP endpoint.
+#
+# "streamkeepr" below, in grafana/provisioning, and in the dashboard's service
+# variable is StreamKeeprTelemetry.ServiceName; change them together.
 
 extensions:
   file_storage:
@@ -11,10 +16,9 @@ extensions:
 receivers:
   otlp:
     protocols:
+      # The app exports OTLP over gRPC (OTEL_EXPORTER_OTLP_PROTOCOL in the overlay).
       grpc:
         endpoint: 0.0.0.0:4317
-      http:
-        endpoint: 0.0.0.0:4318
 
   # Serilog's CompactJsonFormatter: one JSON object per line with @t timestamp,
   # @mt message template, @l level (absent means Information), @x exception,
@@ -69,7 +73,9 @@ receivers:
         field: attributes["@sp"]
 
   # httpcheck_status{http_url=...,http_status_class="2xx"} is 1 while a probe
-  # answers 2xx. /health/ready answers 503 when unhealthy (see Program.cs).
+  # answers 2xx. /health/ready answers 503 when unhealthy (see Program.cs). The
+  # paths are docs/hosting-contract.md's health endpoints; the dashboard reads the
+  # same URLs.
   http_check:
     collection_interval: 15s
     targets:
@@ -79,6 +85,12 @@ receivers:
         method: GET
 
 processors:
+  # First in every pipeline: refuses data before the collector exceeds its
+  # container mem_limit (compose.observability.yaml) instead of being OOM-killed.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 200
+    spike_limit_mib: 50
   batch: {}
   resource/health:
     attributes:
@@ -101,17 +113,17 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch]
+      processors: [memory_limiter, batch]
       exporters: [otlp_grpc/tempo]
     metrics:
       receivers: [otlp]
-      processors: [batch]
+      processors: [memory_limiter, batch]
       exporters: [otlp_http/prometheus]
     metrics/health:
       receivers: [http_check]
-      processors: [resource/health, batch]
+      processors: [memory_limiter, resource/health, batch]
       exporters: [otlp_http/prometheus]
     logs:
-      receivers: [file_log, otlp]
-      processors: [batch]
+      receivers: [file_log]
+      processors: [memory_limiter, batch]
       exporters: [otlp_http/loki]

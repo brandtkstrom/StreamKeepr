@@ -47,7 +47,8 @@ full contract.
 
 For a ready-made backend, `compose.observability.yaml` adds an OpenTelemetry Collector,
 Prometheus, Loki, Tempo, and Grafana to the Compose deployment, with structured logs, health
-probes, metrics, and traces wired together and a provisioned dashboard:
+probes, metrics, and traces wired together and a provisioned dashboard. It also needs a
+Grafana admin password in `secrets/grafana_admin_password.txt` (copy the `.example` file):
 
 ```bash
 docker compose -f compose.yaml -f compose.observability.yaml up -d --build
