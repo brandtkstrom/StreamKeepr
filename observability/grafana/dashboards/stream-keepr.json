@@ -787,7 +787,7 @@
       },
       "targets": [
         {
-          "expr": "{service_name=\"$service\"} | SourceContext=\"StreamKeepr.Infrastructure.Runtime.ChannelCoordinator\" | line_format \"{{.Channel}}: {{.From}} -> {{.To}} on {{.Event}}\"",
+          "expr": "{service_name=\"$service\"} | SourceContext=~\"StreamKeepr\\\\.Channel\\\\..+\" | line_format \"{{.Channel}}: {{.From}} -> {{.To}} on {{.Event}}\"",
           "refId": "A",
           "datasource": {
             "type": "loki",
