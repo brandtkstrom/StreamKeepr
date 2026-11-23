@@ -41,9 +41,12 @@ function setModalDrawer(open, modal = true) {
   modalOpen = open;
 
   if (open) {
-    lastFocus =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    focusableElements()[0]?.focus();
+    const active = document.activeElement;
+    lastFocus = active instanceof HTMLElement ? active : null;
+    // Opened from inside the drawer (→ on a rail avatar, which library-keys.js follows into
+    // the channel's recordings), focus is already where the viewer asked for it. This call
+    // lands a render later, so moving focus here would undo that move.
+    if (!drawer?.contains(active)) focusableElements()[0]?.focus();
   } else {
     // Give focus back only if it is still in the drawer or was lost with it. A drawer action
     // that closes the drawer may already have moved focus on (Clear search focuses the search

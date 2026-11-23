@@ -39,6 +39,18 @@ describe("AppShell.razor.js temporary drawer focus", () => {
     expect(document.activeElement).toBe(elements.library);
   });
 
+  it("leaves focus alone on open when it is already in the drawer", () => {
+    // → on a rail avatar opens the library, and library-keys.js has moved focus to the channel's
+    // first recording; the open must not pull it back to the drawer's first control.
+    document.getElementById("sk-drawer").insertAdjacentHTML("beforeend", "<a id='recording' href='/r/1'>Recording</a>");
+    const recording = document.getElementById("recording");
+    recording.focus();
+
+    shell.setModalDrawer(true);
+
+    expect(document.activeElement).toBe(recording);
+  });
+
   it("returns focus when it was lost with the drawer", () => {
     elements.library.focus();
     shell.setModalDrawer(true);
