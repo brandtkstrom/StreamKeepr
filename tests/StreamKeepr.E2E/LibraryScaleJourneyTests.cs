@@ -20,7 +20,9 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
     private const int SeededCount = 8;
     private const int ScrollSteps = 60;
     private const int WarmLoads = 3;
-    private const int MinFlattenedItems = 2000;
+    // Each channel's column holds its share of the archive (the seed spreads it over the mock
+    // channels), so the longest column is at least this many rows.
+    private const int MinColumnRows = 200;
 
     private static readonly TimeSpan ColdFirstByteBudget = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan LoadBudget = TimeSpan.FromSeconds(2);
@@ -58,13 +60,15 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
         // so in CI it guards server warm-up, not the WPAD wait (see E2EBrowser).
         double coldFirstByteMs = await FirstByteMsAsync(page);
 
-        // Warm: reload until every row is in the DOM and the circuit is interactive. The rows
-        // are prerendered, so this mostly measures HTML size and circuit start.
+        // Warm: reload until every channel's count is in and the circuit is interactive. The
+        // channels are prerendered, so this mostly measures HTML size and circuit start.
         var warm = new List<(double FirstByte, double Ready)>();
         for (int i = 0; i < WarmLoads; i++)
         {
             await page.ReloadAsync(new() { WaitUntil = WaitUntilState.DOMContentLoaded });
             await page.Locator($"{Search}[data-sk-ready]").WaitForAsync();
+            // The counts are in the open library (Md and up it starts as the rail).
+            await LibraryHooks.OpenLibraryAsync(page);
             await WaitForRowsAsync(page, totalRows);
             warm.Add((await FirstByteMsAsync(page), await page.EvaluateAsync<double>("() => performance.now()")));
         }
@@ -73,8 +77,23 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
         double warmReadyMs = Median(warm.Select(load => load.Ready));
         int htmlKb = await page.EvaluateAsync<int>(
             "() => Math.round(performance.getEntriesByType('navigation')[0].decodedBodySize / 1024)");
+        // The longest column: the channel with the most recordings.
+        string longest = await page.EvaluateAsync<string>("""
+            () => [...document.querySelectorAll('nav[aria-label=Library] [data-library-channel]')]
+              .map(o => [o.dataset.libraryChannel, +o.querySelector('[data-channel-count]').textContent])
+              .sort((a, b) => b[1] - a[1])[0][0]
+            """);
+        double openMs = await TimeUntilAsync(
+            page,
+            () => LibraryHooks.OpenChannelAsync(page, longest),
+            "() => document.querySelectorAll('[data-recordings-column] a[data-recording-id]').length > 0",
+            null);
+        int columnRows = await page.Locator(RowSelector).CountAsync();
         int flattened = await page.Locator(
-            $"{LibraryHooks.Drawer} :is([data-streamer-group], [data-day-header], a[data-recording-id])").CountAsync();
+            $"{LibraryHooks.Drawer} :is([data-library-channel], [data-day-header], a[data-recording-id])").CountAsync();
+        int capturing = (await LibraryJourneyTests.RowStatesAsync(page)).Count(state => state is "rec" or "reconnecting");
+        Assert.InRange(capturing, 1, SeededCount);
+        await LibraryHooks.OpenChannelAsync(page, longest);
 
         // Search: the first keystroke until one row is left. Includes the 250 ms debounce.
         double searchMs = await TimeUntilRowsAsync(
@@ -85,17 +104,14 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
             page, () => page.Locator(Search).PressAsync("Escape"), totalRows);
 
         // State filter: Saved hides the live captures; All brings them back. Startup recovery
-        // decides which seeded sessions are still capturing, so count them from the DOM.
-        int capturing = await page.Locator(
-            $"{LibraryHooks.Row}:is([data-state='rec'], [data-state='reconnecting'])").CountAsync();
-        Assert.InRange(capturing, 1, SeededCount);
+        // decides which seeded sessions are still capturing, so they were counted above.
         double filterMs = await TimeUntilRowsAsync(
             page, () => page.Locator("[data-filter='saved']").ClickAsync(),
             totalRows - capturing);
         await TimeUntilRowsAsync(
             page, () => page.Locator("[data-filter='all']").ClickAsync(), totalRows);
 
-        // Sort: Oldest first reorders every group, timed until the first row changes.
+        // Sort: Oldest first reorders the open column, timed until its first row changes.
         string? firstRow = await page.Locator(RowSelector).First.GetAttributeAsync("data-recording-id");
         double sortMs = await TimeUntilAsync(
             page,
@@ -110,7 +126,7 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
         // Scroll: step the drawer from top to bottom one frame at a time.
         JsonElement scroll = await page.EvaluateAsync<JsonElement>("""
             async steps => {
-              const list = document.querySelector('[data-drawer-list]');
+              const list = document.querySelector('[data-column-body]');
               const frame = () => new Promise(requestAnimationFrame);
               const deltas = [];
               list.scrollTop = 0;
@@ -140,7 +156,7 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
             string.Join(
                 Environment.NewLine,
                 $"rows                {totalRows:N0}",
-                $"flattened items     {flattened:N0} (groups + day headers + rows)",
+                $"longest column      {columnRows:N0} rows ({flattened:N0} with channels and day headers), opened in {openMs:N0} ms",
                 $"cold first byte     {coldFirstByteMs,8:N0} ms (budget {ColdFirstByteBudget.TotalMilliseconds:N0}; first page after start)",
                 $"warm first byte     {warmFirstByteMs,8:N0} ms (median of 3 reloads)",
                 $"warm ready          {warmReadyMs,8:N0} ms (budget {LoadBudget.TotalMilliseconds:N0}; all rows and the circuit)",
@@ -154,8 +170,9 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
                 $"scroll frame p95    {scroll.GetProperty("p95").GetDouble(),8:N1} ms",
                 $"frames over 50 ms   {scroll.GetProperty("over50").GetInt32()} of {ScrollSteps}"));
 
-        Assert.True(flattened >= MinFlattenedItems, $"only {flattened} flattened items rendered");
-        Assert.True(scroll.GetProperty("atBottom").GetBoolean(), "the drawer did not reach the bottom");
+        Assert.True(columnRows >= MinColumnRows, $"only {columnRows} rows in the longest column");
+        Assert.True(openMs <= ViewChangeBudget.TotalMilliseconds, $"opening the longest column took {openMs:N0} ms");
+        Assert.True(scroll.GetProperty("atBottom").GetBoolean(), "the column did not reach the bottom");
         Assert.True(
             coldFirstByteMs <= ColdFirstByteBudget.TotalMilliseconds,
             $"the first page took {coldFirstByteMs:N0} ms to its first byte");
@@ -176,7 +193,10 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
         return sorted[sorted.Length / 2];
     }
 
-    private static string RowCountIs => $"n => document.querySelectorAll('{RowSelector}').length === n";
+    // The recordings matching the view: the sum of the channels' counts.
+    private static string RowCountIs =>
+        "n => [...document.querySelectorAll('nav[aria-label=Library] [data-channel-count]')]" +
+        ".reduce((sum, c) => sum + +c.textContent, 0) === n";
 
     private static Task WaitForRowsAsync(IPage page, int rows) =>
         page.WaitForFunctionAsync(RowCountIs, rows, new() { Timeout = 30_000, PollingInterval = 10 });

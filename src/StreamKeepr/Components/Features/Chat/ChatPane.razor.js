@@ -1,10 +1,11 @@
 // Chat replay pane. Blazor renders the skeleton once; this module owns the log, polling,
-// auto-scroll, sync controls, and the C shortcut. The player owns the <video> element.
+// auto-scroll, and the C shortcut, and applies the viewer's chat sync offset, which .NET sends
+// from Settings › Chat. The player owns the <video> element.
 import { shortcutBlocked } from "/js/player-keys.js";
+import { isLiveState } from "/js/recording-state.js";
 
 const HOOKS = [
-  "chat-toggle", "chat-state", "chat-body", "chat-log", "chat-sync", "chat-sync-value",
-  "chat-sync-range", "chat-sync-reset", "chat-jump", "chat-notice",
+  "chat-state", "chat-body", "chat-log", "chat-jump", "chat-notice",
 ];
 
 const POLL_MS = 500;
@@ -24,6 +25,13 @@ const MAX_ROWS = 1000;
 // until the log overflows, the chat starts, or it has reached this far back.
 const BACKFILL_CHUNK_SEC = 120;
 const BACKFILL_MAX_SEC = 1800;
+// A playhead move larger than this between events is a seek, not playback.
+const SEEK_SEC = 2;
+// Where `scrollend` never fires, a smooth scroll counts as finished after this long without a
+// scroll event.
+const SCROLL_IDLE_MS = 150;
+// Keys that scroll the log towards older chat; they hand scrolling back to the viewer.
+const SCROLL_UP_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);
 const BADGE_LABELS = {
   broadcaster: "BROADCASTER",
   founder: "FOUNDER",
@@ -35,37 +43,7 @@ const BADGE_LABELS = {
   vip: "VIP",
 };
 
-const SYNC_PAGE_SEC = 5;
-// Keys the slider handles itself. Browsers differ on Page keys (Chrome moves a tenth of the
-// range), and each press must apply and refetch at once. "step" is the input's own step, which
-// .NET renders; the ±limit arrives in the load payload.
-const SYNC_KEY_STEPS = {
-  ArrowLeft: (step) => -step,
-  ArrowDown: (step) => -step,
-  ArrowRight: (step) => step,
-  ArrowUp: (step) => step,
-  PageDown: () => -SYNC_PAGE_SEC,
-  PageUp: () => SYNC_PAGE_SEC,
-};
-
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-
-// The readout is a timecode: "+1.5 s", "\u22123.0 s" (a true minus sign) or "0.0 s".
-function formatOffset(value) {
-  const sign = value > 0 ? "+" : value < 0 ? "\u2212" : "";
-  return `${sign}${Math.abs(value).toFixed(1)} s`;
-}
-
-/**
- * The sync slider's aria-valuetext: "1.5 seconds later", "3 seconds earlier", "0 seconds".
- * @param {number} value the offset in seconds; positive shows chat later
- */
-export function syncValueText(value) {
-  const size = Math.abs(value);
-  const unit = size === 1 ? "second" : "seconds";
-  if (size === 0) return `0 ${unit}`;
-  return `${size} ${unit} ${value > 0 ? "later" : "earlier"}`;
-}
 
 function validColor(value) {
   return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : null;
@@ -101,34 +79,6 @@ export function readableNameColor(value, ground) {
   if (!color || !ground) return color;
   const [light, dark] = [luminance(hexChannels(color)), luminance(ground)].sort((a, b) => b - a);
   return (light + 0.05) / (dark + 0.05) >= 4.5 ? color : null;
-}
-
-function readOffsets(storage) {
-  try {
-    const parsed = JSON.parse(storage?.getItem("sk-chat") || "null");
-    return parsed?.v === 1 && parsed.offsets && typeof parsed.offsets === "object"
-      ? parsed.offsets
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function readOffset(storage, recordingId, maxOffset) {
-  const offsets = readOffsets(storage);
-  const value = Number(offsets[recordingId]);
-  return Number.isFinite(value) ? clamp(value, -maxOffset, maxOffset) : 0;
-}
-
-function writeOffset(storage, recordingId, value, maxOffset) {
-  try {
-    const offsets = readOffsets(storage);
-    offsets[recordingId] = clamp(value, -maxOffset, maxOffset);
-    const entries = Object.entries(offsets).slice(-100);
-    storage?.setItem("sk-chat", JSON.stringify({ v: 1, offsets: Object.fromEntries(entries) }));
-  } catch {
-    // A disabled or full localStorage must not break replay.
-  }
 }
 
 function apiUrl(recordingId) {
@@ -242,7 +192,6 @@ export function matchEmotes(text, nativeRanges, catalog) {
 export function createChatPane(root, {
   dotNet = null,
   fetch: fetchImpl = globalThis.fetch?.bind(globalThis),
-  storage = globalThis.localStorage,
 } = {}) {
   const el = Object.fromEntries(HOOKS.map((name) => [name, root.querySelector(`[data-sk="${name}"]`)]));
   const listeners = new AbortController();
@@ -278,6 +227,17 @@ export function createChatPane(root, {
   let following = true;
   let newCount = 0;
   let lastRenderKey = "";
+  // The log's row and gap elements by key. Renders keep them, so new chat appends instead of
+  // rebuilding the log, which would jump the scroll position and lose the browser's anchor.
+  let rowNodes = new Map();
+  // What every row's markup depends on (state, emote catalog, background); a change redraws.
+  let shellKey = "";
+  // A fresh window replaces the log and lands at its end without animating.
+  let freshLog = true;
+  // The pane's own smooth scroll to the end is under way. Scroll events it causes pass rows
+  // short of the bottom; they must not read as the viewer scrolling away.
+  let autoScrolling = false;
+  let scrollIdleTimer = 0;
   let pollTimer = 0;
   // The backfill in progress, if any. It has its own request so polls never abort it.
   let backfill = null;
@@ -307,8 +267,6 @@ export function createChatPane(root, {
   function applyOpen() {
     if (!root) return;
     root.dataset.open = open ? "true" : "false";
-    el["chat-toggle"]?.setAttribute("aria-expanded", open ? "true" : "false");
-    el["chat-toggle"]?.setAttribute("aria-label", open ? "Collapse chat" : "Open chat");
     if (el["chat-body"]) el["chat-body"].inert = !open;
     announce();
     if (open) {
@@ -437,6 +395,7 @@ export function createChatPane(root, {
     windowFrom = 0;
     windowTo = 0;
     lastRenderKey = "";
+    freshLog = true;
     following = true;
     newCount = 0;
   }
@@ -459,43 +418,16 @@ export function createChatPane(root, {
       failedEmotes = new Set();
       emoteAttempted = false;
       emoteVersion++;
-      syncOffset = readOffset(storage, next.recordingId, next.maxSyncOffsetSec);
-      updateSyncVisibility();
-      showSync(syncOffset);
+      syncOffset = validOffset(next.syncOffsetSec);
       status(next.hasChat ? "Loading chat…" : "No chat captured", next.hasChat ? "loading" : "empty");
       notice("");
     }
     applyOpen();
     updateStatus();
-    updateSyncVisibility();
+    // The same recording reloaded with another offset: apply it like a Settings change.
+    if (!changed) setSyncOffset(next.syncOffsetSec);
     if (view.state === "complete" || view.state === "unavailable") stopPolling();
     if (open && (changed || !loaded)) loadCurrentWindow();
-  }
-
-  function updateSyncVisibility() {
-    if (el["chat-sync"]) el["chat-sync"].hidden = !view?.hasChat;
-  }
-
-  /**
-   * Draws `value` on the readout, the slider's value text and its centre-out fill. While a
-   * drag is in progress `value` is the thumb's, not yet the applied offset.
-   */
-  function showSync(value) {
-    const readout = el["chat-sync-value"];
-    if (readout) {
-      readout.textContent = formatOffset(value);
-      readout.dataset.zero = value === 0 ? "true" : "false";
-    }
-    const range = el["chat-sync-range"];
-    if (!range) return;
-    if (Number(range.value) !== value) range.value = String(value);
-    range.setAttribute("aria-valuetext", syncValueText(value));
-    // Before the first load there is no limit yet; the CSS draws an empty, centred fill.
-    if (!view) return;
-    const max = view.maxSyncOffsetSec;
-    const at = clamp((value + max) / (2 * max), 0, 1);
-    range.style.setProperty("--sk-sync-lo", String(Math.min(at, 0.5)));
-    range.style.setProperty("--sk-sync-hi", String(Math.max(at, 0.5)));
   }
 
   function startPolling() {
@@ -565,7 +497,6 @@ export function createChatPane(root, {
         updateJump();
       }
       updateStatus();
-      updateSyncVisibility();
       render();
       if (fresh && readable && data.hasMoreBefore && from > 0) void backfillBefore(from);
     } catch (error) {
@@ -656,7 +587,7 @@ export function createChatPane(root, {
   }
 
   function liveState() {
-    return view?.state === "recording" || view?.state === "reconnecting";
+    return isLiveState(view?.state);
   }
 
   function messageKey(message) {
@@ -696,13 +627,65 @@ export function createChatPane(root, {
       : "Jump to current time";
   }
 
+  function nearBottom() {
+    const log = el["chat-log"];
+    return log.scrollHeight - log.scrollTop - log.clientHeight < 24;
+  }
+
   function onScroll() {
-    const nearBottom = el["chat-log"].scrollHeight - el["chat-log"].scrollTop -
-      el["chat-log"].clientHeight < 24;
-    if (nearBottom !== following) {
-      following = nearBottom;
+    if (autoScrolling) {
+      // Only the viewer's own input (onScrollIntent) stops following mid-animation.
+      clearTimeout(scrollIdleTimer);
+      if (nearBottom()) autoScrolling = false;
+      else scrollIdleTimer = setTimeout(onScrollEnd, SCROLL_IDLE_MS);
+      return;
+    }
+    const atBottom = nearBottom();
+    if (atBottom !== following) {
+      following = atBottom;
       if (following) newCount = 0;
       updateJump();
+    }
+  }
+
+  /** Wheel up, touch, pointer or key input on the log hands scrolling back to the viewer. */
+  function onScrollIntent(event) {
+    // Clicks on rows (names, text selection) and keys that do not scroll up keep following;
+    // a press on the log itself is its scrollbar.
+    if (event.type === "wheel" && event.deltaY >= 0) return;
+    if (event.type === "keydown" && !SCROLL_UP_KEYS.has(event.key) &&
+      !(event.key === " " && event.shiftKey)) return;
+    if (event.type === "pointerdown" && event.target !== el["chat-log"]) return;
+    autoScrolling = false;
+    clearTimeout(scrollIdleTimer);
+  }
+
+  /** A smooth scroll whose target was read before later rows grew the log chases the end. */
+  function onScrollEnd() {
+    clearTimeout(scrollIdleTimer);
+    if (!autoScrolling) return;
+    autoScrolling = false;
+    if (following && !nearBottom()) scrollToEnd("smooth");
+  }
+
+  function prefersReducedMotion() {
+    return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+  }
+
+  /**
+   * Scrolls the log to its newest row. "smooth" animates unless the viewer prefers reduced
+   * motion; "instant" is for a fresh window, where an animation would sweep through old chat.
+   */
+  function scrollToEnd(behavior) {
+    const log = el["chat-log"];
+    if (!log) return;
+    const smooth = behavior === "smooth" && !prefersReducedMotion();
+    autoScrolling = smooth;
+    clearTimeout(scrollIdleTimer);
+    if (typeof log.scrollTo === "function") {
+      log.scrollTo({ top: log.scrollHeight, behavior: smooth ? "smooth" : "instant" });
+    } else {
+      log.scrollTop = log.scrollHeight;
     }
   }
 
@@ -710,11 +693,14 @@ export function createChatPane(root, {
     following = true;
     newCount = 0;
     updateJump();
-    if (el["chat-log"]) el["chat-log"].scrollTop = el["chat-log"].scrollHeight;
+    // Up to MAX_ROWS of scrollback may lie between; an animation would sweep through it all.
+    scrollToEnd("instant");
   }
 
-  function render() {
-    if (!el["chat-log"]) return;
+  /** Draws the log. `instant`: a seek within the kept window lands without animating. */
+  function render({ instant = false } = {}) {
+    const log = el["chat-log"];
+    if (!log) return;
     let visible = [...messages.values()]
       .filter((message) => Number(message.mt) <= currentTime + 0.5)
       .sort((a, b) => a.mt - b.mt || String(a.id).localeCompare(String(b.id)));
@@ -733,10 +719,19 @@ export function createChatPane(root, {
     if (key === lastRenderKey) return;
     lastRenderKey = key;
 
-    const log = el["chat-log"];
     ground = opaqueGround(root);
-    log.replaceChildren();
+    const shell = [view?.state, view?.hasChat, view?.channelLogin, view?.channelColor,
+      emoteVersion, ground].join("|");
+    const rebuild = freshLog || shell !== shellKey || rowNodes.size === 0;
+    freshLog = false;
+    shellKey = shell;
+    if (rebuild) {
+      rowNodes = new Map();
+      log.replaceChildren();
+    }
+
     if (visible.length === 0) {
+      rowNodes = new Map();
       if (view?.state === "starting" || (liveState() && view?.hasChat === false)) {
         log.textContent = "Waiting for the first chat message…";
       } else if (view?.hasChat === false) {
@@ -747,29 +742,60 @@ export function createChatPane(root, {
       return;
     }
 
+    // The log in order, as [key, create] pairs; gaps sit where they fall among the messages.
+    const items = [];
+    const pushGap = (gap) => items.push([`g:${gap.from}:${gap.to}`, () => renderGap(gap)]);
     const gapQueue = [...gaps];
     for (const message of visible) {
-      while (gapQueue.length > 0 && gapQueue[0].to <= message.mt) {
-        appendGap(gapQueue.shift());
-      }
-      if (gapQueue.length > 0 && gapQueue[0].from <= message.mt) {
-        appendGap(gapQueue.shift());
-      }
-      log.append(renderMessage(message));
+      while (gapQueue.length > 0 && gapQueue[0].to <= message.mt) pushGap(gapQueue.shift());
+      if (gapQueue.length > 0 && gapQueue[0].from <= message.mt) pushGap(gapQueue.shift());
+      items.push([`m:${messageKey(message)}`, () => renderMessage(message)]);
     }
-    while (gapQueue.length > 0) appendGap(gapQueue.shift());
+    while (gapQueue.length > 0) pushGap(gapQueue.shift());
 
-    if (following) log.scrollTop = log.scrollHeight;
+    const wanted = new Set(items.map(([itemKey]) => itemKey));
+    for (const [itemKey, node] of rowNodes) {
+      if (!wanted.has(itemKey)) {
+        node.remove();
+        rowNodes.delete(itemKey);
+      }
+    }
+    // Walk the log once: kept nodes in place are skipped, so playing on only appends at the end
+    // and drops pruned rows from the top. `appended` is a new row after every kept one;
+    // `inserted` is one above a kept row, as backfill adds older chat.
+    let cursor = log.firstChild;
+    let appended = false;
+    let inserted = false;
+    for (const [itemKey, create] of items) {
+      let node = rowNodes.get(itemKey);
+      if (!node) {
+        node = create();
+        rowNodes.set(itemKey, node);
+        if (cursor === null) appended = true;
+        else inserted = true;
+      }
+      if (node === cursor) {
+        cursor = cursor.nextSibling;
+      } else {
+        log.insertBefore(node, cursor);
+      }
+    }
+
+    // Only new chat at the end animates. Older rows above (backfill) would otherwise leave a
+    // following view on the oldest rows, since anchoring holds no anchor at the top.
+    if (following && (rebuild || appended || inserted)) {
+      scrollToEnd(rebuild || inserted || instant ? "instant" : "smooth");
+    }
     updateJump();
   }
 
-  function appendGap(gap) {
+  function renderGap(gap) {
     // `seconds` is wall-clock time; a gap between parts is a single point on the media timeline.
     const seconds = Math.max(1, Math.round(Number(gap.seconds)));
     const row = document.createElement("div");
     row.className = "sk-chat-gap";
     row.textContent = `Chat unavailable for ${seconds}s`;
-    el["chat-log"].append(row);
+    return row;
   }
 
   function renderMessage(message) {
@@ -920,7 +946,7 @@ export function createChatPane(root, {
 
     // Playing on keeps the scrollback; a seek before it, back, or far ahead starts over.
     // Polls never move windowFrom past the playhead, so they cannot trigger this.
-    const backward = currentTime < previous - 2;
+    const backward = currentTime < previous - SEEK_SEC;
     const farForward = currentTime > previous + WINDOW_AFTER_SEC;
     if (backward || farForward || currentTime < windowFrom) {
       resetWindow();
@@ -928,54 +954,40 @@ export function createChatPane(root, {
       return;
     }
 
-    render();
+    render({ instant: currentTime > previous + SEEK_SEC });
     // A live pane polls on a timer; a complete one reads ahead as the playhead nears the end.
     if (!liveState() && !endReached && currentTime + LOOKAHEAD_SEC > loadedTo) continueWindow();
   }
 
-  function onSyncKey(event) {
-    if (!view || event.altKey || event.ctrlKey || event.metaKey) return;
-    const max = view.maxSyncOffsetSec;
-    let next;
-    if (event.key === "Home") next = -max;
-    else if (event.key === "End") next = max;
-    else if (event.key in SYNC_KEY_STEPS) next = syncOffset + SYNC_KEY_STEPS[event.key](syncStep());
-    else return;
-    event.preventDefault();
-    setSync(next);
+  /** An offset within the endpoint's limit; anything else is 0. */
+  function validOffset(value) {
+    const number = Number(value);
+    const max = view?.maxSyncOffsetSec ?? 0;
+    return Number.isFinite(number) ? clamp(number, -max, max) : 0;
   }
 
-  /** The slider's step in seconds, as .NET rendered it on the input. */
-  function syncStep() {
-    const step = Number(el["chat-sync-range"]?.step);
-    if (!(step > 0)) throw new Error("The chat sync slider needs a positive step.");
-    return step;
-  }
-
-  function setSync(value) {
-    if (!view) return;
-    const step = syncStep();
-    const next = clamp(Math.round(value / step) * step,
-      -view.maxSyncOffsetSec, view.maxSyncOffsetSec);
-    showSync(next);
-    // The thumb already sits on the applied offset; refetching would only repeat the window.
+  /**
+   * Applies the viewer's chat sync offset (Settings › Chat): chat is refetched around the
+   * playhead with it. The same offset again fetches nothing.
+   */
+  function setSyncOffset(value) {
+    if (disposed || !view) return;
+    const next = validOffset(value);
     if (next === syncOffset) return;
     syncOffset = next;
-    writeOffset(storage, view.recordingId, syncOffset, view.maxSyncOffsetSec);
     resetWindow();
+    // A closed pane fetches nothing now; opening it loads a fresh window with this offset.
     loadCurrentWindow({ replace: true });
   }
 
-  on(el["chat-toggle"], "click", toggleAndPersist);
   on(el["chat-log"], "scroll", onScroll, { passive: true });
+  on(el["chat-log"], "scrollend", onScrollEnd, { passive: true });
+  for (const type of ["wheel", "touchmove", "pointerdown", "keydown"]) {
+    on(el["chat-log"], type, onScrollIntent, { passive: true });
+  }
   // Image errors do not bubble, so capture them at the log.
   on(el["chat-log"], "error", onEmoteError, { capture: true });
   on(el["chat-jump"], "click", jumpToCurrent);
-  // Dragging only redraws; the offset is applied, and chat refetched, when the drag ends.
-  on(el["chat-sync-range"], "input", (event) => showSync(Number(event.target.value)));
-  on(el["chat-sync-range"], "change", (event) => setSync(Number(event.target.value)));
-  on(el["chat-sync-range"], "keydown", onSyncKey);
-  on(el["chat-sync-reset"], "click", () => setSync(0));
   on(document, "sk:playhead", onPlayhead);
   on(document, "sk:chat-toggle", toggleAndPersist);
   on(document, "keydown", (event) => {
@@ -994,6 +1006,7 @@ export function createChatPane(root, {
   return {
     load,
     setOpen,
+    setSyncOffset,
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -1001,8 +1014,10 @@ export function createChatPane(root, {
       emoteController?.abort();
       stopBackfill();
       stopPolling();
+      clearTimeout(scrollIdleTimer);
       listeners.abort();
       announce(false);
+      rowNodes = new Map();
       if (el["chat-log"]) el["chat-log"].replaceChildren();
     },
   };
@@ -1024,6 +1039,10 @@ export async function load(root, view) {
 
 export function setOpen(root, open) {
   panes.get(root)?.setOpen(open);
+}
+
+export function setSyncOffset(root, offset) {
+  panes.get(root)?.setSyncOffset(offset);
 }
 
 export function dispose(root) {

@@ -23,7 +23,8 @@ The player lives on the watch page. Navigating to the `/settings` route replaces
 - **No overlay.** The video stays visible on the left, and its controls stay usable, so you can pause or seek while changing a setting. Clicking outside does not close the sheet. The close button and Esc do.
 - The header (56px) holds a `Settings` icon, "Settings" as an `h2` in `h6`, and a `Close` icon button ("Close settings", `aria-keyshortcuts="Escape"`, tooltip "Close (Esc)" on hover only: opening moves focus to it, and a focus tooltip would pop on every open, in the popover layer outside any landmark). Below it, the sections scroll as one column. Inside the sheet, `SettingsSection` (told by the `SettingsSheet` cascade) drops the outlined paper for `divider` rules and heads each section with an `h3` in `subtitle1` at Medium after its icon:
   - **Twitch account** (`ManageAccounts`): avatar, name, login and status, plus Disconnect.
-  - **Channels** (`LiveTv`): the same rows as the page (state chip, push chip, Stop recording or Pause, Resume, Remove), wrapping at 440px, then the add field.
+  - **Channels** (`LiveTv`): the same rows as the page (state chip, push chip, Stop recording or Pause, Resume, Remove), wrapping at 440px, under the add field (placeholder "Add a Twitch channel"), which sits directly below the heading as on the page.
+  - **Chat** (`Chat`): `ChatSettings`, the Chat sync slider. A change applies at once to the chat pane playing behind the sheet.
   - **Connection status** (`Wifi`): key/value rows.
 
 **Phones and tablets (below Md)**: an inline `MudDialog` in the same component, shown while the sheet is open, with `DialogOptions { FullScreen = true, NoHeader = true, CloseOnEscapeKey = false, BackdropClick = false }` and `AriaLabelledBy="sk-settings-title"`:

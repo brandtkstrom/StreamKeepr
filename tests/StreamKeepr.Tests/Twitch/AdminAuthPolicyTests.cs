@@ -41,6 +41,14 @@ public sealed class AdminAuthPolicyTests
         Assert.True(AdminAuth.IsLoginAllowed("Allowed_Login", ["allowed_login"]));
     }
 
+    [Fact]
+    public void Allowlist_check_normalizes_the_raw_login()
+    {
+        Assert.True(AdminAuth.IsLoginAllowed("  Allowed_Login ", ["allowed_login"]));
+        Assert.False(AdminAuth.IsLoginAllowed(null, ["allowed_login"]));
+        Assert.True(AdminAuth.IsLoginAllowed(null, []));
+    }
+
     [Theory]
     [InlineData("localhost", true)]
     [InlineData("LOCALHOST", true)]

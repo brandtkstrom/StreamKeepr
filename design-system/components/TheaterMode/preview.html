@@ -1,4 +1,4 @@
-<!-- @dsCard group="Layout" height=1100 width=1280 subtitle="Theater mode: the player spans the full width of the view; chat and details move below it" -->
+<!-- @dsCard group="Layout" height=1100 width=1280 subtitle="Theater mode: the player spans the full width of the view; the title block, Chapters and Viewers move below it, with chat filling the height to their right" -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -8,8 +8,8 @@
   .shell { display: flex; flex-direction: column; min-height: 1100px; }
   main { flex: 1; background: var(--background-gray); }
   .theater .ds-player { width: 100%; border-radius: 0; }
-  .below { display: grid; grid-template-columns: 1fr 400px; gap: var(--space-4); padding: var(--space-4); align-items: start; }
-  .below .ds-chat { width: auto; height: 260px; }
+  .below { padding: var(--space-4); }
+  .below .ds-chat { min-height: 260px; }
   .ds-chat-log { justify-content: flex-end; }
   .c1 { color: var(--channel-4); } .c2 { color: var(--channel-2); } .c3 { color: var(--channel-1); }
   .title-line { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4) var(--space-2); flex-wrap: wrap; }
@@ -40,22 +40,39 @@
           <button class="ds-golive">Live edge</button>
           <span class="ds-grow"></span>
           <button class="ds-pill">1×</button>
-          <button class="ds-pbtn" aria-label="Stats for nerds"><i data-i="stats"></i></button>
+          <button class="ds-pbtn" aria-label="Statistics"><i data-i="stats"></i></button>
           <button class="ds-pbtn on" aria-label="Chat" aria-pressed="true"><i data-i="chat"></i></button>
           <button class="ds-pbtn on" aria-label="Theater mode" aria-pressed="true"><i data-i="theater"></i></button>
           <button class="ds-pbtn" aria-label="Full screen"><i data-i="fullscreen"></i></button>
         </div>
       </div>
     </div>
-    <div class="below">
-      <section class="ds-panel">
-        <div class="ds-vinfo">
-          <h3 class="vtitle">Late-night speedrun practice: any% resets</h3>
-          <div class="vrow"><div class="ds-meta"><span class="ds-status rec">Rec</span><span class="who"><span class="ds-avatar a1" style="width:24px;height:24px">N</span>nightjar_tv</span><span><i data-i="sportsesports"></i>Speedrunning</span><span><i data-i="event"></i>Today, 21:04</span><span><i data-i="timer"></i>1h 02m</span></div><div class="acts"><button class="ds-btn outlined"><i data-i="playlist"></i>Copy playlist URL</button><button class="ds-btn filled"><i data-i="output"></i>Export MP4</button><button class="ds-ibtn" aria-label="More actions"><i data-i="more"></i></button></div></div>
+    <div class="below ds-watchcols">
+      <div class="col">
+        <div class="ds-vhead">
+          <div class="ds-vinfo">
+            <h3 class="vtitle">Late-night speedrun practice: any% resets</h3>
+            <div class="ds-meta"><span class="ds-status rec">Rec</span><span class="who"><span class="ds-avatar a1" style="width:24px;height:24px"><img src="../sample-avatars/nightjar_tv.svg" alt=""></span>nightjar_tv</span><span><i data-i="sportsesports"></i>Speedrunning</span><span><i data-i="event"></i>Today, 21:04</span><span><i data-i="timer"></i>1h 02m</span></div>
+          </div>
+          <div class="ds-vacts" role="group" aria-label="Recording actions">
+            <button class="ds-ibtn" aria-label="Copy playlist URL" title="Copy playlist URL"><i data-i="playlist"></i></button>
+            <button class="ds-ibtn export" aria-label="Export MP4" title="Export MP4"><i data-i="output"></i></button>
+            <button class="ds-ibtn" aria-label="More actions" aria-haspopup="menu" aria-expanded="false"><i data-i="more"></i></button>
+          </div>
         </div>
-      </section>
+        <section class="ds-panel">
+          <div class="ds-panel-head ds-ihead" aria-expanded="true" role="button"><i data-i="toc"></i><h2>Chapters</h2><span class="ds-cap">2 chapters</span><i data-i="expand" class="ds-chev"></i></div>
+          <div class="ds-panel-body">
+            <div class="ds-chapters list" role="group" aria-label="Chapters">
+              <button class="ds-chapter"><span class="time">0:00:00</span><span class="title">Warm-up and route notes</span><span class="game">Just Chatting</span></button>
+              <button class="ds-chapter cur"><span class="time">0:12:30</span><span class="title">Any% attempts</span><span class="game">Celeste</span></button>
+            </div>
+          </div>
+        </section>
+        <section class="ds-panel"><div class="ds-panel-head ds-ihead" aria-expanded="false" role="button"><i data-i="groups"></i><h2>Viewers</h2><span class="ds-cap">1,489 at 54:40 · peak 1,658</span><i data-i="expand" class="ds-chev"></i></div></section>
+      </div>
       <aside class="ds-chat" aria-label="Chat replay">
-        <header class="ds-chat-head"><button class="ds-ibtn sm" aria-label="Collapse chat" aria-expanded="true"><i data-i="chat"></i></button><span class="t">Chat</span><span class="ds-cap" style="margin-left:auto">Live</span></header>
+        <header class="ds-chat-head ds-ihead"><i data-i="chat"></i><span class="t">Chat</span><span class="ds-cap" style="margin-left:auto">Live</span></header>
         <div class="ds-chat-log" role="log">
           <div><span class="ts">54:31</span><span class="n c1">sablefinch</span><span class="ds-muted">:</span> that reset was clean</div>
           <div><span class="ts">54:33</span><span class="n c2">mothlight</span><span class="ds-muted">:</span> any% or glitchless tonight?</div>

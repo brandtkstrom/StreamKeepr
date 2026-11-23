@@ -12,6 +12,7 @@ import { readPlayerPrefs, writePlayerPrefs } from "/js/player-prefs.js";
 import { playerAction } from "/js/player-keys.js";
 import { formatTimecode } from "/js/timecode.js";
 import { iconMarkup, setIcon } from "/js/island-icons.js";
+import { isLiveState } from "/js/recording-state.js";
 
 // Defaults plus the contract's overrides. The stitched playlist targets 12 s segments, so one
 // target duration behind the end is the live edge.
@@ -135,6 +136,7 @@ export function createPlayer(
   let theater = false;
   let theaterAvailable = true;
   let idleTimer = 0;
+  let pointerOnStats = false;
   let wasFullscreen = false;
   let lastPlayheadAt = 0;
   const stats = createStatsProbe({ video });
@@ -545,7 +547,7 @@ export function createPlayer(
 
   function canIdle() {
     return Boolean(view) && !video.paused && !video.ended && el["speed-menu"].hidden
-      && !keyboardFocusInside();
+      && !keyboardFocusInside() && !pointerOnStats;
   }
 
   /** Idle hides the overlays; data-idle mirrors the class as a test and automation hook. */
@@ -912,7 +914,20 @@ export function createPlayer(
   on(video, "enterpictureinpicture", renderPip);
   on(video, "leavepictureinpicture", renderPip);
 
-  for (const type of ["pointermove", "pointerdown", "keydown", "focusin"]) on(root, type, wake);
+  for (const type of ["pointerdown", "keydown", "focusin"]) on(root, type, wake);
+  // The Statistics card moves when the overlays show or hide, so neither happens while the
+  // pointer is on it: moving over it does not wake them, and they do not go idle meanwhile.
+  // Otherwise the card would slide out from under the pointer and drop a sparkline's tooltip.
+  const inStats = (node) => node instanceof Element && node.closest("[data-sk-stats]") !== null;
+  on(root, "pointermove", (event) => {
+    if (!inStats(event.target)) wake();
+  });
+  on(root, "pointerover", (event) => {
+    pointerOnStats = inStats(event.target);
+  });
+  on(root, "pointerout", (event) => {
+    if (!inStats(event.relatedTarget)) pointerOnStats = false;
+  });
 
   // Global shortcuts while a recording is open; the decision lives in player-keys.js.
   on(doc, "keydown", (event) => {
@@ -1090,7 +1105,7 @@ export function createPlayer(
       // Route change: the previous recording's position goes out before its engine is torn down.
       if (view && view.recordingId !== next.recordingId) progress.flush();
       view = next;
-      live = next.state === "recording" || next.state === "reconnecting";
+      live = isLiveState(next.state);
       progress.track({
         recordingId: next.recordingId,
         position: () => video.currentTime,
@@ -1127,7 +1142,7 @@ export function createPlayer(
       renderView();
       renderPosition();
 
-      const nowLive = next.state === "recording" || next.state === "reconnecting";
+      const nowLive = isLiveState(next.state);
       if (nowLive && !live) {
         // VOD→live: a finished session reopened. Reload the same playlist where the viewer
         // is, keeping play/pause; Live edge is theirs to press.

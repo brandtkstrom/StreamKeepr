@@ -62,6 +62,7 @@ public sealed class EmptyLibraryJourneyTests : IAsyncLifetime
 
         // A filter with no match: "Show all recordings" clears it and hands focus to All.
         await OpenAsync(page, $"{_app.BaseUrl}/?state=recording");
+        await LibraryHooks.OpenLibraryAsync(page);
         ILocator noMatch = page.Locator("[data-library-no-match]");
         await noMatch.WaitForAsync();
         Assert.Contains("Nothing is recording right now.", await noMatch.InnerTextAsync());

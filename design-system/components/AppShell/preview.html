@@ -1,4 +1,4 @@
-<!-- @dsCard group="Layout" height=800 width=1280 subtitle="Desktop watch view: MudBlazor Layout 2 (app bar + clipped mini drawer), player filling the column, chat beside it" -->
+<!-- @dsCard group="Layout" height=800 width=1280 subtitle="Desktop watch view: MudBlazor Layout 2 (app bar + clipped mini drawer); the player, title block, Chapters and Viewers on the left, chat full height on the right" -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -7,11 +7,12 @@
   html, body { margin: 0; }
   .shell { display: flex; flex-direction: column; height: 800px; }
   .body { flex: 1; display: flex; min-height: 0; }
-  .rail { width: var(--drawer-mini-width); background: var(--drawer-background); border-right: 1px solid var(--divider); display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; flex: none; }
-  .rail .sel { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
-  .rail hr { width: 40px; border: 0; height: 1px; background: var(--divider); margin: 0; }
-  main { flex: 1; min-width: 0; overflow: hidden; padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
-  .ds-watch > .ds-chat { flex: 0 0 360px; }
+  nav.rail { width: var(--drawer-mini-width); background: var(--drawer-background); border-right: 1px solid var(--divider); display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; flex: none; }
+  nav.rail .sel { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
+  nav.rail hr { width: 40px; border: 0; height: 1px; background: var(--divider); margin: 0; }
+  main { flex: 1; min-width: 0; overflow: hidden; padding: var(--space-4); display: flex; flex-direction: column; }
+  .ds-watchcols { flex: 1; }
+  .ds-watchcols > .col { overflow: hidden; }
   .ds-chat-log { justify-content: flex-end; }
   .c1 { color: var(--channel-4); } .c2 { color: var(--channel-2); } .c3 { color: var(--channel-1); } .c4 { color: var(--channel-3); }
   .title-line { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4) var(--space-2); flex-wrap: wrap; }
@@ -32,37 +33,61 @@
     <nav class="rail" aria-label="Library (collapsed)">
       <button class="ds-ibtn" aria-label="Home" title="Home"><i data-i="home"></i></button>
       <hr>
-      <span class="ds-avatar lg a1 live sel" title="nightjar_tv">N</span>
-      <span class="ds-avatar lg a4 live" title="sablefinch">S</span>
-      <span class="ds-avatar lg a3" title="coppermoth">C</span>
-      <span class="ds-avatar lg a2" title="pixelwren">P</span>
-      <span class="ds-avatar lg a8" title="quietkoi">Q</span>
+      <span class="ds-avatar rail a1 live sel" title="nightjar_tv">N</span>
+      <span class="ds-avatar rail a4 live" title="sablefinch">S</span>
+      <span class="ds-avatar rail a3" title="coppermoth">C</span>
+      <span class="ds-avatar rail a2" title="pixelwren">P</span>
+      <span class="ds-avatar rail a8" title="quietkoi">Q</span>
       <button class="ds-ibtn" style="margin-top:auto" aria-label="Recording disk: 1.2 TB free of 4 TB" title="Recording disk: 1.2 TB free of 4 TB"><i data-i="storage"></i></button>
     </nav>
     <main>
-      <div class="ds-watch">
-        <div class="ds-player" role="region" aria-label="Video player">
-          <svg class="frame" viewBox="0 0 160 90" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="160" height="90" fill="#16161b"/><circle cx="122" cy="22" r="9" fill="#34343e"/><path d="M0 66 L28 48 L52 60 L84 38 L118 58 L160 44 L160 90 L0 90 Z" fill="#1f1f26"/><path d="M0 76 L40 64 L76 72 L112 62 L160 70 L160 90 L0 90 Z" fill="#292931"/><rect x="62" y="56" width="10" height="12" fill="#3d3d48"/></svg>
-          <div class="ds-player-bottom">
-            <div class="ds-seek"><div class="track"><div class="buf" style="width:96%"></div><div class="played" style="width:88%"></div></div><span class="tick" style="left:22%"></span><span class="tick" style="left:61%"></span><span class="knob" style="left:88%"></span><span class="edge" style="left:96%"></span></div>
-            <div class="ds-controls">
-              <button class="ds-pbtn" aria-label="Pause"><i data-i="pause"></i></button>
-              <button class="ds-pbtn" aria-label="Back 10 seconds"><i data-i="replay"></i></button>
-              <button class="ds-pbtn" aria-label="Forward 10 seconds"><i data-i="forward"></i></button>
-              <span class="ds-vol"><button class="ds-pbtn" aria-label="Mute"><i data-i="volume"></i></button><span class="bar"><i></i></span></span>
-              <span class="ds-ptime">54:40 <span class="dim">/ 1:02:13</span></span>
-              <button class="ds-golive">Live edge</button>
-              <span class="ds-grow"></span>
-              <button class="ds-pill">1×</button>
-              <button class="ds-pbtn" aria-label="Stats for nerds"><i data-i="stats"></i></button>
-              <button class="ds-pbtn on" aria-label="Chat" aria-pressed="true"><i data-i="chat"></i></button>
-              <button class="ds-pbtn" aria-label="Theater mode"><i data-i="theater"></i></button>
-              <button class="ds-pbtn" aria-label="Full screen"><i data-i="fullscreen"></i></button>
+      <div class="ds-watchcols">
+        <div class="col">
+          <div class="ds-player" role="region" aria-label="Video player">
+            <svg class="frame" viewBox="0 0 160 90" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="160" height="90" fill="#16161b"/><circle cx="122" cy="22" r="9" fill="#34343e"/><path d="M0 66 L28 48 L52 60 L84 38 L118 58 L160 44 L160 90 L0 90 Z" fill="#1f1f26"/><path d="M0 76 L40 64 L76 72 L112 62 L160 70 L160 90 L0 90 Z" fill="#292931"/><rect x="62" y="56" width="10" height="12" fill="#3d3d48"/></svg>
+            <div class="ds-player-bottom">
+              <div class="ds-seek"><div class="track"><div class="buf" style="width:96%"></div><div class="played" style="width:88%"></div></div><span class="tick" style="left:22%"></span><span class="tick" style="left:61%"></span><span class="knob" style="left:88%"></span><span class="edge" style="left:96%"></span></div>
+              <div class="ds-controls">
+                <button class="ds-pbtn" aria-label="Pause"><i data-i="pause"></i></button>
+                <button class="ds-pbtn" aria-label="Back 10 seconds"><i data-i="replay"></i></button>
+                <button class="ds-pbtn" aria-label="Forward 10 seconds"><i data-i="forward"></i></button>
+                <span class="ds-vol"><button class="ds-pbtn" aria-label="Mute"><i data-i="volume"></i></button><span class="bar"><i></i></span></span>
+                <span class="ds-ptime">54:40 <span class="dim">/ 1:02:13</span></span>
+                <button class="ds-golive">Live edge</button>
+                <span class="ds-grow"></span>
+                <button class="ds-pill">1×</button>
+                <button class="ds-pbtn" aria-label="Statistics"><i data-i="stats"></i></button>
+                <button class="ds-pbtn on" aria-label="Chat" aria-pressed="true"><i data-i="chat"></i></button>
+                <button class="ds-pbtn" aria-label="Theater mode"><i data-i="theater"></i></button>
+                <button class="ds-pbtn" aria-label="Full screen"><i data-i="fullscreen"></i></button>
+              </div>
             </div>
           </div>
+          <div class="ds-vhead">
+            <div class="ds-vinfo">
+              <h3 class="vtitle">Late-night speedrun practice: any% resets</h3>
+              <div class="ds-meta"><span class="ds-status rec">Rec</span><span class="who"><span class="ds-avatar a1" style="width:24px;height:24px"><img src="../sample-avatars/nightjar_tv.svg" alt=""></span>nightjar_tv</span><span><i data-i="sportsesports"></i>Speedrunning</span><span><i data-i="event"></i>Today, 21:04</span><span><i data-i="timer"></i>1h 02m</span><span><i data-i="folder"></i>412 segments · 1 part</span></div>
+            </div>
+            <div class="ds-vacts" role="group" aria-label="Recording actions">
+              <button class="ds-ibtn" aria-label="Copy playlist URL" title="Copy playlist URL"><i data-i="playlist"></i></button>
+              <button class="ds-ibtn export" aria-label="Export MP4" title="Export MP4"><i data-i="output"></i></button>
+              <button class="ds-ibtn" aria-label="More actions" aria-haspopup="menu" aria-expanded="false"><i data-i="more"></i></button>
+            </div>
+          </div>
+          <section class="ds-panel">
+            <div class="ds-panel-head ds-ihead" aria-expanded="true" role="button"><i data-i="toc"></i><h2>Chapters</h2><span class="ds-cap">3 chapters</span><i data-i="expand" class="ds-chev"></i></div>
+            <div class="ds-panel-body">
+              <div class="ds-chapters list" role="group" aria-label="Chapters">
+                <button class="ds-chapter"><span class="time">0:00:00</span><span class="title">Warm-up and route notes</span><span class="game">Just Chatting</span></button>
+                <button class="ds-chapter"><span class="time">0:12:30</span><span class="title">Any% attempts</span><span class="game">Celeste</span></button>
+                <button class="ds-chapter cur"><span class="time">0:48:05</span><span class="title">PB pace</span><span class="game">Celeste</span></button>
+              </div>
+            </div>
+          </section>
+          <section class="ds-panel"><div class="ds-panel-head ds-ihead" aria-expanded="false" role="button"><i data-i="groups"></i><h2>Viewers</h2><span class="ds-cap">1,489 at 54:40 · peak 1,658</span><i data-i="expand" class="ds-chev"></i></div></section>
         </div>
         <aside class="ds-chat" aria-label="Chat replay">
-          <header class="ds-chat-head"><button class="ds-ibtn sm" aria-label="Collapse chat" aria-expanded="true"><i data-i="chat"></i></button><span class="t">Chat</span><span class="ds-cap" style="margin-left:auto">Live</span></header>
+          <header class="ds-chat-head ds-ihead"><i data-i="chat"></i><span class="t">Chat</span><span class="ds-cap" style="margin-left:auto">Live</span></header>
           <div class="ds-chat-log" role="log">
             <div><span class="ts">54:31</span><span class="n c1">sablefinch</span><span class="ds-muted">:</span> that reset was clean</div>
             <div><span class="ts">54:33</span><span class="n c2">mothlight</span><span class="ds-muted">:</span> any% or glitchless tonight?</div>
@@ -72,13 +97,6 @@
           </div>
         </aside>
       </div>
-      <section class="ds-panel">
-        <div class="ds-vinfo">
-          <h3 class="vtitle">Late-night speedrun practice: any% resets</h3>
-          <div class="vrow"><div class="ds-meta"><span class="ds-status rec">Rec</span><span class="who"><span class="ds-avatar a1" style="width:24px;height:24px">N</span>nightjar_tv</span><span><i data-i="sportsesports"></i>Speedrunning</span><span><i data-i="event"></i>Today, 21:04</span><span><i data-i="timer"></i>1h 02m</span><span><i data-i="storage"></i>4.1 GB · 1 part</span></div><div class="acts"><button class="ds-btn outlined error"><i data-i="stop"></i>Stop recording</button> <button class="ds-btn outlined"><i data-i="playlist"></i>Copy playlist URL</button> <button class="ds-btn filled"><i data-i="output"></i>Export MP4</button> <button class="ds-ibtn" aria-label="Delete recording"><i data-i="delete"></i></button></div></div>
-        </div>
-      </section>
-      <section class="ds-panel"><div class="ds-panel-head ds-ihead" aria-expanded="false"><i data-i="stats"></i><h2>Stats for nerds</h2><span class="ds-cap">48.6 Mb/s · 28.4 s buffer · 1,312 viewers</span><span class="ds-grow"></span><span class="ds-switch" aria-hidden="true"></span></div></section>
     </main>
   </div>
 </div>

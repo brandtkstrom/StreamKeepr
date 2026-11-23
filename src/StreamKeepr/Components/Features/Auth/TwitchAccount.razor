@@ -1,5 +1,8 @@
 @using StreamKeepr.Infrastructure.Twitch
 @using System.Security.Claims
+@using Microsoft.Extensions.Options
+@using StreamKeepr.Configuration
+@using StreamKeepr.Hosting
 @using Microsoft.AspNetCore.Components.Forms
 @implements IAsyncDisposable
 @inject NavigationManager Navigation
@@ -7,11 +10,13 @@
 @inject IJSRuntime JS
 @inject ILogger<TwitchAccount> Logger
 @inject MudBlazor.ISnackbar Snackbars
+@inject IOptions<AuthOptions> Auth
 
 @* Top-bar Twitch control (details/auth/settings contract §7). Every state is plain markup that
    works without the circuit: the login link is a full-page navigation and Disconnect posts a
    real antiforgery form. TwitchAccount.razor.js only adds the brief connecting state. *@
-@if (Session.Expired)
+@* In private mode (ADR-0013) an expired session leaves for the sign-in page instead. *@
+@if (Session.Expired && !Private)
 {
     <span class="sk-auth-expired" data-auth-state="expired">
         <StatusChip Status="StatusChipKind.Error" Label="Twitch session expired" role="status" />
@@ -67,12 +72,12 @@ else
                     <MudBlazor.MudDivider />
                     <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.ManageAccounts" Href="/settings#twitch">Manage Twitch connection</MudBlazor.MudMenuItem>
                     <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Settings" Href="/settings">Settings</MudBlazor.MudMenuItem>
-                    <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Logout" OnClick="DisconnectAsync">Disconnect</MudBlazor.MudMenuItem>
+                    <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Logout" OnClick="DisconnectAsync">@AuthLinks.SignOutLabel(Private)</MudBlazor.MudMenuItem>
                 </ChildContent>
             </MudBlazor.MudMenu>
             <form id="@LogoutFormId" method="post" action="@AdminAuth.LogoutPath" hidden>
                 <AntiforgeryToken />
-                <input type="hidden" name="returnUrl" value="@ReturnUrl" />
+                <input type="hidden" name="returnUrl" value="@LogoutReturnUrl" />
             </form>
         </Authorized>
         <NotAuthorized>
@@ -94,6 +99,10 @@ else
     private bool _disposed;
 
     private string ReturnUrl => AuthLinks.ReturnUrl(Navigation.Uri);
+
+    private bool Private => Auth.Value.IsPrivate;
+
+    private string LogoutReturnUrl => AuthLinks.SignOutReturnUrl(ReturnUrl, Private);
 
     private string LoginHref => AuthLinks.LoginHref(Navigation.Uri);
 
@@ -170,7 +179,26 @@ else
     private void OnLocationChanged(object? sender, LocationChangedEventArgs args) =>
         _ = InvokeAsync(StateHasChanged);
 
-    private void OnSessionChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnSessionChanged() => _ = InvokeAsync(() =>
+    {
+        // Private mode: playback and the page stop with the session; the sign-in page explains.
+        if (Private && Session.NotAllowed)
+        {
+            Navigation.NavigateTo(
+                PrivateMode.SignInUrl(ReturnUrl, AdminAuth.NotAllowedAuthError, TwitchLogin.Normalize(Session.LastLogin)),
+                forceLoad: true);
+            return;
+        }
+
+        if (Private && Session.Expired)
+        {
+            Navigation.NavigateTo(
+                PrivateMode.SignInUrl(ReturnUrl, PrivateMode.ExpiredAuthError), forceLoad: true);
+            return;
+        }
+
+        StateHasChanged();
+    });
 
     public async ValueTask DisposeAsync()
     {

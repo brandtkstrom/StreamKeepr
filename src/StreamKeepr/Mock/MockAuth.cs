@@ -108,10 +108,20 @@ public static class MockAuth
         {
             MockAuthOptions options = context.RequestServices
                 .GetRequiredService<IOptions<MockAuthOptions>>().Value;
+            AuthOptions auth = context.RequestServices.GetRequiredService<IOptionsMonitor<AuthOptions>>().CurrentValue;
+
+            // The same allowlist rule as the Twitch callback, so E2E can reach Not allowed.
+            string login = TwitchLogin.Normalize(options.Login);
+            if (!AdminAuth.IsLoginAllowed(login, auth.AllowedTwitchLogins))
+            {
+                return Results.LocalRedirect(AdminAuth.SignInErrorRedirectUrl(
+                    context, returnUrl, AdminAuth.NotAllowedAuthError, login));
+            }
+
             context.Response.Cookies.Delete(SignedOutCookie);
             await SignInAsync(context, options);
             return Results.LocalRedirect(AdminAuth.ResolveReturnUrl(returnUrl));
-        });
+        }).AllowAnonymous();
 
         endpoints.MapPost(AdminAuth.LogoutPath, async (HttpContext context, IAntiforgery antiforgery) =>
         {
@@ -137,7 +147,7 @@ public static class MockAuth
                 IsEssential = true,
             });
             return Results.LocalRedirect(AdminAuth.ResolveReturnUrl(returnUrl));
-        });
+        }).AllowAnonymous();
 
         return endpoints;
     }

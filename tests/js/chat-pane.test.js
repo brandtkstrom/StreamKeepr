@@ -22,18 +22,12 @@ const emoteCodes = (segments) =>
 const MARKUP = `
   <aside class="sk-chat" data-sk-chat data-open="true">
     <header class="sk-chat-head">
-      <button type="button" data-sk="chat-toggle" aria-expanded="true" aria-label="Collapse chat">Chat</button>
+      <span class="sk-chat-title">Chat</span>
       <span data-sk="chat-state" role="status"></span>
     </header>
     <div data-sk="chat-body">
       <div data-sk="chat-log" role="log" aria-live="off" tabindex="0"></div>
       <div>
-        <div data-sk="chat-sync" hidden>
-          <label for="sync">Chat sync</label>
-          <span data-sk="chat-sync-value"></span>
-          <button type="button" data-sk="chat-sync-reset" aria-label="Reset chat sync to 0"></button>
-          <input id="sync" type="range" data-sk="chat-sync-range" min="-30" max="30" step="0.5" value="0">
-        </div>
         <button data-sk="chat-jump" hidden></button>
         <span data-sk="chat-notice"></span>
       </div>
@@ -157,7 +151,7 @@ describe("chat replay pane", () => {
     pane.dispose();
   });
 
-  it("toggles open state and notifies Blazor", async () => {
+  it("toggles open state with C and notifies Blazor", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
     const invokeMethodAsync = vi.fn().mockResolvedValue(undefined);
@@ -168,10 +162,9 @@ describe("chat replay pane", () => {
     });
     pane.setOpen(true);
 
-    document.querySelector("[data-sk='chat-toggle']").click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "c", bubbles: true }));
     expect(root.dataset.open).toBe("false");
-    expect(document.querySelector("[data-sk='chat-toggle']").getAttribute("aria-expanded"))
-      .toBe("false");
+    expect(root.querySelector("[data-sk='chat-body']").inert).toBe(true);
     expect(invokeMethodAsync).toHaveBeenCalledWith("SetChatOpen", false);
 
     pane.dispose();
@@ -186,7 +179,7 @@ describe("chat replay pane", () => {
 
     const pane = createChatPane(root, { fetch: fakeFetch(), storage: storage() });
     pane.setOpen(true);
-    document.querySelector("[data-sk='chat-toggle']").click();
+    document.dispatchEvent(new CustomEvent("sk:chat-toggle"));
     pane.dispose();
     document.removeEventListener("sk:chat", listen);
 
@@ -277,134 +270,55 @@ describe("chat replay pane", () => {
     pane.dispose();
   });
 
-  it("persists and sends the per-recording sync offset", async () => {
-    document.body.innerHTML = MARKUP;
-    const root = document.querySelector("[data-sk-chat]");
-    const store = storage();
-    const fetch = fakeFetch();
-    const pane = createChatPane(root, { fetch, storage: store });
-
-    await pane.load({ ...VIEW });
-    document.dispatchEvent(new CustomEvent("sk:playhead", {
-      detail: { recordingId: "r1", time: 10, duration: 60, paused: true },
-    }));
-    await flush();
-
-    const range = document.querySelector("[data-sk='chat-sync-range']");
-    range.value = "1.5";
-    range.dispatchEvent(new Event("change", { bubbles: true }));
-    await flush();
-
-    expect(JSON.parse(store.getItem("sk-chat")).offsets.r1).toBe(1.5);
-    expect(fetch.mock.calls.some(([url]) => url.searchParams.get("syncOffsetSec") === "1.500"))
-      .toBe(true);
-
-    pane.dispose();
-  });
-
-  describe("sync slider", () => {
+  describe("chat sync", () => {
     /** A loaded pane with the playhead at 10 s and its first window fetched. */
-    async function syncPane(store = storage()) {
+    async function syncPane(view = VIEW, store = storage()) {
       document.body.innerHTML = MARKUP;
       const root = document.querySelector("[data-sk-chat]");
       const fetch = fakeFetch();
       const pane = createChatPane(root, { fetch, storage: store });
-      await pane.load({ ...VIEW });
+      await pane.load({ ...view });
       playhead(10);
       await flush();
-      const range = document.querySelector("[data-sk='chat-sync-range']");
       const offsets = () => fetch.mock.calls.map(([url]) => url.searchParams.get("syncOffsetSec"));
-      return { pane, fetch, range, store, offsets };
+      return { pane, offsets };
     }
 
-    const readout = () => document.querySelector("[data-sk='chat-sync-value']").textContent;
-
-    it("updates the readout while dragging and refetches only when the drag ends", async () => {
-      const { pane, range, offsets, store } = await syncPane();
-      const before = offsets().length;
-
-      for (const value of ["0.5", "1", "1.5", "-3"]) {
-        range.value = value;
-        range.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      await flush();
-
-      expect(readout()).toBe("\u22123.0 s");
-      expect(range.getAttribute("aria-valuetext")).toBe("3 seconds earlier");
-      expect(offsets()).toHaveLength(before);
-      expect(store.getItem("sk-chat")).toBeNull();
-
-      range.dispatchEvent(new Event("change", { bubbles: true }));
-      await flush();
-
-      expect(offsets().slice(before)).toEqual(["-3.000"]);
-      expect(JSON.parse(store.getItem("sk-chat")).offsets.r1).toBe(-3);
-      pane.dispose();
-    });
-
-    it("applies and refetches per key press: arrows 0.5 s, Page keys 5 s, Home/End to the limit", async () => {
-      const { pane, range, offsets } = await syncPane();
-      const before = offsets().length;
-      const press = (key) => {
-        const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
-        range.dispatchEvent(event);
-        return event.defaultPrevented;
-      };
-
-      const steps = [
-        ["ArrowRight", "0.500", "+0.5 s", "0.5 seconds later"],
-        ["ArrowUp", "1.000", "+1.0 s", "1 second later"],
-        ["PageUp", "6.000", "+6.0 s", "6 seconds later"],
-        ["ArrowLeft", "5.500", "+5.5 s", "5.5 seconds later"],
-        ["PageDown", "0.500", "+0.5 s", "0.5 seconds later"],
-        ["ArrowDown", "0.000", "0.0 s", "0 seconds"],
-        ["Home", "-30.000", "\u221230.0 s", "30 seconds earlier"],
-        ["End", "30.000", "+30.0 s", "30 seconds later"],
-      ];
-      for (const [key, sent, shown, spoken] of steps) {
-        expect(press(key)).toBe(true);
-        await flush();
-        expect(offsets().at(-1), key).toBe(sent);
-        expect(readout(), key).toBe(shown);
-        expect(range.getAttribute("aria-valuetext"), key).toBe(spoken);
-        expect(range.value, key).toBe(String(Number(sent)));
-      }
-      expect(offsets()).toHaveLength(before + steps.length);
-
-      // At the limit a further press changes nothing and fetches nothing.
-      press("PageUp");
-      await flush();
-      expect(offsets()).toHaveLength(before + steps.length);
-      expect(readout()).toBe("+30.0 s");
-      pane.dispose();
-    });
-
-    it("starts on the recording's saved offset and resets it to 0", async () => {
+    it("sends the viewer's offset from Settings with every fetch", async () => {
       const store = storage();
-      store.setItem("sk-chat", JSON.stringify({ v: 1, offsets: { r1: 4.5 } }));
-      const { pane, range, offsets } = await syncPane(store);
+      // A per-recording offset an earlier version saved no longer applies.
+      store.setItem("sk-chat", JSON.stringify({ v: 1, offsets: { r1: 9 } }));
+      const { pane, offsets } = await syncPane({ ...VIEW, syncOffsetSec: -4 }, store);
 
-      expect(range.value).toBe("4.5");
-      expect(readout()).toBe("+4.5 s");
-      expect(range.getAttribute("aria-valuetext")).toBe("4.5 seconds later");
-      expect(offsets().at(-1)).toBe("4.500");
-
-      document.querySelector("[data-sk='chat-sync-reset']").click();
-      await flush();
-
-      expect(range.value).toBe("0");
-      expect(readout()).toBe("0.0 s");
-      expect(range.getAttribute("aria-valuetext")).toBe("0 seconds");
-      expect(offsets().at(-1)).toBe("0.000");
-      expect(JSON.parse(store.getItem("sk-chat")).offsets.r1).toBe(0);
+      expect(offsets().length).toBeGreaterThan(0);
+      expect(new Set(offsets())).toEqual(new Set(["-4.000"]));
       pane.dispose();
     });
 
-    it("leaves other keys to the browser", async () => {
-      const { pane, range } = await syncPane();
-      const event = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
-      range.dispatchEvent(event);
-      expect(event.defaultPrevented).toBe(false);
+    it("applies a changed offset at once, refetching around the playhead", async () => {
+      const { pane, offsets } = await syncPane();
+      const before = offsets().length;
+
+      pane.setSyncOffset(1.5);
+      await flush();
+      expect(offsets().slice(before)).toEqual(["1.500"]);
+
+      // The same offset again fetches nothing; one past the limit is clamped to it.
+      pane.setSyncOffset(1.5);
+      pane.setSyncOffset(45);
+      await flush();
+      expect(offsets().slice(before)).toEqual(["1.500", "30.000"]);
+      pane.dispose();
+    });
+
+    it("never writes the offset to browser storage", async () => {
+      const setItem = vi.spyOn(Storage.prototype, "setItem");
+      const { pane } = await syncPane();
+
+      pane.setSyncOffset(2);
+      await flush();
+
+      expect(setItem).not.toHaveBeenCalled();
       pane.dispose();
     });
   });
@@ -499,10 +413,8 @@ describe("chat replay pane", () => {
     const pane = createChatPane(root, { storage: storage() });
 
     await pane.load({ ...VIEW, open: false, state: "recording", hasChat: true });
-    expect(document.querySelector("[data-sk='chat-sync']").hidden).toBe(false);
 
     await pane.load({ ...VIEW, open: false, state: "recording", hasChat: false });
-    expect(document.querySelector("[data-sk='chat-sync']").hidden).toBe(false);
     expect(document.querySelector("[data-sk='chat-state']").textContent)
       .toBe("Chat connected");
 
@@ -517,7 +429,6 @@ describe("chat replay pane", () => {
     await pane.load({ ...VIEW, open: false, state: "starting", hasChat: true });
     expect(document.querySelector("[data-sk='chat-state']").textContent)
       .toBe("Chat connected");
-    expect(document.querySelector("[data-sk='chat-sync']").hidden).toBe(false);
 
     pane.dispose();
   });
@@ -785,6 +696,276 @@ describe("chat replay pane", () => {
       const ids = renderedIds();
       expect(ids.every((id) => Number(id.slice(1)) * 20 > 1000)).toBe(true);
       expect(ids.at(-1)).toBe("m150");
+
+      pane.dispose();
+    });
+  });
+
+  describe("smooth scrolling", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    // One message a second from 0 s, so a playhead at t reveals m0 … m(t).
+    const steady = Array.from({ length: 30 }, (_, i) =>
+      ({ ...message, id: `m${i}`, mt: i, text: `message ${i}`, emotes: [] }));
+
+    /**
+     * Gives the log a layout jsdom lacks: 20 px rows in a 40 px viewport. An instant scrollTo
+     * lands at once; a smooth one is recorded but left running, as a browser animates it.
+     */
+    function layout(log) {
+      let top = 0;
+      Object.defineProperty(log, "clientHeight", { configurable: true, get: () => 40 });
+      Object.defineProperty(log, "scrollHeight", {
+        configurable: true, get: () => log.children.length * 20,
+      });
+      Object.defineProperty(log, "scrollTop", {
+        configurable: true, get: () => top, set: (value) => { top = value; },
+      });
+      log.scrollTo = vi.fn(({ top: target, behavior }) => {
+        if (behavior !== "smooth") top = target;
+      });
+      return log;
+    }
+
+    async function openPane({ fetch = windowFetch(steady), view = VIEW } = {}) {
+      document.body.innerHTML = MARKUP;
+      const log = layout(document.querySelector("[data-sk='chat-log']"));
+      const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+        { fetch, storage: storage() });
+      await pane.load({ ...view });
+      await flush();
+      return { pane, log };
+    }
+
+    // Playback in one-second steps, as the player's throttled playhead reports it.
+    function playOn(from, to) {
+      for (let t = from; t <= to; t++) playhead(t);
+    }
+
+    const rows = (log) => [...log.querySelectorAll(".sk-chat-row")];
+    const lastScroll = (log) => log.scrollTo.mock.calls.at(-1)?.[0];
+    const jump = () => document.querySelector("[data-sk='chat-jump']");
+
+    function scrollAway(log) {
+      log.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
+      log.scrollTop = 0;
+      log.dispatchEvent(new Event("scroll"));
+    }
+
+    it("keeps rendered rows and appends new ones as playback runs on", async () => {
+      const { pane, log } = await openPane();
+      playOn(1, 2);
+      const before = rows(log);
+      expect(before.map((row) => row.dataset.messageId)).toEqual(["m0", "m1", "m2"]);
+
+      playOn(3, 4);
+      const after = rows(log);
+      expect(after.map((row) => row.dataset.messageId)).toEqual(["m0", "m1", "m2", "m3", "m4"]);
+      // The same elements, not a rebuild: a rebuilt log jumps and drops the browser's anchor.
+      for (const [index, row] of before.entries()) expect(after[index]).toBe(row);
+
+      pane.dispose();
+    });
+
+    it("jumps instantly on a fresh window and scrolls new rows in smoothly", async () => {
+      const { pane, log } = await openPane();
+      expect(lastScroll(log)).toEqual({ top: 20, behavior: "instant" });
+
+      playOn(1, 3);
+      expect(lastScroll(log)).toEqual({ top: 80, behavior: "smooth" });
+
+      pane.dispose();
+    });
+
+    it("lands instantly after a short seek ahead within the kept window", async () => {
+      const { pane, log } = await openPane();
+      playOn(1, 2);
+      // Eight seconds ahead keeps the scrollback but must not sweep through the burst.
+      playhead(10);
+      expect(lastScroll(log)).toEqual({ top: 220, behavior: "instant" });
+
+      pane.dispose();
+    });
+
+    it("scrolls new rows in instantly when the viewer prefers reduced motion", async () => {
+      vi.stubGlobal("matchMedia", (query) =>
+        ({ matches: query === "(prefers-reduced-motion: reduce)" }));
+      const { pane, log } = await openPane();
+
+      playOn(1, 3);
+      expect(lastScroll(log)).toEqual({ top: 80, behavior: "instant" });
+
+      pane.dispose();
+    });
+
+    it("keeps following while its own smooth scroll is under way", async () => {
+      const { pane, log } = await openPane();
+      playOn(1, 5);
+      // Mid-animation the log is still well above the bottom; that is not the viewer leaving.
+      log.scrollTop = 30;
+      log.dispatchEvent(new Event("scroll"));
+      playhead(6);
+      expect(lastScroll(log)).toEqual({ top: 140, behavior: "smooth" });
+      expect(jump().hidden).toBe(true);
+
+      pane.dispose();
+    });
+
+    it("keeps following when the viewer clicks a row or scrolls down mid-animation", async () => {
+      const { pane, log } = await openPane();
+      playOn(1, 5);
+      rows(log)[0].dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+      log.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      log.dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true }));
+      log.scrollTop = 30;
+      log.dispatchEvent(new Event("scroll"));
+      playhead(6);
+      expect(lastScroll(log)).toEqual({ top: 140, behavior: "smooth" });
+
+      pane.dispose();
+    });
+
+    it("stops following when the viewer scrolls up during a smooth scroll", async () => {
+      const { pane, log } = await openPane();
+      playOn(1, 5);
+      const calls = log.scrollTo.mock.calls.length;
+
+      scrollAway(log);
+      playhead(7);
+
+      expect(log.scrollTo.mock.calls).toHaveLength(calls);
+      expect(log.scrollTop).toBe(0);
+
+      pane.dispose();
+    });
+
+    it("stops following on an upward scroll key or a scrollbar press", async () => {
+      for (const intent of [
+        (log) => log.dispatchEvent(new KeyboardEvent("keydown", { key: "PageUp", bubbles: true })),
+        (log) => log.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })),
+      ]) {
+        const { pane, log } = await openPane();
+        playOn(1, 5);
+        const calls = log.scrollTo.mock.calls.length;
+        intent(log);
+        log.scrollTop = 0;
+        log.dispatchEvent(new Event("scroll"));
+        playhead(6);
+        expect(log.scrollTo.mock.calls).toHaveLength(calls);
+        pane.dispose();
+      }
+    });
+
+    it("jumps to the current time instantly", async () => {
+      const { pane, log } = await openPane();
+      playOn(1, 5);
+      scrollAway(log);
+      playOn(6, 8);
+
+      jump().click();
+      expect(lastScroll(log)).toEqual({ top: 180, behavior: "instant" });
+      expect(log.scrollTop).toBe(180);
+
+      pane.dispose();
+    });
+
+    it("chases the bottom again when a smooth scroll ends short of it", async () => {
+      const { pane, log } = await openPane();
+      playOn(1, 5);
+      // The animation's target was read before later rows grew the log.
+      log.scrollTop = 40;
+      const calls = log.scrollTo.mock.calls.length;
+      log.dispatchEvent(new Event("scrollend"));
+      expect(log.scrollTo.mock.calls).toHaveLength(calls + 1);
+      expect(lastScroll(log)).toEqual({ top: 120, behavior: "smooth" });
+
+      pane.dispose();
+    });
+
+    it("chases the bottom once scrolling goes idle where scrollend never fires", async () => {
+      const { pane, log } = await openPane();
+      vi.useFakeTimers();
+      playOn(1, 5);
+      log.scrollTop = 40;
+      log.dispatchEvent(new Event("scroll"));
+      const calls = log.scrollTo.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(200);
+      expect(log.scrollTo.mock.calls).toHaveLength(calls + 1);
+      expect(lastScroll(log)).toEqual({ top: 120, behavior: "smooth" });
+
+      pane.dispose();
+    });
+
+    it("lands at the end when backfill fills the log above a following view", async () => {
+      vi.useFakeTimers();
+      // One message every 20 s; the fresh window at 1000 s shows two rows, then backfill
+      // adds older rows above them.
+      const fetch = vi.fn(async (url) => {
+        const from = Number(url.searchParams.get("fromSec"));
+        const to = Number(url.searchParams.get("toSec"));
+        const messages = [];
+        for (let i = Math.ceil(from / 20); i * 20 <= to; i++) {
+          messages.push({ ...message, id: `m${i}`, mt: i * 20, text: `message ${i}`, emotes: [] });
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            v: 1, recordingId: "r1", state: "complete", hasChat: true, source: "mock",
+            leadInSec: 0, fromSec: from, toSec: to, syncOffsetSec: 0, gaps: [],
+            hasMoreBefore: from > 0, hasMoreAfter: false, messages,
+          }),
+        };
+      });
+      document.body.innerHTML = MARKUP;
+      const log = layout(document.querySelector("[data-sk='chat-log']"));
+      const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+        { fetch, storage: storage() });
+      await pane.load({ ...VIEW });
+      await vi.advanceTimersByTimeAsync(0);
+      playhead(1000);
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(rows(log).length).toBeGreaterThan(2);
+      expect(lastScroll(log)).toEqual({ top: log.scrollHeight, behavior: "instant" });
+      expect(log.scrollTop).toBe(log.scrollHeight);
+
+      pane.dispose();
+    });
+
+    it("redraws kept rows when the channel colour changes", async () => {
+      const view = { ...VIEW, channelLogin: "alice", channelColor: 3 };
+      const { pane, log } = await openPane({ view });
+      playOn(1, 2);
+      await pane.load({ ...view, channelColor: 5 });
+      playhead(3);
+      const colors = [...log.querySelectorAll("[data-chat-name]")]
+        .map((name) => name.dataset.channelColor);
+      expect(colors).toEqual(["5", "5", "5", "5"]);
+
+      pane.dispose();
+    });
+
+    it("places gap rows among kept rows as later chat arrives", async () => {
+      const fetch = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          v: 1, recordingId: "r1", state: "complete", hasChat: true, source: "mock",
+          leadInSec: 0, fromSec: 0, toSec: 120, syncOffsetSec: 0,
+          gaps: [{ from: 2.5, to: 2.5, seconds: 40 }],
+          hasMoreBefore: false, hasMoreAfter: false, messages: steady,
+        }),
+      }));
+      const { pane, log } = await openPane({ fetch });
+
+      playOn(1, 2);
+      const kept = rows(log)[0];
+      playOn(3, 4);
+      const order = [...log.children].map((child) =>
+        child.classList.contains("sk-chat-gap") ? "gap" : child.dataset.messageId);
+      expect(order).toEqual(["m0", "m1", "m2", "gap", "m3", "m4"]);
+      expect(rows(log)[0]).toBe(kept);
 
       pane.dispose();
     });
@@ -1124,9 +1305,7 @@ describe("third-party emotes in the pane", () => {
     expect(log.textContent).toContain("KEKW");
 
     // A sync change rebuilds the log from the same messages.
-    const range = document.querySelector("[data-sk='chat-sync-range']");
-    range.value = "1";
-    range.dispatchEvent(new Event("change", { bubbles: true }));
+    pane.setSyncOffset(1);
     await flush();
 
     expect(log.querySelector("img[alt='KEKW']")).toBeNull();

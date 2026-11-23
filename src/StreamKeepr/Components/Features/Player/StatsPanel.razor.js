@@ -6,7 +6,6 @@ import {
   formatCodecs,
   formatDroppedFrames,
   formatErrorValue,
-  formatHint,
   formatLastSegment,
   formatResolution,
   formatSegments,
@@ -17,48 +16,21 @@ import {
 } from "/js/stats.js";
 import { drawSparkline, formatSparklineTip, sparklinePointAt } from "/js/sparkline.js";
 import { formatTimecode } from "/js/timecode.js";
-import {
-  drawViewerChart,
-  formatViewerTip,
-  placeViewerPlayhead,
-  viewerChartGeometry,
-  viewerChartLabel,
-  viewerChartPointAt,
-  viewerChartTimeAt,
-  viewerCountAt,
-  viewerSummary,
-} from "/js/viewer-chart.js";
+import { viewerCountAt, viewerSummary } from "/js/viewer-chart.js";
+import { subscribeViewers, viewersFor } from "/js/viewer-store.js";
+import { isLiveState } from "/js/recording-state.js";
 
 // Mirrors the data-sk hooks StatsPanel.razor renders (StatsPanelTests guards the markup).
 const HOOKS = [
-  "stats-toggle", "stats-hint", "stats-body", "copy-stats",
+  "stats-close", "stats-body", "copy-stats",
   "value-bitrate", "spark-bitrate", "tip-bitrate", "table-bitrate", "rows-bitrate",
   "value-frame", "spark-frame", "tip-frame", "table-frame", "rows-frame",
   "value-bandwidth", "spark-bandwidth", "tip-bandwidth", "table-bandwidth", "rows-bandwidth",
   "value-buffer", "spark-buffer", "tip-buffer", "table-buffer", "rows-buffer",
   "kv-resolution", "kv-codecs", "kv-dropped", "kv-decoder",
   "kv-last-segment", "kv-segments", "kv-errors", "kv-playlist",
-  "viewer-chart-empty", "viewer-tile", "viewer-at", "viewer-count",
-  "viewer-now", "viewer-peak", "viewer-average",
-  "viewer-chart", "viewer-svg", "tip-viewers", "table-viewers", "rows-viewers",
+  "stats-stream", "stream-at", "stream-viewers",
 ];
-
-// A live recording's viewer samples are refetched this often while the panel is open.
-export const VIEWER_REFRESH_MS = 60_000;
-
-const NO_VIEWERS = Object.freeze({ recordingId: null, durationSec: 0, samples: [], loaded: false });
-
-function viewersUrl(recordingId) {
-  return `/api/recordings/${encodeURIComponent(recordingId)}/viewers`;
-}
-
-/** Keeps well-formed samples only; the endpoint already orders them oldest first. */
-function readSamples(body) {
-  const list = Array.isArray(body?.samples) ? body.samples : [];
-  return list
-    .filter((sample) => Number.isFinite(sample?.at) && Number.isFinite(sample?.count))
-    .map((sample) => ({ at: sample.at, count: sample.count }));
-}
 
 const TILES = {
   bitrate: { key: "bitrateMbps", digits: 1 },
@@ -73,11 +45,10 @@ function formatNumber(value, digits) {
   return String(Math.round(value * factor) / factor);
 }
 
-function isLive(state) {
-  return state === "recording" || state === "reconnecting";
-}
-
+// The overlay sits inside the player's frame; the phone tab finds the player on the page.
 function findPlayerRoot(root) {
+  const own = root.closest?.("[data-sk-player]");
+  if (own) return own;
   const inner = root.closest?.(".sk-main-inner") ?? root.parentElement;
   return inner?.querySelector("[data-sk-player]") ?? null;
 }
@@ -92,8 +63,6 @@ export function createStatsPanel(root, {
   dotNet = null,
   interval = SAMPLE_INTERVAL_MS,
   clock = () => performance.now(),
-  fetch = globalThis.fetch?.bind(globalThis),
-  viewerRefreshMs = VIEWER_REFRESH_MS,
 } = {}) {
   const el = collect(root);
   const listeners = new AbortController();
@@ -101,6 +70,8 @@ export function createStatsPanel(root, {
     target?.addEventListener(type, handler, { signal: listeners.signal });
 
   let playerRoot = findPlayerRoot(root);
+  // The phone Stats tab is always open; only the overlay opens and closes.
+  const tab = root.getAttribute("data-chrome") === "tab";
   let options = {};
   let open = false;
   let disposed = false;
@@ -111,16 +82,7 @@ export function createStatsPanel(root, {
   let lastMetrics = null;
   let frameWindowStarted = false;
   let hover = { name: null, fraction: null };
-  let viewers = NO_VIEWERS;
-  let viewerGeometry = null;
-  let viewerRequest = null;
-  let viewerSequence = 0;
-  let viewerTimer = 0;
   let playheadAt = 0;
-  let dragging = false;
-  let viewerHover = null;
-  let seekInFlight = false;
-  let pendingSeek = null;
 
   function player() {
     if (!playerRoot) playerRoot = findPlayerRoot(root);
@@ -147,16 +109,7 @@ export function createStatsPanel(root, {
 
   function syncControls() {
     root.setAttribute("data-open", open ? "true" : "false");
-    el["stats-toggle"]?.setAttribute("aria-checked", open ? "true" : "false");
-
-    if (!el["stats-body"]) return;
-    if (open) {
-      el["stats-body"].removeAttribute("inert");
-      if ("inert" in el["stats-body"]) el["stats-body"].inert = false;
-    } else {
-      el["stats-body"].setAttribute("inert", "");
-      if ("inert" in el["stats-body"]) el["stats-body"].inert = true;
-    }
+    root.hidden = !open;
   }
 
   function setValue(node, value, digits) {
@@ -176,8 +129,6 @@ export function createStatsPanel(root, {
     for (const [name, tile] of Object.entries(TILES))
       setValue(el[`value-${name}`], latest?.[tile.key], tile.digits);
 
-    if (el["stats-hint"])
-      el["stats-hint"].textContent = metrics ? formatHint(metrics.engine, metrics.level) : "—";
     if (el["kv-resolution"])
       el["kv-resolution"].textContent = metrics
         ? formatResolution(metrics.level, metrics.viewport)
@@ -304,12 +255,12 @@ export function createStatsPanel(root, {
 
   function applyOpen(next, { persist = false } = {}) {
     if (disposed) return;
-    const value = Boolean(next);
+    const value = tab || Boolean(next);
     const changed = value !== open;
 
-    // inert would blur whatever is inside on some browsers, so move focus deliberately first.
-    if (!value && el["stats-body"]?.contains(document.activeElement))
-      el["stats-toggle"]?.focus();
+    // Hiding the card would drop focus inside it; hand it to the player's stats button.
+    if (!value && root.contains(document.activeElement))
+      player()?.querySelector('[data-sk="stats"]')?.focus();
 
     open = value;
     syncControls();
@@ -322,10 +273,9 @@ export function createStatsPanel(root, {
     if (changed) {
       if (open) {
         startWindow();
-        startViewers();
+        renderStream();
       } else {
         stopWindow();
-        stopViewers();
       }
     }
 
@@ -337,235 +287,35 @@ export function createStatsPanel(root, {
     const snapshot = buildSnapshot({
       recordingId: options.recordingId ?? metrics?.recordingId,
       capturedAt: new Date().toISOString(),
-      mode: metrics?.mode ?? (isLive(options.state) ? "live" : "vod"),
+      mode: metrics?.mode ?? (isLiveState(options.state) ? "live" : "vod"),
       playlistUrl: options.playlistUrl ?? metrics?.playlistUrl,
       level: metrics?.level ?? null,
       samples: samples.values(),
       errors: metrics?.errors ?? [],
-      viewers: viewers.recordingId === options.recordingId ? viewerSummary(viewers.samples) : null,
+      viewers: currentViewers() ? viewerSummary(currentViewers().samples) : null,
     });
 
     const written = await copyText(JSON.stringify(snapshot, null, 2));
     await notify(written ? "Stats copied" : "Could not copy stats");
   }
 
-  // ---- Stream section: viewer tile and chart ----
+  // ---- Stream row: the viewer count at the playhead, from ViewersPanel's samples ----
 
-  function setHidden(node, hidden) {
-    if (node) node.hidden = hidden;
+  function currentViewers() {
+    const data = viewersFor(options.recordingId);
+    return data?.samples?.length ? data : null;
   }
 
-  function renderViewerTable(samples) {
-    const body = el["rows-viewers"];
-    if (!body) return;
-    body.replaceChildren(...samples.map((sample) => {
-      const row = document.createElement("tr");
-      const time = document.createElement("th");
-      time.scope = "row";
-      time.textContent = formatTimecode(sample.at);
-      const value = document.createElement("td");
-      value.textContent = formatCount(sample.count);
-      row.append(time, value);
-      return row;
-    }));
-  }
+  function renderStream() {
+    const data = currentViewers();
+    if (el["stats-stream"]) el["stats-stream"].hidden = !data;
+    if (!data) return;
 
-  function renderPlayhead() {
-    if (!viewerGeometry) return;
-    const count = viewerCountAt(viewers.samples, playheadAt);
-    if (el["viewer-at"]) el["viewer-at"].textContent = `Viewers at ${formatTimecode(playheadAt)}`;
-    if (el["viewer-count"]) el["viewer-count"].textContent = formatCount(count);
-    placeViewerPlayhead(el["viewer-chart"], viewerGeometry, playheadAt, count);
-  }
-
-  function renderViewers() {
-    const { samples } = viewers;
-    const has = samples.length > 0;
-    const live = isLive(options.state);
-
-    setHidden(el["viewer-chart-empty"], has);
-    setHidden(el["viewer-tile"], !has);
-    setHidden(el["viewer-chart"], !has);
-    setHidden(el["table-viewers"], !has);
-    el["viewer-chart"]?.setAttribute("aria-label", viewerChartLabel(samples, { live }));
-    renderViewerTable(samples);
-
-    if (!has) {
-      viewerGeometry = null;
-      el["viewer-svg"]?.replaceChildren();
-      el["viewer-chart"]?.querySelector("[data-chart-overlay]")?.remove();
-      if (el["tip-viewers"]) el["tip-viewers"].textContent = "";
-      return;
-    }
-
-    viewerGeometry = drawViewerChart(
-      el["viewer-chart"],
-      el["viewer-svg"],
-      viewerChartGeometry(samples, { durationSec: viewers.durationSec }),
-      { live });
-    // A refresh must not leave a stale tooltip: reposition the active one against the new data.
-    if (viewerHover !== null) showViewerTip(viewerHover);
-    else hideViewerTip();
-
-    const summary = viewerSummary(samples);
-    if (el["viewer-now"]) el["viewer-now"].textContent = formatCount(summary.now);
-    if (el["viewer-peak"])
-      el["viewer-peak"].textContent =
-        `${formatCount(summary.peak)} at ${formatTimecode(summary.peakAt)}`;
-    if (el["viewer-average"]) el["viewer-average"].textContent = formatCount(summary.average);
-    renderPlayhead();
-  }
-
-  async function loadViewers() {
-    const recordingId = options.recordingId;
-    if (disposed || !recordingId || typeof fetch !== "function") return;
-
-    viewerRequest?.abort();
-    const request = new AbortController();
-    viewerRequest = request;
-    const sequence = ++viewerSequence;
-    // Only the latest request for the current recording may change the section.
-    const current = () =>
-      !disposed && !request.signal.aborted && sequence === viewerSequence &&
-      recordingId === options.recordingId;
-
-    try {
-      const response = await fetch(viewersUrl(recordingId), {
-        signal: request.signal,
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-      });
-      if (!current()) return;
-
-      // An unknown recording has no samples; any other failure keeps what is shown.
-      let body = { recordingId, durationSec: 0, samples: [] };
-      if (response.ok) body = await response.json();
-      else if (response.status !== 404)
-        throw new Error(`Viewer samples returned HTTP ${response.status}.`);
-
-      if (!current() || body?.recordingId !== recordingId) return;
-      viewers = {
-        recordingId,
-        durationSec: Number.isFinite(body.durationSec) ? body.durationSec : 0,
-        samples: readSamples(body),
-        loaded: true,
-      };
-      renderViewers();
-    } catch (error) {
-      if (request.signal.aborted) return;
-      console.warn("Stream Keepr: viewer samples could not be loaded.", error);
-    } finally {
-      if (viewerRequest === request) viewerRequest = null;
-    }
-  }
-
-  function stopViewers() {
-    clearInterval(viewerTimer);
-    viewerTimer = 0;
-    viewerRequest?.abort();
-    viewerRequest = null;
-  }
-
-  /** Opening fetches once per recording; a live recording also refetches on reopen and every 60 s. */
-  function startViewers() {
-    stopViewers();
-    if (!open || disposed) return;
-
-    const live = isLive(options.state);
-    if (live || !viewers.loaded || viewers.recordingId !== options.recordingId)
-      void loadViewers();
-    if (live) viewerTimer = setInterval(() => void loadViewers(), viewerRefreshMs);
-  }
-
-  function chartFraction(event) {
-    const rect = el["viewer-chart"]?.getBoundingClientRect();
-    if (!rect || !(rect.width > 0)) return 0;
-    return Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-  }
-
-  function showViewerTip(fraction) {
-    const tip = el["tip-viewers"];
-    const point = viewerChartPointAt(viewerGeometry, fraction);
-    if (!tip || !point) return;
-
-    tip.textContent = formatViewerTip(point.at, point.count);
-    tip.style.left = `${(point.x / viewerGeometry.width) * 100}%`;
-    const crosshair = el["viewer-svg"]?.querySelector(".xh");
-    if (crosshair) {
-      crosshair.setAttribute("x1", String(point.x));
-      crosshair.setAttribute("x2", String(point.x));
-      crosshair.setAttribute("visibility", "visible");
-    }
-  }
-
-  function hideViewerTip() {
-    if (el["tip-viewers"]) el["tip-viewers"].textContent = "";
-    el["viewer-svg"]?.querySelector(".xh")?.setAttribute("visibility", "hidden");
-  }
-
-  // Seeks go through .NET to the PlayerBridge. A drag sends at most one call at a time and
-  // keeps only the latest position meanwhile, so the circuit is never flooded.
-  async function sendSeek(seconds) {
-    if (seekInFlight) {
-      pendingSeek = seconds;
-      return;
-    }
-
-    seekInFlight = true;
-    try {
-      await dotNet?.invokeMethodAsync("Seek", seconds);
-    } catch (error) {
-      console.debug("Stream Keepr: the chart seek was not delivered.", error);
-    } finally {
-      seekInFlight = false;
-    }
-
-    if (pendingSeek !== null && !disposed) {
-      const next = pendingSeek;
-      pendingSeek = null;
-      await sendSeek(next);
-    }
-  }
-
-  function seekToPointer(event) {
-    if (!viewerGeometry) return;
-    void sendSeek(viewerChartTimeAt(viewerGeometry, chartFraction(event)));
-  }
-
-  function bindViewerChart() {
-    const chart = el["viewer-chart"];
-    if (!chart) return;
-
-    const hover = (event) => {
-      viewerHover = chartFraction(event);
-      showViewerTip(viewerHover);
-    };
-
-    on(chart, "pointerdown", (event) => {
-      if (event.button !== 0 || !viewerGeometry) return;
-      dragging = true;
-      // data-active shows the tooltip where there is no :hover (touch).
-      chart.setAttribute("data-active", "");
-      if (event.pointerId !== undefined) chart.setPointerCapture?.(event.pointerId);
-      hover(event);
-      seekToPointer(event);
-    });
-    on(chart, "pointermove", (event) => {
-      if (!viewerGeometry) return;
-      hover(event);
-      if (dragging) seekToPointer(event);
-    });
-    const endDrag = () => {
-      dragging = false;
-      chart.removeAttribute("data-active");
-    };
-    on(chart, "pointerup", endDrag);
-    on(chart, "pointercancel", endDrag);
-    on(chart, "pointerleave", () => {
-      endDrag();
-      viewerHover = null;
-      hideViewerTip();
-    });
+    const summary = viewerSummary(data.samples);
+    if (el["stream-at"]) el["stream-at"].textContent = `Viewers at ${formatTimecode(playheadAt)}`;
+    if (el["stream-viewers"])
+      el["stream-viewers"].textContent =
+        `${formatCount(viewerCountAt(data.samples, playheadAt))} · peak ${formatCount(summary.peak)}`;
   }
 
   function showTooltip(name, fraction) {
@@ -635,25 +385,13 @@ export function createStatsPanel(root, {
       renderValues(null);
       renderSparklines();
       renderTables();
-      stopViewers();
-      viewers = NO_VIEWERS;
       playheadAt = 0;
-      renderViewers();
-      if (open) {
-        startWindow();
-        startViewers();
-      }
+      renderStream();
+      if (open) startWindow();
       return;
     }
 
     renderValues(lastMetrics);
-
-    // A capture that has just finished needs one last fetch for its final samples and duration.
-    const wasLive = isLive(previous.state);
-    if (wasLive !== isLive(options.state)) {
-      if (wasLive) viewers = { ...viewers, loaded: false };
-      startViewers();
-    }
   }
 
   function init(next) {
@@ -670,12 +408,16 @@ export function createStatsPanel(root, {
     if (disposed) return;
     disposed = true;
     stopWindow();
-    stopViewers();
+    unsubscribe();
     listeners.abort();
   }
 
-  on(el["stats-toggle"], "click", () => applyOpen(!open, { persist: true }));
+  on(el["stats-close"], "click", () => applyOpen(false, { persist: true }));
   on(el["copy-stats"], "click", () => void copy());
+
+  const unsubscribe = subscribeViewers((data) => {
+    if (data.recordingId === options.recordingId) renderStream();
+  });
 
   // The player owns its stats button. It announces the new state immediately; this
   // listener updates the panel DOM and sampler before the .NET persistence round-trip.
@@ -685,16 +427,15 @@ export function createStatsPanel(root, {
   });
 
   for (const name of Object.keys(TILES)) bindHover(name);
-  bindViewerChart();
 
   // The player announces its position on the document; only this recording's moves the
-  // tile and the chart's playhead.
+  // Stream row.
   on(document, "sk:playhead", (event) => {
     const detail = event instanceof CustomEvent ? event.detail : null;
     if (!detail || detail.recordingId !== options.recordingId || !Number.isFinite(detail.time))
       return;
     playheadAt = Math.max(0, detail.time);
-    renderPlayhead();
+    if (open) renderStream();
   });
 
   return { init, update, setOpen: applyOpen, dispose };

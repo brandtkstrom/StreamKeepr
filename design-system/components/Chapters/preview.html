@@ -1,0 +1,27 @@
+<!-- @dsCard group="Playback" height=280 width=760 subtitle="Chapters: one row per chapter, the current one on selection; hidden when a recording has none" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; }
+  .wrap { padding: var(--space-4); }
+</style>
+</head>
+<body class="ds">
+<div class="wrap">
+  <section class="ds-panel">
+    <div class="ds-panel-head ds-ihead" aria-expanded="true" role="button"><i data-i="toc"></i><h2>Chapters</h2><span class="ds-cap">4 chapters</span><i data-i="expand" class="ds-chev"></i></div>
+    <div class="ds-panel-body">
+      <div class="ds-chapters list" role="group" aria-label="Chapters">
+        <button class="ds-chapter"><span class="time">0:00:00</span><span class="title">Just chatting</span><span class="game">Just Chatting</span></button>
+        <button class="ds-chapter cur" aria-current="true"><span class="time">0:21:40</span><span class="title">Route planning</span><span class="game">Celeste</span></button>
+        <button class="ds-chapter"><span class="time">1:34:05</span><span class="title">Full runs</span><span class="game">Celeste</span></button>
+        <button class="ds-chapter"><span class="time">2:02:51</span><span class="title">Wind down</span><span class="game">Just Chatting</span></button>
+      </div>
+    </div>
+  </section>
+</div>
+<script src="../icons.js"></script>
+</body>
+</html>

@@ -29,7 +29,8 @@ public sealed class ChatPaneTests
             .Add(component => component.Open, false));
 
         Assert.Equal("false", cut.Find("[data-sk-chat]").GetAttribute("data-open"));
-        Assert.Equal("false", cut.Find("[data-sk='chat-toggle']").GetAttribute("aria-expanded"));
+        // The player's Chat button and C open the pane; it has no toggle of its own.
+        Assert.Empty(cut.FindAll("[data-sk='chat-toggle']"));
         Assert.Equal("log", cut.Find("[data-sk='chat-log']").GetAttribute("role"));
         Assert.Equal("off", cut.Find("[data-sk='chat-log']").GetAttribute("aria-live"));
         Assert.True(cut.Find("[data-sk='chat-body']").HasAttribute("inert"));
@@ -144,7 +145,7 @@ public sealed class ChatPaneTests
     }
 
     [Fact]
-    public async Task The_header_toggle_draws_the_chat_glyph()
+    public async Task The_header_is_a_plain_title_with_a_decorative_chat_glyph()
     {
         await using BunitContext context = HomePlayerTests.CreateContext(
             out BunitJSModuleInterop module, out TestLibraryView _);
@@ -154,42 +155,53 @@ public sealed class ChatPaneTests
             .Add(c => c.Recording, WithChat())
             .Add(c => c.Open, true));
 
-        Assert.Equal("Chat", cut.Find("[data-sk='chat-toggle'] > svg").GetAttribute("data-icon"));
+        IElement head = cut.Find("[data-sk-chat] > header");
+        Assert.Empty(head.QuerySelectorAll("button"));
+        Assert.Equal("Chat", head.QuerySelector("svg")!.GetAttribute("data-icon"));
+        Assert.Equal("true", head.QuerySelector("svg")!.GetAttribute("aria-hidden"));
+        Assert.Equal("Chat", head.QuerySelector("[data-sk='chat-title']")!.TextContent.Trim());
     }
 
     [Fact]
-    public async Task The_sync_footer_is_a_labelled_slider_over_the_endpoint_limit()
+    public async Task The_pane_has_no_sync_slider_and_sends_the_viewers_offset()
     {
         await using BunitContext context = HomePlayerTests.CreateContext(
             out BunitJSModuleInterop module, out TestLibraryView _);
-        context.JSInterop.SetupModule(Module).Mode = JSRuntimeMode.Loose;
+        module = context.JSInterop.SetupModule(Module);
+        module.Mode = JSRuntimeMode.Loose;
+        context.Services.GetRequiredService<UiPreferences>().SetChatSyncOffset(2.5);
 
         IRenderedComponent<ChatPane> cut = context.Render<ChatPane>(p => p
             .Add(c => c.Recording, WithChat())
             .Add(c => c.Open, true));
 
-        IElement range = cut.Find("[data-sk='chat-sync-range']");
-        Assert.Equal("range", range.GetAttribute("type"));
-        Assert.Equal("-30", range.GetAttribute("min"));
-        Assert.Equal("30", range.GetAttribute("max"));
-        Assert.Equal("0.5", range.GetAttribute("step"));
-        Assert.Equal("0", range.GetAttribute("value"));
-        Assert.Equal("0 seconds", range.GetAttribute("aria-valuetext"));
-        // The visible "Chat sync" label names the slider.
-        IElement label = cut.Find($"label[for='{range.Id}']");
-        Assert.Equal("Chat sync", label.TextContent.Trim());
+        Assert.Empty(cut.FindAll("[data-sk='chat-sync']"));
+        Assert.Empty(cut.FindAll("input[type='range']"));
+        JSRuntimeInvocation init = Assert.Single(module.Invocations, call => call.Identifier == "init");
+        JsonElement payload = JsonSerializer.SerializeToElement(
+            init.Arguments[2], new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal(2.5, payload.GetProperty("syncOffsetSec").GetDouble());
+        Assert.Equal(30, payload.GetProperty("maxSyncOffsetSec").GetDouble());
+    }
 
-        IElement reset = cut.Find("[data-sk='chat-sync-reset']");
-        Assert.Equal("button", reset.GetAttribute("type"));
-        Assert.Equal("Reset chat sync to 0", reset.GetAttribute("aria-label"));
-        Assert.Equal("RestartAlt", reset.QuerySelector("svg")!.GetAttribute("data-icon"));
-        Assert.Equal("0.0 s", cut.Find("[data-sk='chat-sync-value']").TextContent.Trim());
+    [Fact]
+    public async Task A_settings_change_applies_to_the_open_pane_at_once()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(
+            out BunitJSModuleInterop module, out TestLibraryView _);
+        module = context.JSInterop.SetupModule(Module);
+        module.Mode = JSRuntimeMode.Loose;
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
+        IRenderedComponent<ChatPane> cut = context.Render<ChatPane>(p => p
+            .Add(c => c.Recording, WithChat())
+            .Add(c => c.Open, true));
 
-        string sync = cut.Find("[data-sk='chat-sync']").TextContent;
-        Assert.Contains("Earlier", sync, StringComparison.Ordinal);
-        Assert.Contains("Later", sync, StringComparison.Ordinal);
-        Assert.Single(cut.FindAll("[data-sk='chat-sync'] svg[data-icon='Tune']"));
-        Assert.Single(cut.FindAll("[data-sk='chat-sync'] button"));
+        await cut.InvokeAsync(() => preferences.SetChatSyncOffset(-3));
+        // Another preference changing leaves the offset, and the pane, alone.
+        await cut.InvokeAsync(() => preferences.SetTheater(true));
+
+        JSRuntimeInvocation apply = Assert.Single(module.Invocations, call => call.Identifier == "setSyncOffset");
+        Assert.Equal(-3d, apply.Arguments[1]);
     }
 
     [Fact]

@@ -4,13 +4,13 @@ The layout below MudBlazor's `Breakpoint.Md` (960px), phones and tablets: a dens
 
 - **Top bar:** `MudAppBar Dense` (48px). On Home, Library and Settings it holds the wordmark, a search icon (which opens a full-width search row), the GitHub and Twitch links, and the account avatar as a `MudMenu` activator (the name is in its menu). On a watch page it holds an `ArrowBack` button to Home, the recording title (`subtitle1` at Medium, ellipsised) and search.
 - **Bottom bar:** `BottomNav` (`MudAppBar Bottom`), with Home · Library · Settings. It is hidden on watch pages, so the player and tabs get the room.
-- **Library:** `MudDrawer Variant="Temporary"`, `drawer-width` (320px) but never wider than the screen less 48px, over `overlay-dark` at `elevation-4`, opened by Library in the bottom bar. Picking a recording closes it. Disk usage sits at its foot.
+- **Library:** `MudDrawer Variant="Temporary"`, `drawer-width` (320px) but never wider than the screen less 48px, over `overlay-dark` at `elevation-4`, opened by Library in the bottom bar. It drills in rather than showing two columns: the channels list first; tapping a channel slides its recordings over the list, with an `ArrowBack` "All channels" button and the channel's avatar and name in the header (the card shows this state). Each recording row shows its Delete button all the time, since touch has no hover (see `RecordingRow`). Picking a recording closes it. Disk usage sits at its foot.
 - **Home:** the two rows run edge to edge with `pa-4` gutters, as swipe rows. Large cards are 85% and default cards 60% of the screen width.
 - **Watching:**
   1. The player, edge to edge with square corners, at 16:9. On phones (Xs) it is `position: sticky` under the top bar, so it stays in view while the tabs scroll.
   2. The title in `h6`, then the meta line (streamer, `Event` start, `Timer` duration).
-  3. One row of actions: the REC chip, then small buttons (Copy URL, Export) and a `MoreVert` menu for Stop recording and Delete.
-  4. `MudTabs` (`Color.Primary`, full width, `KeepPanelsAlive`), with **Chat** (`Chat`), **Details** (`Info`) and **Stats** (`QueryStats`). Chat comes first and is selected when the recording has chat; otherwise Details is. Each panel gets at least half the viewport, and the main column scrolls under the sticky player.
+  3. The same actions as desktop (`RecordingDetails`): Copy playlist URL and Export MP4 as icon buttons, then the `MoreVert` menu with Stop recording and Delete, on one row after the REC chip. An export's progress row follows.
+  4. `MudTabs` (`Color.Primary`, full width, `KeepPanelsAlive`), with **Chat** (`Chat`), **Chapters** (`Toc`) and **Stats** (`QueryStats`: Video and Network, then the viewer tile and chart; phones get no overlay and no Viewers panel). Chapters is left out when the recording has no chapters. Chat comes first and is selected when the recording has chat; otherwise Chapters is, or Stats when there are no chapters either. Each panel gets at least half the viewport, and the main column scrolls under the sticky player.
 - **Phone landscape** (height below 500px): the top bar hides and the player fills the screen, with its controls overlaid. Rotating back restores the layout.
 
 ## Rules
@@ -18,4 +18,4 @@ The layout below MudBlazor's `Breakpoint.Md` (960px), phones and tablets: a dens
 - Touch targets are 40px or more: 48px in the bottom bar and the tabs.
 - Player controls: the existing container queries leave play, back 10 s, timecode and fullscreen below Md; the Chat and Stats player buttons are hidden because the tabs own them, and theater is not available. A `MoreVert` menu holding speed, stats and PiP is deferred because this slice does not change the player island's markup.
 - Theater mode doesn't exist here. Fullscreen replaces it.
-- Nothing scrolls sideways except the Home rows and the chapter strip.
+- Nothing scrolls sideways except the Home rows.

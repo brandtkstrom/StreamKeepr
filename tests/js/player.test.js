@@ -32,7 +32,7 @@ const MARKUP = `
       <button role="menuitemradio" data-rate="1.5" aria-checked="false"></button>
       <button role="menuitemradio" data-rate="2" aria-checked="false"></button>
     </div>
-    <button data-sk="stats" aria-label="Stats for nerds" aria-pressed="false"><svg data-icon="QueryStats"></svg></button>
+    <button data-sk="stats" aria-label="Statistics" aria-pressed="false"><svg data-icon="QueryStats"></svg></button>
     <button data-sk="chat" aria-label="Chat" aria-pressed="false" aria-keyshortcuts="C" hidden><svg data-icon="Chat"></svg></button>
     <button data-sk="pip" aria-label="Picture in picture" hidden><svg data-icon="PictureInPictureAlt"></svg></button>
     <button data-sk="theater" aria-label="Theater mode" aria-pressed="false"><svg data-icon="WidthWide"></svg></button>
@@ -1311,11 +1311,48 @@ describe("VideoPlayer.razor.js", () => {
       hook("speed").click();
       vi.advanceTimersByTime(5_000);
       expect(root().classList.contains("idle")).toBe(false);
+      expect(root().hasAttribute("data-idle")).toBe(false);
       hook("speed").click();
 
       hook("play").click();
       vi.advanceTimersByTime(5_000);
       expect(root().classList.contains("idle")).toBe(false);
+      expect(root().hasAttribute("data-idle")).toBe(false);
+    });
+
+    it("neither wakes nor idles while the pointer is on the Statistics card, which would otherwise move", async () => {
+      await start();
+      media.metadata(600);
+      hook("center").click();
+      hook("play").blur();
+      const card = document.createElement("section");
+      card.setAttribute("data-sk-stats", "");
+      const spark = document.createElement("svg");
+      card.append(spark);
+      root().append(card);
+
+      vi.advanceTimersByTime(3_000);
+      expect(root().classList.contains("idle")).toBe(true);
+      expect(root().hasAttribute("data-idle")).toBe(true);
+
+      spark.dispatchEvent(new Event("pointermove", { bubbles: true }));
+      expect(root().classList.contains("idle")).toBe(true);
+      expect(root().hasAttribute("data-idle")).toBe(true);
+
+      // Awake with the pointer on the card: the overlays stay up until it leaves.
+      root().dispatchEvent(new Event("pointermove"));
+      expect(root().classList.contains("idle")).toBe(false);
+      expect(root().hasAttribute("data-idle")).toBe(false);
+      spark.dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+      vi.advanceTimersByTime(10_000);
+      expect(root().classList.contains("idle")).toBe(false);
+      expect(root().hasAttribute("data-idle")).toBe(false);
+
+      spark.dispatchEvent(new MouseEvent("pointerout", { bubbles: true, relatedTarget: root() }));
+      root().dispatchEvent(new Event("pointermove"));
+      vi.advanceTimersByTime(3_000);
+      expect(root().classList.contains("idle")).toBe(true);
+      expect(root().hasAttribute("data-idle")).toBe(true);
     });
 
     it("runs the global shortcuts and leaves typing alone", async () => {

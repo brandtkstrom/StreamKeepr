@@ -14,7 +14,7 @@ namespace StreamKeepr.Hosting;
 /// </summary>
 public static class RecordingsMedia
 {
-    private const string MediaRequestPath = "/media";
+    private const string MediaRequestPath = RequestPaths.Media;
     private const string PlaylistExtension = ".m3u8";
     private const string PlaylistCacheControl = "no-cache";
     private const string ImmutableCacheControl = "public, max-age=31536000, immutable";

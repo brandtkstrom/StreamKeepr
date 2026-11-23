@@ -163,7 +163,7 @@
 .ds-group-head[aria-expanded="false"] .ds-chev { transform: rotate(-90deg); }
 .ds-day { font: var(--text-label); color: var(--text-secondary); padding: var(--space-2) var(--space-4) var(--space-1); }
 
-/* Library row (Blazor-rendered link; tree-nav.js keyboard model) */
+/* Library recording row (Blazor-rendered link; the library keyboard model) */
 .ds-rec-row { display: flex; gap: var(--space-3); padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4); color: inherit; text-decoration: none; border-radius: 0; }
 .ds-rec-row:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
 .ds-rec-row[aria-current="true"] { background: var(--selection); }
@@ -269,7 +269,7 @@ mark.ds-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 
 /* Chat island */
 .ds-chat { width: var(--chat-width); background: var(--surface); border: 1px solid var(--lines-default); border-radius: var(--radius-lg); display: flex; flex-direction: column; overflow: hidden; }
-.ds-chat-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3) var(--space-2) var(--space-2); border-bottom: 1px solid var(--divider); }
+.ds-chat-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--divider); }
 .ds-chat-head .t { font: var(--text-subtitle1); }
 .ds-chat-log { flex: 1; padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); font: var(--text-body2); overflow: hidden; }
 .ds-chat-log .n { font-weight: 700; }
@@ -456,3 +456,132 @@ mark.ds-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .ds-appbar.dense .ds-logo .ds-i { width: 24px; height: 24px; }
 .ds-logo.rec::after { content: ""; position: absolute; top: -2px; right: -3px; width: 9px; height: 9px; border-radius: var(--radius-full); background: var(--rec); box-shadow: 0 0 0 2px var(--appbar-background); animation: ds-pulse 1.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .ds-logo.rec::after { animation: none; } }
+
+/* Watch view, Md and up: two columns. The left one holds the player, the title block, Chapters
+   and Stats; the open chat is a full-height column on the right. */
+.ds-watchcols { display: flex; gap: var(--space-4); align-items: stretch; min-height: 0; }
+.ds-watchcols > .col { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+.ds-watchcols > .ds-chat { flex: 0 1 400px; min-width: var(--chat-width); width: auto; align-self: stretch; }
+
+/* The title block under the player, outside any panel: title and meta on the left, the actions
+   in a vertical stack on the right. */
+.ds-vhead { display: flex; align-items: flex-start; gap: var(--space-4); }
+.ds-vhead > .ds-vinfo { flex: 1 1 auto; min-width: 0; padding: 0; gap: var(--space-2); }
+.ds-vhead > .ds-vinfo .ds-meta { padding: 0; }
+/* The recording's actions: a compact row of icon buttons at the title's top right, with the rarer
+   and destructive actions in a "More actions" menu. */
+.ds-vacts { flex: none; position: relative; display: flex; align-items: center; gap: var(--space-1); }
+.ds-vacts .ds-ibtn.export { color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, transparent); }
+.ds-vacts .ds-ibtn.export:hover { background: color-mix(in srgb, var(--primary) 22%, transparent); }
+.ds-vacts .ds-ibtn.export[disabled] { color: var(--action-disabled); background: transparent; }
+.ds-vacts .ds-ibtn[aria-expanded="true"] { background: color-mix(in srgb, var(--text-primary) 12%, transparent); }
+.ds-vacts .ds-menu { position: absolute; right: 0; top: calc(100% + var(--space-1)); z-index: 3; min-width: 220px; }
+.ds-vacts .ds-menu-item.error, .ds-vacts .ds-menu-item.error .ds-i { color: var(--error); }
+.ds-vacts .ds-menu-item[aria-disabled="true"] { color: var(--action-disabled); cursor: default; }
+.ds-vacts .ds-menu-item[aria-disabled="true"] .ds-i { color: var(--action-disabled); }
+.ds-vacts .ds-menu-item .why { display: block; font: var(--text-caption); color: var(--text-secondary); }
+.ds-vacts .ds-tip { position: absolute; right: 0; top: calc(100% + var(--space-1)); z-index: 3; }
+.ds-export { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--surface-raised); }
+.ds-export .ds-progress { flex: 1; --c: var(--secondary); max-width: 320px; }
+.ds-export .pct { font: var(--text-timecode); color: var(--text-secondary); }
+
+/* Chapters panel: one row per chapter, offset · title · game. */
+.ds-chapters.list { flex-direction: column; gap: 2px; overflow: visible; }
+.ds-chapters.list .ds-chapter { flex-direction: row; align-items: baseline; gap: var(--space-3); min-width: 0; width: 100%; border-color: transparent; text-align: left; }
+.ds-chapters.list .ds-chapter .time { flex: none; min-width: 64px; }
+.ds-chapters.list .ds-chapter .title { flex: 1 1 auto; min-width: 0; }
+.ds-chapters.list .ds-chapter .game { flex: none; }
+
+/* Mini rail: 32px avatars; a live channel carries the app bar logo's pulsing rec dot, larger. */
+.ds-avatar.rail { width: 32px; height: 32px; font: var(--text-label); font-weight: 700; }
+.ds-avatar.rail.live::after {
+  top: -3px; right: -3px; bottom: auto; width: 14px; height: 14px;
+  box-shadow: 0 0 0 2px var(--drawer-background); animation: ds-pulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .ds-avatar.rail.live::after { animation: none; } }
+}
+
+/* Statistics as an overlay inside the player (StatsPanel). It is part of the player island, so it
+   draws on player tokens; the series colours are the page's own, as everywhere else in stats. */
+.ds-pstats { --pstats-top: var(--space-3); --pstats-bottom: var(--space-3); position: absolute; left: var(--space-3); top: var(--pstats-top); z-index: 2; width: 420px; max-width: calc(100% - 2 * var(--space-3)); max-height: calc(100% - var(--pstats-top) - var(--pstats-bottom)); display: flex; flex-direction: column; background: color-mix(in srgb, var(--player-surface) 68%, transparent); color: var(--player-text); border-radius: var(--radius-md); box-shadow: var(--elevation-8); backdrop-filter: blur(8px); text-shadow: 0 1px 2px rgba(0,0,0,0.5); transition: top 200ms ease, max-height 200ms ease; }
+/* While the player's overlays show, the card clears the title strip above and the seek bar and control bar below. */
+.ds-pstats.overlays { --pstats-top: calc(64px + var(--space-2)); --pstats-bottom: calc(var(--control-bar-height) + 24px + var(--space-2)); }
+.ds-pstats .body { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.3) transparent; }
+.ds-pstats header { display: flex; align-items: center; gap: var(--space-1); padding: var(--space-1) var(--space-1) 0 var(--space-3); min-height: 40px; }
+.ds-pstats header h2 { margin: 0; font: var(--text-subtitle2); flex: 1; }
+.ds-pstats header .ds-pbtn { width: 32px; height: 32px; }
+.ds-pstats header .ds-pbtn .ds-i { width: 18px; height: 18px; }
+.ds-pstats .body { overflow: auto; padding: 0 var(--space-3) var(--space-3); display: grid; gap: var(--space-2); }
+.ds-pstats h3 { margin: var(--space-1) 0 0; display: flex; align-items: center; gap: 6px; font: var(--text-overline); line-height: 16px; letter-spacing: 0.08333em; text-transform: uppercase; color: var(--text-secondary); }
+.ds-pstats h3 .sw { width: 8px; height: 8px; border-radius: 2px; }
+.ds-pstats .spark { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.ds-pstats .spark > div { min-width: 0; }
+.ds-pstats .spark b { display: block; font: var(--text-stat-value); font-variant-numeric: tabular-nums; }
+.ds-pstats .spark b small { font: var(--text-caption); color: var(--text-secondary); }
+.ds-pstats .spark span { font: var(--text-caption); color: var(--text-secondary); }
+.ds-pstats .spark svg { display: block; width: 100%; height: 20px; margin-top: 2px; }
+.ds-pstats .spark polyline { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.ds-pstats .v polyline { stroke: var(--primary); } .ds-pstats .n polyline { stroke: var(--secondary); }
+.ds-pstats .ds-kv { margin: 0; gap: 2px var(--space-3); }
+.ds-pstats .ds-kv dd { font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .ds-pstats { transition: none; } }
+/* The player is the card's container, so the card sizes to the player, fullscreen included. */
+.ds-player:has(.ds-pstats) { container-type: inline-size; }
+/* Narrow players (phones in fullscreen landscape, small windows): the card takes the left half and scrolls. */
+@container (max-width: 560px) { .ds-pstats { width: 50%; min-width: 220px; } .ds-pstats .spark svg { display: none; } }
+
+/* The viewer chart, moved out of Stats into its own panel under Chapters. */
+.ds-viewers.panel { margin: 0; padding: 0; border: 0; }
+
+/* An avatar with the channel's Twitch profile image fills the circle; the initial on the
+   channel colour is the fallback when there is no image. */
+.ds-avatar > img { display: block; width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+
+/* Library drawer, two columns: channels on the left; selecting one opens its recordings in a
+   second column to the right, inside the same drawer. */
+.ds-library { display: flex; align-items: stretch; min-height: 0; background: var(--drawer-background); box-shadow: var(--elevation-8); }
+.ds-library > .ds-drawer { flex: none; }
+.ds-chan-row { position: relative; display: flex; align-items: center; gap: var(--space-3); width: 100%; border: 0; background: transparent; color: inherit; text-align: left; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); cursor: pointer; }
+.ds-chan-row:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
+.ds-chan-row .name { font: var(--text-subtitle1); display: block; }
+.ds-chan-row .meta { font: var(--text-caption); letter-spacing: 0.03333em; color: var(--text-secondary); display: block; }
+.ds-chan-row .ds-count { margin-left: auto; font: var(--text-caption); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.ds-chan-row > .ds-i:last-child { color: var(--drawer-icon); flex: none; }
+.ds-chan-row[aria-selected="true"] { background: var(--selection); }
+.ds-chan-row[aria-selected="true"] .meta, .ds-chan-row[aria-selected="true"] .ds-count, .ds-chan-row[aria-selected="true"] > .ds-i:last-child { color: var(--text-primary); }
+.ds-chan-row[aria-selected="true"]::before { content: ""; position: absolute; left: 0; top: var(--space-2); bottom: var(--space-2); width: 3px; border-radius: 0 2px 2px 0; background: var(--primary); }
+.ds-chan-row:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.ds-libcol { flex: none; width: 360px; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--divider); background: var(--drawer-background); color: var(--drawer-text); }
+.ds-libcol-head { display: flex; align-items: center; gap: var(--space-3); min-height: 64px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); border-bottom: 1px solid var(--divider); flex: none; }
+.ds-libcol-head h3 { margin: 0; font: var(--text-h6); }
+.ds-libcol-head .meta { display: block; font: var(--text-caption); letter-spacing: 0.03333em; color: var(--text-secondary); }
+.ds-libcol-head > span:not(.ds-avatar) { flex: 1; min-width: 0; }
+.ds-libcol-body { flex: 1; min-height: 0; overflow: auto; padding-bottom: var(--space-2); }
+
+/* Recording row with its Delete button (LibraryDrawer). The button is a sibling of the
+   row's link, never inside it; the row reserves its width so nothing reflows on hover. */
+.ds-rec-item { position: relative; }
+.ds-rec-item > .ds-rec-row { padding-right: calc(var(--space-2) + 32px + var(--space-2)); }
+.ds-rec-item:hover > .ds-rec-row, .ds-rec-item.hover > .ds-rec-row { background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
+.ds-rec-item > .ds-rec-row[aria-current="true"] { background: var(--selection); }
+.ds-rec-del { position: absolute; right: var(--space-2); top: var(--space-2); opacity: 0; }
+.ds-rec-item:hover > .ds-rec-del, .ds-rec-item.hover > .ds-rec-del, .ds-rec-item:focus-within > .ds-rec-del,
+.ds-rec-item:has(> [aria-current="true"]) > .ds-rec-del, .ds-rec-item.touch > .ds-rec-del { opacity: 1; }
+@media (hover: none) { .ds-rec-del { opacity: 1; } }
+.ds-rec-del:not([disabled]):hover, .ds-rec-item.hover > .ds-rec-del:not([disabled]) { color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); }
+.ds-rec-item > .ds-tip { position: absolute; right: var(--space-2); top: calc(var(--space-2) + 32px + var(--space-1)); z-index: 3; }
+
+/* Sign-in page (SignIn): shown instead of the app when Auth:AllowedTwitchLogins is set. */
+.ds-signin { display: grid; place-items: center; min-height: 100%; padding: var(--space-4); background: var(--background); box-sizing: border-box; }
+.ds-signin-card { width: 100%; max-width: 400px; box-sizing: border-box; padding: var(--space-8) var(--space-6) var(--space-6); background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--elevation-4); display: flex; flex-direction: column; align-items: center; gap: var(--space-4); text-align: center; }
+.ds-signin-card .ds-wordmark { font-size: 24px; }
+.ds-signin-card h1 { margin: var(--space-2) 0 0; font: var(--text-h5); color: var(--text-primary); }
+.ds-signin-card p { margin: 0; font: var(--text-body2); color: var(--text-secondary); }
+.ds-signin-card .ds-alert { width: 100%; box-sizing: border-box; text-align: left; align-items: flex-start; padding-top: var(--space-3); padding-bottom: var(--space-3); }
+.ds-signin-card .ds-alert .ds-i { color: var(--c); flex: none; }
+.ds-signin-card .ds-alert b { display: block; }
+.ds-signin-card .ds-btn.twitch { width: 100%; justify-content: center; height: 44px; }
+.ds-signin-card .ds-btn.twitch[aria-busy="true"] { background: var(--twitch-hover); }
+.ds-signin-card .small-spin { width: 18px; height: 18px; border-width: 2px; border-color: color-mix(in srgb, var(--twitch-contrast-text) 30%, transparent); border-top-color: var(--twitch-contrast-text); }
+.ds-signin-card .fine { font: var(--text-caption); color: var(--text-secondary); }
+.ds-signin-card .other { font: var(--text-body2); }

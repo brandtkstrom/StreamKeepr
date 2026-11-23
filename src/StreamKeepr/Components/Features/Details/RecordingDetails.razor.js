@@ -11,3 +11,9 @@ export async function copyText(text) {
     return false;
   }
 }
+
+// Returns focus to the More actions button after its dialog closes (the menu item that opened
+// the dialog no longer exists). A missing root is a no-op: signed out there is no menu.
+export function focusButton(root) {
+  root?.querySelector("button")?.focus();
+}

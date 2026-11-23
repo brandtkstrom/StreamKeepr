@@ -1,0 +1,128 @@
+@using System.Security.Claims
+@using StreamKeepr.Infrastructure.Storage
+@inject MudBlazor.ISnackbar Snackbars
+@inject ILogger<DeleteRecordingDialog> Logger
+@inject IRecordingAdmin Admin
+
+@* "Delete recording?" (design system: Dialog), shared by the title block's More menu and the
+   library row's Delete button. It deletes through IRecordingAdmin; the library and the watch
+   page follow the deletion through ILibraryView. *@
+<ConfirmDialog Visible="@(Visible && Recording is not null)"
+               VisibleChanged="OnVisibleChanged"
+               Title="Delete recording?"
+               ConfirmLabel="Delete"
+               HookPrefix="delete"
+               Busy="@_deleting"
+               ConfirmDisabled="@(BlockedReason is not null)"
+               OnCancel="Cancel"
+               OnConfirm="ConfirmAsync">
+    @* The banner is an alert only once it carries an error; before that it states the
+       consequence, which the dialog's name already introduces. *@
+    <MudBlazor.MudAlert Severity="MudBlazor.Severity.Error"
+                        Variant="MudBlazor.Variant.Text"
+                        Dense="true"
+                        role="@(_error is null ? "note" : "alert")"
+                        data-delete-banner>
+        <b>@Recording?.Title — @Recording?.StreamerLogin</b><br />
+        @(_error ?? "The files and watch progress are removed permanently.")
+    </MudBlazor.MudAlert>
+</ConfirmDialog>
+
+@code {
+    public const string SessionEnded = "Your Twitch session ended. Reconnect to delete recordings.";
+
+    private bool _deleting;
+    private string? _error;
+    private string? _recordingId;
+
+    /// <summary>The recording to delete; null renders nothing.</summary>
+    [Parameter] public RecordingView? Recording { get; set; }
+
+    [Parameter] public bool Visible { get; set; }
+
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+
+    /// <summary>Why Delete is not possible right now (see <see cref="RecordingDelete"/>); disables the confirm button.</summary>
+    [Parameter] public string? BlockedReason { get; set; }
+
+    /// <summary>Raised after the server deleted the recording, with its id.</summary>
+    [Parameter] public EventCallback<string> OnDeleted { get; set; }
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        // A different recording never keeps the previous one's error.
+        if (_recordingId != Recording?.Id)
+        {
+            _recordingId = Recording?.Id;
+            _error = null;
+        }
+
+        if (!Visible)
+            _error = null;
+    }
+
+    private Task OnVisibleChanged(bool open)
+    {
+        // A native Esc/close must not hide the dialog while the server call is in flight.
+        if (!open && _deleting)
+            return Task.CompletedTask;
+
+        return SetVisibleAsync(open);
+    }
+
+    private Task Cancel() => _deleting ? Task.CompletedTask : SetVisibleAsync(false);
+
+    private Task SetVisibleAsync(bool open)
+    {
+        if (!open)
+            _error = null;
+        return VisibleChanged.InvokeAsync(open);
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (_deleting || AuthenticationState is null || Recording is not { } recording)
+            return;
+
+        _deleting = true;
+        _error = null;
+        try
+        {
+            ClaimsPrincipal user = (await AuthenticationState).User;
+            await Admin.DeleteAsync(recording.Id, user, CancellationToken.None);
+            _deleting = false;
+            // Deleted first, then closed, so the host can tell a deletion from a cancel.
+            await OnDeleted.InvokeAsync(recording.Id);
+            await SetVisibleAsync(false);
+        }
+        catch (KeyNotFoundException)
+        {
+            _deleting = false;
+            await SetVisibleAsync(false);
+            Snackbars.Show("Recording was already deleted");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _deleting = false;
+            await SetVisibleAsync(false);
+            Snackbars.Show(SessionEnded);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Live or leased: the dialog stays open and the server's user-safe text replaces
+            // the permanence copy. A concurrent export may have started in another tab.
+            _error = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Deleting recording {RecordingId} failed.", recording.Id);
+            _error = "Could not delete the recording. Try again.";
+        }
+        finally
+        {
+            _deleting = false;
+        }
+    }
+}

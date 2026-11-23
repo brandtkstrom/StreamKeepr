@@ -189,7 +189,7 @@ public sealed class AuthRoutingTests
     }
 
     [Fact]
-    public async Task Not_allowed_sign_in_returns_to_the_local_return_url_with_reason()
+    public async Task Not_allowed_sign_in_goes_to_the_sign_in_page_with_the_reason_and_login()
     {
         using var harness = new AdminAuthHarness(
             login: "intruder",
@@ -197,9 +197,11 @@ public sealed class AuthRoutingTests
 
         var result = await harness.SignInAsync("/settings?tab=twitch");
 
+        // A non-empty allowlist makes the app private (ADR-0013), so the return page would only
+        // redirect to the sign-in page; the callback goes there directly with the reason.
         Assert.Equal(HttpStatusCode.Redirect, result.CallbackStatus);
         Assert.Equal(
-            $"/settings?tab=twitch&{AdminAuth.AuthErrorQueryKey}={AdminAuth.NotAllowedAuthError}",
+            "/signin?returnUrl=%2Fsettings%3Ftab%3Dtwitch&authError=notAllowed&login=intruder",
             result.CallbackLocation);
         Assert.Null(result.AuthCookie);
         Assert.Empty(harness.Store.SavedTokens);
@@ -236,7 +238,7 @@ public sealed class AuthRoutingTests
     }
 
     [Fact]
-    public async Task Token_save_failure_returns_to_the_local_return_url_with_failed()
+    public async Task Token_save_failure_goes_to_the_sign_in_page_with_failed_when_private()
     {
         using var harness = new AdminAuthHarness(
             overrides: AdminAuthTestSettings.Allowlist("allowed_login"));
@@ -246,7 +248,7 @@ public sealed class AuthRoutingTests
 
         Assert.Equal(HttpStatusCode.Redirect, result.CallbackStatus);
         Assert.Equal(
-            $"/settings?tab=twitch&{AdminAuth.AuthErrorQueryKey}={AdminAuth.FailedAuthError}",
+            "/signin?returnUrl=%2Fsettings%3Ftab%3Dtwitch&authError=failed",
             result.CallbackLocation);
         Assert.Null(result.AuthCookie);
         Assert.Empty(harness.Store.SavedTokens);

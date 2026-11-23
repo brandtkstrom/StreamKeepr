@@ -1,12 +1,13 @@
 @using System.Globalization
 @using StreamKeepr.Ui
 
-@* One library row. It is a real link so selection and deep links work without the circuit. *@
+@* One library row (design system: RecordingRow): a list item holding the row, a real link so
+   selection and deep links work without the circuit, and its Delete button beside it, never
+   inside the link. The button is plain markup with a CSS tooltip, not a MudIconButton in a
+   MudTooltip, because a channel's column can hold a thousand rows. *@
+<div class="sk-row-item" role="listitem" data-row-item>
 <a class="sk-row"
    href="@Href"
-   role="treeitem"
-   aria-level="2"
-   data-tree-key="@($"r:{Recording.Id}")"
    aria-current="@(Selected ? "true" : null)"
    data-recording-id="@Recording.Id"
    data-state="@Recording.State.Hook()">
@@ -42,6 +43,20 @@
         }
     </span>
 </a>
+@* Disabled with aria-disabled, not disabled, so it stays focusable and its reason is read. *@
+<button type="button"
+        class="sk-row-del"
+        aria-label="@($"Delete recording: {Recording.Title}")"
+        aria-disabled="@(DeleteBlockedReason is null ? null : "true")"
+        aria-describedby="@(DeleteBlockedReason is null ? null : ReasonId)"
+        data-tip="@(DeleteBlockedReason ?? "Delete recording")"
+        data-row-delete
+        @onclick="DeleteAsync">@IslandIcon.Svg("Delete")</button>
+@if (DeleteBlockedReason is { } reason)
+{
+    <span id="@ReasonId" class="sk-visually-hidden" data-delete-blocked>@reason</span>
+}
+</div>
 
 @code {
     [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
@@ -56,11 +71,23 @@
     /// does not reset the filter, sort, or drawer scroll.</summary>
     [Parameter] public string ViewQuery { get; set; } = "";
 
+    /// <summary>Why Delete is unavailable (live, exporting, signed out); null when it is.</summary>
+    [Parameter] public string? DeleteBlockedReason { get; set; }
+
+    /// <summary>Opens "Delete recording?" for this row.</summary>
+    [Parameter] public EventCallback<RecordingView> OnDelete { get; set; }
+
     private RecordingView? _lastRecording;
     private string? _lastSearch;
     private string _lastViewQuery = "";
     private bool _lastSelected;
     private string? _lastTimeZoneId;
+    private string? _lastBlocked;
+
+    private string ReasonId => $"sk-del-reason-{Recording.Id}";
+
+    private Task DeleteAsync() =>
+        DeleteBlockedReason is null ? OnDelete.InvokeAsync(Recording) : Task.CompletedTask;
 
     private string Href => $"/r/{Uri.EscapeDataString(Recording.Id)}{ViewQuery}";
 
@@ -91,8 +118,10 @@
             _lastSelected != Selected ||
             _lastTimeZoneId != TimeZone.Id ||
             _lastSearch != Search ||
-            _lastViewQuery != ViewQuery;
+            _lastViewQuery != ViewQuery ||
+            _lastBlocked != DeleteBlockedReason;
 
+        _lastBlocked = DeleteBlockedReason;
         _lastRecording = Recording;
         _lastSearch = Search;
         _lastViewQuery = ViewQuery;

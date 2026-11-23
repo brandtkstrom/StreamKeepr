@@ -12,17 +12,18 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 
 | Width (MudBlazor breakpoint) | Top bar | Navigation | Watching a recording |
 |---|---|---|---|
-| **Md and up** (≥ 960px): laptop, desktop | `MudAppBar`, 64px: menu, wordmark, search field, GitHub and Twitch links, settings, account avatar | `MudDrawer Variant="Mini" ClipMode="Always"`: the 72px rail, or the 320px library when opened | Player fills the column. Chat is a sidecar to its right, filling the remaining width (320–400px). Details and stats sit below. |
-| **Sm** (600–959px): tablet, small window | `MudAppBar Dense`, 48px | Bottom app bar (`BottomNav`); the library is a temporary drawer | Player edge to edge, then the title, then `MudTabs`: Chat · Details · Stats |
+| **Md and up** (≥ 960px): laptop, desktop | `MudAppBar`, 64px: menu, wordmark, search field, GitHub and Twitch links, settings, account avatar | `MudDrawer Variant="Mini" ClipMode="Always"`: the 72px rail, or the 320px library when opened | Two columns. Left: the player, the title block with its icon actions and More menu at the top right, Chapters (when there are any) and Viewers (when there are samples); Statistics is an overlay inside the player. Right: chat, 320–400px wide and the full height of the view. |
+| **Sm** (600–959px): tablet, small window | `MudAppBar Dense`, 48px | Bottom app bar (`BottomNav`); the library is a temporary drawer | Player edge to edge, then the title block, then `MudTabs`: Chat · Chapters · Stats (Chapters only when there are any) |
 | **Xs** (< 600px): phone portrait | Dense, 48px; a back arrow on the watch page | Bottom app bar; temporary drawer | As Sm, with the player sticky under the top bar while the tabs scroll |
 | Phone landscape (height < 500px) | Hidden | Hidden | The player fills the screen, with controls overlaid |
 
 ### The player
 
-- On watch pages the player is **as wide as its column** (no max-width, and only the `space-4` gutter on desktop) and keeps 16:9. Its height is capped at the viewport height minus the app bar, the gutter and `player-peek` (88px), so the recording's title always shows below it without scrolling. When the cap applies, the video letterboxes inside the black frame, and the chat sidecar widens to use the space.
+- On watch pages the player is **as wide as its column** (no max-width, and only the `space-4` gutter on desktop) and keeps 16:9. Its height is capped at the viewport height minus the app bar, the gutter and `player-peek` (88px), so the recording's title always shows below it without scrolling. When the cap applies, the video letterboxes inside the black frame.
 - Opening a recording on desktop collapses the drawer to the rail. Home opens it fully again. Both choices are remembered per viewer.
-- **Theater mode** (desktop only) makes the player span the full width of the view: no drawer, no gutters, no sidecar. Its height is capped at the viewport minus the app bar. Chat and details move below it. Fullscreen takes over theater mode's job on phones.
-- Nothing ever sits above the player.
+- **Theater mode** (desktop only) makes the player span the full width of the view: no drawer, no gutters, no sidecar. Its height is capped at the viewport minus the app bar. The two columns move below it, chat still on the right, filling the height left. Fullscreen takes over theater mode's job on phones.
+- Nothing ever sits above the player, and nothing sits to the right of the open chat: it is the full-height right-hand column on desktop.
+- The recording's title, meta and actions sit directly under the player on the page, not in a panel; the actions are a compact row of icon buttons beside the title, with Stop and Delete in a More actions menu (`RecordingDetails`). The chapters are their own panel, `Chapters`, shown only when the recording has chapters.
 
 ### The rest
 
@@ -31,12 +32,12 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 - Watch and Home pages have no width cap. Forms (Settings) cap at `form-max-width` (760px) for readable line lengths.
 - The library drawer's footer shows disk usage. The desktop app bar carries search, the GitHub and Twitch links, settings and the account avatar; on phones, search is an icon and settings moves to the bottom bar.
 - Maximise viewing area by collapsing things, not by scrolling. Remember each collapse per viewer.
-- Touch targets are at least 40px, 48px in the bottom bar and tabs. Nothing scrolls sideways except the Home rows and the chapter strip, which scroll inside themselves.
+- Touch targets are at least 40px, 48px in the bottom bar and tabs. Nothing scrolls sideways except the Home rows, which scroll inside themselves.
 - Empty, no-match and not-found states get an icon, one headline, one sentence and at most one action. See `EmptyStates`.
 
 ## Library ordering
 
-- Group recordings **by streamer**, and sort **newest first at every level**. Streamer groups sort by their latest recording, and a streamer being captured right now is always on top. Inside a group, recordings sort by start time, descending, under day headers: `Today`, `Yesterday`, then `Wed, Nov 4`.
+- Group recordings **by streamer**, and sort **newest first at every level**. The library lists the streamers; picking one opens its recordings in a column to the right (`LibraryDrawer`). Streamers sort by their latest recording, and a streamer being captured right now is always on top. Inside a streamer, recordings sort by start time, descending, under day headers: `Today`, `Yesterday`, then `Wed, Nov 4`.
 - The drawer header always states the order ("Newest first"), with the sort menu beside it.
 - Filter chips (All · Recording · Saved) sit under the header as a single-select `MudChipSet`. Search in the app bar filters the same list and marks matches with `highlight`.
 
@@ -76,7 +77,7 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 
 - Spacing uses MudBlazor's 4px unit: `space-1` 4 (`pa-1`) · `space-2` 8 · `space-3` 12 · `space-4` 16 · `space-6` 24 · `space-8` 32. Use Mud's spacing classes (`pa-4`, `gap-3`, `mb-3`), not inline pixels.
 - Corners: `radius-md` (8px) is `DefaultBorderRadius` and covers buttons, fields, menus, thumbnails and tiles. `radius-lg` (12px) is for the player frame, every panel and dialogs. `radius-full` is for chips, avatars, icon buttons and the seek knob. `radius-sm` (4px) is for duration badges and progress bars.
-- Panels are flat: `MudPaper Elevation="0" Outlined="true"` on `surface`, with a `lines-default` hairline. The app bar is `Elevation="0"` with a `divider` rule under it. Shadows appear only where something floats: `elevation-8` on menus, popovers and snackbars, `elevation-24` on dialogs, and `elevation-4` on the temporary drawer.
+- Panels are flat: `MudPaper Elevation="0" Outlined="true"` on `surface`, with a `lines-default` hairline. The app bar is `Elevation="0"` with a `divider` rule under it. Shadows appear only where something floats: `elevation-8` on menus, popovers and snackbars, `elevation-24` on dialogs, and `elevation-4` on the temporary drawer. Text drawn over video (the Statistics overlay's values) carries `text-shadow-overlay`.
 
 ## States and motion
 
@@ -105,7 +106,7 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 | Home · Library · Settings | `Home` · `VideoLibrary` · `Settings` |
 | Recording now (live capture) · recent | `Sensors` · `History` |
 | Filter: all · recording · saved | `ViewList` · `FiberManualRecord` (in `rec`) · `Inventory2` |
-| Recording details · stats · chat | `Info` · `QueryStats` · `Chat` |
+| Chapters · stats · chat | `Toc` · `QueryStats` · `Chat` |
 | Video · network · viewers (stream) | `Videocam` · `NetworkCheck` · `Groups`, in their series colours |
 | Category · started · duration · parts · size | `SportsEsports` · `Event` · `Timer` · `FolderOpen` · `Storage` |
 | Twitch account · channels · connection | `ManageAccounts` · `LiveTv` · `Wifi` |

@@ -13,6 +13,47 @@
                  Title="Channels"
                  Icon="@MudBlazor.Icons.Material.Rounded.LiveTv">
 
+        @* The add field leads the section, above the list, so it never moves down as the list grows. *@
+        <div class="sk-channel-adder">
+            <div class="sk-channel-add">
+                <MudBlazor.MudTextField T="string"
+                                        @ref="_input"
+                                        @bind-Value="_login"
+                                        Immediate="true"
+                                        Variant="MudBlazor.Variant.Outlined"
+                                        Margin="MudBlazor.Margin.Dense"
+                                        Label="Add channel"
+                                        Placeholder="Add a Twitch channel"
+                                        Error="@(_addError is not null)"
+                                        OnKeyDown="OnKeyDownAsync"
+                                        autocomplete="off"
+                                        spellcheck="false"
+                                        aria-describedby="@(_addError is null ? null : "sk-channel-add-error")"
+                                        data-channel-login />
+                <MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
+                                     Color="MudBlazor.Color.Primary"
+                                     StartIcon="@(_adding ? null : MudBlazor.Icons.Material.Rounded.Add)"
+                                     Disabled="@(!CanAdd)"
+                                     OnClick="AddAsync"
+                                     aria-busy="@(_adding ? "true" : null)"
+                                     data-channel-add>
+                    @if (_adding)
+                    {
+                        <MudBlazor.MudProgressCircular Size="MudBlazor.Size.Small" Indeterminate="true" aria-hidden="true" data-spinner />
+                        <span>Adding…</span>
+                    }
+                    else
+                    {
+                        <span>Add</span>
+                    }
+                </MudBlazor.MudButton>
+            </div>
+            @if (_addError is not null)
+            {
+                <p class="sk-field-error" id="sk-channel-add-error" role="alert" data-channel-add-error>@_addError</p>
+            }
+        </div>
+
         @if (_channels.Count == 0)
         {
             <MudBlazor.MudText Typo="MudBlazor.Typo.body2" Class="sk-settings-empty" data-channels-empty>No channels watched.</MudBlazor.MudText>
@@ -80,44 +121,6 @@
                     </li>
                 }
             </ul>
-        }
-
-        <div class="sk-channel-add">
-            <MudBlazor.MudTextField T="string"
-                                    @ref="_input"
-                                    @bind-Value="_login"
-                                    Immediate="true"
-                                    Variant="MudBlazor.Variant.Outlined"
-                                    Margin="MudBlazor.Margin.Dense"
-                                    Label="Add channel"
-                                    Placeholder="Twitch login"
-                                    Error="@(_addError is not null)"
-                                    OnKeyDown="OnKeyDownAsync"
-                                    autocomplete="off"
-                                    spellcheck="false"
-                                    aria-describedby="@(_addError is null ? null : "sk-channel-add-error")"
-                                    data-channel-login />
-            <MudBlazor.MudButton Variant="MudBlazor.Variant.Filled"
-                                 Color="MudBlazor.Color.Primary"
-                                 StartIcon="@(_adding ? null : MudBlazor.Icons.Material.Rounded.Add)"
-                                 Disabled="@(!CanAdd)"
-                                 OnClick="AddAsync"
-                                 aria-busy="@(_adding ? "true" : null)"
-                                 data-channel-add>
-                @if (_adding)
-                {
-                    <MudBlazor.MudProgressCircular Size="MudBlazor.Size.Small" Indeterminate="true" aria-hidden="true" data-spinner />
-                    <span>Adding…</span>
-                }
-                else
-                {
-                    <span>Add</span>
-                }
-            </MudBlazor.MudButton>
-        </div>
-        @if (_addError is not null)
-        {
-            <p class="sk-field-error" id="sk-channel-add-error" role="alert" data-channel-add-error>@_addError</p>
         }
 </SettingsSection>
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Amended by ADR-0007: with `Twitch:EventSubTransport = Conduit`, EventSub uses the app token and does not depend on the admin token.
+Accepted. Amended by ADR-0007: with `Twitch:EventSubTransport = Conduit`, EventSub uses the app token and does not depend on the admin token. Amended by ADR-0013: viewing stays open only while `Auth:AllowedTwitchLogins` is empty; a non-empty list makes the whole app private.
 
 ## Context
 

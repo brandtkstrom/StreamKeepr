@@ -108,13 +108,14 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "settings-paused");
 
         await page.GotoAsync(app.BaseUrl);
-        await page.Locator(LibraryHooks.Group).First.WaitForAsync();
+        await LibraryHooks.OpenLibraryAsync(page);
+        await page.Locator(LibraryHooks.Channel).First.WaitForAsync();
         Assert.Contains(
             "Paused",
-            await page.Locator("[data-tree-key='g:mock_nova'] [data-group-meta]").TextContentAsync());
+            await page.Locator(LibraryHooks.ChannelFor("mock_nova") + " [data-channel-meta]").TextContentAsync());
         Assert.Equal(
             0,
-            await page.Locator("[data-tree-key='g:mock_nova'] [data-live-ring]").CountAsync());
+            await page.Locator(LibraryHooks.ChannelFor("mock_nova") + " [data-live-ring]").CountAsync());
 
         await page.GotoAsync($"{app.BaseUrl}/settings");
         row = page.Locator("[data-channel='mock_nova']");
@@ -133,7 +134,7 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
         IPage page = session.Page;
 
         // From a recording, the exit goes back to it through browser history.
-        ILocator row = page.Locator(LibraryHooks.Row).First;
+        ILocator row = await LibraryHooks.RowAsync(page);
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
         await row.ClickAsync();
         await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == $"/r/{id}");

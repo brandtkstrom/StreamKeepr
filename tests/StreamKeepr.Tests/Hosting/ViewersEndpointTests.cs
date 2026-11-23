@@ -103,11 +103,9 @@ public sealed class ViewersEndpointTests
 
     private static StreamKeeprAppFactory CreateFactory(TimeProvider? clock = null) =>
         new(
-            // An admin allowlist closes admin routes, so a 200 here proves the route is public.
-            new Dictionary<string, string?>
-            {
-                [$"{AuthOptions.SectionName}:AllowedTwitchLogins:0"] = "allowed_login",
-            },
+            // No allowlist: viewing is open (ADR-0013), and admin routes such as export download
+            // still need a sign-in, so a 200 here proves the route is public while open.
+            overrides: null,
             configureTestServices: services =>
             {
                 if (clock is not null)

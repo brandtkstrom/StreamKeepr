@@ -1,0 +1,159 @@
+@page "/signin"
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout SignInLayout
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.Extensions.Options
+@using StreamKeepr.Configuration
+@using StreamKeepr.Hosting
+@using StreamKeepr.Infrastructure.Twitch
+@inject IOptions<AuthOptions> Auth
+@inject NavigationManager Navigation
+
+@* The private mode's sign-in page (ADR-0013; design system: SignIn). It renders statically, with
+   no circuit, so it works before the visitor has a session. The Twitch button is a real link to
+   the login endpoint; TwitchAccount.razor.js only adds the waiting state after a click. *@
+<PageTitle>Sign in · Stream Keepr</PageTitle>
+
+<MudBlazor.MudPaper Elevation="4" Class="sk-signin-card" data-signin-state="@State.ToString().ToLowerInvariant()">
+    <span class="sk-wordmark sk-signin-brand">
+        <span class="sk-logo"><img src="img/streamkeepr-mark.svg" alt="" width="24" height="24" /></span>
+        <span>Stream<b>Keepr</b></span>
+    </span>
+
+    <MudBlazor.MudText Typo="MudBlazor.Typo.h5" HtmlTag="h1">Sign in to watch</MudBlazor.MudText>
+
+    @switch (State)
+    {
+        case SignInState.NotAllowed:
+            <MudBlazor.MudAlert Severity="MudBlazor.Severity.Error" Dense="true" Class="sk-signin-alert" role="alert" data-signin-alert>
+                <b>@(RejectedLogin ?? "This Twitch account") can't use this StreamKeepr.</b>
+                Ask its owner to add your Twitch login, or use another account.
+            </MudBlazor.MudAlert>
+            break;
+        case SignInState.Expired:
+            <MudBlazor.MudAlert Severity="MudBlazor.Severity.Warning" Dense="true" Class="sk-signin-alert" role="status" data-signin-alert>
+                <b>Your Twitch session expired.</b>
+                Sign in again to carry on where you were.
+            </MudBlazor.MudAlert>
+            break;
+        case SignInState.SignedOut:
+            <MudBlazor.MudAlert Severity="MudBlazor.Severity.Info" Dense="true" Class="sk-signin-alert" role="status" data-signin-alert>
+                You're signed out.
+            </MudBlazor.MudAlert>
+            break;
+        case SignInState.Failed:
+            <MudBlazor.MudAlert Severity="MudBlazor.Severity.Error" Dense="true" Class="sk-signin-alert" role="alert" data-signin-alert>
+                <b>Twitch sign-in failed.</b>
+                Try again in a moment.
+            </MudBlazor.MudAlert>
+            break;
+        case SignInState.NoHttps:
+            <MudBlazor.MudAlert Severity="MudBlazor.Severity.Warning" Dense="true" Class="sk-signin-alert" role="status" data-signin-alert>
+                Twitch sign-in needs HTTPS. Open this site through its HTTPS address.
+            </MudBlazor.MudAlert>
+            break;
+        default:
+            <MudBlazor.MudText Typo="MudBlazor.Typo.body2" Class="sk-signin-intro">
+                This StreamKeepr is private. Sign in with a Twitch account its owner has allowed.
+            </MudBlazor.MudText>
+            break;
+    }
+
+    @if (State != SignInState.NoHttps)
+    {
+        @* Focus starts here; an alert above it is announced first. *@
+        <a class="sk-twitch sk-signin-twitch"
+           href="@LoginHref"
+           data-enhance-nav="false"
+           data-twitch-connect
+           data-signin-button
+           autofocus>
+            <TwitchConnectLabel Label="@ButtonLabel" />
+        </a>
+        <MudBlazor.MudText Typo="MudBlazor.Typo.caption" Class="sk-signin-fine">
+            Twitch asks you to approve, then sends you back here.
+        </MudBlazor.MudText>
+    }
+</MudBlazor.MudPaper>
+
+<script type="module">
+    import { init } from "./Components/Features/Auth/TwitchAccount.razor.js";
+    init();
+</script>
+
+@code {
+    public enum SignInState { Ready, NotAllowed, Expired, SignedOut, Failed, NoHttps }
+
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromQuery(Name = PrivateMode.ReturnUrlQueryKey)] private string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery(Name = AdminAuth.AuthErrorQueryKey)] private string? AuthError { get; set; }
+
+    [SupplyParameterFromQuery(Name = PrivateMode.LoginQueryKey)] private string? Login { get; set; }
+
+    [SupplyParameterFromQuery(Name = PrivateMode.SignedOutQueryKey)] private bool SignedOut { get; set; }
+
+    private string Target => AdminAuth.ResolveReturnUrl(ReturnUrl);
+
+    // Only a well-formed login is echoed back onto the page.
+    private string? RejectedLogin => Login is { } login && TwitchLogin.IsValid(login) ? login : null;
+
+    private SignInState State { get; set; }
+
+    private string ButtonLabel => State switch
+    {
+        SignInState.NotAllowed => "Use another Twitch account",
+        SignInState.Failed => "Try again",
+        _ => "Sign in with Twitch",
+    };
+
+    // Not allowed asks Twitch for its account prompt, so the same account is not reused silently.
+    private string LoginHref => AdminAuth.LoginPath + QueryString.Create(
+        State == SignInState.NotAllowed
+            ? [new(PrivateMode.ReturnUrlQueryKey, Target), new("forceVerify", "true")]
+            : new KeyValuePair<string, string?>[] { new(PrivateMode.ReturnUrlQueryKey, Target) });
+
+    protected override async Task OnInitializedAsync()
+    {
+        // While viewing is open there is nothing to sign in to here; the app bar signs admins in.
+        if (!Auth.Value.IsPrivate)
+        {
+            Navigation.NavigateTo(Target);
+            return;
+        }
+
+        State = ResolveState();
+        bool signedIn = HttpContext.User.Identity?.IsAuthenticated == true;
+
+        // The circuit found the Twitch session expired; end the cookie too, so the next
+        // sign-in starts from Twitch rather than the stale session.
+        if (State == SignInState.Expired && signedIn)
+        {
+            await HttpContext.SignOutAsync(AdminAuth.CookieScheme);
+            return;
+        }
+
+        if (signedIn && State != SignInState.NoHttps)
+            Navigation.NavigateTo(Target);
+    }
+
+    private SignInState ResolveState()
+    {
+        if (AuthError == AdminAuth.HttpsRequiredAuthError
+            || (!HttpContext.Request.IsHttps && !AdminAuth.IsLocalHost(HttpContext.Request.Host)))
+        {
+            return SignInState.NoHttps;
+        }
+
+        return AuthError switch
+        {
+            AdminAuth.NotAllowedAuthError => SignInState.NotAllowed,
+            AdminAuth.FailedAuthError => SignInState.Failed,
+            PrivateMode.ExpiredAuthError => SignInState.Expired,
+            _ when SignedOut => SignInState.SignedOut,
+            _ => SignInState.Ready,
+        };
+    }
+}

@@ -14,5 +14,8 @@
 @code {
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
-    [Parameter] public string Message { get; set; } = "Connect Twitch to use this";
+    /// <summary>Why a control is inert while signed out; the library row's Delete uses it too.</summary>
+    public const string SignedOutMessage = "Connect Twitch to use this";
+
+    [Parameter] public string Message { get; set; } = SignedOutMessage;
 }

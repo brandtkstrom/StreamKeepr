@@ -8,6 +8,10 @@ The app-bar control that connects a Twitch account, shows who is connected, and 
 - **The menu shows who is signed in.** A header (not a menu item): a 40px avatar, the display name in `subtitle1` at Medium, the login in `caption` when it differs, and "Connected to Twitch" beside a `success` dot. A divider, then Manage Twitch connection (`ManageAccounts`), Settings (`Settings`, which opens the settings sheet without leaving the page) and Disconnect (`Logout`, which submits the hidden antiforgery form). The Settings page repeats the name and login in its Twitch account section.
 - **Expired:** an error `StatusChip` "Twitch session expired" plus a text button "Reconnect" (`Refresh` icon).
 
+## When the app is private
+
+When `Auth:AllowedTwitchLogins` lists logins, the app is behind the `SignIn` page, so inside it the account is always signed in. Only the connected avatar ever shows; Disconnect is labelled **Sign out** and leads to the sign-in page; the Expired chip never shows, because an expired session goes to the sign-in page instead.
+
 ## Rules
 
 - `twitch` purple appears nowhere else. It is told apart from `primary` by its white label and the word Twitch.

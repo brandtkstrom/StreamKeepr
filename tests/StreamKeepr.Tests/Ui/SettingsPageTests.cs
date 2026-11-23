@@ -31,6 +31,8 @@ public sealed class SettingsPageTests
             cut.Find("[data-settings-signed-out] a[data-twitch-connect]").GetAttribute("href"));
         Assert.Empty(cut.FindAll("[data-channel-list]"));
         Assert.Equal(0, channels.AllReads);
+        // Chat sync is the viewer's own preference, so it needs no sign-in.
+        Assert.Single(cut.FindAll("[data-chat-settings]"));
     }
 
     [Fact]
@@ -67,6 +69,19 @@ public sealed class SettingsPageTests
             cut.FindAll("[data-channel-state]").Select(chip => chip.TextContent.Trim()));
         // StatusChip's icon is MudChip SVG now, named by a hook (#176).
         Assert.Equal("pause", cut.Find("[data-channel='bob'] [data-channel-state]").GetAttribute("data-status-icon"));
+    }
+
+    [Theory]
+    [InlineData(false, "Disconnect", "/settings")]
+    [InlineData(true, "Sign out", "/signin?returnUrl=%2Fsettings&signedOut=true")]
+    public async Task The_account_section_signs_out_as_the_account_menu_does(bool isPrivate, string label, string returnUrl)
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true, isPrivate: isPrivate);
+
+        IRenderedComponent<Settings> cut = context.Render<Settings>();
+
+        Assert.Equal(label, cut.Find("[data-settings-disconnect]").TextContent.Trim());
+        Assert.Equal(returnUrl, cut.Find("#twitch form input[name='returnUrl']").GetAttribute("value"));
     }
 
     [Fact]
@@ -166,6 +181,29 @@ public sealed class SettingsPageTests
         IRenderedComponent<Settings> cut = context.Render<Settings>();
 
         Assert.Equal(shown, cut.FindAll("[data-https-note]").Count == 1);
+    }
+
+    [Fact]
+    public async Task The_add_field_comes_before_the_channel_list()
+    {
+        await using BunitContext context = CreateContext(out TestChannelsView channels, signedIn: true);
+        channels.Items = [new("ann", "Ann", null, true, false, ChannelRuntimeState.Watching, true, "EventSub connected")];
+        IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
+
+        string markup = cut.Markup;
+        int add = markup.IndexOf("data-channel-add", StringComparison.Ordinal);
+        int list = markup.IndexOf("data-channel-list", StringComparison.Ordinal);
+
+        Assert.InRange(add, 0, list - 1);
+    }
+
+    [Fact]
+    public async Task Add_field_asks_for_a_twitch_channel()
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+        IRenderedComponent<ChannelSettings> cut = context.Render<ChannelSettings>();
+
+        Assert.Equal("Add a Twitch channel", cut.Find("[data-channel-login]").GetAttribute("placeholder"));
     }
 
     [Fact]
@@ -382,7 +420,7 @@ public sealed class SettingsPageTests
     }
 
     [Fact]
-    public async Task Signed_in_sections_are_twitch_account_channels_then_connection_status()
+    public async Task Signed_in_sections_are_twitch_account_channels_chat_then_connection_status()
     {
         await using BunitContext context = CreateContext(out _, signedIn: true);
 
@@ -391,7 +429,7 @@ public sealed class SettingsPageTests
         // The page and the settings sheet (F2) render the same shared sections.
         Assert.NotNull(cut.FindComponent<SettingsSections>());
         Assert.Equal(
-            ["Twitch account", "Channels", "Connection status"],
+            ["Twitch account", "Channels", "Chat", "Connection status"],
             cut.FindAll("section[aria-labelledby]")
                 .Select(section => cut.Find($"#{section.GetAttribute("aria-labelledby")}").TextContent.Trim()));
     }
@@ -464,17 +502,27 @@ public sealed class SettingsPageTests
         cut.Find("button[aria-label='Exit settings']");
 
     private static BunitContext CreateContext(
-        out TestChannelsView channels, bool signedIn, string? baseUri = null, string accountImage = AccountImage)
+        out TestChannelsView channels, bool signedIn, string? baseUri = null, string accountImage = AccountImage,
+        bool isPrivate = false)
     {
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddStreamKeeprMudServices();
         context.Services.AddLogging();
+        if (isPrivate)
+        {
+            // ADR-0013: a non-empty allowlist makes the app private.
+            context.Services.AddSingleton(Microsoft.Extensions.Options.Options.Create(
+                new StreamKeepr.Configuration.AuthOptions { AllowedTwitchLogins = ["mock_admin"] }));
+        }
         context.Services.AddSingleton(new AdminSessionState());
         context.Services.AddSingleton<AntiforgeryStateProvider>(new FixedAntiforgery());
         channels = new TestChannelsView();
         context.Services.AddSingleton<IChannelsView>(channels);
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider());
+        // Settings › Chat reads the viewer's chat sync offset.
+        context.Services.AddSingleton<IClientStateStore>(new TestClientStateStore());
+        context.Services.AddScoped<UiPreferences>();
         context.Services.AddSingleton<IConnectionStatusView>(new TestConnectionStatusView
         {
             Status = new ConnectionStatus(

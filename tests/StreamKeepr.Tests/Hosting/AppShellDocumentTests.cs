@@ -252,18 +252,18 @@ public sealed class AppShellDocumentTests
         Assert.Contains("Back to library", html);
         Assert.Contains("data-shell", html);
         Assert.Contains("data-slot=\"player\"", html);
-        Assert.Contains("data-slot=\"stats\"", html);
+        Assert.Contains("data-slot=\"viewers\"", html);
         Assert.Contains("data-slot=\"details\"", html);
         Assert.True(
             html.IndexOf("data-slot=\"player\"", StringComparison.Ordinal) <
             html.IndexOf("data-slot=\"details\"", StringComparison.Ordinal));
         Assert.True(
             html.IndexOf("data-slot=\"details\"", StringComparison.Ordinal) <
-            html.IndexOf("data-slot=\"stats\"", StringComparison.Ordinal));
+            html.IndexOf("data-slot=\"viewers\"", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task Prerender_reads_the_drawer_mode_from_the_ui_cookie()
+    public async Task Prerender_starts_on_the_rail_whatever_an_older_ui_cookie_saved()
     {
         using var factory = new StreamKeeprAppFactory();
         using var client = factory.CreateClient();

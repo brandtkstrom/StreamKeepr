@@ -61,6 +61,93 @@ describe("AppShell.razor.js temporary drawer focus", () => {
   });
 });
 
+describe("AppShell.razor.js library over the page (Md and up)", () => {
+  let calls;
+  let elements;
+
+  beforeEach(() => {
+    elements = makeShell();
+    // The drawer frame MudDrawer renders around the nav, and the menu button.
+    const frame = document.createElement("aside");
+    frame.className = "sk-drawer-frame";
+    document.querySelector("[data-shell]").append(frame);
+    frame.append(document.getElementById("sk-drawer"));
+    elements.library.setAttribute("data-drawer-toggle", "");
+    calls = [];
+    shell.init({ invokeMethodAsync: (name) => { calls.push(name); return Promise.resolve(); } });
+  });
+
+  afterEach(() => {
+    shell.dispose();
+    document.body.replaceChildren();
+  });
+
+  const press = (target) => target.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+
+  it("closes on a press outside it, but not inside it, on the menu button, the search, or in a popover", () => {
+    shell.setModalDrawer(true, false);
+    const popover = document.createElement("div");
+    popover.className = "mud-popover";
+    document.body.append(popover);
+    const search = document.createElement("div");
+    search.className = "sk-search";
+    search.append(document.getElementById("search"));
+    document.querySelector("header").append(search);
+
+    press(elements.row);
+    press(elements.library);
+    press(document.getElementById("search"));
+    press(popover);
+    expect(calls).toEqual([]);
+
+    press(document.querySelector("main"));
+    expect(calls).toEqual(["CloseModalDrawer"]);
+  });
+
+  it("closes on a press elsewhere on the app bar, such as Settings", () => {
+    shell.setModalDrawer(true, false);
+    const settings = document.createElement("a");
+    settings.setAttribute("data-settings-toggle", "");
+    document.querySelector("header").append(settings);
+
+    press(settings);
+    expect(calls).toEqual(["CloseModalDrawer"]);
+  });
+
+  it("stays open behind a dialog when Escape closes the dialog", () => {
+    shell.setModalDrawer(true, false);
+    const dialog = document.createElement("div");
+    dialog.className = "mud-dialog-container";
+    const cancel = document.createElement("button");
+    dialog.append(cancel);
+    document.body.append(dialog);
+    cancel.focus();
+
+    cancel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    // The dialog's own handler may move focus to the body before the event reaches the shell.
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect(calls).toEqual([]);
+  });
+
+  it("closes on Escape and does not trap Tab", () => {
+    shell.setModalDrawer(true, false);
+    elements.row.focus();
+
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    document.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(false);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect(calls).toEqual(["CloseModalDrawer"]);
+  });
+
+  it("leaves outside presses alone while the phone's drawer is modal", () => {
+    shell.setModalDrawer(true, true);
+    press(document.querySelector("main"));
+    expect(calls).toEqual([]);
+  });
+});
+
 describe("AppShell.razor.js settings links", () => {
   let shellRef;
 
