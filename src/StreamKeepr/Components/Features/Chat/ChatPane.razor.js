@@ -27,9 +27,13 @@ const BACKFILL_CHUNK_SEC = 120;
 const BACKFILL_MAX_SEC = 1800;
 // A playhead move larger than this between events is a seek, not playback.
 const SEEK_SEC = 2;
-// Where `scrollend` never fires, a smooth scroll counts as finished after this long without a
-// scroll event.
-const SCROLL_IDLE_MS = 150;
+// The glide to the newest row is a critically damped spring on the distance left. Rows that
+// arrive mid-glide add distance without resetting its speed, so busy chat flows on instead of
+// stopping and starting with every batch, as a restarted native smooth scroll does. Higher
+// settles sooner; 12 per second settles in about 0.4 s.
+const GLIDE_RATE = 12;
+// The longest frame the glide integrates; a longer one (a throttled tab) counts as this.
+const GLIDE_MAX_STEP_SEC = 0.05;
 // Keys that scroll the log towards older chat; they hand scrolling back to the viewer.
 const SCROLL_UP_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);
 const BADGE_LABELS = {
@@ -234,10 +238,13 @@ export function createChatPane(root, {
   let shellKey = "";
   // A fresh window replaces the log and lands at its end without animating.
   let freshLog = true;
-  // The pane's own smooth scroll to the end is under way. Scroll events it causes pass rows
+  // The pane's own glide to the end, while one is under way. Scroll events it causes pass rows
   // short of the bottom; they must not read as the viewer scrolling away.
-  let autoScrolling = false;
-  let scrollIdleTimer = 0;
+  let glideFrame = 0;
+  let glideTime = 0;
+  let glideVelocity = 0;
+  // Sub-pixel progress a display that rounds scrollTop to whole pixels would drop.
+  let glideCarry = 0;
   let pollTimer = 0;
   // The backfill in progress, if any. It has its own request so polls never abort it.
   let backfill = null;
@@ -633,13 +640,8 @@ export function createChatPane(root, {
   }
 
   function onScroll() {
-    if (autoScrolling) {
-      // Only the viewer's own input (onScrollIntent) stops following mid-animation.
-      clearTimeout(scrollIdleTimer);
-      if (nearBottom()) autoScrolling = false;
-      else scrollIdleTimer = setTimeout(onScrollEnd, SCROLL_IDLE_MS);
-      return;
-    }
+    // Only the viewer's own input (onScrollIntent) stops following mid-glide.
+    if (glideFrame !== 0) return;
     const atBottom = nearBottom();
     if (atBottom !== following) {
       following = atBottom;
@@ -656,16 +658,7 @@ export function createChatPane(root, {
     if (event.type === "keydown" && !SCROLL_UP_KEYS.has(event.key) &&
       !(event.key === " " && event.shiftKey)) return;
     if (event.type === "pointerdown" && event.target !== el["chat-log"]) return;
-    autoScrolling = false;
-    clearTimeout(scrollIdleTimer);
-  }
-
-  /** A smooth scroll whose target was read before later rows grew the log chases the end. */
-  function onScrollEnd() {
-    clearTimeout(scrollIdleTimer);
-    if (!autoScrolling) return;
-    autoScrolling = false;
-    if (following && !nearBottom()) scrollToEnd("smooth");
+    stopGlide();
   }
 
   function prefersReducedMotion() {
@@ -673,20 +666,49 @@ export function createChatPane(root, {
   }
 
   /**
-   * Scrolls the log to its newest row. "smooth" animates unless the viewer prefers reduced
-   * motion; "instant" is for a fresh window, where an animation would sweep through old chat.
+   * Scrolls the log to its newest row. "smooth" glides unless the viewer prefers reduced
+   * motion or the end is more than a screen away, where a glide would sweep through old chat
+   * (a burst, or a tab that was throttled); "instant" is for a fresh window or a seek.
    */
   function scrollToEnd(behavior) {
     const log = el["chat-log"];
     if (!log) return;
-    const smooth = behavior === "smooth" && !prefersReducedMotion();
-    autoScrolling = smooth;
-    clearTimeout(scrollIdleTimer);
-    if (typeof log.scrollTo === "function") {
-      log.scrollTo({ top: log.scrollHeight, behavior: smooth ? "smooth" : "instant" });
-    } else {
+    const distance = log.scrollHeight - log.clientHeight - log.scrollTop;
+    if (behavior !== "smooth" || prefersReducedMotion() || distance > log.clientHeight) {
+      stopGlide();
       log.scrollTop = log.scrollHeight;
+      return;
     }
+    // A glide under way keeps its speed; the new rows only move its end.
+    if (glideFrame === 0) glideFrame = requestAnimationFrame(glide);
+  }
+
+  /** One frame of the glide: a critically damped spring, so it eases in and never overshoots. */
+  function glide(now) {
+    const log = el["chat-log"];
+    const dt = glideTime === 0 ? 1 / 60 : Math.min((now - glideTime) / 1000, GLIDE_MAX_STEP_SEC);
+    glideTime = now;
+    const top = log.scrollTop + glideCarry;
+    // Read each frame: pruned rows shift scrollTop and the end together, and new rows move the end.
+    const distance = log.scrollHeight - log.clientHeight - top;
+    glideVelocity += (GLIDE_RATE * GLIDE_RATE * distance - 2 * GLIDE_RATE * glideVelocity) * dt;
+    const step = Math.max(glideVelocity * dt, 0);
+    if (distance < 0.5 || step >= distance) {
+      stopGlide();
+      log.scrollTop = log.scrollHeight;
+      return;
+    }
+    log.scrollTop = top + step;
+    glideCarry = top + step - log.scrollTop;
+    glideFrame = requestAnimationFrame(glide);
+  }
+
+  function stopGlide() {
+    if (glideFrame !== 0) cancelAnimationFrame(glideFrame);
+    glideFrame = 0;
+    glideTime = 0;
+    glideVelocity = 0;
+    glideCarry = 0;
   }
 
   function jumpToCurrent() {
@@ -712,8 +734,11 @@ export function createChatPane(root, {
       visible = visible.slice(-MAX_ROWS);
       windowFrom = Math.max(windowFrom, Number(visible[0].mt));
     }
+    // A gap shows once the playhead reaches it, as a message does. One shown early would sit
+    // below the newest row, and every new row would then go in above it instead of at the end.
+    const reached = gaps.filter((gap) => Number(gap.from) <= currentTime + 0.5);
     const key = visible.map((message) => message.id).join("|") + "|" +
-      gaps.map((gap) => `${gap.from}:${gap.to}`).join("|") + "|" +
+      reached.map((gap) => `${gap.from}:${gap.to}`).join("|") + "|" +
       (view?.state ?? "") + "|" + (view?.hasChat === false ? "empty" : "") +
       `|emotes:${emoteVersion}`;
     if (key === lastRenderKey) return;
@@ -745,7 +770,7 @@ export function createChatPane(root, {
     // The log in order, as [key, create] pairs; gaps sit where they fall among the messages.
     const items = [];
     const pushGap = (gap) => items.push([`g:${gap.from}:${gap.to}`, () => renderGap(gap)]);
-    const gapQueue = [...gaps];
+    const gapQueue = [...reached];
     for (const message of visible) {
       while (gapQueue.length > 0 && gapQueue[0].to <= message.mt) pushGap(gapQueue.shift());
       if (gapQueue.length > 0 && gapQueue[0].from <= message.mt) pushGap(gapQueue.shift());
@@ -981,7 +1006,6 @@ export function createChatPane(root, {
   }
 
   on(el["chat-log"], "scroll", onScroll, { passive: true });
-  on(el["chat-log"], "scrollend", onScrollEnd, { passive: true });
   for (const type of ["wheel", "touchmove", "pointerdown", "keydown"]) {
     on(el["chat-log"], type, onScrollIntent, { passive: true });
   }
@@ -1014,7 +1038,7 @@ export function createChatPane(root, {
       emoteController?.abort();
       stopBackfill();
       stopPolling();
-      clearTimeout(scrollIdleTimer);
+      stopGlide();
       listeners.abort();
       announce(false);
       rowNodes = new Map();
