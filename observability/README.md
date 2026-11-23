@@ -68,12 +68,24 @@ The image's own Docker `HEALTHCHECK` still runs; `docker compose ps` shows it.
 ## Grafana
 
 - **Dashboards → Stream Keepr → Stream Keepr** has these panels:
-  - Health: liveness and readiness, free recording space, Twitch poll age, probe latency.
-  - Twitch: EventSub push coverage, connection state, reconnects.
+  - Health: liveness and readiness (`NO DATA` when no probe result arrived in 5 minutes),
+    free recording space (orange below 2 × `MinFreeGb`, red below `MinFreeGb`), Twitch poll
+    age, degraded or unhealthy health checks (from logs, because `/health/ready` stays 200
+    while a check is Degraded), probe latency.
+  - Twitch: EventSub push coverage, connection state, reconnects, EventSub and chat
+    connection events (logs).
   - Recorder: channels by DVR state, part, stall and force-kill counts, part duration and
-    size percentiles, chat drops, export jobs.
-  - HTTP: request rate and latency, Twitch API calls, .NET memory.
-  - Logs and traces: warnings and errors, a log panel with a level filter, recent traces.
+    size percentiles, chat drops, export jobs, per-channel state changes and recorder part
+    starts and finishes (logs).
+  - HTTP: request rate and latency (static assets excluded), outbound HTTP calls (the
+    collector exports excluded), Blazor circuits and connections.
+  - .NET runtime: memory, CPU, exceptions by type.
+  - Logs and traces: warnings and errors by logger, a log panel with a level filter, errored
+    traces, recent traces.
+  - Annotations mark each app start and stop.
+- The Prometheus data source sets `timeInterval: 30s`, the app's metric export interval, so
+  `$__rate_interval` always spans several samples. Change it if `OTEL_METRIC_EXPORT_INTERVAL`
+  changes.
 - **Explore → Loki**: expand a log line and use its **Trace** link to open the trace.
 - **Explore → Tempo**: a span's **Logs for this span** link opens its log lines.
 
@@ -81,8 +93,13 @@ The data sources and dashboard come from `grafana/provisioning` and `grafana/das
 The dashboard is read-only in the UI: edit `grafana/dashboards/stream-keepr.json` and
 Grafana reloads it within about 10 seconds.
 
-The recorder, EventSub-reconnect, chat and export panels stay empty until those events
-happen, because their counters have no series until the first one.
+The event counters (recorder parts, stalls and force kills, chat drops, export jobs, and
+EventSub reconnects) start at 0 for every known label value once the app has started
+(`StreamKeeprTelemetry.InitializeCounters`). `increase()` ignores a new series' first sample,
+so without that zero the first event after a start would not show. Their panels read 0 until
+something happens. The part duration and size percentiles have no zero to start from: they
+stay empty until the second part of each exit kind finishes after a start. The "Recorder parts"
+log panel lists every part regardless.
 
 ## Resources
 

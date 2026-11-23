@@ -6,7 +6,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 41,
-  "version": 1,
+  "version": 2,
   "description": "service is StreamKeeprTelemetry.ServiceName; keep it in step with observability/otel-collector.yaml.",
   "refresh": "30s",
   "time": {
@@ -49,7 +49,18 @@
   },
   "links": [],
   "annotations": {
-    "list": []
+    "list": [
+      {
+        "name": "App start and stop",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "enable": true,
+        "iconColor": "blue",
+        "expr": "{service_name=\"$service\"} | SourceContext=\"StreamKeepr.Hosting.HostLifecycleLog\""
+      }
+    ]
   },
   "panels": [
     {
@@ -81,12 +92,14 @@
       },
       "targets": [
         {
-          "expr": "max(httpcheck_status{http_url=\"http://stream-keepr:8080/health/live\",http_status_class=\"2xx\"})",
+          "expr": "max(httpcheck_status{http_url=\"http://stream-keepr:8080/health/live\",http_status_class=\"2xx\"}) or vector(-1)",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          }
+          },
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
@@ -102,6 +115,10 @@
                 "1": {
                   "text": "UP",
                   "color": "green"
+                },
+                "-1": {
+                  "text": "NO DATA",
+                  "color": "text"
                 }
               }
             }
@@ -110,8 +127,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "text",
                 "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
               },
               {
                 "color": "green",
@@ -133,7 +154,8 @@
             "lastNotNull"
           ]
         }
-      }
+      },
+      "description": "Collector http_check probe every 15 s. NO DATA: no probe result in the last 5 minutes (collector or app down). Readiness stays UP while a check is Degraded; see 'Degraded or unhealthy health checks'."
     },
     {
       "id": 3,
@@ -151,12 +173,14 @@
       },
       "targets": [
         {
-          "expr": "max(httpcheck_status{http_url=\"http://stream-keepr:8080/health/ready\",http_status_class=\"2xx\"})",
+          "expr": "max(httpcheck_status{http_url=\"http://stream-keepr:8080/health/ready\",http_status_class=\"2xx\"}) or vector(-1)",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          }
+          },
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
@@ -172,6 +196,10 @@
                 "1": {
                   "text": "UP",
                   "color": "green"
+                },
+                "-1": {
+                  "text": "NO DATA",
+                  "color": "text"
                 }
               }
             }
@@ -180,8 +208,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "text",
                 "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
               },
               {
                 "color": "green",
@@ -203,7 +235,8 @@
             "lastNotNull"
           ]
         }
-      }
+      },
+      "description": "Collector http_check probe every 15 s. NO DATA: no probe result in the last 5 minutes (collector or app down). Readiness stays UP while a check is Degraded; see 'Degraded or unhealthy health checks'."
     },
     {
       "id": 4,
@@ -231,7 +264,27 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "bytes"
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 10737418240
+              },
+              {
+                "color": "green",
+                "value": 21474836480
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -242,7 +295,8 @@
             "lastNotNull"
           ]
         }
-      }
+      },
+      "description": "Red below 10 GiB (Storage:MinFreeGb default: recording is refused), orange below 20 GiB (2 x MinFreeGb: the disk health check is Degraded). Adjust if MinFreeGb changes."
     },
     {
       "id": 5,
@@ -270,7 +324,27 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 330
+              },
+              {
+                "color": "red",
+                "value": 600
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -281,10 +355,47 @@
             "lastNotNull"
           ]
         }
-      }
+      },
+      "description": "Seconds since the last Helix poll. Polls run every 30 s while recording or without full EventSub coverage, and every 300 s with it. Orange past 330 s, red past 600 s."
     },
     {
       "id": 6,
+      "title": "Degraded or unhealthy health checks",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum by (HealthCheckName, HealthStatus) (count_over_time({service_name=\"$service\"} | EventId_Name=\"HealthCheckEnd\" | HealthStatus!=\"Healthy\" [$__auto]))",
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "legendFormat": "{{HealthCheckName}}: {{HealthStatus}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80
+          }
+        },
+        "overrides": []
+      },
+      "description": "From DefaultHealthCheckService log events, one per failing check per probe. /health/ready answers 200 while a check is Degraded, so the probe tiles cannot show this.",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 6
+      }
+    },
+    {
+      "id": 7,
       "title": "Health probe latency",
       "type": "timeseries",
       "datasource": {
@@ -292,9 +403,9 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 0,
+        "x": 12,
         "y": 5,
-        "w": 24,
+        "w": 12,
         "h": 6
       },
       "targets": [
@@ -316,7 +427,7 @@
       }
     },
     {
-      "id": 7,
+      "id": 8,
       "type": "row",
       "title": "Twitch",
       "collapsed": false,
@@ -329,7 +440,7 @@
       "panels": []
     },
     {
-      "id": 8,
+      "id": 9,
       "title": "EventSub push coverage",
       "type": "timeseries",
       "datasource": {
@@ -363,7 +474,7 @@
       }
     },
     {
-      "id": 9,
+      "id": 10,
       "title": "EventSub connected",
       "type": "timeseries",
       "datasource": {
@@ -397,7 +508,7 @@
       }
     },
     {
-      "id": 10,
+      "id": 11,
       "title": "EventSub reconnects (per hour)",
       "type": "timeseries",
       "datasource": {
@@ -423,20 +534,53 @@
       ]
     },
     {
-      "id": 11,
+      "id": 12,
+      "title": "EventSub and chat connection events",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "{service_name=\"$service\"} | SourceContext=~\"StreamKeepr\\\\.Infrastructure\\\\.Twitch\\\\.(EventSubClient|PollSchedule|WebSocketEventSubBinding|ConduitEventSubBinding|Chat\\\\.IrcChatClient|Chat\\\\.ChatCaptureService)\" | severity_number >= 9",
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          }
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      },
+      "description": "Information and above. The line is the message template; expand a line for its values (Reason, State, Transport).",
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 8
+      }
+    },
+    {
+      "id": 13,
       "type": "row",
       "title": "Recorder",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 19,
+        "y": 27,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 12,
+      "id": 14,
       "title": "Channels by DVR state",
       "type": "timeseries",
       "datasource": {
@@ -445,7 +589,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 20,
+        "y": 28,
         "w": 12,
         "h": 8
       },
@@ -473,7 +617,7 @@
       }
     },
     {
-      "id": 13,
+      "id": 15,
       "title": "Recorder events (per hour)",
       "type": "timeseries",
       "datasource": {
@@ -482,7 +626,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 20,
+        "y": 28,
         "w": 12,
         "h": 8
       },
@@ -517,7 +661,7 @@
       ]
     },
     {
-      "id": 14,
+      "id": 16,
       "title": "Part duration p50 / p95",
       "type": "timeseries",
       "datasource": {
@@ -526,7 +670,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 28,
+        "y": 36,
         "w": 8,
         "h": 8
       },
@@ -558,7 +702,7 @@
       }
     },
     {
-      "id": 15,
+      "id": 17,
       "title": "Part size p50 / p95",
       "type": "timeseries",
       "datasource": {
@@ -567,7 +711,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 28,
+        "y": 36,
         "w": 8,
         "h": 8
       },
@@ -599,7 +743,7 @@
       }
     },
     {
-      "id": 16,
+      "id": 18,
       "title": "Chat drops and export jobs (per hour)",
       "type": "timeseries",
       "datasource": {
@@ -608,7 +752,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 28,
+        "y": 36,
         "w": 8,
         "h": 8
       },
@@ -634,20 +778,86 @@
       ]
     },
     {
-      "id": 17,
+      "id": 19,
+      "title": "Channel state changes",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "{service_name=\"$service\"} | SourceContext=~\"StreamKeepr\\\\.Channel\\\\..+\" | line_format \"{{.Channel}}: {{.From}} -> {{.To}} on {{.Event}}\"",
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          }
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      },
+      "description": "DVR transitions per channel, rendered from the event's From/To/Event values. Channel logins stay out of metric labels by design, so this is the per-channel view.",
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 20,
+      "title": "Recorder parts",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "{service_name=\"$service\"} | SourceContext=\"StreamKeepr.Infrastructure.Media.RecorderJob\" | severity_number >= 9 | line_format \"{{ if .Kind }}{{.Job}} finished ({{.Kind}}) with {{.Bytes}} bytes: {{.Detail}}{{ else if .Part }}{{.Job}} started part {{.Part}} for {{.Channel}}{{ else }}{{__line__}}{{ end }}\"",
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          }
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      },
+      "description": "Part starts and finishes, and recorder warnings (shown as their message template). Debug progress and tool output are excluded. Expand a line for every value.",
+      "gridPos": {
+        "x": 12,
+        "y": 44,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 21,
       "type": "row",
       "title": "HTTP",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 36,
+        "y": 52,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 18,
+      "id": 22,
       "title": "Request rate by route",
       "type": "timeseries",
       "datasource": {
@@ -656,19 +866,19 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 37,
+        "y": 53,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "sum by (http_route, http_response_status_code) (rate(http_server_request_duration_seconds_count{service_name=\"$service\"}[$__rate_interval]))",
-          "legendFormat": "{{http_route}} {{http_response_status_code}}",
+          "expr": "sum by (http_route, http_response_status_code) (rate(http_server_request_duration_seconds_count{service_name=\"$service\",http_route!~\"_framework/.*|_content/.*|.*\\\\.(js|mjs|css|map|png|jpg|jpeg|gif|svg|ico|webp|webmanifest|woff|woff2|ttf|otf)\"}[$__rate_interval]))",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          }
+          },
+          "legendFormat": "{{http_route}} {{http_response_status_code}}"
         }
       ],
       "fieldConfig": {
@@ -676,10 +886,11 @@
           "unit": "reqps"
         },
         "overrides": []
-      }
+      },
+      "description": "Static assets are excluded: their fingerprinted routes change with every build. /health, /media and /_blazor are not measured at all (TelemetryPaths)."
     },
     {
-      "id": 19,
+      "id": 23,
       "title": "Request latency p50 / p95",
       "type": "timeseries",
       "datasource": {
@@ -688,28 +899,28 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 37,
+        "y": 53,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"$service\"}[$__rate_interval])))",
-          "legendFormat": "p50",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"$service\",http_route!~\"_framework/.*|_content/.*|.*\\\\.(js|mjs|css|map|png|jpg|jpeg|gif|svg|ico|webp|webmanifest|woff|woff2|ttf|otf)\"}[$__rate_interval])))",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          }
+          },
+          "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"$service\"}[$__rate_interval])))",
-          "legendFormat": "p95",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"$service\",http_route!~\"_framework/.*|_content/.*|.*\\\\.(js|mjs|css|map|png|jpg|jpeg|gif|svg|ico|webp|webmanifest|woff|woff2|ttf|otf)\"}[$__rate_interval])))",
           "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          }
+          },
+          "legendFormat": "p95"
         }
       ],
       "fieldConfig": {
@@ -717,11 +928,12 @@
           "unit": "s"
         },
         "overrides": []
-      }
+      },
+      "description": "Static assets are excluded: their fingerprinted routes change with every build. /health, /media and /_blazor are not measured at all (TelemetryPaths)."
     },
     {
-      "id": 20,
-      "title": "Twitch API calls (HTTP client)",
+      "id": 24,
+      "title": "Outbound HTTP calls",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -729,19 +941,19 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 45,
+        "y": 61,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "sum by (server_address, http_response_status_code) (rate(http_client_request_duration_seconds_count{service_name=\"$service\"}[$__rate_interval]))",
-          "legendFormat": "{{server_address}} {{http_response_status_code}}",
+          "expr": "sum by (server_address, http_response_status_code) (rate(http_client_request_duration_seconds_count{service_name=\"$service\",server_address!=\"otel-collector\"}[$__rate_interval]))",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          }
+          },
+          "legendFormat": "{{server_address}} {{http_response_status_code}}"
         }
       ],
       "fieldConfig": {
@@ -749,10 +961,75 @@
           "unit": "reqps"
         },
         "overrides": []
+      },
+      "description": "Twitch Helix, OAuth, EventSub and IRC WebSocket upgrades (101), and emote providers. The app's own OTLP exports to otel-collector are excluded."
+    },
+    {
+      "id": 25,
+      "title": "Connections",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(aspnetcore_components_circuit_active{service_name=\"$service\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "Blazor circuits"
+        },
+        {
+          "expr": "sum(signalr_server_active_connections{service_name=\"$service\"})",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "SignalR connections"
+        },
+        {
+          "expr": "sum(kestrel_active_connections{service_name=\"$service\"})",
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "Kestrel connections"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "description": "Open browser sessions (Blazor circuits) and the connections that carry them.",
+      "gridPos": {
+        "x": 12,
+        "y": 61,
+        "w": 12,
+        "h": 8
       }
     },
     {
-      "id": 21,
+      "id": 26,
+      "type": "row",
+      "title": ".NET runtime",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 69,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 27,
       "title": ".NET runtime",
       "type": "timeseries",
       "datasource": {
@@ -760,9 +1037,9 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 12,
-        "y": 45,
-        "w": 12,
+        "x": 0,
+        "y": 70,
+        "w": 8,
         "h": 8
       },
       "targets": [
@@ -793,20 +1070,86 @@
       }
     },
     {
-      "id": 22,
+      "id": 28,
+      "title": "CPU",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(dotnet_process_cpu_time_seconds_total{service_name=\"$service\"}[$__rate_interval]))",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "app process"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "description": "CPU cores used by the .NET process (user + system). Streamlink and FFmpeg are child processes and are not included.",
+      "gridPos": {
+        "x": 8,
+        "y": 70,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "id": 29,
+      "title": "Exceptions by type",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (error_type) (rate(dotnet_exceptions_total{service_name=\"$service\"}[$__rate_interval]) * 60)",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "{{error_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "description": "First-chance exceptions per minute, handled ones included. A steady baseline of IOException and OperationCanceledException is cancelled I/O; look for new types or jumps.",
+      "gridPos": {
+        "x": 16,
+        "y": 70,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "id": 30,
       "type": "row",
       "title": "Logs and traces",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 53,
+        "y": 78,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 23,
+      "id": 31,
       "title": "Warnings and errors",
       "type": "timeseries",
       "datasource": {
@@ -815,33 +1158,37 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 54,
+        "y": 79,
         "w": 24,
         "h": 6
       },
       "targets": [
         {
-          "expr": "sum by (severity_text) (count_over_time({service_name=\"$service\"} | severity_text=~\"Warning|Error|Fatal\" [$__auto]))",
-          "legendFormat": "{{severity_text}}",
+          "expr": "sum by (severity_text, SourceContext) (count_over_time({service_name=\"$service\"} | severity_text=~\"Warning|Error|Fatal\" [$__auto]))",
           "refId": "A",
           "datasource": {
             "type": "loki",
             "uid": "loki"
-          }
+          },
+          "legendFormat": "{{severity_text}} {{SourceContext}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "custom": {
             "drawStyle": "bars",
-            "fillOpacity": 80
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal"
+            }
           }
         },
         "overrides": []
-      }
+      },
+      "description": "Split by logger, so a repeating warning (for example a Degraded health check on every probe) names its source."
     },
     {
-      "id": 24,
+      "id": 32,
       "title": "Logs",
       "type": "logs",
       "datasource": {
@@ -850,7 +1197,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 60,
+        "y": 85,
         "w": 24,
         "h": 12
       },
@@ -873,7 +1220,36 @@
       }
     },
     {
-      "id": 25,
+      "id": 33,
+      "title": "Errored traces",
+      "type": "table",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "description": "Traces with any span in error status, for example a Helix poll round where every batch failed.",
+      "targets": [
+        {
+          "queryType": "traceql",
+          "query": "{resource.service.name=\"$service\" && status=error}",
+          "limit": 20,
+          "tableType": "traces",
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 97,
+        "w": 12,
+        "h": 10
+      }
+    },
+    {
+      "id": 34,
       "title": "Recent traces",
       "type": "table",
       "datasource": {
@@ -881,9 +1257,9 @@
         "uid": "tempo"
       },
       "gridPos": {
-        "x": 0,
-        "y": 72,
-        "w": 24,
+        "x": 12,
+        "y": 97,
+        "w": 12,
         "h": 10
       },
       "targets": [

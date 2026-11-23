@@ -11,6 +11,11 @@ datasources:
     isDefault: true
     jsonData:
       httpMethod: POST
+      # Samples arrive every 30 s (the app's OTEL_METRIC_EXPORT_INTERVAL default,
+      # TelemetryDefaults.MetricExportIntervalMilliseconds), not at a scrape interval.
+      # $__rate_interval is derived from this; at Grafana's 15 s default a rate window
+      # can hold a single sample and panels show gaps.
+      timeInterval: 30s
 
   - name: Loki
     uid: loki
