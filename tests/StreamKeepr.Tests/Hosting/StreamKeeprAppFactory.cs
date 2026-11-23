@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
+using StreamKeepr.Infrastructure.Storage;
 
 namespace StreamKeepr.Tests.Hosting;
 
@@ -24,6 +25,8 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
         echo "fake streamlink: only --version is supported" >&2
         exit 1
         """;
+
+    private static readonly TimeSpan StartupRecoveryTimeout = TimeSpan.FromSeconds(30);
 
     private readonly string _testRoot;
     private readonly bool _ownsTestRoot;
@@ -80,7 +83,48 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
                 ["Telemetry:Enabled"] = _telemetry ? "true" : "false",
             }));
 
-        return base.CreateHost(builder);
+        IHost host = base.CreateHost(builder);
+        WaitForStartupRecovery(host);
+        return host;
+    }
+
+    /// <summary>
+    /// Startup recovery runs after the server starts listening (DvrSupervisor.ExecuteAsync), and
+    /// its library scan replaces the library's contents. Returning before it finishes would let
+    /// a test seed or open a recording that the scan then wipes. Waits until the library is
+    /// loaded, or until the host stops itself: a failed recovery never loads it.
+    /// </summary>
+    private static void WaitForStartupRecovery(IHost host)
+    {
+        RecordingLibrary library = host.Services.GetRequiredService<RecordingLibrary>();
+        CancellationToken stopping =
+            host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
+        var settled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void OnChanged()
+        {
+            if (library.IsLoaded)
+                settled.TrySetResult();
+        }
+
+        library.Changed += OnChanged;
+        try
+        {
+            // Covers a scan that finished before the subscription.
+            OnChanged();
+            using CancellationTokenRegistration onStopping =
+                stopping.Register(() => settled.TrySetResult());
+
+            if (!settled.Task.Wait(StartupRecoveryTimeout))
+            {
+                throw new TimeoutException(
+                    $"Startup recovery did not load the recording library within {StartupRecoveryTimeout}.");
+            }
+        }
+        finally
+        {
+            library.Changed -= OnChanged;
+        }
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
