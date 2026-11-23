@@ -252,6 +252,47 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     }
 
     [Fact]
+    public async Task A_dropped_connection_leaves_no_unhandled_rejection()
+    {
+        // Blazor's beginInvokeDotNetFromJS drops the promise of its own send, so any
+        // invokeMethodAsync made while the socket is down rejects unhandled inside the framework,
+        // whatever the caller catches. Record sockets and rejections, then drop the sockets.
+        const string probe = """
+            window.__skSockets = [];
+            window.__skRejections = [];
+            const Native = window.WebSocket;
+            window.WebSocket = class extends Native {
+              constructor(...args) { super(...args); window.__skSockets.push(this); }
+            };
+            window.addEventListener("unhandledrejection", (event) =>
+              window.__skRejections.push(String(event.reason?.stack ?? event.reason)));
+            """;
+        await using Session session = await OpenAsync(app.BaseUrl, initScript: probe);
+        IPage page = session.Page;
+
+        await session.Context.SetOfflineAsync(true);
+        await page.EvaluateAsync("window.__skSockets.forEach(socket => socket.close())");
+        await page.WaitForFunctionAsync(
+            "document.body.dataset.skReconnect === 'retrying'",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 20_000 });
+
+        // Back online, JS→.NET calls reach the circuit again: the search's debounced Search call.
+        await session.Context.SetOfflineAsync(false);
+        await page.EvaluateAsync("window.Blazor.reconnect()");
+        await page.WaitForFunctionAsync(
+            "document.body.dataset.skReconnect === 'hide'",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 30_000 });
+        await LibraryHooks.OpenLibraryAsync(page);
+        await page.Locator(Search).FillAsync("NIGHT");
+        await page.WaitForURLAsync(url => url.Contains("q=NIGHT", StringComparison.Ordinal));
+
+        string[] rejections = await page.EvaluateAsync<string[]>("window.__skRejections");
+        Assert.True(rejections.Length == 0, string.Join("\n---\n", rejections));
+    }
+
+    [Fact]
     public async Task A_dropped_connection_shows_the_quiet_note_not_the_modal()
     {
         // Offline emulation does not close a socket that is already open, so record the

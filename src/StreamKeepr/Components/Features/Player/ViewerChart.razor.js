@@ -1,3 +1,4 @@
+import { callDotNet } from "/js/circuit.js";
 import { formatCount } from "/js/stats.js";
 import { formatTimecode } from "/js/timecode.js";
 import {
@@ -76,7 +77,7 @@ export function createViewerChart(root, {
     if (reported === has) return;
     reported = has;
     try {
-      await dotNet?.invokeMethodAsync("SetHasSamples", has);
+      await callDotNet(dotNet, "SetHasSamples", has);
     } catch (error) {
       console.debug("Stream Keepr: the viewer panel state was not delivered.", error);
     }
@@ -236,7 +237,7 @@ export function createViewerChart(root, {
 
     seekInFlight = true;
     try {
-      await dotNet?.invokeMethodAsync("Seek", seconds);
+      await callDotNet(dotNet, "Seek", seconds);
     } catch (error) {
       console.debug("Stream Keepr: the chart seek was not delivered.", error);
     } finally {

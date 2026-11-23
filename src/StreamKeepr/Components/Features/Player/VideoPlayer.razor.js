@@ -2,6 +2,7 @@
 // this module owns hls.js, every control, and all dynamic player DOM. hls.js is imported lazily
 // from the vendored copy, only on recording pages, through an injectable loader for tests.
 
+import { callDotNet } from "/js/circuit.js";
 import {
   createStatsProbe,
   registerStatsSource,
@@ -603,7 +604,7 @@ export function createPlayer(
   async function invokeDotNet(identifier, ...args) {
     if (!dotNet?.invokeMethodAsync) return;
     try {
-      await dotNet.invokeMethodAsync(identifier, ...args);
+      await callDotNet(dotNet, identifier, ...args);
     } catch (error) {
       // A closed circuit cannot persist the preference; the player control still works.
       console.debug(`Stream Keepr: ${identifier} was not delivered.`, error);

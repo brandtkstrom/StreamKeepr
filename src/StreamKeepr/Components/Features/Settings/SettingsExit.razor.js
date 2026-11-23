@@ -2,6 +2,7 @@
 // else already owns it: a field being typed in, a dialog, a menu or another open popover. An
 // open tooltip owns nothing, so it never blocks the exit. A held key repeats; only the first
 // press counts, so history never skips a page.
+import { callDotNet } from "/js/circuit.js";
 import { isEditable } from "/js/shortcuts.js";
 
 const OVERLAY = "dialog[open], [role='dialog'], [role='menu'], .mud-overlay, .mud-popover-open:not(.mud-tooltip)";
@@ -28,8 +29,7 @@ export function install(component, doc = document) {
   const listener = (event) => {
     if (!shouldExit(event, doc)) return;
     event.preventDefault();
-    void component
-      .invokeMethodAsync("ExitAsync")
+    void callDotNet(component, "ExitAsync")
       .catch((error) => console.warn("Stream Keepr: could not exit Settings.", error));
   };
   doc.addEventListener("keydown", listener);
