@@ -312,21 +312,29 @@ public sealed class DvrSupervisor(
             _ = coordinator.PublishAsync(new DvrEvent.SessionRecovered(unfinished));
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-        Task loop = Task.Run(() => coordinator.RunAsync(cts.Token), CancellationToken.None);
-        _running[channel.Login] = new Running(coordinator, cts, loop);
 
-        _ = loop.ContinueWith(
-            task =>
-            {
-                logger.LogCritical(
-                    task.Exception,
-                    "The channel loop for {Channel} crashed; stopping the host.",
-                    channel.Login);
-                lifetime.StopApplication();
-            },
-            CancellationToken.None,
-            TaskContinuationOptions.OnlyOnFaulted,
-            TaskScheduler.Default);
+        // The loop outlives its caller, which can be a Blazor circuit adding the channel. Without
+        // this, the caller's logging scopes (RequestPath, ConnectionId) and Activity would flow
+        // into every log line and span the channel produces for as long as it is watched.
+        Task loop;
+        using (ExecutionContext.SuppressFlow())
+        {
+            loop = Task.Run(() => coordinator.RunAsync(cts.Token), CancellationToken.None);
+            _ = loop.ContinueWith(
+                task =>
+                {
+                    logger.LogCritical(
+                        task.Exception,
+                        "The channel loop for {Channel} crashed; stopping the host.",
+                        channel.Login);
+                    lifetime.StopApplication();
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted,
+                TaskScheduler.Default);
+        }
+
+        _running[channel.Login] = new Running(coordinator, cts, loop);
     }
 
     private ValueTask RouteAsync(
