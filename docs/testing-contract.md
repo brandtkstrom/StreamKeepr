@@ -44,7 +44,7 @@ tests/
 - `tests/StreamKeepr.Tests` references `src/StreamKeepr` directly. No separate test-only public API.
 - `src/StreamKeepr` grants `InternalsVisibleTo` to `StreamKeepr.Tests` so unit and integration tests can exercise internal seams (emote providers, catalog service, channel resolver) without widening the public surface. Do not add test-only public members to production types; cover new internals through that binding.
 - `tests/StreamKeepr.E2E` starts the app with the `Mock` launch profile on a free loopback port, waits for `/health/ready`, then runs Playwright.
-- The E2E fixture publishes the Debug output once per run and starts `StreamKeepr.dll` with `ASPNETCORE_ENVIRONMENT=Mock` on a free loopback port, then runs Playwright. It keeps the source project as the content root for the Mock fixture path and points `ASPNETCORE_WEBROOT` at the publish output. The shared publish is a stable test artifact, not a workaround: the Mock host enables build-time static web assets outside Development, so `_framework/*.js` is also served from a normal build.
+- The E2E fixture runs one Debug publish per run: the folder named by `STREAMKEEPR_E2E_PUBLISH_DIR` when it is set (CI publishes once in a workflow step), otherwise its own `dotnet publish`. It starts `StreamKeepr.dll` with `ASPNETCORE_ENVIRONMENT=Mock` on a free loopback port, then runs Playwright. It keeps the source project as the content root for the Mock fixture path and points `ASPNETCORE_WEBROOT` at the publish output. The shared publish is a stable test artifact, not a workaround: the Mock host enables build-time static web assets outside Development, so `_framework/*.js` is also served from a normal build.
 - `tests/js` is dev-only; Node never enters the image.
 - The old `StreamCaptureService.Tests` project is deleted with the old app in the migration route.
 
@@ -102,6 +102,7 @@ Rules:
 - Unique temp directory per test; fixture cleans it up. Tests never write to the repo, user profile, or `/recordings`.
 - No network; stub HTTP handlers; fake processes.
 - No shared static mutable state. Use xUnit collections only when a real shared resource is unavoidable.
+- The E2E suite's one exception is `E2EBrowser`: one Playwright driver and one Chrome per test process, guarded by a lock. Each test still opens and disposes its own `IBrowserContext`, which isolates cookies, storage and permissions, and never closes the shared browser.
 - Dispose services, `WebApplicationFactory`, child processes, and temp directories in `IAsyncLifetime`/`IDisposable`.
 - Tests must pass in any order and in parallel unless explicitly isolated.
 
@@ -134,7 +135,7 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 |---|---|
 | `dotnet` | setup .NET 10; restore; `dotnet build -warnaserror`; `dotnet format --verify-no-changes`; `dotnet test` with coverage; upload results |
 | `js` | setup Node 24 LTS; `npm ci`; `npm run lint`; `npm test` |
-| `e2e` | setup .NET and Node; build; `playwright install --with-deps`; start the Mock profile; `dotnet test tests/StreamKeepr.E2E`; upload Playwright report, traces, screenshots |
+| `e2e` | setup .NET; restore and build only `tests/StreamKeepr.E2E` (and the app it references); `dotnet publish` the app once; `playwright install --with-deps`; `dotnet test tests/StreamKeepr.E2E` against that publish; upload the TRX always and the Playwright report, traces, axe output and screenshots only on failure |
 | `docker` | `docker build`; run the image with dummy non-secret config and a temp `/recordings` volume; hit `/health/live` and `/`; verify non-root; stop cleanly |
 
 - Triggers: pull requests and pushes to `main` and `dev`. The `fullstack-refactor` trigger was removed once that migration merged (#112).

@@ -397,8 +397,12 @@ public sealed class ShellJourneyTests(MockAppFixture app)
     {
         await Journey.WaitForReconnectAsync(page);
         AxeResult results = await page.RunAxe();
-        string path = Path.Combine(app.ArtifactsDirectory, $"{name}.axe.json");
-        await File.WriteAllTextAsync(path, results.ToString());
+        // Only a failing check leaves its axe output behind.
+        if (results.Violations.Length > 0)
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(app.ArtifactsDirectory, $"{name}.axe.json"), results.ToString());
+        }
 
         string violations = string.Join(
             Environment.NewLine,
