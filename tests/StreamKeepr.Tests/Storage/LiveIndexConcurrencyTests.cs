@@ -20,7 +20,6 @@ public sealed class LiveIndexConcurrencyTests
         Assert.NotNull(await service.RefreshOneAsync(summary, CancellationToken.None));
 
         string path = context.PartPath(1);
-        string temp = path + ".tmp";
         const int totalSegments = 24;
 
         Task writer = Task.Run(async () =>
@@ -34,8 +33,7 @@ public sealed class LiveIndexConcurrencyTests
                             $"2026-11-10T18:30:{n * 2 % 60:00}Z",
                             6))
                         .ToArray());
-                await File.WriteAllTextAsync(temp, content);
-                await MoveWithRetryAsync(temp, path);
+                await AtomicPartPlaylist.WriteAsync(path, content);
                 await Task.Delay(1);
             }
         });
@@ -70,27 +68,5 @@ public sealed class LiveIndexConcurrencyTests
             PlaylistStitcher.Stitch([new PartPlaylist(1, finalContent)], 12, final: false),
             final);
         Assert.Equal(totalSegments, PlaylistTimeline.Parse(final).SegmentCount);
-    }
-
-    /// <summary>
-    /// Models FFmpeg's temp-file rename. Windows may reject the replace while a reader still
-    /// holds the final path, so the writer retries; the reader never caches a handle.
-    /// </summary>
-    private static async Task MoveWithRetryAsync(string source, string destination)
-    {
-        for (int attempt = 0; ; attempt++)
-        {
-            try
-            {
-                File.Move(source, destination, overwrite: true);
-                return;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                if (attempt >= 100)
-                    throw;
-                await Task.Delay(2);
-            }
-        }
     }
 }
