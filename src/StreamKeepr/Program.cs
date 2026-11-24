@@ -289,6 +289,7 @@ try
             services.GetRequiredService<IrcChatClient>());
 
         builder.Services.AddSingleton<IEmoteProvider, BttvEmoteProvider>();
+        builder.Services.AddSingleton<IEmoteProvider, SevenTvEmoteProvider>();
     }
 
     builder.Services.AddSingleton<DvrSupervisor>();
@@ -347,6 +348,9 @@ try
 
     builder.Services.AddHttpClient(EmoteHttpClients.Bttv, client =>
                                        client.BaseAddress = new Uri(EmoteHttpClients.BttvBaseAddress));
+
+    builder.Services.AddHttpClient(EmoteHttpClients.SevenTv, client =>
+                                       client.BaseAddress = new Uri(EmoteHttpClients.SevenTvBaseAddress));
 
     builder.Services.AddSingleton<IAdminTokenStore, AdminTokenStore>();
 
