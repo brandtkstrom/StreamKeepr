@@ -116,6 +116,7 @@ Update, because they describe the current stack:
 
 - `docs/hosting-contract.md:140-147` — image pins and the pinned-version line.
 - `docs/testing-contract.md:126` — ".NET 10" in the CI sequence.
+- `docs/twitch-auth-contract.md:122` — the OAuth package pin.
 - `docs/frontend-foundation-contract.md:14` — "Blazor Web App on .NET 10".
 - `README.md` — Playwright path, plus any stack statement.
 
