@@ -144,8 +144,9 @@ Captured on `chore/net11-csharp15` at `68eae17`, before any change:
   `Microsoft.AspNetCore.App 11.0.0`.
 - `dotnet build StreamKeepr.sln -warnaserror` → succeeded, 0 warnings,
   0 errors, using SDK 11 against `net10.0`.
-- `dotnet test StreamKeepr.sln --no-build --filter "Category!=E2E"` →
-  see §7 for the recorded result.
+- `dotnet test StreamKeepr.sln --no-build --filter "Category!=E2E"` → passed:
+  1885 tests in `StreamKeepr.Tests` and 2 in `StreamKeepr.E2E`, 0 failed,
+  0 skipped, 2 m 17 s.
 
 Solution shape: three projects, all `net10.0`. 420 C# files / 57,302 lines and
 53 `.razor` files / 5,735 lines, excluding `bin/` and `obj/`.
@@ -169,20 +170,43 @@ code was inspected and the change cannot affect it.
 | `Uri` parsing and `UriBuilder` validation changes | Low-medium: Twitch and media URLs | Covered by unit tests over URL handling. |
 | Minimum hardware requirements updated | Deployment note | Recorded in the PR; no code change. |
 | Obsolete APIs and removed Blazor/MVC APIs | Unknown until compile | Build with `-warnaserror`. |
+| New Blazor analyzers `BL0011`–`BL0016` | Confirmed: 8 build errors, all `BL0012`/`BL0016` | See §5.1. |
 | `QuickGrid` controls render as links | None: no `QuickGrid` usage found | N/A. |
 
 This list is the .NET 11 migration guide's own set; it is not exhaustive by the
 guide's admission, so a green suite is evidence, not proof.
 
+### 5.1 Blazor analyzers BL0011–BL0016
+
+The ASP.NET Core 11 component analyzer adds `BL0011`–`BL0016`. They are warnings
+by default, and this repository passes `-warnaserror`, so they surface as build
+errors even though no project sets `WarningsAsErrors`. Eight fired:
+
+| Site | Diagnostic | Resolution |
+| --- | --- | --- |
+| `ViewersPanel.razor:62` | `BL0012` redundant `StateHasChanged` | Removed. Bound only as an `EventCallback`; the framework renders after the callback. |
+| `LibraryDrawer.razor:409` | `BL0012` | Removed. Synchronous handler that ends the method; same reasoning. |
+| `LibraryDrawer.razor:355` | `BL0012` | Kept, with `#pragma warning disable BL0012` and a reason. The render must happen before the `FocusAsync` below, which queries the DOM. |
+| `ChannelSettings.razor:325` | `BL0012` | Kept, with `#pragma warning disable BL0012` and a reason. The render must happen before the awaited recorder stop, or the row never shows its removing state. |
+| `VideoPlayerTests.cs:335,362,373`, `UiPreferencesTests.cs:227` | `BL0016` unguarded JS interop | `<NoWarn>$(NoWarn);BL0016</NoWarn>` in `StreamKeepr.Tests.csproj`. The flagged calls are on bUnit doubles, where a disconnected circuit is not a failure mode. |
+
+The diagnostic's documented reach is narrower than it looks: it analyses only
+the synchronous prefix of a method, before the first `await`, and does not
+consider other callers. A method bound as an `EventCallback` and also invoked
+through `@ref`, `[JSInvokable]`, or `OnAfterRenderAsync` may still need its
+explicit render. Each of the four sites above was checked for other callers
+before changing it; none has one.
+
 ## 6. Commit sequence
 
 1. `docs: add .NET 11 and C# 15 migration plan`
-2. Retarget the three projects to `net11.0`.
-3. Bump the version-coupled packages.
-4. Update the Dockerfile SDK and runtime pins.
-5. Update the CI SDK version and the Playwright paths in CI and README.
-6. Update current-state docs; annotate research docs.
-7. Optional, only after the suite is green: attempt removal of
+2. Retarget the three projects to `net11.0`, resolve the analyzer diagnostics the
+   retarget introduces (§5.1), and bump the version-coupled packages. These land
+   together: the diagnostics exist only because of the retarget, and a
+   half-applied state does not build.
+3. Update the container pins, the CI SDK version, the Playwright paths, and the
+   current-state docs; annotate the dated records.
+4. Optional, only after the suite is green: attempt removal of
    `<DisableBuildCompression>`.
 
 Each commit must build. Commits 2 and 3 may need to land together if the
@@ -202,6 +226,62 @@ Required before the branch is called done:
 
 Not required: a manual walkthrough of recording, playback, chat, and export
 against the Mock profile.
+
+### 7.1 Load-sensitive tests observed during verification
+
+Full-suite runs on this machine are not perfectly deterministic. Three runs of
+`dotnet test StreamKeepr.sln --filter "Category!=E2E"` produced one green run
+(1885 passed) and two runs with a single failure each, in two different tests:
+
+- `SessionStoreConcurrencyTests.Concurrent_finalize_append_and_summarize_do_not_corrupt_the_session`
+  — `UnauthorizedAccessException` from `File.Move` inside
+  `SessionStore.WriteAtomicAsync`.
+- `RecordingStopTests.Stop_confirms_then_calls_the_channel_control` — a bUnit
+  `WaitForAssertion` around MudBlazor's asynchronous dialog lifecycle.
+
+Both pass in isolation: 15/15 and 6/6 respectively.
+
+The first has a concrete, version-independent mechanism.
+`SessionStoreTestContext.cs:37` passes `retryDelay ?? (static (_, _) => Task.CompletedTask)`,
+so the five-attempt sharing-violation retry in `SessionStore.cs:461-476` runs
+with no delay and completes in microseconds. Any handle held outside the process
+— a scanner or the search indexer — defeats it. `IsSharingViolation` already
+covers `UnauthorizedAccessException`, so the guard exists; the test simply gives
+it no time to work.
+
+The second is wall-clock sensitive by construction: it waits on a dialog that
+MudBlazor opens and closes asynchronously.
+
+Neither is attributed to the .NET 11 upgrade here (see the A/B result in §7.2),
+and neither warrants a source change in this branch. They belong in their own
+issue: the harness should supply a real delay, and the dialog assertions should
+use a timeout that tolerates a loaded machine.
+
+### 7.2 Cross-version baseline
+
+The same suite was run against `dev` at `68eae17` (`net10.0`, no migration
+changes) from a clone outside `%TEMP%`, twice:
+
+| Build | Full-suite runs | Green | Failures observed |
+| --- | --- | --- | --- |
+| `dev` @ `68eae17`, `net10.0` | 2 | 1 | `MockAuthTests.Fake_login_rejects_external_return_urls` |
+| `chore/net11-csharp15`, `net11.0` | 4 | 1 | `SessionStoreConcurrencyTests…` (twice), `RecordingStopTests.Stop_confirms…` |
+
+`RecordingStopTests.Stop_confirms…` failed on both builds. A third baseline was
+discarded: cloned under `%TEMP%`, it failed three runs out of three, but
+`MockEnvironmentTests.Refuses_a_repository_path…` cannot pass there by design —
+the mock refuses a repository path inside temp — so that location is not a
+usable comparison and those results are excluded.
+
+Conclusion: full-suite runs on this Windows machine are non-deterministic on
+both framework versions, at comparable rates, in different tests each time, all
+of which pass in isolation. No observed failure is attributable to the retarget.
+CI runs this suite on Ubuntu and was green before the branch; the branch's own
+CI run is the authoritative result.
+
+Recommended follow-up, tracked separately rather than fixed here:
+`SessionStoreTestContext` should inject a real retry delay, and the dialog and
+HTTP assertions should tolerate a loaded machine.
 
 ## 8. Rollback
 
