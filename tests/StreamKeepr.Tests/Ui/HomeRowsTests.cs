@@ -30,7 +30,7 @@ public sealed class HomeRowsTests
         Assert.Equal(["bob-partial", "ann-saved"], CardIds(cut, "Recent recordings"));
         Assert.All(Cards(cut, "Recording now"), card => Assert.Equal("large", card.GetAttribute("data-card-size")));
         Assert.All(Cards(cut, "Recent recordings"), card => Assert.Equal("default", card.GetAttribute("data-card-size")));
-        Assert.Equal("/r/bob-back", Cards(cut, "Recording now")[0].GetAttribute("href"));
+        Assert.Equal("/r/bob-back?autoplay=1", Cards(cut, "Recording now")[0].GetAttribute("href"));
         Assert.Equal("2", cut.Find("[data-row-count]").TextContent.Trim());
         Assert.Equal("Recording, Bob B, reconnecting", RecordingCardTests.AccessibleName(Cards(cut, "Recording now")[0]));
     }

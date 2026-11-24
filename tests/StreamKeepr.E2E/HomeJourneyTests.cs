@@ -96,9 +96,8 @@ public sealed class HomeJourneyTests(MockAppFixture app)
         ILocator recent = HomeRows.Recent(page);
         ILocator card = HomeRows.Cards(recent).First;
         await card.WaitForAsync();
-        Assert.Equal(
-            $"/r/{await card.GetAttributeAsync("data-recording-id")}",
-            await card.GetAttributeAsync("href"));
+        string cardId = (await card.GetAttributeAsync("data-recording-id"))!;
+        Assert.Equal($"/r/{cardId}?autoplay=1", await card.GetAttributeAsync("href"));
         Assert.True(await HomeRows.Cards(HomeRows.Now(page)).CountAsync() >= 1, "the growing capture is recording");
 
         // The mouse-only chevron pages the row by its visible width.

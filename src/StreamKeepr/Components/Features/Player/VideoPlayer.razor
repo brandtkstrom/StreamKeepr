@@ -173,6 +173,12 @@
     /// <summary>False below <c>Breakpoint.Md</c>: theater has no meaning there.</summary>
     [Parameter] public bool TheaterAvailable { get; set; } = true;
 
+    /// <summary>
+    /// One-shot player-open intent from a library selection. It reaches only the load payload,
+    /// so a same-recording update never starts playback again.
+    /// </summary>
+    [Parameter] public bool Autoplay { get; set; }
+
     private string Max => Math.Max(0, Recording.DurationSec).ToString("0.###", CultureInfo.InvariantCulture);
 
     // The skeleton renders once; afterwards only the JS module changes the player DOM.
@@ -238,7 +244,7 @@
                 return;
             }
 
-            Bridge.Attach(SeekAsync);
+            Bridge.Attach(SeekAsync, PlayAsync);
         }
         catch (JSDisconnectedException)
         {
@@ -285,6 +291,7 @@
         },
         durationSec = recording.DurationSec,
         resumeSec = recording.ResumeSec,
+        autoplay = Autoplay,
         statsOpen = StatsOpen,
         theater = Preferences.Theater,
         theaterAvailable = TheaterAvailable,
@@ -351,6 +358,25 @@
         catch (JSException ex)
         {
             Logger.LogWarning(ex, "A player seek failed.");
+        }
+    }
+
+    private async ValueTask PlayAsync()
+    {
+        if (_module is null)
+            return;
+
+        try
+        {
+            await _module.InvokeVoidAsync("play", _root);
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, so there is no browser state left to play.
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "A player play request failed.");
         }
     }
 

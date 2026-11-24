@@ -75,7 +75,7 @@ public sealed class RecordingDeleteTests
         Assert.Empty(admin.Deletes);
 
         dialogs.Find("[data-delete-cancel]").Click();
-        Assert.False(dialogs.HasOpenDialog(DeleteName));
+        dialogs.WaitForAssertion(() => Assert.False(dialogs.HasOpenDialog(DeleteName)));
     }
 
     [Fact]

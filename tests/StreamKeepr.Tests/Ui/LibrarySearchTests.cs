@@ -118,7 +118,7 @@ public sealed class LibrarySearchTests
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
         cut.Find("[data-library-channel='ann']").Click();
 
-        Assert.Equal("/r/r1?q=chef&sort=oldest", cut.Find("a[data-recording-id='r1']").GetAttribute("href"));
+        Assert.Equal("/r/r1?q=chef&sort=oldest&autoplay=1", cut.Find("a[data-recording-id='r1']").GetAttribute("href"));
     }
 
     [Fact]

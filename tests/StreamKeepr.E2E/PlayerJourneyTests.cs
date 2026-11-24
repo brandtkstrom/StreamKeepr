@@ -28,20 +28,25 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
 
         ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
         string first = (await saved.Nth(0).GetAttributeAsync("data-recording-id"))!;
+        await session.WaitForReconnectAsync();
         await saved.Nth(0).ClickAsync();
         await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{first}", StringComparison.Ordinal));
         await ExpandLibraryOnWatchPageAsync(page);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
 
+        // Selecting a row opens it playing (#288); the one-shot intent leaves the URL.
+        await WaitForPlayingAsync(page);
+        Assert.Equal("Pause", await page.Locator("[data-sk='play']").GetAttributeAsync("aria-label"));
+        await Assertions.Expect(page.Locator("[data-sk='center']")).ToBeHiddenAsync();
+        AssertUrlHasNoAutoplayIntent(page);
         Assert.Single(hlsRequests);
-        Assert.True(await Video(page, "v => v.paused"), "no autoplay");
         Assert.True(await Video(page, "v => !v.controls"));
 
-        await page.Locator("[data-sk='center']").ClickAsync();
-        await page.WaitForFunctionAsync("document.querySelector('[data-sk=video]').currentTime > 0.5");
-        Assert.Equal("Pause", await page.Locator("[data-sk='play']").GetAttributeAsync("aria-label"));
         await page.Locator("[data-sk='play']").ClickAsync();
         Assert.True(await Video(page, "v => v.paused"));
+        Assert.Equal("Play", await page.Locator("[data-sk='play']").GetAttributeAsync("aria-label"));
+        await page.Locator("[data-sk='play']").ClickAsync();
+        await WaitForPlayingAsync(page);
 
         await page.Locator("[data-sk='speed']").ClickAsync();
         await page.Locator("[data-sk='speed-menu'] [data-rate='1.5']").ClickAsync();
@@ -71,50 +76,236 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         ILocator next = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow, index: 1);
         string second = (await next.GetAttributeAsync("data-recording-id"))!;
         string secondTitle = (await next.Locator("[data-row-title]").InnerTextAsync()).Trim();
+        await session.WaitForReconnectAsync();
         await next.ClickAsync();
         await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{second}", StringComparison.Ordinal));
         await page.WaitForFunctionAsync(
             "t => document.querySelector('[data-sk=title]').textContent === t", secondTitle);
         Assert.True(await Video(page, "v => v.__skMarker === true"));
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
-        Assert.True(await Video(page, "v => v.paused"));
+        await WaitForPlayingAsync(page);
+        Assert.Equal("Pause", await page.Locator("[data-sk='play']").GetAttributeAsync("aria-label"));
         Assert.Single(hlsRequests);
     }
 
     [Fact]
-    public async Task Switching_from_a_playing_recording_shows_Play_and_opens_the_next_paused()
+    public async Task Switching_from_a_playing_recording_autoplays_the_next_selection()
     {
         await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
         string first = (await saved.Nth(0).GetAttributeAsync("data-recording-id"))!;
+        await session.WaitForReconnectAsync();
         await saved.Nth(0).ClickAsync();
         await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{first}", StringComparison.Ordinal));
         await ExpandLibraryOnWatchPageAsync(page);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        await WaitForPlayingAsync(page);
 
-        await page.Locator("[data-sk='center']").ClickAsync();
-        await page.WaitForFunctionAsync("!document.querySelector('[data-sk=video]').paused");
-        Assert.Equal("Pause", await page.Locator("[data-sk='play']").GetAttributeAsync("aria-label"));
-
-        // The drawer swaps the source while the old recording is still playing; the new one
-        // opens paused, so every play surface must show Play (#304).
+        // The drawer swaps the source while the old recording is still playing. A selection
+        // now plays too, so every play surface must show Pause after the swap (#288), and the
+        // #304 stale-icon fix must not regress.
         ILocator next = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow, index: 1);
         string second = (await next.GetAttributeAsync("data-recording-id"))!;
         string secondTitle = (await next.Locator("[data-row-title]").InnerTextAsync()).Trim();
+        await session.WaitForReconnectAsync();
+        await next.ClickAsync();
+        await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{second}", StringComparison.Ordinal));
+        await page.WaitForFunctionAsync(
+            "t => document.querySelector('[data-sk=title]').textContent === t", secondTitle);
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        await WaitForPlayingAsync(page);
+
+        Assert.Equal("Pause", await page.Locator("[data-sk='play']").GetAttributeAsync("aria-label"));
+        await Assertions.Expect(page.Locator("[data-sk='play'] svg"))
+            .ToHaveAttributeAsync("data-icon", "Pause");
+        await Assertions.Expect(page.Locator("[data-sk='center']")).ToBeHiddenAsync();
+        AssertUrlHasNoAutoplayIntent(page);
+    }
+
+    [Fact]
+    public async Task A_blocked_selection_autoplay_stays_paused_with_Play_and_no_error()
+    {
+        await using Journey session = await OpenAsync(app);
+        IPage page = session.Page;
+        ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
+        string first = (await saved.Nth(0).GetAttributeAsync("data-recording-id"))!;
+        await session.WaitForReconnectAsync();
+        await saved.Nth(0).ClickAsync();
+        await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{first}", StringComparison.Ordinal));
+        await ExpandLibraryOnWatchPageAsync(page);
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        await WaitForPlayingAsync(page);
+
+        // The next source swap asks to play, but the browser rejects it, as an audible-autoplay
+        // policy can after the Blazor navigation. The player keeps the paused UI (#288, #304).
+        await page.Locator("[data-sk='video']").EvaluateAsync(
+            "v => { v.play = () => Promise.reject(new DOMException('blocked', 'NotAllowedError')); }");
+
+        ILocator next = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow, index: 1);
+        string second = (await next.GetAttributeAsync("data-recording-id"))!;
+        string secondTitle = (await next.Locator("[data-row-title]").InnerTextAsync()).Trim();
+        await session.WaitForReconnectAsync();
         await next.ClickAsync();
         await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{second}", StringComparison.Ordinal));
         await page.WaitForFunctionAsync(
             "t => document.querySelector('[data-sk=title]').textContent === t", secondTitle);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
 
-        Assert.True(await Video(page, "v => v.paused"), "the next recording opens paused");
+        Assert.True(await Video(page, "v => v.paused"), "a rejected play stays paused");
         Assert.Equal("Play", await page.Locator("[data-sk='play']").GetAttributeAsync("aria-label"));
         await Assertions.Expect(page.Locator("[data-sk='play'] svg"))
             .ToHaveAttributeAsync("data-icon", "PlayArrow");
         await Assertions.Expect(page.Locator("[data-sk='center']")).ToBeVisibleAsync();
         await Assertions.Expect(page.Locator("[data-sk='center'] svg"))
             .ToHaveAttributeAsync("data-icon", "PlayArrow");
+        await Assertions.Expect(page.Locator("[data-sk='overlay']")).ToBeHiddenAsync();
+        AssertUrlHasNoAutoplayIntent(page);
+    }
+
+    [Fact]
+    public async Task A_selection_autoplays_while_reload_direct_link_and_history_stay_paused()
+    {
+        await using Journey session = await OpenAsync(app);
+        IPage page = session.Page;
+        ILocator row = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
+        string id = (await row.GetAttributeAsync("data-recording-id"))!;
+        await ClearResumeAsync(page, id);
+
+        await session.OpenRecordingAsync(row);
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        await WaitForPlayingAsync(page);
+        Assert.True(await Video(page, "v => v.currentTime < 5"), "a first-time saved recording starts at 0");
+        AssertUrlHasNoAutoplayIntent(page);
+
+        await session.ReloadAsync();
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        Assert.True(await Video(page, "v => v.paused"), "a reload stays paused");
+        Assert.Equal("Play", await page.Locator("[data-sk='play']").GetAttributeAsync("aria-label"));
+
+        await page.GoBackAsync();
+        await session.WaitForReadyAsync();
+        Assert.DoesNotContain("/r/", new Uri(page.Url).AbsolutePath);
+
+        await page.GoForwardAsync();
+        await session.WaitForReadyAsync();
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        Assert.True(await Video(page, "v => v.paused"), "back and forward stay paused");
+
+        await session.GotoAsync(new Uri(new Uri(app.BaseUrl), $"/r/{id}").ToString());
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        Assert.True(await Video(page, "v => v.paused"), "a direct link stays paused");
+    }
+
+    [Fact]
+    public async Task A_saved_resume_position_autoplays_when_selected_but_a_reload_stays_paused()
+    {
+        await using Journey session = await OpenAsync(app);
+        IPage page = session.Page;
+        ILocator row = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
+        string id = (await row.GetAttributeAsync("data-recording-id"))!;
+        string channel = (await page.Locator(LibraryHooks.Column).GetAttributeAsync("data-recordings-column"))!;
+        await ClearResumeAsync(page, id);
+
+        await session.OpenRecordingAsync(row);
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        await WaitForPlayingAsync(page);
+
+        ILocator seek = page.Locator("[data-sk='seek']");
+        await seek.FocusAsync();
+        await page.Keyboard.PressAsync("Home");
+        await page.Keyboard.PressAsync("ArrowRight");
+        await page.Keyboard.PressAsync("ArrowRight");
+        await WaitForTimeAsync(page, 10);
+        await page.Locator("[data-sk='play']").ClickAsync();
+        double resume = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
+        Assert.True(await Video(page, "v => v.paused"));
+
+        // Wait for the pause's save to reach the store and the row's resume bar.
+        await LibraryHooks.OpenChannelAsync(page, channel);
+        await page.WaitForFunctionAsync(
+            "id => { const bar = document.querySelector(`nav[aria-label=Library] a[data-recording-id='${id}'] [data-progress]`); return bar !== null; }",
+            id,
+            new() { Timeout = 10_000 });
+
+        // Selecting the same row again starts playing there; a reload stays paused.
+        await session.GotoAsync($"{app.BaseUrl}/");
+        await session.OpenRecordingAsync(await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        await WaitForPlayingAsync(page);
+        double started = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
+        Assert.InRange(started, resume - 1, resume + 5);
+        AssertUrlHasNoAutoplayIntent(page);
+
+        // Pause where the selection is playing, then reload: the position stays, playback does not.
+        await page.Locator("[data-sk='play']").ClickAsync();
+        Assert.True(await Video(page, "v => v.paused"));
+        double selected = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
+
+        await session.ReloadAsync();
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        await WaitForTimeAsync(page, selected, tolerance: 1);
+        Assert.True(await Video(page, "v => v.paused"));
+    }
+
+    [Fact]
+    public async Task Re_selecting_the_open_recording_starts_playback_where_it_is()
+    {
+        await using Journey session = await OpenAsync(app);
+        IPage page = session.Page;
+        ILocator row = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
+        string id = (await row.GetAttributeAsync("data-recording-id"))!;
+        string channel = (await page.Locator(LibraryHooks.Column).GetAttributeAsync("data-recordings-column"))!;
+        await ClearResumeAsync(page, id);
+
+        await session.OpenRecordingAsync(row);
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        await WaitForPlayingAsync(page);
+
+        ILocator seek = page.Locator("[data-sk='seek']");
+        await seek.FocusAsync();
+        await page.Keyboard.PressAsync("Home");
+        await page.Keyboard.PressAsync("ArrowRight");
+        await page.Keyboard.PressAsync("ArrowRight");
+        await WaitForTimeAsync(page, 10);
+        await page.Locator("[data-sk='play']").ClickAsync();
+        Assert.True(await Video(page, "v => v.paused"));
+        double paused = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
+        await page.Locator("[data-sk='video']").EvaluateAsync("v => { v.__skMarker = true; }");
+
+        // The drawer opens on the watched recording's channel, with the open recording marked
+        // current. Selecting it again has no new source, so the player must be asked to play.
+        await LibraryHooks.OpenChannelAsync(page, channel);
+        ILocator current = page.Locator($"{LibraryHooks.Drawer} a[aria-current='true']");
+        await current.WaitForAsync(new() { Timeout = 10_000 });
+        Assert.Equal(id, await current.GetAttributeAsync("data-recording-id"));
+        await session.WaitForReconnectAsync();
+        await current.ClickAsync();
+        await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        await WaitForPlayingAsync(page);
+
+        Assert.True(await Video(page, "v => v.__skMarker === true"), "the same player keeps the source");
+        double resumed = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
+        Assert.InRange(resumed, paused - 1, paused + 5);
+        AssertUrlHasNoAutoplayIntent(page);
+    }
+
+    [Fact]
+    public async Task Selecting_a_home_card_opens_it_playing()
+    {
+        await using Journey session = await OpenAsync(app);
+        IPage page = session.Page;
+        ILocator card = page.Locator("a[data-card-size][data-state='saved']").First;
+        string id = (await card.GetAttributeAsync("data-recording-id"))!;
+        await session.WaitForReconnectAsync();
+        await card.ClickAsync();
+        await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+        await WaitForPlayingAsync(page);
+
+        Assert.Equal("Pause", await page.Locator("[data-sk='play']").GetAttributeAsync("aria-label"));
+        AssertUrlHasNoAutoplayIntent(page);
     }
 
     [Fact]
@@ -127,8 +318,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await session.OpenRecordingAsync(saved);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
 
-        await page.Locator("[data-sk='center']").ClickAsync();
-        await page.WaitForFunctionAsync("!document.querySelector('[data-sk=video]').paused");
+        await WaitForPlayingAsync(page);
 
         ILocator video = page.Locator("[data-sk='video']");
         LocatorBoundingBoxResult box = (await video.BoundingBoxAsync())!;
@@ -137,7 +327,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
 
         // Paused, the centre play surface covers the frame and resumes.
         await page.Locator("[data-sk='center']").ClickAsync();
-        await page.WaitForFunctionAsync("!document.querySelector('[data-sk=video]').paused");
+        await WaitForPlayingAsync(page);
         await page.Mouse.ClickAsync(box.X + box.Width / 2, box.Y + box.Height / 2);
         Assert.True(await Video(page, "v => v.paused"), "a second frame click pauses again");
     }
@@ -152,8 +342,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await session.OpenRecordingAsync(saved);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
 
-        await page.Locator("[data-sk='center']").TapAsync();
-        await page.WaitForFunctionAsync("!document.querySelector('[data-sk=video]').paused");
+        await WaitForPlayingAsync(page);
 
         LocatorBoundingBoxResult box = (await page.Locator("[data-sk='video']").BoundingBoxAsync())!;
         await page.Touchscreen.TapAsync(box.X + box.Width / 2, box.Y + box.Height / 2);
@@ -198,11 +387,12 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     {
         await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
-        string href = (await (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow)).GetAttributeAsync("href"))!;
+        ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
+        string href = (await saved.GetAttributeAsync("href"))!;
+        string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await page.GotoAsync(new Uri(new Uri(page.Url), href).ToString(),
             new() { WaitUntil = WaitUntilState.DOMContentLoaded });
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
-        string id = page.Url[(page.Url.LastIndexOf('/') + 1)..];
 
         // The seeded samples are the independent source of truth for the tile figures.
         string viewersJson = await page.EvaluateAsync<string>(
@@ -356,8 +546,8 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             Assert.NotEqual("hidden", element.GetProperty("visibility").GetString());
         });
 
-        // Play so the requestVideoFrameCallback frame-rate estimate has frames to count.
-        await page.Locator("[data-sk='center']").ClickAsync();
+        // It opened from a selection already playing, so the frame-rate estimator has frames.
+        await WaitForPlayingAsync(page);
 
         await page.WaitForFunctionAsync(
             """() => document.querySelectorAll("[data-sk='rows-buffer'] tr").length >= 3""",
@@ -478,7 +668,6 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await page.Keyboard.PressAsync("ArrowRight");
         await page.Keyboard.PressAsync("ArrowRight");
         await WaitForTimeAsync(page, 10);
-        await page.Locator("[data-sk='center']").ClickAsync();
         await page.WaitForFunctionAsync("document.querySelector('[data-sk=video]').currentTime > 10.2");
         await page.Locator("[data-sk='play']").ClickAsync();
         double paused = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
@@ -565,7 +754,9 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await live.WaitForAsync(new() { State = WaitForSelectorState.Visible });
         Assert.True(await page.Locator("[data-sk='edge']").IsVisibleAsync(), "the red live tick shows");
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-live");
-        Assert.True(await Video(page, "v => v.paused"), "no autoplay at the live edge");
+        await WaitForPlayingAsync(page);
+        Assert.Equal("Pause", await page.Locator("[data-sk='play']").GetAttributeAsync("aria-label"));
+        Assert.NotNull(await live.GetAttributeAsync("data-at-edge"));
         // Opened at the sync position: well past the start, behind the seekable end.
         Assert.True(await Video(page, """
             v => v.seekable.length > 0
@@ -592,6 +783,11 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             }
             """);
         Assert.NotNull(await live.GetAttributeAsync("data-at-edge"));
+
+        // Pause so the handoff position is stable; following was checked above.
+        await page.Mouse.MoveAsync(5, 5);
+        await page.Locator("[data-sk='play']").ClickAsync();
+        Assert.True(await Video(page, "v => v.paused"));
 
         // ENDLIST arrives on the next playlist refresh: live becomes finished in place.
         double position = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
@@ -623,9 +819,12 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
         await page.EvaluateAsync("() => document.activeElement?.blur()");
 
-        // K plays from anywhere outside a field; overlays fade after 3 s without input.
+        // It opened playing; K pauses and plays from anywhere outside a field.
+        await WaitForPlayingAsync(page);
         await page.Keyboard.PressAsync("k");
-        await page.WaitForFunctionAsync("!document.querySelector('[data-sk=video]').paused");
+        Assert.True(await Video(page, "v => v.paused"));
+        await page.Keyboard.PressAsync("k");
+        await WaitForPlayingAsync(page);
         ILocator player = page.Locator("[data-sk-player]");
         await page.Mouse.MoveAsync(5, 5);
         await page.Locator("[data-sk-player][data-idle]").WaitForAsync(new() { Timeout = 6_000 });
@@ -676,6 +875,39 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
 
     private static Task<bool> Video(IPage page, string expression) =>
         page.Locator("[data-sk='video']").EvaluateAsync<bool>(expression);
+
+    private static Task WaitForPlayingAsync(IPage page) =>
+        page.WaitForFunctionAsync("!document.querySelector('[data-sk=video]').paused");
+
+    private static void AssertUrlHasNoAutoplayIntent(IPage page) =>
+        Assert.DoesNotContain("autoplay=", page.Url);
+
+    /// <summary>Writes a zero position so a journey starts from a clean first view.</summary>
+    private static async Task ClearResumeAsync(IPage page, string id)
+    {
+        await page.EvaluateAsync(
+            """
+            async id => {
+                await fetch(`/api/recordings/${id}/progress`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ positionSec: 0 }),
+                });
+            }
+            """,
+            id);
+
+        // The library view updates on the store's next Changed tick; wait before selecting.
+        await page.WaitForFunctionAsync(
+            """
+            id => {
+                const bar = document.querySelector(`nav[aria-label=Library] a[data-recording-id='${id}'] [data-progress]`);
+                return !bar;
+            }
+            """,
+            id,
+            new() { Timeout = 10_000 });
+    }
 
     private static Task WaitForTimeAsync(IPage page, double seconds, double tolerance = 0.25) =>
         page.WaitForFunctionAsync(

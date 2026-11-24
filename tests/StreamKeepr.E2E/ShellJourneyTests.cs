@@ -365,12 +365,12 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             (await details.Locator("[data-details-parts]").InnerTextAsync()).Trim());
         Assert.Equal(2, await chapters.Locator("[data-chapter]").CountAsync());
 
-        // A chapter seek while playing moves the playhead and keeps playback running.
+        // The selection opened the second recording playing (#288); a chapter seek while playing
+        // moves the playhead and keeps playback running.
         await page.Locator("[data-sk='seek'][aria-disabled='false']").WaitForAsync(
             new LocatorWaitForOptions { State = WaitForSelectorState.Attached, Timeout = 30_000 });
-        await page.Locator("[data-sk='center']").ClickAsync();
         await page.WaitForFunctionAsync(
-            "() => document.querySelector('[data-sk=video]').currentTime > 0.5",
+            "() => !document.querySelector('[data-sk=video]').paused",
             null,
             new PageWaitForFunctionOptions { Timeout = 10_000 });
 
