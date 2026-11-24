@@ -78,7 +78,7 @@ nav.sk-drawer#sk-drawer
 ## 6. Keyboard
 
 - The channels are one tab stop (roving `tabindex` on the options); ↑/↓ move, Home/End jump to the first and last.
-- Enter, Space or → select the channel (the option's own click, the only call to .NET), open its column and move focus to its first recording.
+- Enter, Space or → select the channel (the option's own click, the only call to .NET), open its column and move focus to its first recording once the column renders (up to 5 s, and only while focus is still in the drawer).
 - In the column ↑/↓ move between recordings and Home/End jump; ← or Escape go back to the selected channel (Escape stops there and does not close a temporary drawer); Enter opens the recording (it is a link); Delete opens its "Delete recording?" unless blocked.
 - Escape on the channels is left to the shell, which closes the temporary drawer.
 - `library-keys.js` does this on the rendered DOM (replacing `tree-nav.js`). Focus ring is the 2 px `primary`, inset.

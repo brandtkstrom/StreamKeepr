@@ -245,6 +245,9 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         await TabToAsync(page, "e => e.getAttribute('href') === '/settings'", "the Settings link");
         await page.Keyboard.PressAsync("Enter");
         await page.Locator("[data-channel]").First.WaitForAsync();
+        // The sheet moves focus to its Close once .NET has rendered it, a round trip after its
+        // content shows; tabbing before that would see focus jump back into the sheet mid-lap.
+        await page.WaitForFunctionAsync("() => document.activeElement?.matches('[data-settings-close]')");
         await AssertTabReachesEveryControlAsync(page, "settings");
     }
 

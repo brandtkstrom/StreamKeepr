@@ -30,30 +30,51 @@ public sealed class DvrSupervisor(
         new Dictionary<string, RecoveredChannel>(StringComparer.Ordinal);
 
     /// <summary>
-    /// Recovery is part of host startup, not a background task: no request or coordinator may
-    /// observe a partially loaded library.
+    /// Loads the channel list, which is one small file, so a corrupt list still fails host
+    /// startup. The profile lookups and the recordings scan run in <see cref="ExecuteAsync"/>:
+    /// the web server starts listening only after every hosted service's StartAsync returns,
+    /// and the UI, health checks, and library consumers already wait on
+    /// <see cref="RecordingLibrary.IsLoaded"/>. The control gate is taken here, before any
+    /// request can arrive, and released once the channels have started, so channel control
+    /// never sees a half-recovered state.
     /// </summary>
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         try
         {
             await channelStore.LoadAsync(cancellationToken);
-            await ResolveMissingProfilesAsync(cancellationToken);
-            _channels = channelStore.Snapshot;
-            _recovered = await recovery.RecoverAsync(_channels, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogCritical(
-                ex, "Startup failed while loading channels or recovering sessions.");
+            logger.LogCritical(ex, "Startup failed while loading channels.");
             throw;
         }
 
+        // A fresh gate is free, so this completes synchronously.
+        await _controlGate.WaitAsync(cancellationToken);
         await base.StartAsync(cancellationToken);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        try
+        {
+            await ResolveMissingProfilesAsync(stoppingToken);
+            _channels = channelStore.Snapshot;
+            _recovered = await recovery.RecoverAsync(_channels, stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            // Never start a partial set of channels. The gate stays held: the host is stopping.
+            logger.LogCritical(ex, "Startup failed while recovering sessions; stopping the host.");
+            lifetime.StopApplication();
+            return;
+        }
+
         foreach (ChannelEntry channel in _channels)
             StartChannel(channel, _recovered.GetValueOrDefault(channel.Login), stoppingToken);
 
@@ -78,6 +99,9 @@ public sealed class DvrSupervisor(
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted,
             TaskScheduler.Default);
+
+        // Startup is complete; channel control may run (taken in StartAsync).
+        _controlGate.Release();
 
         try
         {
@@ -288,21 +312,29 @@ public sealed class DvrSupervisor(
             _ = coordinator.PublishAsync(new DvrEvent.SessionRecovered(unfinished));
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-        Task loop = Task.Run(() => coordinator.RunAsync(cts.Token), CancellationToken.None);
-        _running[channel.Login] = new Running(coordinator, cts, loop);
 
-        _ = loop.ContinueWith(
-            task =>
-            {
-                logger.LogCritical(
-                    task.Exception,
-                    "The channel loop for {Channel} crashed; stopping the host.",
-                    channel.Login);
-                lifetime.StopApplication();
-            },
-            CancellationToken.None,
-            TaskContinuationOptions.OnlyOnFaulted,
-            TaskScheduler.Default);
+        // The loop outlives its caller, which can be a Blazor circuit adding the channel. Without
+        // this, the caller's logging scopes (RequestPath, ConnectionId) and Activity would flow
+        // into every log line and span the channel produces for as long as it is watched.
+        Task loop;
+        using (ExecutionContext.SuppressFlow())
+        {
+            loop = Task.Run(() => coordinator.RunAsync(cts.Token), CancellationToken.None);
+            _ = loop.ContinueWith(
+                task =>
+                {
+                    logger.LogCritical(
+                        task.Exception,
+                        "The channel loop for {Channel} crashed; stopping the host.",
+                        channel.Login);
+                    lifetime.StopApplication();
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted,
+                TaskScheduler.Default);
+        }
+
+        _running[channel.Login] = new Running(coordinator, cts, loop);
     }
 
     private ValueTask RouteAsync(

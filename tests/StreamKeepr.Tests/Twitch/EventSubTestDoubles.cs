@@ -101,11 +101,18 @@ internal sealed class FakeEventSubSocketFactory : IEventSubSocketFactory
 
     public bool HangOnConnect { get; set; }
 
+    /// <summary>Applied to every socket this factory creates; see <see cref="FakeEventSubSocket.SlowReceiveCancellation"/>.</summary>
+    public bool SlowReceiveCancellation { get; set; }
+
     private int _created;
 
     public IEventSubSocket Create()
     {
-        var socket = new FakeEventSubSocket { HangOnConnect = HangOnConnect };
+        var socket = new FakeEventSubSocket
+        {
+            HangOnConnect = HangOnConnect,
+            SlowReceiveCancellation = SlowReceiveCancellation,
+        };
         Sockets.Add(socket);
         int created = Interlocked.Increment(ref _created);
         Slot(created).TrySetResult(socket);
@@ -164,17 +171,32 @@ internal sealed class FakeEventSubSocket : IEventSubSocket
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// When set, a cancelled receive completes 200 ms after its token is cancelled. A real
+    /// socket finishes a cancelled receive asynchronously, so a timer cancelled by the same
+    /// token can complete first; this makes that ordering deterministic.
+    /// </summary>
+    public bool SlowReceiveCancellation { get; set; }
+
     public async Task<string?> ReceiveTextAsync(CancellationToken ct)
     {
-        if (!await _messages.Reader.WaitToReadAsync(ct)
-            || !_messages.Reader.TryRead(out string? message))
+        try
         {
-            return null;
-        }
+            if (!await _messages.Reader.WaitToReadAsync(ct)
+                || !_messages.Reader.TryRead(out string? message))
+            {
+                return null;
+            }
 
-        if (Interlocked.Increment(ref _received) == 1)
-            Subscribed.TrySetResult();
-        return message;
+            if (Interlocked.Increment(ref _received) == 1)
+                Subscribed.TrySetResult();
+            return message;
+        }
+        catch (OperationCanceledException) when (SlowReceiveCancellation)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(200), CancellationToken.None);
+            throw;
+        }
     }
 
     public string? CloseReason { get; private set; }

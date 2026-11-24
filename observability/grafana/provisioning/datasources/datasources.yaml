@@ -1,0 +1,49 @@
+# Grafana data sources for compose.observability.yaml. Fixed uids let the
+# dashboard and the trace<->log links below refer to each other.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      # Samples arrive every 30 s (the app's OTEL_METRIC_EXPORT_INTERVAL default,
+      # TelemetryDefaults.MetricExportIntervalMilliseconds), not at a scrape interval.
+      # $__rate_interval is derived from this; at Grafana's 15 s default a rate window
+      # can hold a single sample and panels show gaps.
+      timeInterval: 30s
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      derivedFields:
+        # trace_id is structured metadata the collector sets from Serilog's @tr.
+        - name: Trace
+          matcherType: label
+          matcherRegex: trace_id
+          url: "$${__value.raw}"
+          datasourceUid: tempo
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-5m"
+        spanEndTimeShift: "5m"
+        filterByTraceID: true
+        customQuery: true
+        # service_name is StreamKeeprTelemetry.ServiceName (see otel-collector.yaml).
+        query: '{service_name="streamkeepr"} | trace_id="$${__span.traceId}"'
+      nodeGraph:
+        enabled: true

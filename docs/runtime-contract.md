@@ -120,6 +120,8 @@ public sealed record DvrSnapshot(
 
 ## 7. Startup
 
+Step 1 runs in `DvrSupervisor.StartAsync`, which also takes the channel-control gate. Steps 2–6 run at the start of `ExecuteAsync`, after the web server is listening: ASP.NET Core starts Kestrel only after every hosted service's `StartAsync` returns, so a long recordings scan or a slow Twitch lookup must not run there. Until the library is loaded the UI shows skeletons, `/health/ready` is unhealthy, and library-gated work (thumbnails, live index, progress, chat capture, delete, export) waits or finds nothing. Channel control (add, remove, stop, resume) waits on the gate until step 6 has started the channels.
+
 1. `ChannelStore.LoadAsync` reads `channels.json`, or seeds it from `Twitch:Channels` on first start.
 2. Resolve missing profiles: every stored channel (seeded or added) missing its user ID, display name, or avatar (null or blank) is looked up through Helix `/users`, concurrently. A failed or empty lookup is logged, never aborts startup, and leaves the stored profile as it was, so a channel without a user ID stays polling-only until a later startup resolves it.
 3. `RecoveryService.RecoverAsync` scans the recordings root and returns `Unfinished`/`Finished` per channel.
@@ -130,7 +132,7 @@ public sealed record DvrSnapshot(
 6. Start the supervised poller and EventSub loops.
 7. Start `LiveIndexRefresher` after recovery has loaded the library and before `ThumbnailService`. It publishes the first live snapshots for Recording sessions; a live endpoint request before the first refresh returns `503` with `Retry-After: 1`.
 
-A startup recovery failure stops the host with a clear error; do not start a partial set of channels.
+A corrupt channel list fails host startup. A failure in steps 2–3 is logged as critical and stops the host (`StopApplication`) before any channel starts; do not start a partial set of channels. The control gate stays held while the host stops.
 
 ## 8. Shutdown
 

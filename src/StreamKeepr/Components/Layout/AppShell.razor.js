@@ -2,6 +2,8 @@
 // drawer below 960px, the settings links, and the non-modal paused-updates/retry bridge. AppShell.razor owns the
 // drawer's open state; this module only moves focus and reports Escape. The selectors below
 // mirror AppShell.razor: [data-shell], its <main> and <header>, and AppShell.DrawerId.
+import { callDotNet } from "/js/circuit.js";
+
 let dotNetRef = null;
 let shell = null;
 let main = null;
@@ -39,9 +41,12 @@ function setModalDrawer(open, modal = true) {
   modalOpen = open;
 
   if (open) {
-    lastFocus =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    focusableElements()[0]?.focus();
+    const active = document.activeElement;
+    lastFocus = active instanceof HTMLElement ? active : null;
+    // Opened from inside the drawer (→ on a rail avatar, which library-keys.js follows into
+    // the channel's recordings), focus is already where the viewer asked for it. This call
+    // lands a render later, so moving focus here would undo that move.
+    if (!drawer?.contains(active)) focusableElements()[0]?.focus();
   } else {
     // Give focus back only if it is still in the drawer or was lost with it. A drawer action
     // that closes the drawer may already have moved focus on (Clear search focuses the search
@@ -67,8 +72,7 @@ function onKeyDown(event) {
     )
       return;
     event.preventDefault();
-    void dotNetRef
-      ?.invokeMethodAsync("CloseModalDrawer")
+    void callDotNet(dotNetRef, "CloseModalDrawer")
       .catch((error) => console.warn("Stream Keepr: could not close the library drawer.", error));
     return;
   }
@@ -120,8 +124,7 @@ export function claimsSettingsLink(event, location = window.location) {
 function onClick(event) {
   if (!dotNetRef || !claimsSettingsLink(event)) return;
   event.preventDefault();
-  void dotNetRef
-    .invokeMethodAsync("ToggleSettingsAsync")
+  void callDotNet(dotNetRef, "ToggleSettingsAsync")
     .catch((error) => console.warn("Stream Keepr: could not open the settings sheet.", error));
 }
 
@@ -136,8 +139,7 @@ function onPointerDown(event) {
   if (!modalOpen || trapFocus || !dotNetRef) return;
   const target = event.target instanceof Element ? event.target : null;
   if (!target || target.closest(INSIDE_LIBRARY)) return;
-  void dotNetRef
-    .invokeMethodAsync("CloseModalDrawer")
+  void callDotNet(dotNetRef, "CloseModalDrawer")
     .catch((error) => console.warn("Stream Keepr: could not close the library.", error));
 }
 
@@ -146,14 +148,12 @@ function onReconnectState(event) {
   // Mirrors HARD_LOSS in reconnect.js: only a hard circuit loss opens the reconnect modal.
   const modalVisible =
     state === "paused" || state === "failed" || state === "resume-failed";
-  void dotNetRef
-    ?.invokeMethodAsync("SetReconnectModalVisible", modalVisible)
+  void callDotNet(dotNetRef, "SetReconnectModalVisible", modalVisible)
     .catch(() => {});
 }
 
 function onUpdatesPaused(event) {
-  void dotNetRef
-    ?.invokeMethodAsync("SetUpdatesPaused", Boolean(event.detail))
+  void callDotNet(dotNetRef, "SetUpdatesPaused", Boolean(event.detail))
     .catch(() => {});
 }
 

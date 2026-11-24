@@ -19,6 +19,7 @@
 
 # Non-runtime projects and assets
 design-system/
+observability/
 tests/
 docs/
 

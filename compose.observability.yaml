@@ -1,0 +1,154 @@
+# Observability stack for the Compose deployment. Layer it on compose.yaml, which
+# still builds the app image and owns every production setting:
+#
+#   docker compose -f compose.yaml -f compose.observability.yaml up -d --build
+#
+# (Or set COMPOSE_FILE=compose.yaml:compose.observability.yaml in .env.)
+#
+# Passing this file is the opt-in, so there is no Compose profile and the overlay
+# sets Telemetry__Enabled=true itself (overriding compose.yaml's
+# STREAMKEEP_TELEMETRY default). Without the file nothing below runs.
+#
+#   stream-keepr ──OTLP traces+metrics──▶ otel-collector ──▶ Tempo (traces)
+#        │                                     │  ▲      └──▶ Prometheus (metrics)
+#        └─ compact-JSON log files (app-logs) ─┘  │      └──▶ Loki (logs)
+#                         /health/live + /health/ready probes (http_check)
+#
+# Grafana (http://localhost:3000) has all three wired up, with links from a
+# log line to its trace and back, plus a provisioned "Stream Keepr" dashboard.
+# UI ports bind to 127.0.0.1 only; nothing here is meant to face the internet.
+# Memory limits come from docker stats on an idle single-channel stack plus
+# headroom; raise them if a service is OOM-killed. See observability/README.md.
+
+services:
+  stream-keepr:
+    environment:
+      Telemetry__Enabled: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      # Serilog is the only logging pipeline (README "Telemetry"), so logs reach
+      # the collector as the compact-JSON file sink on a volume they share.
+      Serilog__File__Path: /logs/log-.json
+    volumes:
+      - app-logs:/logs
+    depends_on:
+      # The app refuses to start without a writable log directory, so it waits for
+      # the one-off chown. If volume-init fails, the app does not start.
+      volume-init:
+        condition: service_completed_successfully
+      # Start order only: the app runs without the collector (exports time out
+      # after 3 s and are dropped), so a missing collector never blocks it.
+      otel-collector:
+        condition: service_started
+        required: false
+
+  # Fresh named volumes are root-owned unless the image already has the path, so
+  # this one-off container runs as root only to chown them, then exits. The app
+  # runs as 1654 (APP_UID, see Dockerfile). Tempo and the collector run as 10001,
+  # the USER of the grafana/tempo and otel/opentelemetry-collector-contrib images;
+  # recheck it when bumping either image.
+  volume-init:
+    image: busybox:1.37.0
+    command: ["sh", "-c", "chown 1654:1654 /logs && chown 10001:10001 /tempo /otelcol"]
+    volumes:
+      - app-logs:/logs
+      - tempo-data:/tempo
+      - otel-collector-data:/otelcol
+    restart: "no"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.165.0
+    restart: unless-stopped
+    mem_limit: 256m
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - app-logs:/logs:ro
+      # The filelog receiver remembers its read offsets here, so a collector
+      # restart does not resend or skip log lines.
+      - otel-collector-data:/var/lib/otelcol
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+      prometheus:
+        condition: service_started
+
+  tempo:
+    image: grafana/tempo:3.1.1
+    restart: unless-stopped
+    mem_limit: 512m
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+
+  loki:
+    image: grafana/loki:3.6.20
+    restart: unless-stopped
+    mem_limit: 512m
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    restart: unless-stopped
+    mem_limit: 512m
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${OBSERVABILITY_METRICS_RETENTION:-30d}
+      - --web.enable-otlp-receiver
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:13.3.1
+    restart: unless-stopped
+    mem_limit: 512m
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      # Read once, when Grafana first creates its database in grafana-data. Later
+      # changes take effect only after resetting the password in Grafana or
+      # removing that volume.
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    secrets:
+      - grafana_admin_password
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+volumes:
+  app-logs:
+  otel-collector-data:
+  tempo-data:
+  loki-data:
+  prometheus-data:
+  grafana-data:
+
+secrets:
+  # Grafana runs as UID 472. On Linux this is a bind mount it must be able to read:
+  #   sudo chown 472:472 secrets/grafana_admin_password.txt && sudo chmod 400 secrets/grafana_admin_password.txt
+  grafana_admin_password:
+    file: ${STREAMKEEP_SECRETS_DIR:-./secrets}/grafana_admin_password.txt

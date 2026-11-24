@@ -5,6 +5,7 @@
 // The strip listens for the player's sk:playhead events and plays or pauses by clicking the
 // player's own Play button ([data-sk-player] [data-sk=play]), so the player stays the only code
 // that drives the <video>.
+import { callDotNet } from "/js/circuit.js";
 import { isEditable } from "/js/shortcuts.js";
 // Not the player module: Settings opens on every page, and the player loads only on recording
 // pages (testing contract §9).
@@ -108,8 +109,7 @@ export async function opened(component, selector, doc = document) {
   const onKeyDown = (event) => {
     if (!shouldClose(event, sheet, doc)) return;
     event.preventDefault();
-    void component
-      .invokeMethodAsync("CloseFromKeyboard")
+    void callDotNet(component, "CloseFromKeyboard")
       .catch((error) => console.warn("Stream Keepr: could not close the settings sheet.", error));
   };
   doc.addEventListener("keydown", onKeyDown);

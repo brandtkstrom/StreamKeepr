@@ -207,7 +207,7 @@ public sealed class ExportService : BackgroundService, IExportService
 
         ReleaseLease(exportId);
         if (cancelledBeforeRun)
-            _telemetry.ExportFinished("cancelled");
+            _telemetry.ExportFinished(StreamKeeprTelemetry.ExportCancelled);
         _logger.LogInformation("Cancelled queued export {ExportId}.", exportId);
         RaiseChanged(immediate: true);
     }
@@ -292,7 +292,7 @@ public sealed class ExportService : BackgroundService, IExportService
                     "Export {ExportId} refused: the parts of {RecordingId} have different video parameters.",
                     id, job.RecordingId);
                 FailQueued(id, IncompatibleParts);
-                _telemetry.ExportFinished("failed");
+                _telemetry.ExportFinished(StreamKeeprTelemetry.ExportFailed);
                 return false;
             }
 
@@ -404,7 +404,7 @@ public sealed class ExportService : BackgroundService, IExportService
             long bytes = new FileInfo(temp).Length;
             File.Move(temp, FinalPath(id), overwrite: true);
             Finish(id, current => current with { State = ExportState.Succeeded, Progress = 1, FileName = DownloadName(summary) });
-            outcome = "succeeded";
+            outcome = StreamKeeprTelemetry.ExportSucceeded;
             _logger.LogInformation(
                 "Export {ExportId} of {RecordingId} finished in {ElapsedMs:0} ms ({Bytes} bytes).",
                 id, job.RecordingId, _clock.GetElapsedTime(started).TotalMilliseconds, bytes);
@@ -419,7 +419,7 @@ public sealed class ExportService : BackgroundService, IExportService
         {
             TryDelete(temp);
             Finish(id, current => current with { State = ExportState.Cancelled });
-            outcome = "cancelled";
+            outcome = StreamKeeprTelemetry.ExportCancelled;
             _logger.LogInformation("Cancelled running export {ExportId}.", id);
         }
         catch (Exception ex)
@@ -428,7 +428,7 @@ public sealed class ExportService : BackgroundService, IExportService
             _logger.LogWarning(ex, "Export {ExportId} failed.", id);
             TryDelete(temp);
             Finish(id, current => current with { State = ExportState.Failed, Error = FailedMessage });
-            outcome = "failed";
+            outcome = StreamKeeprTelemetry.ExportFailed;
         }
         finally
         {

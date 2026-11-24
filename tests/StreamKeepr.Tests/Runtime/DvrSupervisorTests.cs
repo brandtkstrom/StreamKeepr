@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -97,6 +98,74 @@ public sealed class DvrSupervisorTests
     }
 
     [Fact]
+    public async Task A_channel_added_inside_a_request_does_not_carry_its_log_scope_or_activity()
+    {
+        string root = NewRoot();
+
+        try
+        {
+            var poller = new ScriptedStreamPoller();
+            poller.Profiles["new_channel"] = new ChannelProfile(
+                "123456", "New Channel", "https://example/avatar.png");
+            var logs = new ListLoggerProvider();
+            using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+            ILogger probe = loggerFactory.CreateLogger("Probe");
+            Activity? recorderActivity = null;
+            var recorderRan = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var recorder = new FakeRecorder
+            {
+                OnRun = async (_, stopRequested) =>
+                {
+                    recorderActivity = Activity.Current;
+                    probe.LogInformation("Recorder ran.");
+                    recorderRan.TrySetResult();
+                    try
+                    {
+                        await Task.Delay(Timeout.InfiniteTimeSpan, stopRequested);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+
+                    return new PartOutcome(RecorderExitKind.Stopped, "stopped");
+                },
+            };
+            using DvrSupervisor supervisor = CreateSupervisor(
+                root, poller, new FakeHostApplicationLifetime(), loggerFactory, [], recorder: recorder);
+            await supervisor.StartAsync(CancellationToken.None);
+            await poller.Started.WaitAsync(TimeSpan.FromSeconds(5));
+
+            // Stands in for the Blazor circuit's request: its logging scope and activity are
+            // ambient while the channel is added, and must stay with the request.
+            using (var request = new Activity("request").Start())
+            using (probe.BeginScope(new Dictionary<string, object> { ["RequestPath"] = "/_blazor" }))
+            {
+                await supervisor.AddChannelAsync("new_channel", CancellationToken.None);
+            }
+
+            poller.Send("new_channel", new StreamObservation.Live(
+                new LiveStream(
+                    "123456789",
+                    "A stream",
+                    "Just Chatting",
+                    new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero),
+                    ThumbnailUrl: null)));
+            await recorderRan.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            CapturedLogEntry ran = Assert.Single(
+                logs.Entries, entry => entry.Message == "Recorder ran.");
+            Assert.DoesNotContain("RequestPath", ran.Scopes.Keys);
+            Assert.Null(recorderActivity);
+
+            await supervisor.StopAsync(CancellationToken.None);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
     public async Task Failed_channel_control_actions_log_no_action()
     {
         string root = NewRoot();
@@ -128,6 +197,163 @@ public sealed class DvrSupervisorTests
         }
     }
 
+    [Fact]
+    public async Task Startup_returns_before_profile_lookup_and_recovery_finish()
+    {
+        string root = NewRoot();
+
+        try
+        {
+            var lookupGate = new TaskCompletionSource<ChannelProfile?>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var poller = new ScriptedStreamPoller { Lookup = (_, _) => lookupGate.Task };
+            var library = new RecordingLibrary(TimeProvider.System, NullLogger<RecordingLibrary>.Instance);
+            var status = new DvrStatus();
+            using DvrSupervisor supervisor = CreateSupervisor(
+                root,
+                poller,
+                new FakeHostApplicationLifetime(),
+                NullLoggerFactory.Instance,
+                [Channel],
+                library,
+                status);
+
+            // The web server starts only after every hosted service's StartAsync returns, so it
+            // must not wait on Twitch or on the recordings scan.
+            await supervisor.StartAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(library.IsLoaded);
+            Assert.Empty(status.Current);
+            Assert.False(poller.Started.IsCompleted);
+
+            lookupGate.SetResult(null);
+            await poller.Started.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(library.IsLoaded);
+            await RuntimeTestWait.ForStatusAsync(status, Channel, _ => true);
+
+            await supervisor.StopAsync(CancellationToken.None);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task Channel_control_waits_until_startup_recovery_has_started_the_channels()
+    {
+        string root = NewRoot();
+
+        try
+        {
+            var lookupGate = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var poller = new ScriptedStreamPoller();
+            poller.Lookup = async (login, ct) =>
+            {
+                if (login == Channel)
+                    await lookupGate.Task.WaitAsync(ct);
+                return new ChannelProfile("123456", login, "https://example/avatar.png");
+            };
+            var library = new RecordingLibrary(TimeProvider.System, NullLogger<RecordingLibrary>.Instance);
+            using DvrSupervisor supervisor = CreateSupervisor(
+                root,
+                poller,
+                new FakeHostApplicationLifetime(),
+                NullLoggerFactory.Instance,
+                [Channel],
+                library);
+            await supervisor.StartAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+            Task add = supervisor.AddChannelAsync("new_channel", CancellationToken.None);
+            Task stop = supervisor.StopRecordingAsync(Channel, CancellationToken.None);
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            Assert.False(add.IsCompleted);
+            Assert.False(stop.IsCompleted);
+
+            lookupGate.SetResult();
+            await Task.WhenAll(add, stop).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(library.IsLoaded);
+
+            await supervisor.StopAsync(CancellationToken.None);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task Startup_recovery_failure_stops_the_host_without_starting_channels()
+    {
+        string root = NewRoot();
+
+        try
+        {
+            // Two unfinished sessions: the older one must be finalized, and its finalize fails
+            // because a directory sits where the index temp file goes.
+            await SeedUnfinishedAsync(root, "987654321", hoursAfterStart: 0);
+            string older = Path.Combine(root, Channel, OnlySessionFolder(root));
+            await SeedUnfinishedAsync(root, "987654322", hoursAfterStart: 1);
+            Directory.CreateDirectory(Path.Combine(older, SessionStore.IndexFileName + ".tmp"));
+
+            var poller = new ScriptedStreamPoller();
+            var lifetime = new FakeHostApplicationLifetime();
+            var logs = new ListLoggerProvider();
+            using ILoggerFactory loggerFactory = TestLogging.Factory(logs);
+            var library = new RecordingLibrary(TimeProvider.System, NullLogger<RecordingLibrary>.Instance);
+            var status = new DvrStatus();
+            using DvrSupervisor supervisor = CreateSupervisor(
+                root, poller, lifetime, loggerFactory, [Channel], library, status);
+
+            await supervisor.StartAsync(CancellationToken.None);
+            await lifetime.StopRequested.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Contains(logs.Entries, entry =>
+                entry.Level == LogLevel.Critical
+                && entry.Message.Contains("recovering sessions", StringComparison.Ordinal));
+            Assert.False(library.IsLoaded);
+            Assert.Empty(status.Current);
+            Assert.False(poller.Started.IsCompleted);
+
+            await supervisor.StopAsync(CancellationToken.None);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    private static async Task SeedUnfinishedAsync(string root, string streamId, int hoursAfterStart)
+    {
+        var clock = new FakeTimeProvider(
+            new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
+        var store = new SessionStore(
+            Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
+            new RecordingLibrary(clock, NullLogger<RecordingLibrary>.Instance),
+            clock,
+            NullLogger<SessionStore>.Instance,
+            TestRetry.Immediate);
+        var live = new LiveStream(
+            streamId,
+            "A stream",
+            "Just Chatting",
+            clock.GetUtcNow().AddHours(hoursAfterStart),
+            ThumbnailUrl: null);
+        Session session = Session.For(live, Channel, root);
+        await store.OpenAsync(session, live, CancellationToken.None);
+        File.WriteAllText(
+            Path.Combine(session.Directory, "p001.m3u8"),
+            PlaylistTestData.Playlist(
+                2,
+                "init_001.mp4",
+                PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T16:35:00Z", 2)));
+        File.WriteAllBytes(Path.Combine(session.Directory, "init_001.mp4"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(session.Directory, "p001_00001.m4s"), [4, 5, 6]);
+    }
+
+    private static string OnlySessionFolder(string root) =>
+        Path.GetFileName(Assert.Single(Directory.GetDirectories(Path.Combine(root, Channel))));
+
     /// <summary>
     /// A supervisor over real stores in <paramref name="root"/>, watching
     /// <paramref name="channels"/>. Its fake recorder publishes an exit the reducer does not
@@ -139,13 +365,16 @@ public sealed class DvrSupervisorTests
         ScriptedStreamPoller poller,
         FakeHostApplicationLifetime lifetime,
         ILoggerFactory loggerFactory,
-        string[] channels)
+        string[] channels,
+        RecordingLibrary? library = null,
+        DvrStatus? status = null,
+        FakeRecorder? recorder = null)
     {
         var clock = new FakeTimeProvider(
             new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
         IOptions<StorageOptions> storageOptions = Options.Create(
             new StorageOptions { RecordingsRoot = root, MinFreeGb = 1 });
-        var library = new RecordingLibrary(clock, NullLogger<RecordingLibrary>.Instance);
+        library ??= new RecordingLibrary(clock, NullLogger<RecordingLibrary>.Instance);
         var store = new SessionStore(
             Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
             library,
@@ -154,8 +383,8 @@ public sealed class DvrSupervisorTests
         var disk = new DiskGuard(
             storageOptions,
             new FakeDiskSpace(DiskGuard.BytesPerGib * 2, DiskGuard.BytesPerGib * 4));
-        var status = new DvrStatus();
-        var recorder = new FakeRecorder
+        status ??= new DvrStatus();
+        recorder ??= new FakeRecorder
         {
             OnRun = (_, _) => Task.FromResult(new PartOutcome(RecorderExitKind.Exited, "no media")),
         };

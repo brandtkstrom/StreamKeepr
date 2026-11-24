@@ -399,7 +399,15 @@ try
         }
 
         if (telemetryEnabled)
+        {
             app.Services.GetRequiredService<StreamKeeprRuntimeMetrics>();
+
+            // Here, not at construction: the meter provider listens only once the host has
+            // started, and hosted services (and so the telemetry singleton) are built before that.
+            app.Services.GetRequiredService<StreamKeeprTelemetry>().InitializeCounters(
+                app.Services.GetRequiredService<IEventSubClient>().Transport);
+
+        }
 
         string endpoint = SanitizeEndpoint(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
         app.Logger.LogInformation(

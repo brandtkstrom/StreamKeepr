@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -44,7 +45,7 @@ public sealed class StartupRecoveryHostTests
     }
 
     [Fact]
-    public async Task Recovery_failure_stops_host_startup()
+    public async Task Recovery_failure_stops_the_host_without_starting_channels()
     {
         using var context = new SessionStoreTestContext();
         await SeedAsync(context, context.Session, context.Live);
@@ -62,14 +63,42 @@ public sealed class StartupRecoveryHostTests
         Directory.CreateDirectory(
             Path.Combine(context.Session.Directory, SessionStore.IndexFileName + ".tmp"));
 
+        // Recovery runs after the server starts listening, and the host disposes its services
+        // as it stops. Hold recovery at the channel's profile lookup, which runs first, until
+        // the test has resolved what it asserts on.
+        var releaseRecovery = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var poller = new ScriptedStreamPoller
+        {
+            Lookup = async (_, ct) =>
+            {
+                await releaseRecovery.Task.WaitAsync(ct);
+                return null;
+            },
+        };
+
         using var factory = new StreamKeeprAppFactory(
             new Dictionary<string, string?>
             {
                 [$"{TwitchOptions.SectionName}:Channels:0"] = "streamer",
             },
-            recordingsRoot: context.Root);
+            recordingsRoot: context.Root,
+            configureTestServices: services => services.AddSingleton<IStreamPoller>(poller),
+            waitForStartupRecovery: false);
 
-        Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+        using var client = factory.CreateClient();
+        CancellationToken stopping = factory.Services
+            .GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
+        RecordingLibrary library = factory.Services.GetRequiredService<RecordingLibrary>();
+        DvrStatus status = factory.Services.GetRequiredService<DvrStatus>();
+        releaseRecovery.SetResult();
+
+        // The host comes up and then stops itself; it never loads the library or starts a channel.
+        await Task.Delay(Timeout.Infinite, stopping)
+            .ContinueWith(_ => { }, TaskScheduler.Default)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(library.IsLoaded);
+        Assert.Empty(status.Current);
     }
 
     [Fact]

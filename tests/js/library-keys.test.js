@@ -77,6 +77,46 @@ describe("library-keys.js", () => {
     expect(document.activeElement).toBe(row("b1"));
   });
 
+  // The column renders after a round trip to the server, which can take seconds on a slow link.
+  const selectBetaRenderingLater = (ms) => {
+    option("beta").addEventListener("click", () => setTimeout(openColumn, ms));
+    option("beta").focus();
+    press(option("beta"), "ArrowRight");
+  };
+
+  it("still moves focus into the column when it renders seconds later", () => {
+    selectBetaRenderingLater(2_000);
+
+    vi.advanceTimersByTime(2_100);
+    expect(document.activeElement).toBe(row("b1"));
+  });
+
+  it("moves focus into the column even after a re-render moved it elsewhere in the drawer", () => {
+    // A re-render can move focus within the drawer (the drawer's own head); that is still ours.
+    document.querySelector(".sk-drawer").insertAdjacentHTML("afterbegin", "<button id='head'>Options</button>");
+    selectBetaRenderingLater(1_000);
+    document.getElementById("head").focus();
+
+    vi.advanceTimersByTime(1_100);
+    expect(document.activeElement).toBe(row("b1"));
+  });
+
+  it("does not take focus back once the viewer moved outside the drawer", () => {
+    document.body.insertAdjacentHTML("beforeend", "<button id='outside'>Elsewhere</button>");
+    selectBetaRenderingLater(1_000);
+    document.getElementById("outside").focus();
+
+    vi.advanceTimersByTime(1_100);
+    expect(document.activeElement).toBe(document.getElementById("outside"));
+  });
+
+  it("gives up when the column never renders", () => {
+    selectBetaRenderingLater(60_000);
+
+    vi.advanceTimersByTime(60_100);
+    expect(document.activeElement).toBe(option("beta"));
+  });
+
   it("moves through the recordings and goes back to the channel with ← or Escape", () => {
     openColumn();
     row("b1").focus();

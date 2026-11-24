@@ -1,6 +1,7 @@
 // Chat replay pane. Blazor renders the skeleton once; this module owns the log, polling,
 // auto-scroll, and the C shortcut, and applies the viewer's chat sync offset, which .NET sends
 // from Settings › Chat. The player owns the <video> element.
+import { callDotNet } from "/js/circuit.js";
 import { shortcutBlocked } from "/js/player-keys.js";
 import { isLiveState } from "/js/recording-state.js";
 
@@ -366,7 +367,7 @@ export function createChatPane(root, {
 
   async function persistOpen(value) {
     try {
-      await dotNet?.invokeMethodAsync("SetChatOpen", value);
+      await callDotNet(dotNet, "SetChatOpen", value);
     } catch (error) {
       // A closed circuit has no preference store left to update; the DOM already
       // reflects the user's action.
