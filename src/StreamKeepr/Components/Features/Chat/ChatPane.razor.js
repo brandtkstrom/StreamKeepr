@@ -2,12 +2,27 @@
 // auto-scroll, and the C shortcut, and applies the viewer's chat sync offset, which .NET sends
 // from Settings › Chat. The player owns the <video> element.
 import { callDotNet } from "/js/circuit.js";
+import { setIcon } from "/js/island-icons.js";
 import { shortcutBlocked } from "/js/player-keys.js";
 import { isLiveState } from "/js/recording-state.js";
 
 const HOOKS = [
   "chat-state", "chat-body", "chat-log", "chat-jump", "chat-notice", "chat-footer",
 ];
+
+// The header's decorative icon and accessible wording per data-state. The wording is the old
+// visible status text, now carried by the visually hidden label and the title. `reconnecting`
+// reuses the player's Reconnecting chip glyph and wording so the two read the same.
+const CHAT_STATES = Object.freeze({
+  loading: { icon: "HourglassEmpty", label: "Loading chat…" },
+  live: { icon: "Wifi", label: "Chat connected" },
+  reconnecting: { icon: "Sync", label: "Reconnecting" },
+  starting: { icon: "Schedule", label: "Waiting for chat…" },
+  empty: { icon: "SpeakerNotesOff", label: "No chat captured" },
+  complete: { icon: "History", label: "Chat replay" },
+  unavailable: { icon: "CloudOff", label: "Chat unavailable" },
+  disconnected: { icon: "WifiOff", label: "Chat disconnected" },
+});
 
 const POLL_MS = 500;
 // After a failed fetch, wait before the next attempt; the wait doubles up to the cap.
@@ -351,11 +366,17 @@ export function createChatPane(root, {
   // The pane's background, read once per render for the name-contrast check.
   let ground = null;
 
-  function status(text, state = "") {
-    if (el["chat-state"]) {
-      el["chat-state"].textContent = text;
-      el["chat-state"].dataset.state = state;
-    }
+  function status(state) {
+    const node = el["chat-state"];
+    const info = CHAT_STATES[state];
+    if (!node || !info) return;
+    node.dataset.state = state;
+    node.title = info.label;
+    // The hidden label node stays put while the glyph swaps; never assign textContent on the
+    // status element, which would destroy the label and the icon.
+    const label = node.querySelector("[data-sk='chat-state-label']");
+    if (label) label.textContent = info.label;
+    setIcon(node, info.icon);
   }
 
   function notice(text) {
@@ -534,7 +555,7 @@ export function createChatPane(root, {
       emoteAttempted = false;
       emoteVersion++;
       syncOffset = validOffset(next.syncOffsetSec);
-      status(next.hasChat ? "Loading chat…" : "No chat captured", next.hasChat ? "loading" : "empty");
+      status(next.hasChat ? "loading" : "empty");
       notice("");
     }
     applyOpen();
@@ -619,7 +640,7 @@ export function createChatPane(root, {
       if (error?.name !== "AbortError" && !request.signal.aborted) {
         retryAt = Date.now() + retryDelay;
         retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS);
-        status("Chat unavailable", "unavailable");
+        status("disconnected");
         notice("Chat could not be loaded.");
         console.debug("Stream Keepr: chat window fetch failed; retrying later.", error);
       }
@@ -713,26 +734,29 @@ export function createChatPane(root, {
   function updateStatus() {
     if (!view) return;
     if (view.state === "unavailable") {
-      status("Chat unavailable", "unavailable");
+      status("unavailable");
       return;
     }
     if (view.state === "starting") {
       // The timeline can be briefly unreadable during a live part transition. Once a chat
       // log exists the connection is up; do not call that "waiting".
-      status(view.hasChat === true ? "Chat connected" : "Waiting for chat…",
-        view.hasChat === true ? "live" : "starting");
+      status(view.hasChat === true ? "live" : "starting");
       return;
     }
     if (view.hasChat === false) {
-      status(liveState() ? "Waiting for chat…" : "No chat captured",
-        liveState() ? "starting" : "empty");
+      // A reconnecting session with no chat has nothing to reconnect to, so it keeps waiting.
+      status(liveState() ? "starting" : "empty");
+      return;
+    }
+    if (view.state === "reconnecting") {
+      status("reconnecting");
       return;
     }
     if (liveState()) {
-      status("Chat connected", "live");
+      status("live");
       return;
     }
-    status("Chat replay", "complete");
+    status("complete");
   }
 
   function updateFooter() {

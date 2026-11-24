@@ -27,7 +27,13 @@
         <header class="sk-chat-head">
             @IslandIcon.Svg("Chat")
             <span class="sk-chat-title" data-sk="chat-title">Chat replay</span>
-            <span class="sk-chat-state" data-sk="chat-state" role="status" aria-live="polite">Loading chat…</span>
+            @* The state is a decorative icon plus a visually hidden label and a title, so no state
+               depends on colour alone. The module swaps both once it loads; this initial loading
+               state keeps the header populated before then. *@
+            <span class="sk-chat-state" data-sk="chat-state" data-state="loading" role="status" aria-live="polite" title="Loading chat…">
+                @IslandIcon.Svg("HourglassEmpty")
+                <span class="sk-visually-hidden" data-sk="chat-state-label">Loading chat…</span>
+            </span>
         </header>
     }
 

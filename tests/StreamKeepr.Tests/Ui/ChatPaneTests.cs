@@ -160,6 +160,17 @@ public sealed class ChatPaneTests
         Assert.Equal("Chat", head.QuerySelector("svg")!.GetAttribute("data-icon"));
         Assert.Equal("true", head.QuerySelector("svg")!.GetAttribute("aria-hidden"));
         Assert.Equal("Chat replay", head.QuerySelector("[data-sk='chat-title']")!.TextContent.Trim());
+
+        // The module swaps the glyph and label once it loads; Razor renders the loading state so
+        // the header is never empty before then.
+        IElement state = head.QuerySelector("[data-sk='chat-state']")!;
+        Assert.Equal("loading", state.GetAttribute("data-state"));
+        Assert.Equal("status", state.GetAttribute("role"));
+        Assert.Equal("polite", state.GetAttribute("aria-live"));
+        Assert.Equal("Loading chat…", state.GetAttribute("title"));
+        Assert.Equal("Loading chat…",
+            state.QuerySelector("[data-sk='chat-state-label']")!.TextContent.Trim());
+        Assert.Equal("HourglassEmpty", state.QuerySelector("svg")!.GetAttribute("data-icon"));
     }
 
     [Fact]

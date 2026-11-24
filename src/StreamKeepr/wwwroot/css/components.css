@@ -605,9 +605,18 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing);
 }
-.sk-chat-state { flex: none; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; }
+.sk-chat-state { flex: none; display: inline-flex; align-items: center; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; }
+/* The state is one decorative glyph; it takes the state element's colour, overriding the
+   header's action-default icon rule, and stays within the caption's 20px. */
+.sk-chat-head .sk-chat-state svg[data-icon] { width: 20px; height: 20px; color: inherit; }
 .sk-chat-state[data-state="live"] { color: var(--primary); }
-.sk-chat-state[data-state="unavailable"] { color: var(--error); }
+.sk-chat-state[data-state="reconnecting"] { color: var(--warning); }
+/* Reconnecting matches the player's chip: the same Sync glyph, warning colour and spin. */
+.sk-chat-state[data-state="reconnecting"] svg[data-icon] { animation: sk-spin 800ms linear infinite; }
+.sk-chat-state[data-state="unavailable"], .sk-chat-state[data-state="disconnected"] { color: var(--error); }
+@media (prefers-reduced-motion: reduce) {
+  .sk-chat-state[data-state="reconnecting"] svg[data-icon] { animation: none; }
+}
 /* Closed, the pane is not shown at all; it has no toggle of its own to leave behind. */
 .sk-chat[data-open="false"] { display: none; }
 .sk-chat-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
