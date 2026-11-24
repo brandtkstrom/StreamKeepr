@@ -69,5 +69,4 @@ nunit-*.xml
 
 # Local IDE and agent tool state
 .idea/
-.serena/
 *.DotSettings.user
