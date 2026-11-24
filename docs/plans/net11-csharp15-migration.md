@@ -171,6 +171,7 @@ code was inspected and the change cannot affect it.
 | Minimum hardware requirements updated | Deployment note | Recorded in the PR; no code change. |
 | Obsolete APIs and removed Blazor/MVC APIs | Unknown until compile | Build with `-warnaserror`. |
 | New Blazor analyzers `BL0011`–`BL0016` | Confirmed: 8 build errors, all `BL0012`/`BL0016` | See §5.1. |
+| `FileStream.IsAsync` reports real non-blocking state on Unix | Confirmed: two tests failed in CI, Linux only | Regular files now report `false` on Unix. Neither production code nor any assertion depends on it at runtime, so the two `Assert.True(stream.IsAsync)` checks became Windows-only. |
 | `QuickGrid` controls render as links | None: no `QuickGrid` usage found | N/A. |
 
 This list is the .NET 11 migration guide's own set; it is not exhaustive by the
