@@ -1,5 +1,7 @@
 # OpenTelemetry metrics and traces for StreamKeepr
 
+Written against .NET 10 and the `aspnet:10.0.14` image. Not re-verified against .NET 11 after the 2026-11-23 upgrade; framework behaviour cited here may have changed.
+
 Status: research memo, 2026-11-17
 Issue: TBD (proposed)
 Binding: no. This memo changes no code or contract. Adoption would add packages, configuration, and instrumentation; a later implementation spec or ADR should own the actual change.

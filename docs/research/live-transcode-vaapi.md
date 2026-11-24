@@ -1,5 +1,7 @@
 # Live H.264 transcode with Intel, NVIDIA, and AMD GPUs
 
+Written against .NET 10 and the `aspnet:10.0.14` image. Not re-verified against .NET 11 after the 2026-11-23 upgrade; framework behaviour cited here may have changed.
+
 Status: proposed **GO**, three-vendor GPU image, prototype-gated (2026-11-13)
 Issue: [#144](https://github.com/brandtkstrom/StreamKeepr/issues/144) "Spike: evaluate VAAPI GPU acceleration for the Streamlink/FFmpeg recording image"
 Feasibility evidence: [`vaapi-streamlink-spike.md`](vaapi-streamlink-spike.md)
