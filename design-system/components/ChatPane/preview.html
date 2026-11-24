@@ -7,14 +7,14 @@
   html, body { margin: 0; }
   .wrap { padding: var(--space-4); display: flex; gap: var(--space-4); align-items: stretch; height: 480px; }
   .c1 { color: var(--channel-4); } .c2 { color: var(--channel-2); } .c3 { color: var(--channel-1); } .c4 { color: var(--channel-3); }
-  .live { font: var(--text-caption); color: var(--text-secondary); margin-left: auto; }
+  .live { display: inline-flex; align-items: center; font: var(--text-caption); color: var(--text-secondary); margin-left: auto; }
   .jump { align-self: center; margin-bottom: var(--space-2); border-radius: var(--radius-full); }
 </style>
 </head>
 <body class="ds">
 <div class="wrap">
   <aside class="ds-chat" aria-label="Chat replay">
-    <header class="ds-chat-head ds-ihead"><i data-i="chat"></i><span class="t">Chat replay</span><span class="live" role="status">Replay · synced to 54:40</span></header>
+    <header class="ds-chat-head ds-ihead"><i data-i="chat"></i><span class="t">Chat replay</span><span class="live" role="status" title="Chat replay"><i data-i="history" class="sm" aria-hidden="true"></i><span class="ds-sr">Chat replay</span></span></header>
     <div class="ds-chat-log" role="log" aria-label="Chat replay">
       <div><span class="ts">54:31</span><span class="n c1">sablefinch</span><span class="ds-muted">:</span> that reset was clean</div>
       <div><span class="ts">54:33</span><span class="n c2">mothlight</span><span class="ds-muted">:</span> any% or glitchless tonight?</div>

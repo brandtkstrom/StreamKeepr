@@ -12,7 +12,8 @@ const HOOKS = [
 
 // The header's decorative icon and accessible wording per data-state. The wording is the old
 // visible status text, now carried by the visually hidden label and the title. `reconnecting`
-// reuses the player's Reconnecting chip glyph and wording so the two read the same.
+// reuses the player's Reconnecting chip glyph and wording so the two read the same. The
+// `loading` entry mirrors the initial Razor header; keep the glyph and wording in step.
 const CHAT_STATES = Object.freeze({
   loading: { icon: "HourglassEmpty", label: "Loading chat…" },
   live: { icon: "Wifi", label: "Chat connected" },
@@ -368,8 +369,13 @@ export function createChatPane(root, {
 
   function status(state) {
     const node = el["chat-state"];
+    if (!node) return;
     const info = CHAT_STATES[state];
-    if (!node || !info) return;
+    if (!info) {
+      // A key outside the map is a programmer error; surface it without breaking the pane.
+      console.warn("Stream Keepr: unknown chat state.", state);
+      return;
+    }
     node.dataset.state = state;
     node.title = info.label;
     // The hidden label node stays put while the glyph swaps; never assign textContent on the

@@ -29,7 +29,8 @@
             <span class="sk-chat-title" data-sk="chat-title">Chat replay</span>
             @* The state is a decorative icon plus a visually hidden label and a title, so no state
                depends on colour alone. The module swaps both once it loads; this initial loading
-               state keeps the header populated before then. *@
+               state keeps the header populated before then. Its glyph and wording mirror
+               CHAT_STATES.loading in ChatPane.razor.js, so keep the two in step. *@
             <span class="sk-chat-state" data-sk="chat-state" data-state="loading" role="status" aria-live="polite" title="Loading chat…">
                 @IslandIcon.Svg("HourglassEmpty")
                 <span class="sk-visually-hidden" data-sk="chat-state-label">Loading chat…</span>

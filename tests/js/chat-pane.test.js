@@ -568,17 +568,17 @@ describe("chat replay pane", () => {
   });
 
   it.each([
-    ["starting", "Schedule", "Waiting for chat…"],
-    ["complete", "SpeakerNotesOff", "No chat captured"],
-    ["unavailable", "CloudOff", "Chat unavailable"],
-  ])("maps a %s payload with no chat to its icon and label", async (state, icon, label) => {
+    ["starting", "starting", "Schedule", "Waiting for chat…"],
+    ["complete", "empty", "SpeakerNotesOff", "No chat captured"],
+    ["unavailable", "unavailable", "CloudOff", "Chat unavailable"],
+  ])("maps a %s payload with no chat to its icon and label", async (state, expectedState, icon, label) => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
     const pane = createChatPane(root, { storage: storage() });
 
     await pane.load({ ...VIEW, open: false, state, hasChat: false });
     expect(chatState()).toEqual({
-      state: state === "complete" ? "empty" : state,
+      state: expectedState,
       icon,
       label,
       title: label,
