@@ -22,8 +22,10 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
         await using Journey session = await OpenAsync(app, viewport: Phone, hasTouch: true);
         IPage page = session.Page;
         // A finished recording with no chapters: the assertion below is about the tab list,
-        // not about whichever recording the live feed sorted first.
-        await OpenRecordingAsync(page, "Chill art stream");
+        // not about whichever recording the live feed sorted first. Not "Chill art stream": the
+        // Mock feed reopens mock_echo's latest session live from 30 s to 60 s after start
+        // (MockLiveFeedOptions), so whether that row exists depends on when this test runs.
+        await OpenRecordingAsync(page, "Late night jazz");
         await SettleAsync(page, compact: true);
 
         ILocator player = page.Locator("[data-sk-player]");
