@@ -40,6 +40,11 @@ internal static class LibraryHooks
         if (await page.Locator("[data-shell][data-library-open]").CountAsync() > 0)
             return;
 
+        // The library opens through the circuit, and a click on the prerendered button is lost.
+        // The shell's search field marks itself ready once the circuit is interactive.
+        await page.Locator($"{LibraryJourneyTests.Search}[data-sk-ready]")
+            .WaitForAsync(new() { State = WaitForSelectorState.Attached });
+
         ILocator library = page.GetByRole(AriaRole.Navigation, new() { Name = "Main" })
             .GetByRole(AriaRole.Button, new() { Name = "Library" });
         await Journey.WaitForReconnectAsync(page);

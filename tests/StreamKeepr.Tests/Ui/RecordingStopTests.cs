@@ -64,7 +64,8 @@ public sealed class RecordingStopTests
 
         dialogs.Find("[data-stop-confirm]").Click();
 
-        Assert.Equal(["stop:ann"], channels.Calls);
+        // Click returns before the handler runs when another render holds the dispatcher.
+        dialogs.WaitForAssertion(() => Assert.Equal(["stop:ann"], channels.Calls));
         // MudBlazor closes dialogs asynchronously, as it opens them.
         dialogs.WaitForAssertion(() => Assert.False(dialogs.HasOpenDialog(StopName)));
         Assert.Equal("Channel paused", context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
@@ -99,7 +100,7 @@ public sealed class RecordingStopTests
 
         dialogs.Find("[data-stop-confirm]").Click();
 
-        Assert.False(dialogs.HasOpenDialog(StopName));
+        dialogs.WaitForAssertion(() => Assert.False(dialogs.HasOpenDialog(StopName)));
         Assert.Contains(
             "Reconnect to manage channels",
             context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
