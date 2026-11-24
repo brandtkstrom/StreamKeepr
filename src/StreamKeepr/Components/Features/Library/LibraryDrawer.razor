@@ -352,7 +352,11 @@
     {
         string? login = _selectedChannel;
         _selectedChannel = null;
+        // BL0012 assumes the framework's post-callback render is soon enough. It is not:
+        // the focus below queries the DOM, so the column must collapse first.
+#pragma warning disable BL0012
         StateHasChanged();
+#pragma warning restore BL0012
         if (login is not null)
             await FocusAsync($"[data-library-channel='{login}']");
     }
@@ -406,7 +410,6 @@
         if (!string.Equals(recordingId, _selectedId, StringComparison.Ordinal))
             Snackbars.Show("Recording deleted");
 
-        StateHasChanged();
         return Task.CompletedTask;
     }
 
