@@ -78,6 +78,15 @@ public sealed class LibraryUrlTests
     }
 
     [Fact]
+    public void Autoplay_preserves_an_already_escaped_path()
+    {
+        Assert.Equal("/r/a%20b?autoplay=1", LibraryUrl.WithAutoplay("/r/a%20b"));
+        Assert.Equal(
+            "/r/a%20b",
+            LibraryUrl.WithoutAutoplay("http://host/r/a%20b?autoplay=1"));
+    }
+
+    [Fact]
     public void Round_trips()
     {
         var query = new LibraryQuery("recording", "a&b=c", "az");

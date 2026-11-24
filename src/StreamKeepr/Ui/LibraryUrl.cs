@@ -171,8 +171,14 @@ public static class LibraryUrl
         int mark = uri.IndexOf('?', StringComparison.Ordinal);
         string beforeQuery = mark >= 0 ? uri[..mark] : uri;
 
-        if (Uri.TryCreate(beforeQuery, UriKind.Absolute, out Uri? absolute))
+        // Extract the path only from an absolute http(s) URL. A rooted path such as
+        // /r/a%20b must be kept exactly: Uri reads it as a file URI on some platforms and
+        // would escape the percent sign a second time.
+        if (Uri.TryCreate(beforeQuery, UriKind.Absolute, out Uri? absolute) &&
+            (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps))
+        {
             return absolute.AbsolutePath;
+        }
 
         return beforeQuery.Length == 0 ? "/" : beforeQuery;
     }
