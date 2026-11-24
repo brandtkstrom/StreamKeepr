@@ -283,6 +283,24 @@ Recommended follow-up, tracked separately rather than fixed here:
 `SessionStoreTestContext` should inject a real retry delay, and the dialog and
 HTTP assertions should tolerate a loaded machine.
 
+### 7.3 What cannot be verified locally
+
+Two checks in §7 have no local result on this machine:
+
+- **Mock-profile E2E.** `MockAppFixture.cs:93` sets `Recorder__FfmpegPath` to
+  `tests/fixtures/slow-export-ffmpeg`, a `#!/usr/bin/env bash` script, with no
+  Windows shim. `Process.Start` fails with `Win32Exception (0x80004005)`, the
+  Mock app exits during `ToolPreflight`, and 88 of 90 tests fail in fixture
+  initialization before touching the application. This is the same class of
+  harness gap as issue #233, which shimmed `fake-streamlink` but not this
+  fixture, and it is independent of the framework version. Left to CI, which
+  runs the suite on Ubuntu.
+- **Docker image and compose smoke test.** No Docker daemon is running here.
+  Left to CI.
+
+The 2 E2E tests that did pass are the publish-guard tests, which inspect the
+publish output without starting the app.
+
 ## 8. Rollback
 
 Revert the merge commit on `dev`. No data, schema, or configuration format
