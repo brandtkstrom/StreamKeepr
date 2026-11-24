@@ -328,6 +328,17 @@ at `1ade81e` (PR #300, base `main`) passed every job:
   with exit 0 and restarted, and the mid-recording stop finalized every part
   playlist.
 
+After the review fixes (`5a5642e`), run
+[45429646882](https://github.com/brandtkstrom/StreamKeepr/actions/runs/45429646882)
+passed all six jobs again, with `E2E (Mock profile)` at 7m27s.
+
+The keyboard journey failed three times across the two revisions before that
+fix: Enter on the focused Delete item ran Copy playlist URL, and arrow presses
+outran the server's focus move. `RecordingDetails.razor.js` now activates the
+focused item instead of MudMenu's internal index, and the journey waits for
+each arrow's focus move to land. What made the index and DOM focus diverge is
+still unexplained; activation no longer depends on it.
+
 An earlier run, from when the PR still targeted `dev`, skipped the three
 container/E2E jobs by design (`.github/workflows/ci.yml:26-29`) and covered only
 `Build and test` and `JS lint and test`. Two runs before it failed for reasons
