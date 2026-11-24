@@ -114,11 +114,11 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 | Actions | `PlaylistPlay` (copy playlist URL) · `Output` (export MP4) · `Download` (download an export) · `ContentCopy` (copy stats) · `Delete` · `Stop` · `Refresh` · `Add` |
 | Recording without a thumbnail | `Movie` |
 | Back · menu · search · more | `ArrowBack` · `Menu` · `Search` · `MoreVert` |
-| GitHub link · Twitch link | `Icons.Custom.Brands.GitHub` · Twitch's official Glitch mark (never redrawn; `LiveTv` stands in until the asset is added) |
+| GitHub link · Twitch link | `Icons.Custom.Brands.GitHub` · Twitch's Glitch mark (`wwwroot/img/twitch-glitch.svg`, full-colour image; never redrawn) |
 | States | `CheckCircle`, `Warning`, `Error`, `Sync`, `CloudOff`, `WifiOff`, `Schedule` (polling) |
 
 - The previews draw their icons from `components/icons.js`, which holds the exact SVG of the `Icons.Material.Rounded` constants from MudBlazor 9.12.0. In the app, use the constants. Inside JS-owned islands and the reconnect dialog, paste the same SVG.
-- No Twitch logo is included yet. The Connect with Twitch button uses `Link`, and the app bar's Twitch link shows `LiveTv` as a stand-in. When shipping, use Twitch's official Glitch mark from its brand assets in both places, unmodified. Never redraw it. The GitHub link uses MudBlazor's own `Icons.Custom.Brands.GitHub`.
+- The app bar's Twitch link uses Twitch's Glitch mark from `wwwroot/img/twitch-glitch.svg`, unmodified and in full colour. The Connect with Twitch button keeps `Link`, and the previews keep `LiveTv` for the app bar link because they cannot load the app's static assets. Never redraw the mark. The GitHub link uses MudBlazor's own `Icons.Custom.Brands.GitHub`.
 
 ## Logo
 
