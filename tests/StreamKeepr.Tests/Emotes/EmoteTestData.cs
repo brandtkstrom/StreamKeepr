@@ -48,7 +48,13 @@ internal sealed class EmoteHttpClientFactory(HttpMessageHandler handler) : IHttp
     public HttpClient CreateClient(string name) =>
         new(handler, disposeHandler: false)
         {
-            BaseAddress = new Uri(EmoteHttpClients.BttvBaseAddress),
+            BaseAddress = new Uri(name switch
+            {
+                EmoteHttpClients.Bttv => EmoteHttpClients.BttvBaseAddress,
+                EmoteHttpClients.SevenTv => EmoteHttpClients.SevenTvBaseAddress,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(name), name, "The test factory only knows the emote provider clients."),
+            }),
         };
 }
 
@@ -89,7 +95,7 @@ internal sealed class StubEmoteProvider : IEmoteProvider
         return Channel(channelId, ct);
     }
 
-    public EmoteImageSet GetStaticImage(EmoteCatalogEntry entry) =>
+    public EmoteImageSet GetImageSet(EmoteCatalogEntry entry) =>
         new($"https://cdn.test/{entry.Id}/1x.webp",
             $"https://cdn.test/{entry.Id}/1x.webp 1x, " +
             $"https://cdn.test/{entry.Id}/2x.webp 2x, " +
