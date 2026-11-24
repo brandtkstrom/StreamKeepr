@@ -7,13 +7,18 @@ namespace StreamKeepr.Infrastructure.Emotes;
 /// </summary>
 internal static class EmoteResponseBody
 {
+    /// <summary>
+    /// Buffers a provider body, rejecting one that exceeds <see cref="EmoteCatalogRules.MaxResponseBytes"/>
+    /// by its declared length or by the bytes actually read.
+    /// </summary>
     public static async Task<byte[]> ReadAsync(
         HttpResponseMessage response,
-        Func<EmoteProviderException> tooLarge,
+        string providerId,
+        string providerName,
         CancellationToken ct)
     {
         if (response.Content.Headers.ContentLength is > EmoteCatalogRules.MaxResponseBytes)
-            throw tooLarge();
+            throw EmoteProviderException.ResponseTooLarge(providerId, providerName);
 
         await using Stream stream = await response.Content.ReadAsStreamAsync(ct);
         using var buffer = new MemoryStream();
@@ -22,7 +27,7 @@ internal static class EmoteResponseBody
         while ((read = await stream.ReadAsync(chunk, ct)) > 0)
         {
             if (buffer.Length + read > EmoteCatalogRules.MaxResponseBytes)
-                throw tooLarge();
+                throw EmoteProviderException.ResponseTooLarge(providerId, providerName);
 
             buffer.Write(chunk, 0, read);
         }

@@ -4,7 +4,7 @@ namespace StreamKeepr.Infrastructure.Emotes;
 
 /// <summary>
 /// One third-party emote catalog source. Providers fetch, normalize, and assemble their own
-/// static image URLs; the aggregation service owns caching, ordering, dedupe, and stale fallback.
+/// image URLs; the aggregation service owns caching, ordering, dedupe, and stale fallback.
 /// </summary>
 internal interface IEmoteProvider
 {
@@ -26,8 +26,8 @@ internal interface IEmoteProvider
     /// </summary>
     Task<IReadOnlyList<EmoteCatalogEntry>> GetChannelAsync(string channelId, CancellationToken ct);
 
-    /// <summary>Builds the static 1x/2x/3x image URLs for a validated entry.</summary>
-    EmoteImageSet GetStaticImage(EmoteCatalogEntry entry);
+    /// <summary>Builds the 1x/2x/3x image URLs for a validated entry.</summary>
+    EmoteImageSet GetImageSet(EmoteCatalogEntry entry);
 }
 
 /// <summary>
@@ -43,26 +43,29 @@ internal interface IEmoteChannelResolver
 
 internal sealed record EmoteCatalogEntry(string Id, string Code, bool Animated);
 
-internal sealed record EmoteImageSet(string Src, string SrcSet);
+internal sealed record EmoteImageSet(string Src, string SrcSet)
+{
+    /// <summary>Builds the 1x/2x/3x set from a size-to-URL function.</summary>
+    public static EmoteImageSet ForSizes(Func<string, string> url) =>
+        new(url("1x"), $"{url("1x")} 1x, {url("2x")} 2x, {url("3x")} 3x");
+}
 
-/// <summary>
-/// Builds the shared 1x/2x/3x static-image URL shape. Providers differ only by CDN host;
-/// keeping one builder makes the URL contract single-sourced (SEC-003).
-/// </summary>
-internal static class BttvStaticEmoteImage
+internal static class BttvEmoteImage
 {
     /// <summary>
-    /// Builds BetterTTV's static image URLs. The path shape is BetterTTV-specific: other
-    /// providers name their static assets differently, so each provider builds its own.
+    /// Builds BetterTTV's image URLs. The path shape is BetterTTV-specific: other providers name
+    /// their assets differently, so each provider builds its own.
     /// </summary>
     /// <param name="host">Absolute CDN origin without a trailing slash.</param>
-    public static EmoteImageSet Create(string host, EmoteCatalogEntry entry)
+    /// <param name="serveAnimated">
+    /// True selects the animated asset; false selects the static first frame, which only animated
+    /// emotes publish.
+    /// </param>
+    public static EmoteImageSet Create(string host, EmoteCatalogEntry entry, bool serveAnimated)
     {
-        string folder = entry.Animated ? "static/" : "";
-        string Url(string size) => $"{host}/emote/{entry.Id}/{folder}{size}.webp";
+        string folder = entry.Animated && !serveAnimated ? "static/" : "";
 
-        return new EmoteImageSet(
-            Url("1x"), $"{Url("1x")} 1x, {Url("2x")} 2x, {Url("3x")} 3x");
+        return EmoteImageSet.ForSizes(size => $"{host}/emote/{entry.Id}/{folder}{size}.webp");
     }
 }
 
@@ -138,4 +141,29 @@ internal sealed class EmoteProviderException(
     public int? HttpStatus { get; } = httpStatus;
 
     public EmoteProviderFailureKind Kind { get; } = kind;
+
+    /// <summary>A non-success response from the provider, classified as an HTTP failure.</summary>
+    public static EmoteProviderException HttpFailure(
+        string providerId, string providerName, HttpResponseMessage response, string scope) =>
+        new(
+            providerId,
+            (int)response.StatusCode,
+            $"{providerName} {scope} catalog request failed with HTTP {(int)response.StatusCode}.");
+
+    /// <summary>A body that is not the catalog the provider documents for this scope.</summary>
+    public static EmoteProviderException InvalidPayload(
+        string providerId, string providerName, string scope) =>
+        new(
+            providerId,
+            httpStatus: null,
+            $"{providerName} returned an invalid {scope} catalog.",
+            EmoteProviderFailureKind.InvalidPayload);
+
+    /// <summary>A body larger than <see cref="EmoteCatalogRules.MaxResponseBytes"/>.</summary>
+    public static EmoteProviderException ResponseTooLarge(string providerId, string providerName) =>
+        new(
+            providerId,
+            httpStatus: null,
+            $"{providerName} catalog response exceeded the response size limit.",
+            EmoteProviderFailureKind.TooLarge);
 }

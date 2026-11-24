@@ -9,14 +9,15 @@ namespace StreamKeepr.Infrastructure.Emotes;
 /// <summary>
 /// 7TV global and channel emotes through the shared provider seam. The set-entry <c>name</c> is
 /// the code viewers type; the nested emote <c>name</c> is the emote's original name and differs
-/// for renamed emotes, so only the set entry is read. Static images keep the animated first
-/// frame available under a <c>_static</c> file name, which is what this provider requests.
+/// for renamed emotes, so only the set entry is read. An animated emote's still frame is the
+/// <c>_static</c> file, served unless <c>Chat:Emotes:Animated</c> asks for the animation itself.
 /// </summary>
 internal sealed class SevenTvEmoteProvider(
     IHttpClientFactory httpFactory,
     IOptions<ChatOptions> options) : IEmoteProvider
 {
     public const string ProviderId = "7tv";
+    public const string DisplayName = "7TV";
     public const string GlobalPath = "v3/emote-sets/global";
     public const string UserPath = "v3/users/twitch";
     public const string EmoteSetPath = "v3/emote-sets";
@@ -33,7 +34,7 @@ internal sealed class SevenTvEmoteProvider(
     public async Task<IReadOnlyList<EmoteCatalogEntry>> GetGlobalAsync(CancellationToken ct)
     {
         using HttpClient http = httpFactory.CreateClient(EmoteHttpClients.SevenTv);
-        return await FetchEmoteSetAsync(http, GlobalPath, "global", ct);
+        return await FetchEmoteSetAsync(http, GlobalPath, "global", notFoundIsEmpty: false, ct);
     }
 
     public async Task<IReadOnlyList<EmoteCatalogEntry>> GetChannelAsync(
@@ -51,9 +52,9 @@ internal sealed class SevenTvEmoteProvider(
             return [];
 
         if (!response.IsSuccessStatusCode)
-            throw Failure(response, "channel");
+            throw EmoteProviderException.HttpFailure(ProviderId, DisplayName, response, "channel");
 
-        byte[] body = await EmoteResponseBody.ReadAsync(response, TooLarge, ct);
+        byte[] body = await EmoteResponseBody.ReadAsync(response, ProviderId, DisplayName, ct);
         SevenTvUser? user;
         try
         {
@@ -61,11 +62,11 @@ internal sealed class SevenTvEmoteProvider(
         }
         catch (JsonException)
         {
-            throw Invalid("channel");
+            throw EmoteProviderException.InvalidPayload(ProviderId, DisplayName, "channel");
         }
 
         if (user is null)
-            throw Invalid("channel");
+            throw EmoteProviderException.InvalidPayload(ProviderId, DisplayName, "channel");
 
         if (user.EmoteSet is not null)
             return Normalize(user.EmoteSet.Emotes);
@@ -75,27 +76,27 @@ internal sealed class SevenTvEmoteProvider(
         if (user.EmoteSetId is not { } setId)
             return [];
 
-        if (!EmoteCatalogRules.IsValidSevenTvEmoteId(setId))
-            throw Invalid("channel");
+        if (!EmoteCatalogRules.IsValidSevenTvId(setId))
+            throw EmoteProviderException.InvalidPayload(ProviderId, DisplayName, "channel");
 
-        return await FetchEmoteSetAsync(http, $"{EmoteSetPath}/{setId}", "channel", ct);
+        return await FetchEmoteSetAsync(http, $"{EmoteSetPath}/{setId}", "channel", notFoundIsEmpty: true, ct);
     }
 
     private static async Task<IReadOnlyList<EmoteCatalogEntry>> FetchEmoteSetAsync(
-        HttpClient http, string path, string scope, CancellationToken ct)
+        HttpClient http, string path, string scope, bool notFoundIsEmpty, CancellationToken ct)
     {
         using HttpResponseMessage response = await http.GetAsync(
             path, HttpCompletionOption.ResponseHeadersRead, ct);
 
         // A channel whose set was removed is an available channel without emotes. The global set
         // is never absent, so a 404 there stays a failure.
-        if (response.StatusCode == HttpStatusCode.NotFound && scope == "channel")
+        if (response.StatusCode == HttpStatusCode.NotFound && notFoundIsEmpty)
             return [];
 
         if (!response.IsSuccessStatusCode)
-            throw Failure(response, scope);
+            throw EmoteProviderException.HttpFailure(ProviderId, DisplayName, response, scope);
 
-        byte[] body = await EmoteResponseBody.ReadAsync(response, TooLarge, ct);
+        byte[] body = await EmoteResponseBody.ReadAsync(response, ProviderId, DisplayName, ct);
         SevenTvEmoteSet? set;
         try
         {
@@ -103,10 +104,12 @@ internal sealed class SevenTvEmoteProvider(
         }
         catch (JsonException)
         {
-            throw Invalid(scope);
+            throw EmoteProviderException.InvalidPayload(ProviderId, DisplayName, scope);
         }
 
-        return set is null ? throw Invalid(scope) : Normalize(set.Emotes);
+        return set is null
+            ? throw EmoteProviderException.InvalidPayload(ProviderId, DisplayName, scope)
+            : Normalize(set.Emotes);
     }
 
     private static EmoteCatalogEntry[] Normalize(IEnumerable<SevenTvSetEmote?>? emotes)
@@ -118,7 +121,7 @@ internal sealed class SevenTvEmoteProvider(
         foreach (SevenTvSetEmote? emote in emotes)
         {
             if (emote is null ||
-                !EmoteCatalogRules.IsValidSevenTvEmoteId(emote.Id) ||
+                !EmoteCatalogRules.IsValidSevenTvId(emote.Id) ||
                 !EmoteCatalogRules.IsValidCode(emote.Name) ||
                 (emote.Flags & ZeroWidthFlag) != 0)
             {
@@ -131,34 +134,13 @@ internal sealed class SevenTvEmoteProvider(
         return [.. entries];
     }
 
-    private static EmoteProviderException TooLarge() =>
-        new(
-            ProviderId,
-            httpStatus: null,
-            "7TV catalog response exceeded the response size limit.",
-            EmoteProviderFailureKind.TooLarge);
-
-    private static EmoteProviderException Failure(HttpResponseMessage response, string scope) =>
-        new(
-            ProviderId,
-            (int)response.StatusCode,
-            $"7TV {scope} catalog request failed with HTTP {(int)response.StatusCode}.");
-
-    private static EmoteProviderException Invalid(string scope) =>
-        new(
-            ProviderId,
-            httpStatus: null,
-            $"7TV returned an invalid {scope} catalog.",
-            EmoteProviderFailureKind.InvalidPayload);
-
-    public EmoteImageSet GetStaticImage(EmoteCatalogEntry entry)
+    public EmoteImageSet GetImageSet(EmoteCatalogEntry entry)
     {
-        // 7TV suffixes static files for animated emotes; a non-animated emote has no _static file.
-        string suffix = entry.Animated ? "_static" : "";
-        string Url(string size) => $"{ImageHost}/emote/{entry.Id}/{size}{suffix}.webp";
+        // 7TV suffixes the still frame of an animated emote; its animated asset has no suffix, and
+        // a non-animated emote has no _static file at all.
+        string suffix = entry.Animated && !options.Value.Emotes.Animated ? "_static" : "";
 
-        return new EmoteImageSet(
-            Url("1x"), $"{Url("1x")} 1x, {Url("2x")} 2x, {Url("3x")} 3x");
+        return EmoteImageSet.ForSizes(size => $"{ImageHost}/emote/{entry.Id}/{size}{suffix}.webp");
     }
 }
 

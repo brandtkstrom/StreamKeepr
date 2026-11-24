@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Options;
+using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Emotes;
 
 namespace StreamKeepr.Mock;
@@ -24,6 +26,10 @@ internal sealed class MockEmoteProvider : IEmoteProvider
         new(MissingImageId, "BrokenEmote", Animated: false),
     ];
 
+    private readonly IOptions<ChatOptions> _options;
+
+    public MockEmoteProvider(IOptions<ChatOptions> options) => _options = options;
+
     public string Id => BttvEmoteProvider.ProviderId;
 
     public bool Enabled => true;
@@ -35,6 +41,6 @@ internal sealed class MockEmoteProvider : IEmoteProvider
         string channelId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<EmoteCatalogEntry>>([]);
 
-    public EmoteImageSet GetStaticImage(EmoteCatalogEntry entry) =>
-        BttvStaticEmoteImage.Create(ImageHost, entry);
+    public EmoteImageSet GetImageSet(EmoteCatalogEntry entry) =>
+        BttvEmoteImage.Create(ImageHost, entry, _options.Value.Emotes.Animated);
 }

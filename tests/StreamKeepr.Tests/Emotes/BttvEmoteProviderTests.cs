@@ -34,7 +34,7 @@ public sealed class BttvEmoteProviderTests
                 Assert.Equal(":tf:", entry.Code);
                 Assert.False(entry.Animated);
 
-                EmoteImageSet image = provider.GetStaticImage(entry);
+                EmoteImageSet image = provider.GetImageSet(entry);
                 Assert.Equal(
                     $"https://cdn.betterttv.net/emote/{EmoteTestData.StaticId}/1x.webp",
                     image.Src);
@@ -68,7 +68,7 @@ public sealed class BttvEmoteProviderTests
         IReadOnlyList<EmoteCatalogEntry> entries =
             await provider.GetGlobalAsync(CancellationToken.None);
 
-        EmoteImageSet image = provider.GetStaticImage(entries[1]);
+        EmoteImageSet image = provider.GetImageSet(entries[1]);
         Assert.Equal(
             $"https://cdn.betterttv.net/emote/{EmoteTestData.AnimatedId}/static/1x.webp",
             image.Src);
@@ -408,15 +408,35 @@ public sealed class BttvEmoteProviderTests
         Assert.Empty(handler.Requests);
     }
 
+    [Fact]
+    public async Task Animated_entries_use_the_animated_asset_when_animation_is_enabled()
+    {
+        var handler = new StubHttpMessageHandler(
+            (_, _) => Task.FromResult(EmoteTestData.Json(GlobalJson)));
+        BttvEmoteProvider provider = CreateProvider(handler, animated: true);
+
+        IReadOnlyList<EmoteCatalogEntry> entries =
+            await provider.GetGlobalAsync(CancellationToken.None);
+
+        EmoteImageSet image = provider.GetImageSet(entries[1]);
+        Assert.Equal(
+            $"https://cdn.betterttv.net/emote/{EmoteTestData.AnimatedId}/1x.webp",
+            image.Src);
+        Assert.Equal(
+            $"https://cdn.betterttv.net/emote/{EmoteTestData.StaticId}/1x.webp",
+            provider.GetImageSet(entries[0]).Src);
+    }
+
     private static BttvEmoteProvider CreateProvider(
-        HttpMessageHandler handler, bool enabled = true) =>
+        HttpMessageHandler handler, bool enabled = true, bool animated = false) =>
         new(
             new EmoteHttpClientFactory(handler),
             Options.Create(new ChatOptions
             {
                 Emotes = new ChatEmoteOptions
                 {
-                    Bttv = new BttvEmoteOptions { Enabled = enabled },
+                    Bttv = new EmoteProviderOptions { Enabled = enabled },
+                    Animated = animated,
                 },
             }));
 }

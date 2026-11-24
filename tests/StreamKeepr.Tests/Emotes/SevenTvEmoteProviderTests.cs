@@ -84,7 +84,7 @@ public sealed class SevenTvEmoteProviderTests
         IReadOnlyList<EmoteCatalogEntry> entries =
             await provider.GetGlobalAsync(CancellationToken.None);
 
-        EmoteImageSet still = provider.GetStaticImage(entries[0]);
+        EmoteImageSet still = provider.GetImageSet(entries[0]);
         Assert.Equal($"https://cdn.7tv.app/emote/{StaticId}/1x.webp", still.Src);
         Assert.Equal(
             $"https://cdn.7tv.app/emote/{StaticId}/1x.webp 1x, " +
@@ -92,7 +92,7 @@ public sealed class SevenTvEmoteProviderTests
             $"https://cdn.7tv.app/emote/{StaticId}/3x.webp 3x",
             still.SrcSet);
 
-        EmoteImageSet animated = provider.GetStaticImage(entries[1]);
+        EmoteImageSet animated = provider.GetImageSet(entries[1]);
         Assert.Equal($"https://cdn.7tv.app/emote/{AnimatedId}/1x_static.webp", animated.Src);
         Assert.Equal(
             $"https://cdn.7tv.app/emote/{AnimatedId}/1x_static.webp 1x, " +
@@ -341,7 +341,7 @@ public sealed class SevenTvEmoteProviderTests
     }
 
     [Fact]
-    public async Task A_body_above_two_mebibytes_but_inside_the_cap_is_accepted()
+    public async Task A_three_mebibyte_body_is_accepted()
     {
         // The largest measured 7TV channel catalog is 2.38 MB; the shared cap has to admit it.
         const int padding = 3 * 1024 * 1024;
@@ -362,6 +362,35 @@ public sealed class SevenTvEmoteProviderTests
             await provider.GetGlobalAsync(CancellationToken.None);
 
         Assert.Equal(["ppL"], entries.Select(entry => entry.Code));
+    }
+
+    [Fact]
+    public async Task A_three_mebibyte_channel_body_is_accepted()
+    {
+        const int padding = 3 * 1024 * 1024;
+        string userJson = JsonSerializer.Serialize(new
+        {
+            id = "71092938",
+            emote_set_id = "01FE9DRF000009TR6M9N941CYW",
+            emote_set = new
+            {
+                pad = new string('x', padding),
+                emotes = new object[]
+                {
+                    new { id = StaticId, name = "ppL", flags = 0, data = new { animated = false } },
+                },
+            },
+        });
+
+        var handler = new StubHttpMessageHandler(
+            (_, _) => Task.FromResult(EmoteTestData.Json(userJson)));
+        SevenTvEmoteProvider provider = CreateProvider(handler);
+
+        IReadOnlyList<EmoteCatalogEntry> entries =
+            await provider.GetChannelAsync("71092938", CancellationToken.None);
+
+        Assert.Equal(["ppL"], entries.Select(entry => entry.Code));
+        Assert.Single(handler.Requests);
     }
 
     [Theory]
@@ -392,15 +421,34 @@ public sealed class SevenTvEmoteProviderTests
         Assert.Empty(handler.Requests);
     }
 
+    [Fact]
+    public async Task Animated_entries_use_the_animated_asset_when_animation_is_enabled()
+    {
+        var handler = new StubHttpMessageHandler(
+            (_, _) => Task.FromResult(EmoteTestData.Json(GlobalJson)));
+        SevenTvEmoteProvider provider = CreateProvider(handler, animated: true);
+
+        IReadOnlyList<EmoteCatalogEntry> entries =
+            await provider.GetGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(
+            $"https://cdn.7tv.app/emote/{AnimatedId}/1x.webp",
+            provider.GetImageSet(entries[1]).Src);
+        Assert.Equal(
+            $"https://cdn.7tv.app/emote/{StaticId}/1x.webp",
+            provider.GetImageSet(entries[0]).Src);
+    }
+
     private static SevenTvEmoteProvider CreateProvider(
-        HttpMessageHandler handler, bool enabled = true) =>
+        HttpMessageHandler handler, bool enabled = true, bool animated = false) =>
         new(
             new EmoteHttpClientFactory(handler),
             Options.Create(new ChatOptions
             {
                 Emotes = new ChatEmoteOptions
                 {
-                    SevenTv = new SevenTvEmoteOptions { Enabled = enabled },
+                    SevenTv = new EmoteProviderOptions { Enabled = enabled },
+                    Animated = animated,
                 },
             }));
 }

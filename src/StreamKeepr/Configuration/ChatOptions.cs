@@ -50,20 +50,21 @@ public sealed class ChatOptions
 }
 
 /// <summary>Third-party emote rendering in chat replay; off by default.</summary>
-/// <summary>Third-party emote rendering in chat replay; off by default.</summary>
 public sealed class ChatEmoteOptions
 {
-    public BttvEmoteOptions Bttv { get; set; } = new();
+    public EmoteProviderOptions Bttv { get; set; } = new();
 
-    public SevenTvEmoteOptions SevenTv { get; set; } = new();
+    public EmoteProviderOptions SevenTv { get; set; } = new();
+
+    /// <summary>
+    /// Loads the animated asset instead of the static first frame. Off by default: BetterTTV's
+    /// animated assets are far larger than its static ones.
+    /// </summary>
+    public bool Animated { get; set; }
 }
 
-public sealed class BttvEmoteOptions
-{
-    public bool Enabled { get; set; }
-}
-
-public sealed class SevenTvEmoteOptions
+/// <summary>One third-party emote provider's switch; each provider reads its own instance.</summary>
+public sealed class EmoteProviderOptions
 {
     public bool Enabled { get; set; }
 }

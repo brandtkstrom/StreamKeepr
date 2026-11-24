@@ -77,20 +77,22 @@ Sizes are the reason the shared 2 MiB response cap had to change: the largest sa
 
 - **`name` at the set-entry level is the code viewers type.** It differs from `data.name` for renamed emotes: 154 of the 969 entries in the sampled channel, and 4 of the 45 global entries (`(7TV)` for `7tvM`, `sevenTV` for `7tv`, `nanaAYAYA` for `AYAYA`, `7Cinema` for `Cinema`). Reading the nested name would break roughly one emote in six.
 - **`flags` means different things at the two levels.** A set entry's bit 0 is zero-width (28 of 969 channel entries, 3 of 45 global). The nested emote's flags only ever carried `0` or `256` (animated); bit 0 never appeared there. Zero-width detection must read the set entry.
-- **`animated` lives in `data`.** It is the only signal that decides which static file name is valid.
+- **`animated` lives in `data`.** It decides which image file name is valid: the still frame of an animated emote, or the animated asset itself.
 - **`state` (`LISTED`, `PERSONAL`, `NO_PERSONAL`) is a listing state, not a viewer restriction.** 676 channel entries were `PERSONAL` and 81 `NO_PERSONAL`; the sampled sets were usable. Unlike BetterTTV's `restrictions`, no entry is dropped for having a state.
 - No entry had a null `data`, an empty name, or a space in the name. Names were 2–77 characters, ASCII only. The cap in force is 128 characters.
 - One set can list the **same emote ID twice** under one code (3 cases: `Listening`, `o7`, `retardJAM`). Aggregated first-wins dedupe absorbs it; nothing should assert per-set uniqueness.
 
 ### 3.2 Emote IDs
 
-7TV emote and emote-set IDs are 26-character ULIDs. Crockford's base32 alphabet (digits and uppercase minus `I`, `L`, `O`, `U`) is a subset of `[0-9A-Z]`, so the implementation accepts the superset: it cannot reject a real ID, and it still pins length and alphabet so the ID remains one path segment of a fixed template. A BetterTTV-shaped 24-hex ID is rejected, which matters because the shared usability check re-runs over every provider's entries.
+7TV emote and emote-set IDs are 26-character ULIDs. Crockford's base32 alphabet (digits and uppercase minus `I`, `L`, `O`, `U`) is a subset of `[0-9A-Z]`, so the implementation accepts the superset: it cannot reject a real ID, and it still pins length and alphabet so the ID remains one path segment of a fixed template. The 7TV-specific rule rejects a BetterTTV-shaped 24-hex ID, while the shared usability check — which re-runs over every provider's entries — accepts either provider's shape.
 
 ## 4. CDN behavior
 
 | Asset | Status | Bytes | Headers |
 |---|---|---|---|
 | `/emote/{id}/1x.webp` (animated) | `200` | 13,620 | `image/webp`, `access-control-allow-origin: *`, `cache-control: public, max-age=31536000, s-maxage=86400, immutable` |
+| `/emote/{id}/2x.webp` (animated) | `200` | 35,988 | same |
+| `/emote/{id}/3x.webp` (animated) | `200` | 65,068 | same |
 | `/emote/{id}/1x_static.webp` (animated, first frame) | `200` | 890 | same |
 | `/emote/{id}/2x_static.webp` | `200` | 2,434 | same |
 | `/emote/{id}/3x_static.webp` | `200` | 4,356 | same |
@@ -99,6 +101,7 @@ Sizes are the reason the shared 2 MiB response cap had to change: the largest sa
 - **Static-first uses the `_static` suffix**, not a path folder. `1x.webp` on an animated emote is the 15-frame animation. A non-animated emote has no `_static` file, so the URL shape is chosen from `animated`.
 - The CDN sends `access-control-allow-origin: *`, unlike BetterTTV's CDN. `crossorigin="anonymous"` would therefore work for 7TV, but the pane does not set it: the accepted posture is an ordinary no-CORS `<img>` load, and provider cookies remain an accepted residual risk (ADR 0011).
 - The image response is immutable for a year, so a wrong URL is expensive to discover in production; the URL shape is covered by tests instead.
+- **Animation is a second URL shape, not a second pipeline.** With `Chat:Emotes:Animated` on, both providers return the animated asset (`1x.webp` for 7TV, the folder-less path for BetterTTV); with it off, 7TV returns the still frame and BetterTTV returns its `static/` path. The pane needed no change. BetterTTV's animated assets are still the 0.9–3.8 MB measured in the sibling memo, which is why the switch defaults to off.
 
 ## 5. Cost at replay time
 
@@ -120,6 +123,7 @@ Accepted consequence: the fetch grows to roughly 390 KB for the largest channels
 4. Accept 26-character `[0-9A-Z]` IDs in the shared usability check alongside BetterTTV's 24 hex.
 5. Treat a channel `404` (no profile, or a removed set) as an empty channel catalog; treat a follow-up set failure as a channel-scope failure.
 6. Keep the response cap shared at 4 MiB.
+7. Serve the animated asset only when `Chat:Emotes:Animated` is enabled, and keep the static rendering as the default.
 
 ## 8. Sources
 
