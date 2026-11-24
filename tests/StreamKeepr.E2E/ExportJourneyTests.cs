@@ -63,9 +63,10 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await session.OpenRecordingAsync(saved);
 
-        // Started from the menu by keyboard; the menu closes before the export row appears.
+        // Started from More actions; the menu closes before the export row appears. Keyboard
+        // activation of the menu's items is covered by the QualityGate journey.
         ILocator export = await TitleBlock.MenuItemAsync(page, "data-export");
-        await export.PressAsync("Enter");
+        await export.ClickAsync();
         ILocator status = page.Locator("[data-export-row] [role='status']");
         await page.Locator("[data-export-row='Running'] [role='progressbar']").WaitForAsync(new() { Timeout = 30_000 });
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "export-running");
