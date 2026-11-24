@@ -1,5 +1,7 @@
 # Research memo: MudX Chat components for the chat replay pane
 
+Written against .NET 10 and the `aspnet:10.0.14` image. Not re-verified against .NET 11 after the 2026-11-23 upgrade; framework behaviour cited here may have changed.
+
 Status: research memo, 2026-11-20.
 Issue: none at research time. The request was "Modify the chat component to use the 'Chat' components from the MudX package. Full Blazor rewrite to include MudX. Chat messages should scroll smoothly."
 Binding: no. This memo informs a decision and changes nothing. Adopting MudX means adding a dependency. That is a high-impact decision (`AGENTS.md`, Definitions) and needs an ADR or decision-digest entry. A "full Blazor rewrite" of the pane would also amend `docs/frontend-foundation-contract.md` §11, `docs/player-contract.md` (the `sk:chat`/`sk:playhead` bridge) and `design-system/components/ChatPane/README.md`.

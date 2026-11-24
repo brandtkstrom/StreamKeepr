@@ -115,7 +115,7 @@ axe. It needs ffmpeg and Google Chrome; install the Playwright browser dependenc
 
 ```bash
 dotnet build tests/StreamKeepr.E2E
-pwsh tests/StreamKeepr.E2E/bin/Debug/net10.0/playwright.ps1 install --with-deps chrome
+pwsh tests/StreamKeepr.E2E/bin/Debug/net11.0/playwright.ps1 install --with-deps chrome
 dotnet test tests/StreamKeepr.E2E
 ```
 

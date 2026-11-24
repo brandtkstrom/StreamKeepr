@@ -137,14 +137,14 @@ long-lived routes out of HTTP metrics.
 
 ### Dockerfile
 
-- Build stage: `mcr.microsoft.com/dotnet/sdk:10.0.103` (the newest published 10.0.1xx tag; `10.0.114` was never published); copy only `src/StreamKeepr/StreamKeepr.csproj`, restore, copy `src/`, publish Release.
-- Runtime stage: `mcr.microsoft.com/dotnet/aspnet:10.0.14`; install `python3`, `python3-venv`, `curl`; create `/opt/streamlink` venv and install the pinned Streamlink; copy static `ffmpeg` and `ffprobe`.
+- Build stage: `mcr.microsoft.com/dotnet/sdk:11.0.100` (the newest published 11.0.1xx tag); copy only `src/StreamKeepr/StreamKeepr.csproj`, restore, copy `src/`, publish Release.
+- Runtime stage: `mcr.microsoft.com/dotnet/aspnet:11.0.0`; install `python3`, `python3-venv`, `curl`; create `/opt/streamlink` venv and install the pinned Streamlink; copy static `ffmpeg` and `ffprobe`.
 - `ENV PATH="/opt/streamlink/bin:${PATH}"`, `Storage__RecordingsRoot=/recordings`.
 - Create `/recordings`, `chown "$APP_UID:$APP_UID"`, `USER $APP_UID`, `EXPOSE 8080`.
 - `HEALTHCHECK` as above; `ENTRYPOINT ["dotnet", "StreamKeepr.dll"]`.
 - Only `src/` enters the build; tests, secrets, recordings, and docs never enter an image layer.
 
-Pinned versions: .NET SDK `10.0.103`, ASP.NET runtime `10.0.14`, Streamlink `8.6.3`, static FFmpeg/ffprobe `9.0.2-1`, CliWrap `3.10.5`, Resilience `10.11.0`, OAuth `10.1.0`, Serilog.AspNetCore `10.0.0`, OpenTelemetry `1.21.0` (`Extensions.Hosting`, `Exporter.OpenTelemetryProtocol`, `Instrumentation.AspNetCore`, `Instrumentation.Http`). Test-only: `OpenTelemetry.Exporter.InMemory` `1.21.0` and `Microsoft.Extensions.Diagnostics.Testing` `10.11.0`. Update deliberately; Streamlink is the one to watch and the build arg allows a bump.
+Pinned versions: .NET SDK `11.0.100`, ASP.NET runtime `11.0.0`, Streamlink `8.6.3`, static FFmpeg/ffprobe `9.0.2-1`, CliWrap `3.10.5`, Resilience `10.11.0`, OAuth `11.0.0`, Serilog.AspNetCore `11.0.0`, OpenTelemetry `1.21.0` (`Extensions.Hosting`, `Exporter.OpenTelemetryProtocol`, `Instrumentation.AspNetCore`, `Instrumentation.Http`). Test-only: `OpenTelemetry.Exporter.InMemory` `1.21.0` and `Microsoft.Extensions.Diagnostics.Testing` `11.0.1`. Update deliberately; Streamlink is the one to watch and the build arg allows a bump.
 
 ### `.dockerignore`
 

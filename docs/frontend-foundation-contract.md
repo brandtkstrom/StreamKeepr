@@ -11,7 +11,7 @@ The frontend foundation is the Blazor Web App host, routes, app shell, design-sy
 ## 2. Project and rendering
 
 - `src/StreamKeepr/StreamKeepr.csproj` is `Microsoft.NET.Sdk.Web`; one project holds `Components/`, `Ui/`, `Mock/`, and `wwwroot/`, plus `Program.cs` and `appsettings.json`.
-- Blazor Web App on .NET 10 with Interactive Server and prerendering.
+- Blazor Web App on .NET 11 with Interactive Server and prerendering.
 - `App.razor` is the static document shell: `HeadOutlet`, `<ImportMap />`, the template reconnect UI, and the CSS links.
 - `Routes.razor` is rendered with `@rendermode="InteractiveServer"`; one interactive boundary for the shell and page. `Home.razor` handles both routes.
 - `MapStaticAssets()` serves CSS/JS/fonts; `MapRazorComponents<App>().AddInteractiveServerRenderMode()` maps the UI. No `UseHttpsRedirection`; the proxy terminates TLS.

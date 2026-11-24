@@ -1,5 +1,7 @@
 # Spike: VAAPI acceleration for the Streamlink/FFmpeg recording image
 
+Written against .NET 10 and the `aspnet:10.0.14` image. Not re-verified against .NET 11 after the 2026-11-23 upgrade; framework behaviour cited here may have changed.
+
 Status: research memo, **no-go for the copy-only recorder**; superseded for the product decision by [`live-transcode-vaapi.md`](live-transcode-vaapi.md) (2026-11-13)
 Issue: [#144](https://github.com/brandtkstrom/StreamKeepr/issues/144) "Spike: evaluate VAAPI GPU acceleration for the Streamlink/FFmpeg recording image"
 Binding: no. This memo informs a decision; it changes no code, image, Compose file, or contract. Scope: research only; no production code, Dockerfile, Compose, or test change.
