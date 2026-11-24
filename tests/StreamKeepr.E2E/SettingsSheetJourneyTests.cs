@@ -10,6 +10,7 @@ namespace StreamKeepr.E2E;
 /// dialog with its now-playing strip).
 /// </summary>
 [Collection(MockAppCollection.Name)]
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class SettingsSheetJourneyTests(MockAppFixture app)
 {
@@ -18,16 +19,16 @@ public sealed class SettingsSheetJourneyTests(MockAppFixture app)
     [Fact]
     public async Task On_desktop_settings_opens_and_closes_beside_a_recording_that_keeps_playing()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
-        string path = await PlayFirstSavedRecordingAsync(page);
+        string path = await PlayFirstSavedRecordingAsync(session);
 
         ILocator banner = page.GetByRole(AriaRole.Banner);
         ILocator toggle = banner.GetByRole(AriaRole.Link, new() { Name = "Settings", Exact = true });
         await toggle.ClickAsync();
 
         // Only the query changes; the page and its player stay.
-        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == path && url.Contains("settings=open", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => new Uri(url).AbsolutePath == path && url.Contains("settings=open", StringComparison.Ordinal));
         ILocator sheet = page.GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true });
         await sheet.Locator("[data-channel]").First.WaitForAsync();
         await Assertions.Expect(toggle).ToHaveAttributeAsync("aria-expanded", "true");
@@ -51,7 +52,7 @@ public sealed class SettingsSheetJourneyTests(MockAppFixture app)
         // Esc closes it, focus returns to the toggle, and playback carried on throughout.
         await page.Keyboard.PressAsync("Escape");
         await sheet.WaitForAsync(new() { State = WaitForSelectorState.Hidden });
-        await page.WaitForURLAsync(url => new Uri(url).PathAndQuery == path);
+        await Journey.WaitForUrlAsync(page, url => new Uri(url).PathAndQuery == path);
         await Assertions.Expect(toggle).ToBeFocusedAsync();
         await Assertions.Expect(toggle).ToHaveAttributeAsync("aria-expanded", "false");
         await AssertStillPlayingAsync(page, "after Esc closed the sheet");
@@ -61,26 +62,26 @@ public sealed class SettingsSheetJourneyTests(MockAppFixture app)
         await sheet.Locator("[data-channel]").First.WaitForAsync();
         await sheet.GetByRole(AriaRole.Button, new() { Name = "Close settings" }).ClickAsync();
         await sheet.WaitForAsync(new() { State = WaitForSelectorState.Hidden });
-        await page.WaitForURLAsync(url => new Uri(url).PathAndQuery == path);
+        await Journey.WaitForUrlAsync(page, url => new Uri(url).PathAndQuery == path);
         await AssertStillPlayingAsync(page, "after Close closed the sheet");
 
         await toggle.ClickAsync();
         await sheet.Locator("[data-channel]").First.WaitForAsync();
         await page.GoBackAsync();
         await sheet.WaitForAsync(new() { State = WaitForSelectorState.Hidden });
-        await page.WaitForURLAsync(url => new Uri(url).PathAndQuery == path);
+        await Journey.WaitForUrlAsync(page, url => new Uri(url).PathAndQuery == path);
         await AssertStillPlayingAsync(page, "after Back closed the sheet");
     }
 
     [Fact]
     public async Task On_a_phone_the_settings_dialog_opens_over_a_playing_recording_and_its_strip_pauses_it()
     {
-        await using Session session = await OpenAsync(
-            app.BaseUrl, viewport: new ViewportSize { Width = 375, Height = 812 }, hasTouch: true);
+        await using Journey session = await OpenAsync(
+            app, viewport: new ViewportSize { Width = 375, Height = 812 }, hasTouch: true);
         IPage page = session.Page;
         await page.Locator("[data-shell][data-layout='compact']").WaitForAsync();
         string href = (await (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow)).GetAttributeAsync("href"))!;
-        await page.GotoAsync($"{app.BaseUrl}{href}");
+        await session.GotoAsync($"{app.BaseUrl}{href}");
         string path = await StartPlaybackAsync(page);
 
         // Watch pages have no bottom bar; the account menu's Settings opens the dialog.
@@ -112,16 +113,15 @@ public sealed class SettingsSheetJourneyTests(MockAppFixture app)
 
         await strip.GetByRole(AriaRole.Button, new() { Name = "Back to the video" }).TapAsync();
         await dialog.WaitForAsync(new() { State = WaitForSelectorState.Detached });
-        await page.WaitForURLAsync(url => new Uri(url).PathAndQuery == path);
+        await Journey.WaitForUrlAsync(page, url => new Uri(url).PathAndQuery == path);
         Assert.True(await VideoAsync<bool>(page, "v => v === window.__skVideo"), "the same video is still on the page");
     }
 
-    private static async Task<string> PlayFirstSavedRecordingAsync(IPage page)
+    private static async Task<string> PlayFirstSavedRecordingAsync(Journey session)
     {
+        IPage page = session.Page;
         ILocator row = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
-        string id = (await row.GetAttributeAsync("data-recording-id"))!;
-        await row.ClickAsync();
-        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == $"/r/{id}");
+        await session.OpenRecordingAsync(row);
         return await StartPlaybackAsync(page);
     }
 

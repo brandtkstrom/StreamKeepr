@@ -6,6 +6,7 @@ using static StreamKeepr.E2E.LibraryJourneyTests;
 namespace StreamKeepr.E2E;
 
 [Collection(MockAppCollection.Name)]
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class PlayerJourneyTests(MockAppFixture app)
 {
@@ -14,7 +15,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Plays_a_finished_recording_with_basic_controls_and_seek()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
 
         var hlsRequests = new List<string>();
@@ -28,7 +29,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
         string first = (await saved.Nth(0).GetAttributeAsync("data-recording-id"))!;
         await saved.Nth(0).ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{first}", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{first}", StringComparison.Ordinal));
         await ExpandLibraryOnWatchPageAsync(page);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
 
@@ -71,7 +72,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         string second = (await next.GetAttributeAsync("data-recording-id"))!;
         string secondTitle = (await next.Locator("[data-row-title]").InnerTextAsync()).Trim();
         await next.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{second}", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{second}", StringComparison.Ordinal));
         await page.WaitForFunctionAsync(
             "t => document.querySelector('[data-sk=title]').textContent === t", secondTitle);
         Assert.True(await Video(page, "v => v.__skMarker === true"));
@@ -83,12 +84,11 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Clicking_the_video_frame_toggles_playback()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
-        await saved.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(saved);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
 
         await page.Locator("[data-sk='center']").ClickAsync();
@@ -109,12 +109,11 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Touch_tap_reveals_controls_without_toggling_playback()
     {
-        await using Session session = await OpenAsync(app.BaseUrl, hasTouch: true);
+        await using Journey session = await OpenAsync(app, hasTouch: true);
         IPage page = session.Page;
         ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
-        await saved.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(saved);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
 
         await page.Locator("[data-sk='center']").TapAsync();
@@ -130,7 +129,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     [Fact]
     public async Task A_failing_playlist_retries_then_offers_retry_that_recovers()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
         string id = (await saved.First.GetAttributeAsync("data-recording-id"))!;
@@ -143,7 +142,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         });
 
         await saved.First.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
 
         ILocator overlay = page.Locator("[data-sk='overlay']");
         await overlay.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
@@ -161,7 +160,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Stats_shows_the_viewer_tile_and_chart_and_the_chart_seeks()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         string href = (await (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow)).GetAttributeAsync("href"))!;
         await page.GotoAsync(new Uri(new Uri(page.Url), href).ToString(),
@@ -238,7 +237,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-viewers");
 
         // On a phone the Stats tab ends with the chart; the tile stacks above the full-width chart.
-        await using Session phone = await OpenAsync(app.BaseUrl, viewport: new() { Width = 375, Height = 812 });
+        await using Journey phone = await OpenAsync(app, viewport: new() { Width = 375, Height = 812 });
         page = phone.Page;
         await page.GotoAsync(new Uri(new Uri(page.Url), href).ToString(),
             new() { WaitUntil = WaitUntilState.DOMContentLoaded });
@@ -263,14 +262,13 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Stats_open_with_the_player_button_samples_and_copies_a_versioned_snapshot()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         await session.Context.GrantPermissionsAsync(["clipboard-read", "clipboard-write"]);
 
         ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
-        await growing.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(growing);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
 
         // The Statistics overlay is inside the player's frame, so it shows in fullscreen too.
@@ -419,7 +417,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             """() => decodeURIComponent(document.cookie).includes('"stats":true')""",
             null,
             new PageWaitForFunctionOptions { Timeout = 10_000 });
-        await page.ReloadAsync();
+        await session.ReloadAsync();
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
         Assert.Equal("true", await panel.GetAttributeAsync("data-open"));
         Assert.Equal("true", await playerButton.GetAttributeAsync("aria-pressed"));
@@ -429,14 +427,12 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     [Fact]
     public async Task A_paused_position_resumes_after_reload_and_shows_a_resume_bar()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator row = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
         string channel = (await page.Locator(LibraryHooks.Column).GetAttributeAsync("data-recordings-column"))!;
-
-        await row.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(row);
         await ExpandLibraryOnWatchPageAsync(page);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
 
@@ -456,7 +452,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         ILocator bar = page.Locator($"{LibraryHooks.Drawer} a[data-recording-id='{id}'] [data-progress] i");
         await bar.WaitForAsync(new() { Timeout = 10_000 });
 
-        await page.ReloadAsync();
+        await session.ReloadAsync();
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
         await WaitForTimeAsync(page, paused, tolerance: 1);
         Assert.True(await Video(page, "v => v.paused"), "resume never autoplays");
@@ -468,14 +464,12 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     [Fact]
     public async Task A_position_left_behind_the_live_edge_resumes_after_reload_until_Live_edge_forgets_it()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
         string channel = (await page.Locator(LibraryHooks.Column).GetAttributeAsync("data-recordings-column"))!;
-
-        await growing.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(growing);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
         ILocator live = page.Locator("[data-sk='live']");
         await live.WaitForAsync(new() { State = WaitForSelectorState.Visible });
@@ -498,7 +492,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             id,
             new() { Timeout = 10_000 });
 
-        await page.ReloadAsync();
+        await session.ReloadAsync();
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
         await live.WaitForAsync(new() { State = WaitForSelectorState.Visible });
         await WaitForTimeAsync(page, paused, tolerance: 1);
@@ -515,7 +509,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             id,
             new() { Timeout = 10_000 });
 
-        await page.ReloadAsync();
+        await session.ReloadAsync();
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
         await live.WaitForAsync(new() { State = WaitForSelectorState.Visible });
         Assert.NotNull(await live.GetAttributeAsync("data-at-edge"));
@@ -524,13 +518,11 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     [Fact]
     public async Task A_growing_capture_opens_near_the_live_edge_follows_and_hands_off_on_endlist()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
-
-        await growing.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(growing);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
 
         ILocator live = page.Locator("[data-sk='live']");
@@ -587,12 +579,11 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Chrome_idles_takes_shortcuts_toggles_theater_and_remembers_preferences()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator row = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
-        await row.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(row);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
         await page.EvaluateAsync("() => document.activeElement?.blur()");
 
@@ -636,7 +627,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.Equal(pipEnabled, await page.Locator("[data-sk='pip']").IsVisibleAsync());
         Assert.Equal("Source", (await page.Locator("[data-quality]").InnerTextAsync()).Trim());
 
-        await page.ReloadAsync();
+        await session.ReloadAsync();
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
         Assert.True(await Video(page, "v => v.muted"), "mute survives a reload");
         Assert.Equal(1.5, await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.playbackRate"));

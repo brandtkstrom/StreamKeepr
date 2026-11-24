@@ -4,18 +4,18 @@ using static StreamKeepr.E2E.LibraryJourneyTests;
 namespace StreamKeepr.E2E;
 
 [Collection(MockAppCollection.Name)]
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class ExportJourneyTests(MockAppFixture app)
 {
     [Fact]
     public async Task An_admin_exports_a_finished_recording_and_downloads_one_mp4()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
-        await saved.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(saved);
 
         ILocator export = await TitleBlock.MenuItemAsync(page, "data-export");
         await export.ClickAsync();
@@ -49,20 +49,19 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         await Feedback.Snackbar(page, "Playlist URL").WaitForAsync();
 
         // A reload rehydrates the row from the service (E-22).
-        await page.ReloadAsync();
+        await session.ReloadAsync();
         await page.Locator("a[data-export-download]").WaitForAsync(new() { Timeout = 20_000 });
     }
 
     [Fact]
     public async Task A_running_export_can_be_cancelled_and_retried()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         // A different finished recording from the download journey, so the two never share a job.
         ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow, index: 1));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
-        await saved.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(saved);
 
         // Started from the menu by keyboard; the menu closes before the export row appears.
         ILocator export = await TitleBlock.MenuItemAsync(page, "data-export");
@@ -87,10 +86,10 @@ public sealed class ExportJourneyTests(MockAppFixture app)
     [Fact]
     public async Task A_live_recording_cannot_be_exported()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
-        ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
-        await growing.ClickAsync();
+        ILocator growing = await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day");
+        await session.OpenRecordingAsync(growing);
 
         ILocator export = await TitleBlock.MenuItemAsync(page, "data-export");
         Assert.Equal("true", await export.GetAttributeAsync("aria-disabled"));
