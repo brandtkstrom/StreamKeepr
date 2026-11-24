@@ -165,7 +165,7 @@ public sealed class BttvEmoteProviderTests
     }
 
     [Fact]
-    public async Task Global_catalog_rejects_a_body_over_two_mebibytes()
+    public async Task Global_catalog_rejects_a_body_over_the_response_cap()
     {
         var handler = new StubHttpMessageHandler((_, _) => Task.FromResult(
             new HttpResponseMessage(HttpStatusCode.OK)
@@ -378,7 +378,7 @@ public sealed class BttvEmoteProviderTests
     }
 
     [Fact]
-    public async Task Channel_catalog_rejects_a_body_over_two_mebibytes()
+    public async Task Channel_catalog_rejects_a_body_over_the_response_cap()
     {
         var handler = new StubHttpMessageHandler((_, _) => Task.FromResult(
             EmoteTestData.Json(new string('x', EmoteCatalogRules.MaxResponseBytes + 1))));

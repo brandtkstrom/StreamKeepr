@@ -48,7 +48,10 @@ internal sealed class EmoteHttpClientFactory(HttpMessageHandler handler) : IHttp
     public HttpClient CreateClient(string name) =>
         new(handler, disposeHandler: false)
         {
-            BaseAddress = new Uri(EmoteHttpClients.BttvBaseAddress),
+            BaseAddress = new Uri(
+                name == EmoteHttpClients.SevenTv
+                    ? EmoteHttpClients.SevenTvBaseAddress
+                    : EmoteHttpClients.BttvBaseAddress),
         };
 }
 

@@ -49,6 +49,7 @@ public sealed class WebAppSmokeTests
 
         var chat = factory.Services.GetRequiredService<IOptions<ChatOptions>>().Value;
         Assert.False(chat.Emotes.Bttv.Enabled);
+        Assert.False(chat.Emotes.SevenTv.Enabled);
     }
 
     [Fact]

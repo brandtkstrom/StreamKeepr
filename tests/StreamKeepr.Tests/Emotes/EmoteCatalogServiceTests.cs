@@ -330,6 +330,48 @@ public sealed class EmoteCatalogServiceTests
     }
 
     [Fact]
+    public async Task A_seven_tv_ulid_survives_the_shared_usability_check()
+    {
+        var provider = new StubEmoteProvider
+        {
+            Id = "7tv",
+            Global = _ => Succeed(
+                EmoteTestData.Entry(id: "01GGD5PJA8000FH13S498E9D8X", code: "ppL")),
+        };
+        EmoteCatalogService service = Create([provider]);
+
+        EmoteCatalogResult result = await service.GetCatalogAsync("chan", CancellationToken.None);
+
+        EmoteCatalogItem item = Assert.Single(result.Entries);
+        Assert.Equal("ppL", item.Entry.Code);
+        Assert.Equal("01GGD5PJA8000FH13S498E9D8X", item.Entry.Id);
+    }
+
+    [Fact]
+    public async Task A_duplicate_code_across_betterttv_and_seven_tv_keeps_the_first_provider()
+    {
+        var bttv = new StubEmoteProvider
+        {
+            Id = "bttv",
+            Global = _ => Succeed(
+                EmoteTestData.Entry(id: "54fa8f1401e468494b85b537", code: "KEKW")),
+        };
+        var sevenTv = new StubEmoteProvider
+        {
+            Id = "7tv",
+            Global = _ => Succeed(
+                EmoteTestData.Entry(id: "01GGD5PJA8000FH13S498E9D8X", code: "KEKW")),
+        };
+        EmoteCatalogService service = Create([bttv, sevenTv]);
+
+        EmoteCatalogResult result = await service.GetCatalogAsync("chan", CancellationToken.None);
+
+        EmoteCatalogItem item = Assert.Single(result.Entries);
+        Assert.Equal("bttv", item.Provider);
+        Assert.Equal("54fa8f1401e468494b85b537", item.Entry.Id);
+    }
+
+    [Fact]
     public async Task Each_provider_global_catalog_is_capped_at_two_thousand_entries()
     {
         EmoteCatalogEntry[] entries = Enumerable.Range(0, 2_001)

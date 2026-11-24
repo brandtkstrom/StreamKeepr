@@ -36,5 +36,5 @@ internal sealed class MockEmoteProvider : IEmoteProvider
         Task.FromResult<IReadOnlyList<EmoteCatalogEntry>>([]);
 
     public EmoteImageSet GetStaticImage(EmoteCatalogEntry entry) =>
-        StaticEmoteImage.Create(ImageHost, entry);
+        BttvStaticEmoteImage.Create(ImageHost, entry);
 }

@@ -30,7 +30,18 @@ Chat replay already renders Twitch emotes from the IRC `emotes` tag: the parser 
 
 - StreamKeepr gains runtime dependencies on `api.betterttv.net` (server) and `cdn.betterttv.net` (browser). The browser discloses the viewer's IP and user agent to NightDev. The BetterTTV terms are broad; private-home, non-commercial use is accepted, not legally cleared.
 - Old recordings render the current channel catalog: renamed, reused, or deleted codes drift to another emote or to text.
-- Adding 7TV is a provider implementation plus registration; the endpoint, response shape, client matcher, and tests remain.
+- Adding 7TV is a provider implementation plus registration; the endpoint, response shape, client matcher, and tests remain. (The addendum below records what this understated.)
 - No session-store or chat-log schema change.
 - Third-party rendering is optional; chat text and Twitch emotes remain the fallback.
 - Provider image requests are ordinary no-CORS `<img>` loads. The pane sends no explicit credentials, but the browser may attach any provider cookies it already holds; that is an accepted residual risk for the private-home deployment. `crossorigin="anonymous"` would prevent the cookies but breaks because the CDN sends no `Access-Control-Allow-Origin`.
+
+## Addendum: 7TV as the second provider (2026-11-24)
+
+Status: accepted, tracked in issue #272. This addendum records what shipping the second provider changed; it does not reopen the decision above.
+
+- **7TV ships behind `Chat:Emotes:SevenTv:Enabled=false`.** It is registered after BetterTTV, so registration order gives BetterTTV precedence for a shared code and no ordering code was needed.
+- **API v3 is the only usable read surface.** `GET /v3/emote-sets/global` and `GET /v3/users/twitch/{id}` answer unauthenticated and without deprecation signals on `api.7tv.app` (the documented host, which this change uses) and on `7tv.io`. The v4 REST surface answers "route not found" for both catalog routes, and GQL v4 is not a REST catalog. Accepting v3 is a deliberate, reversible dependency, documented in `docs/research/7tv-emotes.md`.
+- **The response-body cap rose from 2 MiB to 4 MiB for every provider.** A full 7TV channel catalog measured 2,380,529 bytes for 969 emotes, because each entry carries a deep owner/connection graph. The cap stayed a single shared constant rather than becoming per-provider; the BetterTTV bound is looser as a result, which is accepted because both bodies are still untrusted input bounded before parsing.
+- **Static images are provider-shaped.** 7TV names a static frame `{size}_static.webp` and only publishes it for animated emotes; a non-animated emote has no `_static` file. BetterTTV's helper therefore stopped pretending to be provider-neutral and each provider builds its own URLs.
+- **Provider emote IDs are provider-shaped.** The shared usability check now accepts BetterTTV's 24-hex form and 7TV's 26-character ULID; a single shape would have silently dropped every emote from one provider.
+- **Owner accepted the `cdn.7tv.app` dependency and 7TV's terms and artwork rights** under the same private-home, non-commercial posture as BetterTTV in the decision above. The browser discloses the viewer's IP and user agent to 7TV's CDN; no image proxy was added. Not legal advice.

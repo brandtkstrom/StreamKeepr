@@ -51,6 +51,16 @@ public sealed class EmoteEndpointTests
         }
         """;
 
+    private const string SevenTvGlobalJson = """
+        {
+          "id": "01HKQT8EWR000ESSWF3625XCS4",
+          "name": "Global Emotes",
+          "emotes": [
+            { "id": "01GGD5PJA8000FH13S498E9D8X", "name": "ppL", "flags": 0, "data": { "name": "ppL", "animated": false } }
+          ]
+        }
+        """;
+
     [Fact]
     public async Task Enabled_endpoint_returns_the_global_catalog_envelope()
     {
@@ -334,16 +344,61 @@ public sealed class EmoteEndpointTests
         Assert.Equal(["SHARED", "CHANNEL"], codes);
     }
 
+    [Fact]
+    public async Task Seven_tv_entries_follow_betterttv_entries_with_their_own_image_urls()
+    {
+        var handler = new StubHttpMessageHandler((request, _) => Task.FromResult(
+            request.RequestUri!.Host == "api.7tv.app"
+                ? EmoteTestData.Json(SevenTvGlobalJson)
+                : EmoteTestData.Json(GlobalJson)));
+        using StreamKeeprAppFactory factory = CreateFactory(
+            handler, enabled: true, sevenTv: true);
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response =
+            await client.GetAsync($"/api/recordings/{Summary.Id}/emotes");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement[] entries = json.RootElement.GetProperty("entries")
+            .EnumerateArray()
+            .ToArray();
+        Assert.Equal(["bttv", "7tv"], entries.Select(entry => entry.GetProperty("provider").GetString()));
+        Assert.Equal(["KEKW", "ppL"], entries.Select(entry => entry.GetProperty("code").GetString()));
+        Assert.Equal(
+            "https://cdn.7tv.app/emote/01GGD5PJA8000FH13S498E9D8X/1x.webp",
+            entries[1].GetProperty("src").GetString());
+    }
+
+    [Fact]
+    public async Task A_disabled_seven_tv_provider_makes_no_request()
+    {
+        var handler = new StubHttpMessageHandler(
+            (_, _) => Task.FromResult(EmoteTestData.Json(GlobalJson)));
+        using StreamKeeprAppFactory factory = CreateFactory(handler, enabled: true);
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response =
+            await client.GetAsync($"/api/recordings/{Summary.Id}/emotes");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain(
+            handler.Requests,
+            request => request.RequestUri?.Host == "api.7tv.app");
+    }
+
     private static StreamKeeprAppFactory CreateFactory(
         HttpMessageHandler handler,
         bool enabled,
         TimeProvider? clock = null,
         FakeEmoteChannelResolver? resolver = null,
-        ScriptedStreamPoller? poller = null)
+        ScriptedStreamPoller? poller = null,
+        bool sevenTv = false)
     {
         var overrides = new Dictionary<string, string?>
         {
             [$"{ChatOptions.SectionName}:Emotes:Bttv:Enabled"] = enabled ? "true" : "false",
+            [$"{ChatOptions.SectionName}:Emotes:SevenTv:Enabled"] = sevenTv ? "true" : "false",
         };
 
         var factory = new StreamKeeprAppFactory(
@@ -351,6 +406,8 @@ public sealed class EmoteEndpointTests
             configureTestServices: services =>
             {
                 services.AddHttpClient(EmoteHttpClients.Bttv)
+                    .ConfigurePrimaryHttpMessageHandler(() => handler);
+                services.AddHttpClient(EmoteHttpClients.SevenTv)
                     .ConfigurePrimaryHttpMessageHandler(() => handler);
                 if (poller is not null)
                 {

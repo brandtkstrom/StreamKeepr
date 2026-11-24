@@ -45,7 +45,7 @@ internal sealed class BttvEmoteProvider(
         if (!response.IsSuccessStatusCode)
             throw Failure(response, "global");
 
-        byte[] body = await ReadBodyAsync(response, ct);
+        byte[] body = await EmoteResponseBody.ReadAsync(response, TooLarge, ct);
         BttvEmote[]? emotes;
         try
         {
@@ -72,7 +72,7 @@ internal sealed class BttvEmoteProvider(
         if (!response.IsSuccessStatusCode)
             throw Failure(response, "channel");
 
-        byte[] body = await ReadBodyAsync(response, ct);
+        byte[] body = await EmoteResponseBody.ReadAsync(response, TooLarge, ct);
         BttvChannel? payload;
         try
         {
@@ -99,7 +99,7 @@ internal sealed class BttvEmoteProvider(
         foreach (BttvEmote? emote in emotes)
         {
             if (emote is null ||
-                !EmoteCatalogRules.IsValidEmoteId(emote.Id) ||
+                !EmoteCatalogRules.IsValidBttvEmoteId(emote.Id) ||
                 !EmoteCatalogRules.IsValidCode(emote.Code) ||
                 emote.Modifier ||
                 HasRestrictions(emote.Restrictions))
@@ -132,32 +132,11 @@ internal sealed class BttvEmoteProvider(
         };
     }
 
-    private static async Task<byte[]> ReadBodyAsync(
-        HttpResponseMessage response, CancellationToken ct)
-    {
-        if (response.Content.Headers.ContentLength is > EmoteCatalogRules.MaxResponseBytes)
-            throw TooLarge();
-
-        await using Stream stream = await response.Content.ReadAsStreamAsync(ct);
-        using var buffer = new MemoryStream();
-        byte[] chunk = new byte[81_920];
-        int read;
-        while ((read = await stream.ReadAsync(chunk, ct)) > 0)
-        {
-            if (buffer.Length + read > EmoteCatalogRules.MaxResponseBytes)
-                throw TooLarge();
-
-            buffer.Write(chunk, 0, read);
-        }
-
-        return buffer.ToArray();
-    }
-
     private static EmoteProviderException TooLarge() =>
         new(
             ProviderId,
             httpStatus: null,
-            "BetterTTV catalog response exceeded two mebibytes.",
+            "BetterTTV catalog response exceeded the response size limit.",
             EmoteProviderFailureKind.TooLarge);
 
     private static EmoteProviderException Failure(HttpResponseMessage response, string scope) =>
@@ -174,7 +153,7 @@ internal sealed class BttvEmoteProvider(
             EmoteProviderFailureKind.InvalidPayload);
 
     public EmoteImageSet GetStaticImage(EmoteCatalogEntry entry) =>
-        StaticEmoteImage.Create("https://cdn.betterttv.net", entry);
+        BttvStaticEmoteImage.Create("https://cdn.betterttv.net", entry);
 }
 
 internal sealed record BttvEmote(

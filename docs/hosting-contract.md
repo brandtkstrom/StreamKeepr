@@ -60,7 +60,7 @@ The Auth column is for an empty `Auth:AllowedTwitchLogins`. With a non-empty lis
 
 The Blazor circuit actions (delete, export start, settings, stop/resume) enforce authorization in the scoped service layer as well as the UI; a disabled button is never the only guard.
 
-Third-party emote rendering adds two runtime dependencies for each enabled provider. With BetterTTV enabled, the server fetches `https://api.betterttv.net` over HTTPS (unauthenticated, five-minute cache, three-second bound), and the browser loads static images from `https://cdn.betterttv.net` with `referrerpolicy="no-referrer"`. Neither changes the media allowlist; `chat/` remains unserved. Adding 7TV later adds its own API/CDN pair and updates this map.
+Third-party emote rendering adds two runtime dependencies for each enabled provider. With BetterTTV enabled, the server fetches `https://api.betterttv.net` over HTTPS (unauthenticated, five-minute cache, three-second bound), and the browser loads static images from `https://cdn.betterttv.net` with `referrerpolicy="no-referrer"`. With 7TV enabled, the server fetches `https://api.7tv.app` the same way (v3 emote-set and user routes, unauthenticated, same cache and bound) and the browser loads static images from `https://cdn.7tv.app`. Neither changes the media allowlist; `chat/` remains unserved.
 
 ## 4. Media surface
 

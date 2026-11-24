@@ -50,12 +50,20 @@ public sealed class ChatOptions
 }
 
 /// <summary>Third-party emote rendering in chat replay; off by default.</summary>
+/// <summary>Third-party emote rendering in chat replay; off by default.</summary>
 public sealed class ChatEmoteOptions
 {
     public BttvEmoteOptions Bttv { get; set; } = new();
+
+    public SevenTvEmoteOptions SevenTv { get; set; } = new();
 }
 
 public sealed class BttvEmoteOptions
+{
+    public bool Enabled { get; set; }
+}
+
+public sealed class SevenTvEmoteOptions
 {
     public bool Enabled { get; set; }
 }

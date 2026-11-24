@@ -49,8 +49,12 @@ internal sealed record EmoteImageSet(string Src, string SrcSet);
 /// Builds the shared 1x/2x/3x static-image URL shape. Providers differ only by CDN host;
 /// keeping one builder makes the URL contract single-sourced (SEC-003).
 /// </summary>
-internal static class StaticEmoteImage
+internal static class BttvStaticEmoteImage
 {
+    /// <summary>
+    /// Builds BetterTTV's static image URLs. The path shape is BetterTTV-specific: other
+    /// providers name their static assets differently, so each provider builds its own.
+    /// </summary>
     /// <param name="host">Absolute CDN origin without a trailing slash.</param>
     public static EmoteImageSet Create(string host, EmoteCatalogEntry entry)
     {
