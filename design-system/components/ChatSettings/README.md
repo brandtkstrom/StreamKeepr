@@ -1,4 +1,4 @@
-Settings › Chat: viewer preferences for the chat replay, starting with one Chat sync offset that applies to every recording.
+Settings › Chat: viewer preferences for the chat replay — one Chat sync offset and one Show badge text switch, each applying to every recording.
 
 ## Build it from
 
@@ -9,13 +9,15 @@ Settings › Chat: viewer preferences for the chat replay, starting with one Cha
   - Under it, one line of help in `caption`, `text-secondary`: "Shifts chat on every recording, to match the delay between the stream and its chat."
   - A native `<input type="range">` styled to match `MudSlider Color.Primary`, because `MudSlider` fills from its minimum and cannot fill from the centre. Keyboard is the browser's: ←/→ 0.5 s, Home/End ±30 s.
 - The offset is stored in the viewer's `UiPreferences` (`chatSync`, seconds). Dragging updates the readout live; the offset is saved and applied when the drag ends (`change`), and per key press.
+- **Show badge text**: a native checkbox drawn in `primary` (`accent-color`), led by the `Label` icon and labelled "Show badge text", with one line of help naming the chips it hides. It is the viewer's one switch for the text chips that stand in for badges (MOD, SUB, VIP and the rest); it is not a badge-image switch. Stored in `UiPreferences` (`chatShowBadgeText`, on by default). A change persists and applies to an open chat pane at once: nothing refetches, and the log keeps its scroll position.
 
 ## Rules
 
 - One offset for every recording. There is no per-recording offset.
+- The badge text switch hides only the text chips. Badge images are a separate, later surface; this switch does not gate them.
 - The Settings sheet opens over a playing recording, so a change applies to the open chat pane at once: the pane refetches around the playhead with the new offset. Playback never stops.
 - Positive shows chat later, negative earlier, the same sign the chat endpoint's `syncOffsetSec` takes.
 
 ## Later (planned, not built)
 
-Further rows in this section, each app-wide like Chat sync: font size, link highlighting, message highlights (on/off), and channel badges (on/off).
+Further rows in this section, each app-wide like Chat sync: font size, link highlighting, and message highlights (on/off).

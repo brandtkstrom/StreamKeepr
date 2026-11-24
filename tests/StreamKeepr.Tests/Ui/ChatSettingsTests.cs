@@ -107,4 +107,40 @@ public sealed class ChatSettingsTests
         // Reset is the one move the server makes: a new slider, at 0.
         Assert.Equal("0", cut.Find("[data-chat-sync-range]").GetAttribute("value"));
     }
+
+    [Fact]
+    public async Task The_badge_text_row_reads_and_saves_the_preference()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out _);
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
+        IRenderedComponent<ChatSettings> cut = context.Render<ChatSettings>();
+
+        IElement toggle = cut.Find("[data-chat-badge-text]");
+        Assert.Equal("checkbox", toggle.GetAttribute("type"));
+        Assert.True(toggle.HasAttribute("checked"));
+        Assert.Equal("Show badge text", toggle.ParentElement!.TextContent.Trim());
+        IElement help = cut.Find("[data-chat-badge-text-help]");
+        Assert.Equal(help.Id, toggle.GetAttribute("aria-describedby"));
+        Assert.Contains("MOD, SUB, VIP", help.TextContent, StringComparison.Ordinal);
+
+        toggle.Change(false);
+
+        Assert.False(preferences.ChatShowBadgeText);
+        Assert.False(cut.Find("[data-chat-badge-text]").HasAttribute("checked"));
+        JSRuntimeInvocation write = Assert.Single(
+            context.JSInterop.Invocations, call => call.Identifier == "skPrefs.writeUi");
+        var state = Assert.IsType<UiPreferencesState>(Assert.Single(write.Arguments));
+        Assert.False(state.ChatShowBadgeText);
+    }
+
+    [Fact]
+    public async Task The_badge_text_row_shows_an_off_preference()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out _);
+        context.Services.GetRequiredService<UiPreferences>().SetChatShowBadgeText(false);
+
+        IRenderedComponent<ChatSettings> cut = context.Render<ChatSettings>();
+
+        Assert.False(cut.Find("[data-chat-badge-text]").HasAttribute("checked"));
+    }
 }

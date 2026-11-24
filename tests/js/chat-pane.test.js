@@ -1261,6 +1261,68 @@ describe("chat replay pane", () => {
       pane.dispose();
     });
   });
+
+  it("toggles the badge text state without refetching or rebuilding the log", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const badges = [
+      { set: "moderator", version: "1", info: null },
+      { set: "subscriber", version: "12", info: "12" },
+      { set: "glhf-pledge", version: "1", info: null },
+    ];
+    const fetch = fakeFetch({ ...message, badges });
+    const pane = createChatPane(root, { fetch });
+
+    await pane.load({ ...VIEW });
+    playhead(10);
+    await flush();
+
+    const log = root.querySelector("[data-sk='chat-log']");
+    const row = log.querySelector("[data-message-id]");
+    expect(root.dataset.badgeText).toBe("true");
+    expect([...log.querySelectorAll(".sk-chat-badge")].map((chip) => chip.textContent))
+      .toEqual(["MOD", "SUB", "glhf-pledge"]);
+
+    const calls = fetch.mock.calls.length;
+
+    pane.setShowBadgeText(false);
+
+    // The root carries the state the pane rule reads. No refetch, and the row nodes stay put,
+    // so turning it back on needs no rebuild and the viewer keeps their place.
+    expect(root.dataset.badgeText).toBe("false");
+    expect(fetch.mock.calls).toHaveLength(calls);
+    expect(log.querySelector("[data-message-id]")).toBe(row);
+
+    pane.setShowBadgeText(true);
+
+    expect(root.dataset.badgeText).toBe("true");
+  });
+
+  it("keeps the painted badge text when an older payload omits it", async () => {
+    document.body.innerHTML = MARKUP.replace(
+      'data-open="true"', 'data-open="true" data-badge-text="false"');
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, { fetch: fakeFetch() });
+
+    await pane.load({ ...VIEW });
+
+    expect(root.dataset.badgeText).toBe("false");
+  });
+
+  it("starts with the badge text off when the payload says so", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, { fetch: fakeFetch() });
+
+    await pane.load({ ...VIEW, showBadgeText: false });
+
+    expect(root.dataset.badgeText).toBe("false");
+
+    // A recording reload carries the viewer's current value.
+    await pane.load({ ...VIEW, showBadgeText: true });
+
+    expect(root.dataset.badgeText).toBe("true");
+  });
 });
 
 describe("third-party emotes in the pane", () => {

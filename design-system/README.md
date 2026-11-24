@@ -107,6 +107,7 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 | Recording now (live capture) · recent | `Sensors` · `History` |
 | Filter: all · recording · saved | `ViewList` · `FiberManualRecord` (in `rec`) · `Inventory2` |
 | Chapters · stats · chat | `Toc` · `QueryStats` · `Chat` |
+| Chat badge text | `Label` |
 | Video · network · viewers (stream) | `Videocam` · `NetworkCheck` · `Groups`, in their series colours |
 | Category · started · duration · parts · size | `SportsEsports` · `Event` · `Timer` · `FolderOpen` · `Storage` |
 | Twitch account · channels · connection | `ManageAccounts` · `LiveTv` · `Wifi` |

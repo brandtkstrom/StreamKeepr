@@ -209,6 +209,106 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await WaitForOffsetAsync(offsets, "0.000");
     }
 
+    [Fact]
+
+    public async Task Show_badge_text_hides_the_chips_live_and_persists()
+    {
+        await using Journey session = await LibraryJourneyTests.OpenAsync(app);
+        IPage page = session.Page;
+        var chatRequests = new ConcurrentQueue<string>();
+        page.Request += (_, request) =>
+        {
+            if (request.Url.Contains("/chat?", StringComparison.Ordinal))
+                chatRequests.Enqueue(request.Url);
+        };
+
+        ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
+        await session.OpenRecordingAsync(saved);
+        ILocator pane = page.Locator("[data-sk-chat]");
+        if (await pane.GetAttributeAsync("data-open") != "true")
+            await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
+
+        // The seeded chat holds a moderator message and the streamer's broadcaster message.
+        await SeekToChatAsync();
+        ILocator moderatorChip = page.Locator("[data-message-id='seed-1']")
+            .GetByText("MOD", new() { Exact = true });
+        ILocator streamerChip = page.Locator("[data-message-id='seed-streamer']")
+            .GetByText("BROADCASTER", new() { Exact = true });
+        await Assertions.Expect(moderatorChip).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        await Assertions.Expect(streamerChip).ToBeVisibleAsync();
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-badge-text", "true");
+
+        ILocator toggle = await OpenSettingsAsync();
+        await Assertions.Expect(toggle).ToBeCheckedAsync(new() { Timeout = 20_000 });
+
+        while (chatRequests.TryDequeue(out _)) { }
+        await toggle.UncheckAsync();
+        await Assertions.Expect(moderatorChip).ToBeHiddenAsync(new() { Timeout = 10_000 });
+        await Assertions.Expect(streamerChip).ToBeHiddenAsync();
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-badge-text", "false");
+        // Visibility only: the open pane keeps its loaded chat and does not refetch. 300 ms is
+        // several times a keyed fetch's round trip against the local Mock app.
+        await page.WaitForTimeoutAsync(300);
+        Assert.Empty(chatRequests);
+
+        await toggle.CheckAsync();
+        await Assertions.Expect(moderatorChip).ToBeVisibleAsync(new() { Timeout = 10_000 });
+        await Assertions.Expect(streamerChip).ToBeVisibleAsync();
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-badge-text", "true");
+        await page.WaitForTimeoutAsync(300);
+        Assert.Empty(chatRequests);
+
+        await toggle.UncheckAsync();
+        await Assertions.Expect(moderatorChip).ToBeHiddenAsync(new() { Timeout = 10_000 });
+
+        // The preference is the viewer's: a reload keeps it for the pane and for the sheet.
+        await session.ReloadAsync();
+        await Assertions.Expect(page.Locator("[data-sk-chat]"))
+            .ToHaveAttributeAsync("data-badge-text", "false", new() { Timeout = 20_000 });
+        await SeekToChatAsync();
+        ILocator reloadedChip = page.Locator("[data-message-id='seed-1']")
+            .GetByText("MOD", new() { Exact = true });
+        // Attached first: ToBeHidden also passes for a node that is not there at all.
+        await reloadedChip.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 20_000 });
+        await Assertions.Expect(reloadedChip).ToBeHiddenAsync();
+        ILocator reloadedToggle = await OpenSettingsAsync();
+        await Assertions.Expect(reloadedToggle).Not.ToBeCheckedAsync(new() { Timeout = 20_000 });
+
+        // The reload left the setting off; turning it back on restores the chips.
+        await reloadedToggle.CheckAsync();
+        await Assertions.Expect(moderatorChip).ToBeVisibleAsync(new() { Timeout = 10_000 });
+        await Assertions.Expect(page.Locator("[data-sk-chat]"))
+            .ToHaveAttributeAsync("data-badge-text", "true");
+
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "chat-badge-text");
+
+        async Task SeekToChatAsync()
+        {
+            await page.Locator("[data-sk='seek'][aria-disabled='false']")
+                .WaitForAsync(new() { Timeout = 20_000 });
+            ILocator seek = page.Locator("[data-sk='seek']");
+            await seek.FocusAsync();
+            await page.Keyboard.PressAsync("Home");
+            for (int i = 0; i < 4; i++)
+                await page.Keyboard.PressAsync("ArrowRight");
+        }
+
+        async Task<ILocator> OpenSettingsAsync()
+        {
+            ILocator toggleInSheet = page
+                .GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true })
+                .GetByRole(AriaRole.Checkbox, new() { Name = "Show badge text", Exact = true });
+            if (!await toggleInSheet.IsVisibleAsync())
+            {
+                await page.GetByRole(AriaRole.Banner)
+                    .GetByRole(AriaRole.Link, new() { Name = "Settings", Exact = true }).ClickAsync();
+            }
+
+            await Assertions.Expect(toggleInSheet).ToBeVisibleAsync(new() { Timeout = 20_000 });
+            return toggleInSheet;
+        }
+    }
+
     private static async Task WaitForOffsetAsync(
         ConcurrentQueue<string> offsets, string expected)
     {

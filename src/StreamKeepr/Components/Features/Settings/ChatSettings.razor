@@ -6,7 +6,9 @@
    Chat sync is one offset for every recording, kept in UiPreferences; an open ChatPane listens
    for the change and refetches, so the sheet adjusts chat while playback runs behind it.
    A native range rather than MudSlider: MudSlider fills from its minimum, and this fill runs
-   from the centre (0) to the thumb. *@
+   from the centre (0) to the thumb.
+   "Show badge text" is the viewer's one switch for the text chips that stand in for badges.
+   It is not the badge-image switch: images are a separate, later surface. *@
 <SettingsSection HeadingId="sk-settings-chat"
                  Title="Chat"
                  Icon="@MudBlazor.Icons.Material.Rounded.Chat"
@@ -52,6 +54,22 @@
     <p class="sk-chat-settings-help" id="sk-chat-sync-help">
         Shifts chat on every recording, to match the delay between the stream and its chat.
     </p>
+    @* The text chips that stand in for badges, not badge images. A native checkbox with the
+       section's meaning icon; the browser gives the control its keyboard and screen-reader
+       behaviour, and the label wraps the row so the whole 40px row is the hit target. *@
+    <label class="sk-chat-badge-text">
+        @IslandIcon.Svg("Label")
+        <input type="checkbox"
+               class="sk-chat-badge-text-input"
+               checked="@Preferences.ChatShowBadgeText"
+               aria-describedby="sk-chat-badge-text-help"
+               @onchange="OnBadgeTextChangedAsync"
+               data-chat-badge-text />
+        <span>Show badge text</span>
+    </label>
+    <p class="sk-chat-settings-help" id="sk-chat-badge-text-help" data-chat-badge-text-help>
+        Shows the MOD, SUB, VIP and other role text before each name.
+    </p>
 </SettingsSection>
 
 @code {
@@ -96,6 +114,15 @@
     {
         Preferences.SetChatSyncOffset(value);
         _shown = Preferences.ChatSyncOffset;
+        await Preferences.PersistAsync();
+    }
+
+    private async Task OnBadgeTextChangedAsync(ChangeEventArgs args)
+    {
+        if (args.Value is not bool show)
+            return;
+
+        Preferences.SetChatShowBadgeText(show);
         await Preferences.PersistAsync();
     }
 
