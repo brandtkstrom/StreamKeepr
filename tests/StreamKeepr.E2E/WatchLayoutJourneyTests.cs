@@ -8,6 +8,7 @@ namespace StreamKeepr.E2E;
 /// the phone's sticky edge-to-edge player with Chat, Details and Stats tabs.
 /// </summary>
 [Collection(MockAppCollection.Name)]
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class WatchLayoutJourneyTests(MockAppFixture app)
 {
@@ -18,9 +19,11 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
     [Fact]
     public async Task On_a_phone_the_player_stays_visible_while_the_tabs_scroll_and_switch()
     {
-        await using Session session = await OpenAsync(app.BaseUrl, viewport: Phone, hasTouch: true);
+        await using Journey session = await OpenAsync(app, viewport: Phone, hasTouch: true);
         IPage page = session.Page;
-        await OpenFirstRecordingAsync(page);
+        // A finished recording with no chapters: the assertion below is about the tab list,
+        // not about whichever recording the live feed sorted first.
+        await OpenRecordingAsync(page, "Chill art stream");
         await SettleAsync(page, compact: true);
 
         ILocator player = page.Locator("[data-sk-player]");
@@ -71,7 +74,7 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "watch-phone");
 
         // A recording with chapters adds the Chapters tab before Stats, holding the list.
-        await page.GotoAsync(app.BaseUrl);
+        await session.GotoAsync(app.BaseUrl);
         await OpenRecordingAsync(page, "Chat picks the route");
         await SettleAsync(page, compact: true);
         ILocator chapters = page.GetByRole(AriaRole.Tab, new() { Name = "Chapters" });
@@ -84,7 +87,7 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
     public async Task At_a_short_desktop_the_player_is_height_capped_and_keeps_the_title_visible()
     {
         var shortDesktop = new ViewportSize { Width = 1280, Height = 600 };
-        await using Session session = await OpenAsync(app.BaseUrl, viewport: shortDesktop);
+        await using Journey session = await OpenAsync(app, viewport: shortDesktop);
         IPage page = session.Page;
         await OpenFirstRecordingAsync(page);
         await SettleAsync(page, compact: false);
@@ -111,7 +114,7 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
     public async Task On_a_phone_in_landscape_the_player_fills_the_screen()
     {
         var landscape = new ViewportSize { Width = 812, Height = 375 };
-        await using Session session = await OpenAsync(app.BaseUrl, viewport: landscape, hasTouch: true);
+        await using Journey session = await OpenAsync(app, viewport: landscape, hasTouch: true);
         IPage page = session.Page;
         await OpenFirstRecordingAsync(page);
         await SettleAsync(page, compact: true);
@@ -132,7 +135,7 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
     [Fact]
     public async Task At_1280_theater_mode_gives_the_player_the_whole_view_width()
     {
-        await using Session session = await OpenAsync(app.BaseUrl, viewport: Desktop);
+        await using Journey session = await OpenAsync(app, viewport: Desktop);
         IPage page = session.Page;
         await OpenFirstRecordingAsync(page);
         await SettleAsync(page, compact: false);
@@ -176,7 +179,7 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
     [Fact]
     public async Task On_desktop_open_chat_is_a_full_height_column_beside_everything_else()
     {
-        await using Session session = await OpenAsync(app.BaseUrl, viewport: Desktop);
+        await using Journey session = await OpenAsync(app, viewport: Desktop);
         IPage page = session.Page;
         await OpenFirstRecordingAsync(page);
         await SettleAsync(page, compact: false);
@@ -221,7 +224,7 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Crossing_the_breakpoint_keeps_the_same_video_element()
     {
-        await using Session session = await OpenAsync(app.BaseUrl, viewport: Desktop);
+        await using Journey session = await OpenAsync(app, viewport: Desktop);
         IPage page = session.Page;
         await OpenFirstRecordingAsync(page);
         await SettleAsync(page, compact: false);
