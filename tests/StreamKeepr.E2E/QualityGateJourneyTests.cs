@@ -10,6 +10,7 @@ namespace StreamKeepr.E2E;
 /// keyboard-only reach.
 /// </summary>
 [Collection(MockAppCollection.Name)]
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class QualityGateJourneyTests(MockAppFixture app)
 {
@@ -19,11 +20,10 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
     [Fact]
     public async Task First_paint_js_fits_the_budget_and_the_player_loads_only_on_recording_pages()
     {
-        using IPlaywright playwright = await Playwright.CreateAsync();
-        await using IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
-        await using IBrowserContext context = await browser.NewContextAsync(
-            new BrowserNewContextOptions { ViewportSize = new ViewportSize { Width = 1280, Height = 820 } });
-        IPage page = await context.NewPageAsync();
+        await using Journey session = await Journey.OpenAsync(
+            app, url: null, viewport: new ViewportSize { Width = 1280, Height = 820 },
+            ready: JourneyReady.None);
+        IPage page = session.Page;
 
         // Responses arrive on Playwright's event thread while the test reads the queue.
         var scripts = new ConcurrentQueue<IResponse>();
@@ -34,10 +34,11 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         };
 
         // The home page with no recording selected is the first paint; wait for the circuit
-        // and every module the interactive shell imports.
+        // and every module the interactive shell imports. Network idle is reached once per
+        // document, so the navigation's wait covers it; a second wait would return at once.
         await page.GotoAsync(app.BaseUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
+        await session.WaitForShellAsync();
         await page.Locator(LibraryHooks.Channel).First.WaitForAsync();
-        await page.WaitForLoadStateAsync(LoadState.NetworkIdle);
 
         // A module may be both preloaded and imported; the browser downloads it once.
         IResponse[] firstPaint = scripts.DistinctBy(response => response.Url).ToArray();
@@ -69,17 +70,16 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
     [Fact]
     public async Task The_home_page_uses_self_hosted_Roboto_and_requests_nothing_off_origin()
     {
-        using IPlaywright playwright = await Playwright.CreateAsync();
-        await using IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
-        await using IBrowserContext context = await browser.NewContextAsync();
-        IPage page = await context.NewPageAsync();
+        await using Journey session = await Journey.OpenAsync(
+            app, url: null, ready: JourneyReady.None);
+        IPage page = session.Page;
 
         // Requests arrive on Playwright's event thread while the test reads the queue.
         var requests = new ConcurrentQueue<string>();
         page.Request += (_, request) => requests.Enqueue(request.Url);
 
         await page.GotoAsync(app.BaseUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
-        await page.Locator(LibraryHooks.Channel).First.WaitForAsync();
+        await session.WaitForShellAsync();
         await page.EvaluateAsync("() => document.fonts.ready");
 
         var origin = new Uri(app.BaseUrl).GetLeftPart(UriPartial.Authority) + "/";
@@ -108,7 +108,7 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
     {
         // MudBlazor.min.css resets every element and styles bare body and a. Unmigrated markup
         // inherits that; pin what it gets so a later surface PR notices when it changes.
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         await page.Locator(LibraryHooks.Channel).First.WaitForAsync();
 
@@ -127,12 +127,12 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         // browser computes styles. The Mock poller moves channels between states while a page
         // is open; a chip that faded its fill (MudChip's 300ms background transition) would
         // pass through colours its text fails contrast on, which axe catches mid-scan.
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         await page.Locator(LibraryHooks.Channel).First.WaitForAsync();
         await AssertChipsDoNotTransitionAsync(page, "home");
 
-        await page.GotoAsync($"{app.BaseUrl}/settings");
+        await session.GotoAsync($"{app.BaseUrl}/settings", JourneyReady.Shell);
         await page.Locator("[data-channel] [data-status]").First.WaitForAsync();
         await AssertChipsDoNotTransitionAsync(page, "settings");
     }
@@ -149,7 +149,7 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Reduced_motion_stops_the_rec_pulse_fades_and_collapse_animations()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator recDot = page.Locator("[data-status=rec] [data-status-dot]").First;
         await recDot.WaitForAsync();
@@ -167,7 +167,7 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         await page.Locator("[data-recording-details]").WaitForAsync();
         await AssertNoMotionAsync(page, "recording");
 
-        await page.GotoAsync($"{app.BaseUrl}/settings");
+        await session.GotoAsync($"{app.BaseUrl}/settings", JourneyReady.Shell);
         await page.Locator("main").WaitForAsync();
         await AssertNoMotionAsync(page, "settings");
     }
@@ -175,7 +175,7 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
     [Fact]
     public async Task A_keyboard_only_journey_reaches_every_control_and_never_loses_focus()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         await page.Locator(LibraryHooks.Channel).First.WaitForAsync();
         await AssertTabReachesEveryControlAsync(page, "home");
@@ -189,8 +189,7 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         int channels = await page.Locator(LibraryHooks.Channel).CountAsync();
         for (int channel = 0; channel < channels && !await FocusedMatchesAsync(page, saved); channel++)
         {
-            await page.Keyboard.PressAsync("ArrowRight");
-            await page.WaitForFunctionAsync("() => document.activeElement?.matches('[data-recordings-column] a[data-recording-id]')");
+            await session.OpenFocusedChannelAsync();
             int rows = await page.Locator(LibraryHooks.Row).CountAsync();
             for (int row = 1; row < rows && !await FocusedMatchesAsync(page, saved); row++)
                 await page.Keyboard.PressAsync("ArrowDown");
@@ -245,6 +244,8 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         await TabToAsync(page, "e => e.getAttribute('href') === '/settings'", "the Settings link");
         await page.Keyboard.PressAsync("Enter");
         await page.Locator("[data-channel]").First.WaitForAsync();
+        // The settings page re-renders the shell once the circuit knows the breakpoint; tabbing
+        // before that can lap a stale drawer and report a fresh option as unreached.
         // The sheet moves focus to its Close once .NET has rendered it, a round trip after its
         // content shows; tabbing before that would see focus jump back into the sheet mid-lap.
         await page.WaitForFunctionAsync("() => document.activeElement?.matches('[data-settings-close]')");
@@ -254,8 +255,8 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
     [Fact]
     public async Task On_a_phone_the_modal_drawer_traps_focus_is_axe_clean_and_holds_still_under_reduced_motion()
     {
-        await using Session session = await OpenAsync(
-            app.BaseUrl, viewport: new ViewportSize { Width = 375, Height = 812 });
+        await using Journey session = await OpenAsync(
+            app, viewport: new ViewportSize { Width = 375, Height = 812 });
         IPage page = session.Page;
         // Below Md the library opens from the bottom bar, not the app bar's menu (#174).
         const string libraryButton = "e => e.closest('nav[aria-label=Main]') !== null && e.getAttribute('aria-controls') === 'sk-drawer'";
@@ -283,6 +284,38 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
     /// reached with arrow keys and are not tab stops.
     /// </summary>
     private static async Task AssertTabReachesEveryControlAsync(IPage page, string screen)
+    {
+        // The shell re-renders when the circuit reports the breakpoint; tabbing before that can
+        // lap a drawer Blazor then replaces, leaving a fresh option unmarked.
+        await page.Locator("[data-shell][data-breakpoint-known]").WaitForAsync(
+            new LocatorWaitForOptions { State = WaitForSelectorState.Attached });
+
+        // The Mock feed re-renders a control while the lap is in progress, so the fresh element
+        // carries no mark. Take a fresh lap; three quiet laps are enough, and a control that is
+        // genuinely unreachable fails on all of them. This is a measurement retry, not a test
+        // retry: no assertion is weakened and the journey still fails without a reachable path.
+        for (int attempt = 1; ; attempt++)
+        {
+            (int tabStops, List<string> hidden, string[] unreached) = await TabLapAsync(page);
+            Assert.True(tabStops > 0, $"Tab never moved focus on {screen}");
+            Assert.True(
+                hidden.Count == 0,
+                $"Tab focused invisible elements on {screen}:{Environment.NewLine}{string.Join(Environment.NewLine, hidden)}");
+            if (unreached.Length == 0)
+                return;
+            if (attempt == 3)
+            {
+                Assert.Fail(
+                    $"Tab never reached these controls on {screen}:" +
+                    $"{Environment.NewLine}{string.Join(Environment.NewLine, unreached)}");
+            }
+
+            await page.WaitForTimeoutAsync(250);
+        }
+    }
+
+    /// <summary>One full Tab lap; returns its focus count, invisible stops and unreached controls.</summary>
+    private static async Task<(int TabStops, List<string> Hidden, string[] Unreached)> TabLapAsync(IPage page)
     {
         await page.EvaluateAsync(
             "() => { document.querySelectorAll('[data-sk-reached]').forEach(e => e.removeAttribute('data-sk-reached')); document.activeElement?.blur(); }");
@@ -325,13 +358,7 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
               .map(e => e.outerHTML.slice(0, 160))
             """);
 
-        Assert.True(tabStops > 0, $"Tab never moved focus on {screen}");
-        Assert.True(
-            hidden.Count == 0,
-            $"Tab focused invisible elements on {screen}:{Environment.NewLine}{string.Join(Environment.NewLine, hidden)}");
-        Assert.True(
-            unreached.Length == 0,
-            $"Tab never reached these controls on {screen}:{Environment.NewLine}{string.Join(Environment.NewLine, unreached)}");
+        return (tabStops, hidden, unreached);
     }
 
     /// <summary>Presses Tab until the focused element matches, failing after a full lap.</summary>

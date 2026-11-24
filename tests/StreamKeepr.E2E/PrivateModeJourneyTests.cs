@@ -7,6 +7,7 @@ namespace StreamKeepr.E2E;
 /// sign-in page, signs in back to the page they asked for, and Sign out returns them to it.
 /// Each app has its own process because the allowlist is fixed at startup.
 /// </summary>
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class PrivateModeJourneyTests : IAsyncLifetime
 {
@@ -40,11 +41,11 @@ public sealed class PrivateModeJourneyTests : IAsyncLifetime
     [Fact]
     public async Task A_visitor_signs_in_to_the_page_they_asked_for_and_signs_out_to_the_sign_in_page()
     {
-        await using Session session = await OpenAsync($"{_allowed.BaseUrl}/settings");
+        await using Journey session = await OpenAsync(_allowed, "/settings");
         IPage page = session.Page;
 
         // The deep link lands on the sign-in page, which names it as the return page.
-        await page.WaitForURLAsync(url => url.Contains("/signin?returnUrl=%2Fsettings", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.Contains("/signin?returnUrl=%2Fsettings", StringComparison.Ordinal));
         Assert.Equal("Sign in · Stream Keepr", await page.TitleAsync());
         ILocator button = page.GetByRole(AriaRole.Link, new() { Name = "Sign in with Twitch" });
         Assert.True(await button.EvaluateAsync<bool>("el => el === document.activeElement"));
@@ -54,7 +55,7 @@ public sealed class PrivateModeJourneyTests : IAsyncLifetime
         await button.ClickAsync();
 
         // Back on the page asked for, with a live circuit and the account signed in.
-        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/settings", new() { Timeout = 15_000 });
+        await Journey.WaitForUrlAsync(page, url => new Uri(url).AbsolutePath == "/settings", 15_000);
         ILocator account = page.GetByRole(AriaRole.Button, new() { Name = "Twitch account: Mock Admin" });
         await account.WaitForAsync(new() { Timeout = 15_000 });
         // The menu opens through the circuit, so wait until the page is interactive.
@@ -64,23 +65,23 @@ public sealed class PrivateModeJourneyTests : IAsyncLifetime
         await account.ClickAsync();
         await page.GetByRole(AriaRole.Menuitem, new() { Name = "Sign out" }).ClickAsync();
 
-        await page.WaitForURLAsync(url => url.Contains("/signin?", StringComparison.Ordinal), new() { Timeout = 15_000 });
+        await Journey.WaitForUrlAsync(page, url => url.Contains("/signin?", StringComparison.Ordinal), 15_000);
         ILocator alert = page.Locator("[data-signin-alert]");
         Assert.Equal("You're signed out.", (await alert.InnerTextAsync()).Trim());
         Assert.Equal("status", await alert.GetAttributeAsync("role"));
         await new LibraryJourneyTests(_allowed).AssertAxeCleanAsync(page, "signin-signed-out");
 
         // Signed out really is out: the library page sends the visitor back here.
-        await page.GotoAsync($"{_allowed.BaseUrl}/");
-        await page.WaitForURLAsync(url => url.Contains("/signin?returnUrl=%2F", StringComparison.Ordinal));
+        await session.GotoAsync(_allowed.BaseUrl, JourneyReady.Shell);
+        await Journey.WaitForUrlAsync(page, url => url.Contains("/signin?returnUrl=%2F", StringComparison.Ordinal));
     }
 
     [Fact]
     public async Task A_login_not_on_the_list_is_named_and_offered_another_account()
     {
-        await using Session session = await OpenAsync($"{_rejected.BaseUrl}/");
+        await using Journey session = await OpenAsync(_rejected, "/");
         IPage page = session.Page;
-        await page.WaitForURLAsync(url => url.Contains("/signin?", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.Contains("/signin?", StringComparison.Ordinal));
 
         await page.GetByRole(AriaRole.Link, new() { Name = "Sign in with Twitch" }).ClickAsync();
 
@@ -95,27 +96,9 @@ public sealed class PrivateModeJourneyTests : IAsyncLifetime
         await new LibraryJourneyTests(_rejected).AssertAxeCleanAsync(page, "signin-not-allowed");
     }
 
-    private static async Task<Session> OpenAsync(string url)
-    {
-        IPlaywright playwright = await Playwright.CreateAsync();
-        IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
-        IBrowserContext context = await browser.NewContextAsync(new BrowserNewContextOptions
-        {
-            ViewportSize = new ViewportSize { Width = 1280, Height = 820 },
-        });
-        IPage page = await context.NewPageAsync();
-        await page.GotoAsync(url, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
-        return new Session(playwright, browser, context, page);
-    }
-
-    private sealed record Session(IPlaywright Playwright, IBrowser Browser, IBrowserContext Context, IPage Page)
-        : IAsyncDisposable
-    {
-        public async ValueTask DisposeAsync()
-        {
-            await Context.DisposeAsync();
-            await Browser.DisposeAsync();
-            Playwright.Dispose();
-        }
-    }
+    private static Task<Journey> OpenAsync(MockAppFixture app, string path) =>
+        Journey.OpenAsync(
+            app,
+            new Uri(new Uri(app.BaseUrl), path).ToString(),
+            ready: JourneyReady.Shell);
 }

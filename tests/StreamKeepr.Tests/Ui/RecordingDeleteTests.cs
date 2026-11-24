@@ -119,10 +119,12 @@ public sealed class RecordingDeleteTests
 
         dialogs.Find("[data-delete-confirm]").Click();
 
-        var deleted = Assert.Single(admin.Deletes);
+        // Click returns before the handler runs when another render holds the dispatcher.
+        dialogs.WaitForAssertion(() => Assert.Single(admin.Deletes));
+        var deleted = admin.Deletes[0];
         Assert.Equal("r1", deleted.RecordingId);
         Assert.True(deleted.User.Identity?.IsAuthenticated);
-        Assert.False(dialogs.HasOpenDialog(DeleteName));
+        dialogs.WaitForAssertion(() => Assert.False(dialogs.HasOpenDialog(DeleteName)));
     }
 
     [Fact]
@@ -138,7 +140,7 @@ public sealed class RecordingDeleteTests
 
         dialogs.Find("[data-delete-confirm]").Click();
 
-        Assert.True(dialogs.Find("[data-delete-confirm]").HasAttribute("disabled"));
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.Find("[data-delete-confirm]").HasAttribute("disabled")));
         Assert.True(dialogs.Find("[data-delete-cancel]").HasAttribute("disabled"));
         Assert.Equal("true", dialogs.Find("[data-delete-dialog]").GetAttribute("aria-busy"));
         // Escape and the backdrop are ignored while the server call runs.
@@ -205,7 +207,7 @@ public sealed class RecordingDeleteTests
 
         dialogs.Find("[data-delete-confirm]").Click();
 
-        Assert.False(dialogs.HasOpenDialog(DeleteName));
+        dialogs.WaitForAssertion(() => Assert.False(dialogs.HasOpenDialog(DeleteName)));
         Assert.Contains("already deleted", snackbars.CurrentMessage());
     }
 
@@ -221,7 +223,7 @@ public sealed class RecordingDeleteTests
 
         dialogs.Find("[data-delete-confirm]").Click();
 
-        Assert.False(dialogs.HasOpenDialog(DeleteName));
+        dialogs.WaitForAssertion(() => Assert.False(dialogs.HasOpenDialog(DeleteName)));
         Assert.Contains("Reconnect to delete recordings", snackbars.CurrentMessage());
     }
 

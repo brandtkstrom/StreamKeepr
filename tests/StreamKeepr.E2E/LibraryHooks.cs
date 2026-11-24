@@ -33,12 +33,21 @@ internal static class LibraryHooks
     /// </summary>
     public static async Task OpenLibraryAsync(IPage page)
     {
+        // A click sent before the circuit is interactive is silently dropped, and the test then
+        // waits 30 s for a drawer that can never open (#296).
+        await Journey.WaitForShellAsync(page);
         await page.Locator("[data-shell]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
         if (await page.Locator("[data-shell][data-library-open]").CountAsync() > 0)
             return;
 
+        // The library opens through the circuit, and a click on the prerendered button is lost.
+        // The shell's search field marks itself ready once the circuit is interactive.
+        await page.Locator($"{LibraryJourneyTests.Search}[data-sk-ready]")
+            .WaitForAsync(new() { State = WaitForSelectorState.Attached });
+
         ILocator library = page.GetByRole(AriaRole.Navigation, new() { Name = "Main" })
             .GetByRole(AriaRole.Button, new() { Name = "Library" });
+        await Journey.WaitForReconnectAsync(page);
         if (await library.IsVisibleAsync())
             await library.ClickAsync();
         else
@@ -52,6 +61,7 @@ internal static class LibraryHooks
     /// </summary>
     public static async Task OpenChannelAsync(IPage page, string login)
     {
+        await Journey.WaitForReconnectAsync(page);
         ILocator open = page.Locator($"{Drawer} [data-recordings-column='{login}']");
         if (await open.CountAsync() == 1 && await open.IsVisibleAsync())
             return;
@@ -59,8 +69,12 @@ internal static class LibraryHooks
         await OpenLibraryAsync(page);
         ILocator back = page.Locator($"{Drawer} button[aria-label='All channels']");
         if (await back.IsVisibleAsync())
+        {
+            await Journey.WaitForReconnectAsync(page);
             await back.ClickAsync();
+        }
 
+        await Journey.WaitForReconnectAsync(page);
         await page.Locator(ChannelFor(login)).ClickAsync();
         await open.WaitForAsync();
         await open.EvaluateAsync("c => Promise.all(c.getAnimations().map(a => a.finished))");

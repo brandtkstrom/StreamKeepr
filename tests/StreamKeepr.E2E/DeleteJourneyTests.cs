@@ -3,6 +3,7 @@ using static StreamKeepr.E2E.LibraryJourneyTests;
 
 namespace StreamKeepr.E2E;
 
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class DeleteJourneyTests : IAsyncLifetime
 {
@@ -17,7 +18,7 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
     [Fact]
     public async Task An_admin_deletes_a_finished_recording_and_moves_to_the_next_one()
     {
-        await using Session session = await OpenAsync(_app.BaseUrl);
+        await using Journey session = await OpenAsync(_app);
         IPage page = session.Page;
 
         // The first recording in the current query: the first channel's newest.
@@ -27,8 +28,7 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         string deletedId = (await row.GetAttributeAsync("data-recording-id"))!;
         Assert.NotEqual(topId, deletedId);
 
-        await row.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{deletedId}", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(row);
 
         // Delete lives in More actions (design system: RecordingDetails).
         ILocator delete = await TitleBlock.MenuItemAsync(page, "data-delete");
@@ -58,7 +58,7 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         await page.Locator("[data-delete-confirm]").ClickAsync();
 
         await Feedback.Snackbar(page, "Recording deleted").WaitForAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{topId}", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{topId}", StringComparison.Ordinal));
         await page.Locator($"[data-selected-recording='{deletedId}']")
             .WaitForAsync(new() { State = WaitForSelectorState.Detached });
         await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "delete");
@@ -67,7 +67,7 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
     [Fact]
     public async Task A_row_deletes_from_the_library_with_its_own_button_and_focus_moves_on()
     {
-        await using Session session = await OpenAsync(_app.BaseUrl);
+        await using Journey session = await OpenAsync(_app);
         IPage page = session.Page;
 
         // A channel with two finished recordings, so one is left to take focus.
@@ -105,10 +105,11 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
     [Fact]
     public async Task A_live_recording_cannot_be_deleted()
     {
-        await using Session session = await OpenAsync(_app.BaseUrl);
+        await using Journey session = await OpenAsync(_app);
         IPage page = session.Page;
 
-        await (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day")).ClickAsync();
+        ILocator growing = await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day");
+        await session.OpenRecordingAsync(growing);
 
         ILocator delete = await TitleBlock.MenuItemAsync(page, "data-delete");
         Assert.Equal("true", await delete.GetAttributeAsync("aria-disabled"));
