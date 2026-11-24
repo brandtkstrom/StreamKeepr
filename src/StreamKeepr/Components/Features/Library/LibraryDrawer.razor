@@ -353,7 +353,8 @@
         string? login = _selectedChannel;
         _selectedChannel = null;
         // BL0012 assumes the framework's post-callback render is soon enough. It is not:
-        // the focus below queries the DOM, so the column must collapse first.
+        // the focus below queries the DOM, so the column must collapse first. Remove when
+        // BL0012 stops treating an intentional render before a DOM read as redundant.
 #pragma warning disable BL0012
         StateHasChanged();
 #pragma warning restore BL0012
