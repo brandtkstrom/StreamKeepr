@@ -18,14 +18,12 @@ internal enum JourneyReady
 }
 
 /// <summary>
-/// One browser session for one test. It owns the Playwright driver, Chrome, the context and the
-/// page, starts a trace for every test, and stops it to the artifacts directory only when the
+/// One browser session for one test. It owns its context and page on the process's shared Chrome
+/// (<see cref="E2EBrowser.SharedAsync"/>), starts a trace for every test, and stops it to the artifacts directory only when the
 /// test failed (<see cref="FailureCapture"/>). It also owns the readiness and reconnect rules
 /// from <c>docs/testing-contract.md</c>: a navigation does not return until the destination is
 /// interactive, and an action waits out a transient reconnect instead of dropping into a
 /// circuit that cannot receive it.
-///
-/// The suite still launches one driver and Chrome per test; reusing them is #297.
 /// </summary>
 internal sealed class Journey : IAsyncDisposable
 {
@@ -41,23 +39,15 @@ internal sealed class Journey : IAsyncDisposable
 
     private Journey(
         MockAppFixture app,
-        IPlaywright playwright,
-        IBrowser browser,
         IBrowserContext context,
         IPage page,
         FailureCapture? failure)
     {
         _app = app;
         _failure = failure;
-        Playwright = playwright;
-        Browser = browser;
         Context = context;
         Page = page;
     }
-
-    public IPlaywright Playwright { get; }
-
-    public IBrowser Browser { get; }
 
     public IBrowserContext Context { get; }
 
@@ -76,14 +66,11 @@ internal sealed class Journey : IAsyncDisposable
         bool hasTouch = false,
         JourneyReady ready = JourneyReady.Library)
     {
-        IPlaywright? playwright = null;
-        IBrowser? browser = null;
         IBrowserContext? context = null;
         Journey? journey = null;
         try
         {
-            playwright = await Microsoft.Playwright.Playwright.CreateAsync();
-            browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
+            IBrowser browser = await E2EBrowser.SharedAsync();
             context = await browser.NewContextAsync(new BrowserNewContextOptions
             {
                 ViewportSize = viewport ?? new ViewportSize { Width = 1280, Height = 820 },
@@ -100,7 +87,7 @@ internal sealed class Journey : IAsyncDisposable
             });
 
             IPage page = await context.NewPageAsync();
-            journey = new Journey(app, playwright, browser, context, page, FailureCapture.Current);
+            journey = new Journey(app, context, page, FailureCapture.Current);
             if (url is not null)
                 await journey.GotoAsync(url, ready);
             return journey;
@@ -109,14 +96,8 @@ internal sealed class Journey : IAsyncDisposable
         {
             if (journey is not null)
                 await journey.DisposeAsync();
-            else
-            {
-                if (context is not null)
-                    await context.DisposeAsync();
-                if (browser is not null)
-                    await browser.DisposeAsync();
-                playwright?.Dispose();
-            }
+            else if (context is not null)
+                await context.DisposeAsync();
 
             throw;
         }
@@ -433,10 +414,8 @@ internal sealed class Journey : IAsyncDisposable
         }
         finally
         {
-            // Always release the driver, Chrome and the context, even if reporting failed.
+            // Always release the context, even if reporting failed. The shared Chrome stays up.
             await Context.DisposeAsync();
-            await Browser.DisposeAsync();
-            Playwright.Dispose();
         }
     }
 

@@ -34,11 +34,11 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         };
 
         // The home page with no recording selected is the first paint; wait for the circuit
-        // and every module the interactive shell imports.
+        // and every module the interactive shell imports. Network idle is reached once per
+        // document, so the navigation's wait covers it; a second wait would return at once.
         await page.GotoAsync(app.BaseUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
         await session.WaitForShellAsync();
         await page.Locator(LibraryHooks.Channel).First.WaitForAsync();
-        await page.WaitForLoadStateAsync(LoadState.NetworkIdle);
 
         // A module may be both preloaded and imported; the browser downloads it once.
         IResponse[] firstPaint = scripts.DistinctBy(response => response.Url).ToArray();
