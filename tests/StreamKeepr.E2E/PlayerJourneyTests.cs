@@ -84,12 +84,12 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Switching_from_a_playing_recording_shows_Play_and_opens_the_next_paused()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
         string first = (await saved.Nth(0).GetAttributeAsync("data-recording-id"))!;
         await saved.Nth(0).ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{first}", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{first}", StringComparison.Ordinal));
         await ExpandLibraryOnWatchPageAsync(page);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
 
@@ -103,7 +103,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         string second = (await next.GetAttributeAsync("data-recording-id"))!;
         string secondTitle = (await next.Locator("[data-row-title]").InnerTextAsync()).Trim();
         await next.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{second}", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{second}", StringComparison.Ordinal));
         await page.WaitForFunctionAsync(
             "t => document.querySelector('[data-sk=title]').textContent === t", secondTitle);
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
