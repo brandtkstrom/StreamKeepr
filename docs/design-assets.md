@@ -1,6 +1,6 @@
 # Design and Planning Assets
 
-Status: complete (2026-11-10); updated 2026-11-15 for the MudBlazor design system (ADR 0012, #173) and 2026-11-17 for the migration cleanup (#181). Roboto is the only webfont; icons are MudBlazor's SVGs.
+Status: complete (2026-11-10); updated 2026-11-15 for the MudBlazor design system (ADR 0012, #173) and 2026-11-17 for the migration cleanup (#181). Roboto is the only webfont; icons are MudBlazor's SVGs, except the Twitch Glitch mark.
 
 ## Asset inventory
 
@@ -13,6 +13,7 @@ Status: complete (2026-11-10); updated 2026-11-15 for the MudBlazor design syste
 | Material Symbols Rounded | Retired | `material-symbols@0.48.3` | — | Removed with its licence and `@font-face` on 2026-11-17 (#181); MudBlazor's `Icons.Material.Rounded` SVGs replace it |
 | Logo and favicon set | Present | Original artwork, 2026-11-15 (MudBlazor design system, Logos and Favicon groups) | `branding/` (all files and usage READMEs); `src/StreamKeepr/wwwroot/` (`favicon.svg`, `favicon.ico`, `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, `manifest.webmanifest`) | Project-owned; the wordmark is outlined from Roboto Flex Bold (OFL), so no font is embedded |
 | hls.js ESM 1.7.4 | Present | `https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.mjs` | `src/StreamKeepr/wwwroot/lib/hls.js/hls.mjs` | Apache-2.0; license copied |
+| Twitch Glitch mark | Present | User-supplied `twitch-color-icon.svg` (2026-11-23) | `src/StreamKeepr/wwwroot/img/twitch-glitch.svg` | Twitch trademark; used unmodified, in colour, as the app bar's Twitch link icon |
 | hls.js 1.6.15 (local cache) | Not used | `/Users/brandt/repos/go-ffmpeg/frontend/node_modules/hls.js` | — | Superseded by 1.7.4 |
 | Dracula PRO palette | Retired | `/Users/brandt/Downloads/dracula-pro-v2.2.4/design/` | — | Input to the 2026-11-10 design system; replaced by MudBlazor's palette on 2026-11-15 |
 | Fake Streamlink/media fixtures | Deferred to testing | Testing contract | `tests/fixtures/` | Generated at test time |
@@ -37,7 +38,7 @@ The previews make no font requests: their Google Fonts links were removed on imp
 ## Typography
 
 - UI text is Roboto, MudBlazor's default typography (falling back to Helvetica, then Arial). It is self-hosted as one variable `woff2` with `font-display: swap`; no monospace face is used. Numeric styles use `font-variant-numeric: tabular-nums`, which is why the subset keeps `tnum`.
-- Icons are MudBlazor's `Icons.Material.Rounded` SVGs (`MudIcon`, or `IslandIcon` and `wwwroot/js/island-icons.js` in the JS-owned islands); no icon font is bundled.
+- Icons are MudBlazor's `Icons.Material.Rounded` SVGs (`MudIcon`, or `IslandIcon` and `wwwroot/js/island-icons.js` in the JS-owned islands); no icon font is bundled. The one exception is the Twitch Glitch mark (`wwwroot/img/twitch-glitch.svg`), a full-colour image in the app bar's Twitch link.
 - No Google Fonts or other CDN request is made for application assets at runtime. Chat emote images are message content and may load from the Twitch and third-party emote CDNs; they are not design-system assets.
 - To rebuild Roboto (for example after a google/fonts update), change the pinned commit and SHA-256 in `scripts/build-roboto.sh`, run it, and update the table above. It needs `fonttools` and `brotli` (`pip install fonttools brotli`); it is dev-only.
 - A further face must be licensed for web self-hosting, declared in `tokens.json`, and added to `fonts.css` with its licence under `wwwroot/fonts/`.
@@ -67,5 +68,7 @@ src/StreamKeepr/wwwroot/
   css/tokens.css                            # generated, committed
   css/components.css, fonts.css             # hand-written, committed
   fonts/roboto-latin.woff2, ROBOTO-LICENSE  # committed, OFL-1.1
+  img/streamkeepr-mark.svg                  # app bar logo
+  img/twitch-glitch.svg                     # app bar Twitch link mark
   lib/hls.js/hls.mjs                        # committed, Apache-2.0
 ```

@@ -101,8 +101,8 @@ internal sealed class FakeEventSubSocketFactory : IEventSubSocketFactory
 
     public bool HangOnConnect { get; set; }
 
-    /// <summary>Applied to every socket this factory creates; see <see cref="FakeEventSubSocket.SlowReceiveCancellation"/>.</summary>
-    public bool SlowReceiveCancellation { get; set; }
+    /// <summary>Applied to every socket this factory creates; see <see cref="FakeEventSubSocket.HoldCancelledReceive"/>.</summary>
+    public bool HoldCancelledReceive { get; set; }
 
     private int _created;
 
@@ -111,7 +111,7 @@ internal sealed class FakeEventSubSocketFactory : IEventSubSocketFactory
         var socket = new FakeEventSubSocket
         {
             HangOnConnect = HangOnConnect,
-            SlowReceiveCancellation = SlowReceiveCancellation,
+            HoldCancelledReceive = HoldCancelledReceive,
         };
         Sockets.Add(socket);
         int created = Interlocked.Increment(ref _created);
@@ -143,6 +143,7 @@ internal sealed class FakeEventSubSocket : IEventSubSocket
 {
     private readonly Channel<string> _messages = Channel.CreateUnbounded<string>();
     private int _received;
+    private int _receiveCalls;
 
     public TaskCompletionSource Connected { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -151,6 +152,10 @@ internal sealed class FakeEventSubSocket : IEventSubSocket
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public TaskCompletionSource Subscribed { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Completes when the second receive starts, i.e. after the welcome is handled.</summary>
+    public TaskCompletionSource SecondReceiveStarted { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public TaskCompletionSource Disposed { get; } =
@@ -172,14 +177,25 @@ internal sealed class FakeEventSubSocket : IEventSubSocket
     }
 
     /// <summary>
-    /// When set, a cancelled receive completes 200 ms after its token is cancelled. A real
-    /// socket finishes a cancelled receive asynchronously, so a timer cancelled by the same
-    /// token can complete first; this makes that ordering deterministic.
+    /// When set, a cancelled receive waits for <see cref="ReleaseCancelledReceive"/> before it
+    /// throws. The client's watchdog is cancelled by the same token, so leaving the receive
+    /// pending lets the watchdog win the race without a wall-clock delay.
     /// </summary>
-    public bool SlowReceiveCancellation { get; set; }
+    public bool HoldCancelledReceive { get; set; }
+
+    /// <summary>Completes once the held receive has observed cancellation.</summary>
+    public TaskCompletionSource CancelledReceiveHeld { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Completes the held receive; the test releases it after the client reacts.</summary>
+    public TaskCompletionSource ReleaseCancelledReceive { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public async Task<string?> ReceiveTextAsync(CancellationToken ct)
     {
+        if (Interlocked.Increment(ref _receiveCalls) == 2)
+            SecondReceiveStarted.TrySetResult();
+
         try
         {
             if (!await _messages.Reader.WaitToReadAsync(ct)
@@ -192,9 +208,10 @@ internal sealed class FakeEventSubSocket : IEventSubSocket
                 Subscribed.TrySetResult();
             return message;
         }
-        catch (OperationCanceledException) when (SlowReceiveCancellation)
+        catch (OperationCanceledException) when (HoldCancelledReceive)
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(200), CancellationToken.None);
+            CancelledReceiveHeld.TrySetResult();
+            await ReleaseCancelledReceive.Task;
             throw;
         }
     }

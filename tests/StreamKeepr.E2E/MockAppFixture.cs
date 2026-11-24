@@ -15,7 +15,9 @@ namespace StreamKeepr.E2E;
 /// one stable, immutable webroot. The Mock host also serves the framework assets from a normal
 /// build (Program enables the static-web-asset file provider outside Development).
 ///
-/// Every fixture shares one publish. Classes that own a disposable app start in parallel, and
+/// Every fixture shares one publish. CI publishes once before the suite and names that folder in
+/// <c>STREAMKEEPR_E2E_PUBLISH_DIR</c>; without it (a local run) the fixture publishes itself.
+/// Classes that own a disposable app start in parallel, and
 /// parallel publishes share the project's <c>obj/</c>: one rewrites a precompressed asset while
 /// another copies it, so an app could serve a 0-byte <c>hls.js</c> that the browser blocks on
 /// integrity and the player never loads (#109, #114).
@@ -27,11 +29,13 @@ public sealed class MockAppFixture : IAsyncLifetime
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(120);
     private static readonly TimeSpan PublishTimeout = TimeSpan.FromSeconds(300);
 
-    private static readonly string SharedPublishRoot = SuiteTempPath($"publish-{Guid.NewGuid():N}");
+    internal const string PublishDirVariable = "STREAMKEEPR_E2E_PUBLISH_DIR";
 
-    private static readonly Lazy<Task> SharedPublish = new(
-        () => PublishAsync(FindRepositoryRoot(), SharedPublishRoot),
-        LazyThreadSafetyMode.ExecutionAndPublication);
+    /// <summary>Where the fixture publishes when no publish is supplied; deleted on exit.</summary>
+    private static readonly string OwnPublishRoot = SuiteTempPath($"publish-{Guid.NewGuid():N}");
+
+    private static readonly Lazy<Task<string>> SharedPublish = new(
+        PrepareSharedPublishAsync, LazyThreadSafetyMode.ExecutionAndPublication);
 
     private readonly ConcurrentQueue<string> _logs = new();
     private readonly IReadOnlyDictionary<string, string> _environment;
@@ -68,7 +72,7 @@ public sealed class MockAppFixture : IAsyncLifetime
             _logPath = Path.Combine(ArtifactsDirectory, "mock-app.log");
             File.Delete(_logPath);
 
-            await SharedPublish.Value;
+            string publishRoot = await SharedPublish.Value;
 
             var startInfo = new ProcessStartInfo("dotnet")
             {
@@ -78,14 +82,14 @@ public sealed class MockAppFixture : IAsyncLifetime
                 UseShellExecute = false,
             };
 
-            startInfo.ArgumentList.Add(Path.Combine(SharedPublishRoot, "StreamKeepr.dll"));
+            startInfo.ArgumentList.Add(Path.Combine(publishRoot, "StreamKeepr.dll"));
             startInfo.ArgumentList.Add("--urls");
             startInfo.ArgumentList.Add(BaseUrl);
             startInfo.Environment["ASPNETCORE_ENVIRONMENT"] = "Mock";
             startInfo.Environment["ASPNETCORE_CONTENTROOT"] =
                 Path.Combine(RepositoryRoot, "src", "StreamKeepr");
             startInfo.Environment["ASPNETCORE_WEBROOT"] =
-                Path.Combine(SharedPublishRoot, "wwwroot");
+                Path.Combine(publishRoot, "wwwroot");
             startInfo.Environment["Mock__RecordingsRoot"] = RecordingsRoot;
             startInfo.Environment["Mock__Seed__ResetOnStart"] = "true";
             // Exports run at 6x real time so the cancel/retry journey can catch one Running.
@@ -146,8 +150,9 @@ public sealed class MockAppFixture : IAsyncLifetime
         {
             try
             {
-                if (Directory.Exists(SharedPublishRoot))
-                    Directory.Delete(SharedPublishRoot, recursive: true);
+                // Only the fixture's own publish: a supplied one belongs to the caller.
+                if (Directory.Exists(OwnPublishRoot))
+                    Directory.Delete(OwnPublishRoot, recursive: true);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -201,6 +206,39 @@ public sealed class MockAppFixture : IAsyncLifetime
         }
 
         EnsureNoEmptyCompressedAssets(Path.Combine(publishRoot, "wwwroot"));
+    }
+
+    internal sealed record PublishSource(string Root, bool PublishFirst);
+
+    private static async Task<string> PrepareSharedPublishAsync()
+    {
+        PublishSource source = ResolvePublishSource(
+            Environment.GetEnvironmentVariable(PublishDirVariable), OwnPublishRoot);
+        if (source.PublishFirst)
+            await PublishAsync(FindRepositoryRoot(), source.Root);
+        return source.Root;
+    }
+
+    /// <summary>
+    /// Picks the publish the suite runs. A supplied folder is used as is, after the same torn-asset
+    /// guard a fresh publish gets; a blank one means the fixture publishes into
+    /// <paramref name="fallbackRoot"/> itself.
+    /// </summary>
+    internal static PublishSource ResolvePublishSource(string? configured, string fallbackRoot)
+    {
+        if (string.IsNullOrWhiteSpace(configured))
+            return new PublishSource(fallbackRoot, PublishFirst: true);
+
+        string root = Path.GetFullPath(configured);
+        if (!File.Exists(Path.Combine(root, "StreamKeepr.dll")))
+        {
+            throw new InvalidOperationException(
+                $"{PublishDirVariable} is '{root}', but that folder has no StreamKeepr.dll. " +
+                "Publish src/StreamKeepr there first, or unset the variable to publish in the fixture.");
+        }
+
+        EnsureNoEmptyCompressedAssets(Path.Combine(root, "wwwroot"));
+        return new PublishSource(root, PublishFirst: false);
     }
 
     /// <summary>
@@ -279,6 +317,19 @@ public sealed class MockAppFixture : IAsyncLifetime
     }
 
     private string Logs() => string.Join(Environment.NewLine, _logs);
+
+    /// <summary>
+    /// The last <paramref name="count"/> captured stdout/stderr lines, for a failed test's
+    /// artifact. The queue is fed continuously by the child process.
+    /// </summary>
+    internal IReadOnlyList<string> RecentLogs(int count)
+    {
+        if (count <= 0)
+            return [];
+
+        string[] all = _logs.ToArray();
+        return all.Length <= count ? all : all[^count..];
+    }
 
     /// <summary>
     /// Writes a small index over every collected artifact so CI uploads one browsable report
