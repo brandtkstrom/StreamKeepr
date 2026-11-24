@@ -281,6 +281,19 @@ public sealed class MockAppFixture : IAsyncLifetime
     private string Logs() => string.Join(Environment.NewLine, _logs);
 
     /// <summary>
+    /// The last <paramref name="count"/> captured stdout/stderr lines, for a failed test's
+    /// artifact. The queue is fed continuously by the child process.
+    /// </summary>
+    internal IReadOnlyList<string> RecentLogs(int count)
+    {
+        if (count <= 0)
+            return [];
+
+        string[] all = _logs.ToArray();
+        return all.Length <= count ? all : all[^count..];
+    }
+
+    /// <summary>
     /// Writes a small index over every collected artifact so CI uploads one browsable report
     /// with the traces, screenshots, axe output, and app log. Pass/fail detail stays in the
     /// TRX produced by <c>dotnet test</c>.
