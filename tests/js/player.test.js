@@ -94,7 +94,11 @@ function fakeMedia(video) {
     media.paused = true;
     video.dispatchEvent(new Event("pause"));
   });
-  video.load = vi.fn();
+  // The HTML media load algorithm resets `paused` (and `ended`) without firing a pause event.
+  video.load = vi.fn(() => {
+    media.paused = true;
+    media.ended = false;
+  });
   video.removeAttribute = vi.fn(HTMLElement.prototype.removeAttribute.bind(video));
   video.canPlayType = vi.fn(() => media.canPlay);
 
@@ -470,6 +474,23 @@ describe("VideoPlayer.razor.js", () => {
       expect(hook("video").pause).toHaveBeenCalledOnce();
       expect(hook("play").getAttribute("aria-label")).toBe("Play");
       expect(hook("center").hidden).toBe(false);
+    });
+
+    it("shows Play after switching away from a playing recording", async () => {
+      await start();
+      media.metadata(120);
+      // hls.js attached a MediaSource URL; the old engine is torn down from it.
+      hook("video").setAttribute("src", "blob:first");
+      hook("center").click();
+      expect(hook("play").getAttribute("aria-label")).toBe("Pause");
+      expect(hook("center").hidden).toBe(true);
+
+      await player.load(view({ recordingId: "r2", playlistUrl: "/media/ann/r2/index.m3u8" }));
+
+      expect(hook("play").getAttribute("aria-label")).toBe("Play");
+      expect(hook("play").querySelector("svg").dataset.icon).toBe("PlayArrow");
+      expect(hook("center").hidden).toBe(false);
+      expect(hook("center").querySelector("svg").dataset.icon).toBe("PlayArrow");
     });
 
     it("shows replay when ended and restarts from zero", async () => {

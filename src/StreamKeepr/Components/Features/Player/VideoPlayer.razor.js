@@ -626,6 +626,10 @@ export function createPlayer(
       video.load?.();
     }
     native = false;
+    // Tearing the engine down resets the element to paused without a pause event (via
+    // hls.destroy or the load above), so redraw the controls from the reset element rather
+    // than from the previous recording's playback.
+    renderPlayState();
   }
 
   function resetUi() {
@@ -1126,7 +1130,6 @@ export function createPlayer(
       renderView();
       renderSpeed();
       renderVolume();
-      renderPlayState();
       // Open at the resume position when there is one; a live capture without one opens at
       // the live edge, a finished recording at the start.
       resumePlaying = false;
