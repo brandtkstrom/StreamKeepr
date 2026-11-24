@@ -111,7 +111,7 @@ internal sealed class EmoteCatalogService(
                     continue;
 
                 entries.Add(new EmoteCatalogItem(
-                    provider.Id, entry, provider.GetStaticImage(entry)));
+                    provider.Id, entry, provider.GetImageSet(entry)));
             }
         }
 

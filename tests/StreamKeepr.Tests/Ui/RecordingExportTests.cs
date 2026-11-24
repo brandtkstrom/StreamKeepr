@@ -1,3 +1,4 @@
+using AngleSharp.Dom;
 using Bunit;
 using Bunit.TestDoubles;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,17 +17,18 @@ public sealed class RecordingExportTests
     public async Task A_signed_in_admin_starts_an_export_and_sees_it_queued_then_running()
     {
         await using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        var popovers = context.Render<MudBlazor.MudPopoverProvider>();
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
         Assert.Empty(cut.FindAll("[data-export-row]"));
 
-        cut.Find("button[data-export]").Click();
+        MoreActions.Item(context, cut, "data-export", popovers).Click();
 
         (string recordingId, var user) = Assert.Single(exports.Starts);
         Assert.Equal("r1", recordingId);
         Assert.Equal("mock_admin", user.Identity?.Name);
         cut.WaitForAssertion(() =>
             Assert.Equal("Queued — waiting for another export", cut.Find("[data-export-row] [role='status']").TextContent));
-        Assert.True(cut.Find("button[data-export]").HasAttribute("disabled"));
+        Assert.Equal("true", MoreActions.Item(context, cut, "data-export", popovers).GetAttribute("aria-disabled"));
 
         await cut.InvokeAsync(() => exports.Set(new ExportJob("e1", "r1", ExportState.Running, 0.42, null, null)));
 
@@ -45,8 +47,9 @@ public sealed class RecordingExportTests
     public async Task Success_shows_a_download_link_and_one_snackbar()
     {
         await using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        var popovers = context.Render<MudBlazor.MudPopoverProvider>();
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
-        cut.Find("button[data-export]").Click();
+        MoreActions.Item(context, cut, "data-export", popovers).Click();
         MudBlazor.ISnackbar snackbars = context.Services.GetRequiredService<MudBlazor.ISnackbar>();
 
         await cut.InvokeAsync(() => exports.Set(new ExportJob("e1", "r1", ExportState.Succeeded, 1, "ann_x.mp4", null)));
@@ -59,7 +62,7 @@ public sealed class RecordingExportTests
             Assert.Equal("false", download.GetAttribute("data-enhance-nav"));
         });
         Assert.Equal("Export ready", snackbars.CurrentMessage());
-        Assert.False(cut.Find("button[data-export]").HasAttribute("disabled"));
+        Assert.Equal("false", MoreActions.Item(context, cut, "data-export", popovers).GetAttribute("aria-disabled"));
 
         snackbars.Dismiss();
         await cut.InvokeAsync(() => exports.Set(new ExportJob("e1", "r1", ExportState.Succeeded, 1, "ann_x.mp4", null)));
@@ -78,7 +81,7 @@ public sealed class RecordingExportTests
         cut.Render(p => p.Add(c => c.Recording, Recording("r2")));
 
         Assert.Empty(cut.FindAll("[data-export-row]"));
-        Assert.False(cut.Find("button[data-export]").HasAttribute("disabled"));
+        Assert.Equal("false", MoreActions.Item(context, cut, "data-export").GetAttribute("aria-disabled"));
     }
 
     [Fact]
@@ -88,19 +91,28 @@ public sealed class RecordingExportTests
 
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1", RecordingState.Recording));
 
-        Assert.True(cut.Find("button[data-export]").HasAttribute("disabled"));
-        Assert.Equal("Available when the recording finishes", cut.Find("[role='tooltip']").TextContent);
+        IElement item = MoreActions.Item(context, cut, "data-export");
+        Assert.Equal("true", item.GetAttribute("aria-disabled"));
+        Assert.Contains("Available when the recording finishes", item.TextContent);
         Assert.Empty(exports.Starts);
     }
 
     [Fact]
-    public async Task Signed_out_the_export_action_is_inert_behind_requires_twitch()
+    public async Task Signed_out_the_export_item_is_disabled_in_the_public_menu()
     {
         await using BunitContext context = CreateContext(out _, signedIn: false);
 
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
 
-        Assert.NotNull(cut.Find("[data-requires-twitch] [inert] button[data-export]"));
+        IElement item = MoreActions.Item(context, cut, "data-export");
+        Assert.Equal("true", item.GetAttribute("aria-disabled"));
+        IElement wrapper = item.ParentElement!;
+        Assert.Equal("group", wrapper.GetAttribute("role"));
+        Assert.Equal("0", wrapper.GetAttribute("tabindex"));
+        Assert.Equal(
+            "Connect Twitch to use this",
+            wrapper.QuerySelector($"[role='tooltip']")!.TextContent);
+        Assert.Empty(cut.FindAll("[data-requires-twitch] [inert] button[aria-label='More actions']"));
     }
 
     [Fact]
@@ -110,7 +122,7 @@ public sealed class RecordingExportTests
         exports.StartFailure = _ => new InvalidOperationException("The recording can be exported when it finishes.");
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
 
-        cut.Find("button[data-export]").Click();
+        MoreActions.Item(context, cut, "data-export").Click();
 
         Assert.Equal(
             "The recording can be exported when it finishes.",
@@ -123,7 +135,7 @@ public sealed class RecordingExportTests
     {
         await using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
-        cut.Find("button[data-export]").Click();
+        MoreActions.Item(context, cut, "data-export").Click();
         cut.WaitForAssertion(() => Assert.NotNull(cut.Find("button[data-export-cancel]")));
         await cut.InvokeAsync(() => exports.Set(new ExportJob("e1", "r1", ExportState.Running, 0.3, null, null)));
 
@@ -171,8 +183,9 @@ public sealed class RecordingExportTests
     public async Task A_failed_export_shows_the_safe_message_with_retry()
     {
         await using BunitContext context = CreateContext(out TestExportService exports, signedIn: true);
+        var popovers = context.Render<MudBlazor.MudPopoverProvider>();
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording("r1"));
-        cut.Find("button[data-export]").Click();
+        MoreActions.Item(context, cut, "data-export", popovers).Click();
 
         await cut.InvokeAsync(() => exports.Set(
             new ExportJob("e1", "r1", ExportState.Failed, 0.2, null, "The export could not be completed.")));
@@ -183,7 +196,7 @@ public sealed class RecordingExportTests
             Assert.NotNull(cut.Find("button[data-export-retry]"));
         });
         Assert.Equal("Export failed", context.Services.GetRequiredService<MudBlazor.ISnackbar>().CurrentMessage());
-        Assert.False(cut.Find("button[data-export]").HasAttribute("disabled"));
+        Assert.Equal("false", MoreActions.Item(context, cut, "data-export", popovers).GetAttribute("aria-disabled"));
     }
 
     [Fact]
@@ -198,10 +211,11 @@ public sealed class RecordingExportTests
             "This recording's parts cannot be joined into one MP4.",
             cut.Find("[data-export-row] [role='status']").TextContent);
         Assert.Empty(cut.FindAll("button[data-export-retry]"));
-        Assert.True(cut.Find("button[data-export]").HasAttribute("disabled"));
-        Assert.Equal(
+        IElement item = MoreActions.Item(context, cut, "data-export");
+        Assert.Equal("true", item.GetAttribute("aria-disabled"));
+        Assert.Contains(
             "Its parts use different video settings, so one MP4 is not possible",
-            cut.Find("[role='tooltip']").TextContent);
+            item.TextContent);
     }
 
     private static IRenderedComponent<RecordingDetails> Render(BunitContext context, RecordingView recording) =>

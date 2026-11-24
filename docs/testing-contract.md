@@ -12,7 +12,7 @@ This contract defines the test seams, projects, fake-Twitch harness, determinism
 
 | Layer | Project | Scope |
 |---|---|---|
-| Unit | `tests/StreamKeepr.Tests` | Pure reducer, stitcher, parser, recovery, args, path/media rules, poll schedule, token cache, allowlist logic, IRC/Twitch chat parser, chat timeline, chat log and purge, third-party emote provider/cache |
+| Unit | `tests/StreamKeepr.Tests` | Pure reducer, stitcher, parser, recovery, args, path/media rules, poll schedule, token cache, allowlist logic, IRC/Twitch chat parser, chat timeline, chat log and purge, third-party emote providers and cache (BetterTTV, 7TV) |
 | Integration | `tests/StreamKeepr.Tests` | `WebApplicationFactory`: media, health, auth, progress, export, channel, chat, and emote catalog endpoints; real DI with fake external services |
 | Component | `tests/StreamKeepr.Tests` | bUnit: primitives, library, player shell, stats, chat pane, details, auth, settings |
 | JS | `tests/js` | Vitest: timecode, preferences, tree navigation, shortcuts, sparkline, player pure logic, chat playhead/reveal/sync, third-party emote matching |
@@ -44,7 +44,7 @@ tests/
 - `tests/StreamKeepr.Tests` references `src/StreamKeepr` directly. No separate test-only public API.
 - `src/StreamKeepr` grants `InternalsVisibleTo` to `StreamKeepr.Tests` so unit and integration tests can exercise internal seams (emote providers, catalog service, channel resolver) without widening the public surface. Do not add test-only public members to production types; cover new internals through that binding.
 - `tests/StreamKeepr.E2E` starts the app with the `Mock` launch profile on a free loopback port, waits for `/health/ready`, then runs Playwright.
-- The E2E fixture publishes the Debug output once per run and starts `StreamKeepr.dll` with `ASPNETCORE_ENVIRONMENT=Mock` on a free loopback port, then runs Playwright. It keeps the source project as the content root for the Mock fixture path and points `ASPNETCORE_WEBROOT` at the publish output. The shared publish is a stable test artifact, not a workaround: the Mock host enables build-time static web assets outside Development, so `_framework/*.js` is also served from a normal build.
+- The E2E fixture runs one Debug publish per run: the folder named by `STREAMKEEPR_E2E_PUBLISH_DIR` when it is set (CI publishes once in a workflow step), otherwise its own `dotnet publish`. It starts `StreamKeepr.dll` with `ASPNETCORE_ENVIRONMENT=Mock` on a free loopback port, then runs Playwright. It keeps the source project as the content root for the Mock fixture path and points `ASPNETCORE_WEBROOT` at the publish output. The shared publish is a stable test artifact, not a workaround: the Mock host enables build-time static web assets outside Development, so `_framework/*.js` is also served from a normal build.
 - `tests/js` is dev-only; Node never enters the image.
 - The old `StreamCaptureService.Tests` project is deleted with the old app in the migration route.
 
@@ -102,8 +102,18 @@ Rules:
 - Unique temp directory per test; fixture cleans it up. Tests never write to the repo, user profile, or `/recordings`.
 - No network; stub HTTP handlers; fake processes.
 - No shared static mutable state. Use xUnit collections only when a real shared resource is unavoidable.
+- The E2E suite's one exception is `E2EBrowser`: one Playwright driver and one Chrome per test process, guarded by a lock. Each test still opens and disposes its own `IBrowserContext`, which isolates cookies, storage and permissions, and never closes the shared browser.
 - Dispose services, `WebApplicationFactory`, child processes, and temp directories in `IAsyncLifetime`/`IDisposable`.
 - Tests must pass in any order and in parallel unless explicitly isolated.
+
+### 6.1 E2E readiness, reconnect and failure evidence
+
+- A navigation is not complete when the document loads. `Journey.GotoAsync` and `Journey.ReloadAsync` wait for the shell's interactive marker (`input[data-search-input][data-sk-ready]`) or the sign-in page (`[data-signin]`). A journey that opens a recording waits for `[data-sk='seek'][aria-disabled='false']` (via `Journey.OpenRecordingAsync`) before it presses or clicks. New journeys use `Journey`, not a raw `IPage.GotoAsync`.
+- After a click that may navigate, wait for the current URL (`Journey.WaitForUrlAsync`) rather than for a future navigation event: the click can finish before `WaitForURLAsync` starts, which was the sign-in race in #296.
+- Before an action, wait for `body[data-sk-reconnect]` to be absent or `hide`. `Journey.ActAsync` and the library helpers do this; a hard-loss state fails immediately with the URL, reconnect state, focused element and the last app log lines instead of waiting for Playwright's 30 s default.
+- The library keyboard handoff re-presses Right when focus stayed on a channel after the 5 s column wait. Do not raise the 5 s cap; it exists so focus is not pulled back after the viewer has moved on.
+- Chat-sync rapid input is not required to be lossless: each press must produce one rendered step, so the journey waits for each step before the next press.
+- Every journey owns a `Journey` session, which starts a Playwright trace. It writes the trace and a `<test>.failure.txt` (browser state plus the last 80 Mock app log lines) only when the test failed; a passing test discards the trace. xUnit v2 has no test context, so `[CaptureFailure]` records `FirstChanceException` for `XunitException`, `TimeoutException`, `InvalidOperationException` and `PlaywrightException` in an `AsyncLocal` marker.
 
 ## 7. Selectors
 
@@ -123,9 +133,9 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 
 | Job | Steps |
 |---|---|
-| `dotnet` | setup .NET 10; restore; `dotnet build -warnaserror`; `dotnet format --verify-no-changes`; `dotnet test` with coverage; upload results |
+| `dotnet` | setup .NET 11; restore; `dotnet build -warnaserror`; `dotnet format --verify-no-changes`; `dotnet test` with coverage; upload results |
 | `js` | setup Node 24 LTS; `npm ci`; `npm run lint`; `npm test` |
-| `e2e` | setup .NET and Node; build; `playwright install --with-deps`; start the Mock profile; `dotnet test tests/StreamKeepr.E2E`; upload Playwright report, traces, screenshots |
+| `e2e` | setup .NET; restore and build only `tests/StreamKeepr.E2E` (and the app it references); `dotnet publish` the app once; `playwright install --with-deps`; `dotnet test tests/StreamKeepr.E2E` against that publish; upload the TRX always and the Playwright report, traces, axe output and screenshots only on failure |
 | `docker` | `docker build`; run the image with dummy non-secret config and a temp `/recordings` volume; hit `/health/live` and `/`; verify non-root; stop cleanly |
 
 - Triggers: pull requests and pushes to `main` and `dev`. The `fullstack-refactor` trigger was removed once that migration merged (#112).

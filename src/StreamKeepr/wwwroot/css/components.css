@@ -142,6 +142,8 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 .sk-appbar { border-bottom: 1px solid var(--divider); }
 .sk-appbar .mud-toolbar { gap: var(--space-2); padding: 0 var(--space-4) 0 var(--space-2); }
 .sk-appbar .mud-icon-button { color: var(--action-default); }
+.sk-appbar .sk-twitch-mark { display: grid; place-items: center; width: 24px; height: 24px; }
+.sk-appbar .sk-twitch-mark img { display: block; width: auto; height: 24px; }
 .sk-appbar.scrolled { box-shadow: var(--elevation-4); }
 .sk-wordmark { display: flex; align-items: center; gap: var(--space-2); margin-left: var(--space-1); border-radius: var(--radius-sm); color: var(--text-primary); font: var(--text-wordmark); letter-spacing: var(--text-wordmark-letter-spacing); text-decoration: none; white-space: nowrap; }
 .sk-wordmark:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
@@ -869,7 +871,8 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-details { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
 .sk-details-summary { display: flex; align-items: flex-start; gap: var(--space-4); min-width: 0; }
 .sk-details-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
-.sk-details-summary .sk-actions { flex: none; display: flex; align-items: center; gap: var(--space-1); padding-top: var(--space-1); }
+.sk-details-summary .sk-actions { flex: none; display: flex; align-items: center; gap: var(--space-2); padding-top: var(--space-1); }
+.sk-details-summary .sk-actions-group { display: flex; align-items: center; gap: var(--space-1); }
 .sk-disclosure { background: var(--surface); border-radius: var(--radius-lg); overflow: hidden; }
 .sk-disclosure-head {
   display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 48px; padding: 0 var(--space-2) 0 var(--space-4);
@@ -892,14 +895,15 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-details-meta .pair { display: inline-flex; align-items: center; gap: var(--space-1); }
 .sk-details-meta .pair .mud-icon-root { font-size: var(--icon-inline); color: var(--action-default); }
 /* Buttons card: icon buttons rest in action-default (MudBlazor's button root is currentColor). */
-.sk-details-summary .sk-actions .mud-icon-button:not(:disabled):not(.sk-tonal) { color: var(--action-default); }
-/* Export MP4 is the one emphasised action: a tonal icon button, primary on a primary tint. */
-.sk-details-summary .sk-actions .sk-tonal:not(:disabled) { color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, transparent); }
-.sk-details-summary .sk-actions .sk-tonal:not(:disabled):hover { background: color-mix(in srgb, var(--primary) 22%, transparent); }
+.sk-details-summary .sk-actions .mud-icon-button:not(:disabled) { color: var(--action-default); }
 /* More actions: Stop recording in error; a blocked item gives its reason under its label. */
 .sk-more-menu { min-width: 220px; }
 .sk-menu-error:not(.mud-disabled) { color: var(--error); }
 .sk-menu-reason { display: block; color: var(--text-secondary); }
+/* Signed-out items: a focusable wrapper catches hover/focus for the tooltip even though the
+   disabled menu item ignores pointer events. */
+.sk-more-menu .sk-menu-tooltip-root, .sk-menu-disabled-wrap { display: block; width: 100%; }
+.sk-menu-disabled-wrap:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .sk-chapters { display: flex; flex-direction: column; gap: 2px; }
 .sk-chapter { display: flex; align-items: baseline; gap: var(--space-3); width: 100%; padding: 6px var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }
 .sk-chapter:hover { background: var(--surface-raised); }

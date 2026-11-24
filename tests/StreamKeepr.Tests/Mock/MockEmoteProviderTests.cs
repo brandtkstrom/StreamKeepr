@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Options;
+using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Emotes;
 using StreamKeepr.Mock;
 
@@ -33,7 +35,7 @@ public sealed class MockEmoteProviderTests
 
         Assert.All(entries, entry =>
         {
-            EmoteImageSet image = provider.GetStaticImage(entry);
+            EmoteImageSet image = provider.GetImageSet(entry);
             Assert.StartsWith(
                 $"{MockEmoteProvider.ImageHost}/emote/{entry.Id}/", image.Src, StringComparison.Ordinal);
             Assert.DoesNotContain("betterttv", image.Src, StringComparison.OrdinalIgnoreCase);
@@ -41,7 +43,7 @@ public sealed class MockEmoteProviderTests
         });
 
         EmoteCatalogEntry animated = Assert.Single(entries, entry => entry.Animated);
-        Assert.EndsWith("/static/1x.webp", provider.GetStaticImage(animated).Src, StringComparison.Ordinal);
+        Assert.EndsWith("/static/1x.webp", provider.GetImageSet(animated).Src, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -51,5 +53,21 @@ public sealed class MockEmoteProviderTests
         Assert.True(CreateProvider().Enabled);
     }
 
-    private static MockEmoteProvider CreateProvider() => new();
+    [Fact]
+    public async Task Animated_entries_use_the_animated_asset_when_animation_is_enabled()
+    {
+        MockEmoteProvider provider = CreateProvider(animated: true);
+        IReadOnlyList<EmoteCatalogEntry> entries =
+            await provider.GetGlobalAsync(CancellationToken.None);
+
+        EmoteCatalogEntry animated = Assert.Single(entries, entry => entry.Animated);
+        Assert.EndsWith("/1x.webp", provider.GetImageSet(animated).Src, StringComparison.Ordinal);
+        Assert.DoesNotContain("/static/", provider.GetImageSet(animated).Src, StringComparison.Ordinal);
+    }
+
+    private static MockEmoteProvider CreateProvider(bool animated = false) =>
+        new(Options.Create(new ChatOptions
+        {
+            Emotes = new ChatEmoteOptions { Animated = animated },
+        }));
 }

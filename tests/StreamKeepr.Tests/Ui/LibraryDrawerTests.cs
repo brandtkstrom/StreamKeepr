@@ -55,7 +55,7 @@ public sealed class LibraryDrawerTests
 
         Open(cut, "live");
         Assert.Equal(2, cut.FindAll("a[data-recording-id]").Count);
-        Assert.Equal("/r/r1", cut.Find("a[data-recording-id='r1']").GetAttribute("href"));
+        Assert.Equal("/r/r1?autoplay=1", cut.Find("a[data-recording-id='r1']").GetAttribute("href"));
     }
 
     [Fact]
@@ -469,6 +469,18 @@ public sealed class LibraryDrawerTests
             .Add(component => component.Recording, live));
 
         Assert.Equal(width, cut.Find("[data-progress] i").GetAttribute("style"));
+    }
+
+    [Fact]
+    public async Task A_saved_row_with_a_zero_resume_shows_no_resume_bar()
+    {
+        await using BunitContext context = CreateContext(new TestLibraryView());
+        RecordingView saved = Recording("r1", "ann", RecordingState.Saved, Now) with { ResumeSec = 0 };
+
+        IRenderedComponent<RecordingRow> cut = context.Render<RecordingRow>(parameters => parameters
+            .Add(component => component.Recording, saved));
+
+        Assert.Empty(cut.FindAll("[data-progress]"));
     }
 
     [Fact]

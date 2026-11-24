@@ -20,7 +20,7 @@ public sealed class RecordingCardTests
             durationSec: 3725, title: "Late-night speedrun practice", category: "Speedrunning"));
 
         IElement link = cut.Find("a");
-        Assert.Equal("/r/r%201", link.GetAttribute("href"));
+        Assert.Equal("/r/r%201?autoplay=1", link.GetAttribute("href"));
         // The same data-state words as the drawer rows.
         Assert.Equal("rec", link.GetAttribute("data-state"));
         Assert.Equal("Late-night speedrun practice, Nightjar TV, recording", AccessibleName(link));
@@ -71,6 +71,17 @@ public sealed class RecordingCardTests
 
         Assert.Equal("partial", cut.Find("[data-meta-state] [data-status]").GetAttribute("data-status"));
         Assert.Empty(cut.FindAll("[data-thumb-state]"));
+        Assert.Empty(cut.FindAll("[data-progress]"));
+    }
+
+    [Fact]
+    public async Task A_zero_resume_position_shows_no_strip()
+    {
+        await using BunitContext context = CreateContext();
+
+        IRenderedComponent<RecordingCard> cut = Render(
+            context, Recording("r1", RecordingState.Saved, resumeSec: 0));
+
         Assert.Empty(cut.FindAll("[data-progress]"));
     }
 

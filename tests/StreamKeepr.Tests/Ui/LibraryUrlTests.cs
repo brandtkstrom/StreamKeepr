@@ -47,6 +47,46 @@ public sealed class LibraryUrlTests
     }
 
     [Fact]
+    public void Autoplay_is_a_one_shot_player_intent()
+    {
+        Assert.False(LibraryUrl.AutoplayRequested("http://host/r/abc"));
+        Assert.False(LibraryUrl.AutoplayRequested("http://host/r/abc?autoplay=0"));
+        Assert.True(LibraryUrl.AutoplayRequested("http://host/r/abc?autoplay=1"));
+
+        Assert.Equal("/r/abc?autoplay=1", LibraryUrl.WithAutoplay("/r/abc"));
+        Assert.Equal(
+            "/r/abc?q=chef%20ann&autoplay=1",
+            LibraryUrl.WithAutoplay("/r/abc?q=chef%20ann"));
+        Assert.Equal(
+            "/r/abc?q=chef%20ann&autoplay=1",
+            LibraryUrl.WithAutoplay("/r/abc?autoplay=1&q=chef%20ann&autoplay=1"));
+
+        Assert.Equal(
+            "/r/abc?q=chef%20ann",
+            LibraryUrl.WithoutAutoplay("http://host/r/abc?q=chef%20ann&autoplay=1"));
+        Assert.Equal("/r/abc", LibraryUrl.WithoutAutoplay("http://host/r/abc?autoplay=1"));
+    }
+
+    [Fact]
+    public void With_drops_the_autoplay_intent_so_next_navigation_does_not_inherit_it()
+    {
+        Assert.Equal(
+            "/r/abc?q=chef",
+            LibraryUrl.With(
+                "http://host/r/abc?autoplay=1&q=old",
+                new LibraryQuery(null, "chef", "newest")));
+    }
+
+    [Fact]
+    public void Autoplay_preserves_an_already_escaped_path()
+    {
+        Assert.Equal("/r/a%20b?autoplay=1", LibraryUrl.WithAutoplay("/r/a%20b"));
+        Assert.Equal(
+            "/r/a%20b",
+            LibraryUrl.WithoutAutoplay("http://host/r/a%20b?autoplay=1"));
+    }
+
+    [Fact]
     public void Round_trips()
     {
         var query = new LibraryQuery("recording", "a&b=c", "az");

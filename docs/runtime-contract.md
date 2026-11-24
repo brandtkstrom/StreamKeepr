@@ -34,6 +34,8 @@ Chat capture is isolated from the DVR path: a source or store failure is logged 
 | --- | --- | --- |
 | `Enabled` | `false` | Turns capture on. While off, live recordings show no chat pane; recordings with captured chat still replay it. |
 | `Emotes:Bttv:Enabled` | `false` | Renders BetterTTV global and channel emotes in chat replay. Off makes no catalog request. Capture and chat text are unaffected. |
+| `Emotes:SevenTv:Enabled` | `false` | Renders 7TV global and channel emotes in chat replay. Off makes no 7TV request. BetterTTV wins a shared code because it is registered first. Capture and chat text are unaffected. |
+| `Emotes:Animated` | `false` | Loads each enabled provider's animated asset instead of its static first frame. Off keeps the static rendering that ADR 0011 chose; BetterTTV animated assets are far larger than its static ones. |
 | `TwitchUserOAuthToken`, `TwitchLogin` | unset | Optional dedicated `chat:read` identity (`docs/twitch-auth-contract.md`); a rejected token falls back to anonymous. |
 | `LeadInSeconds` | `12` | How much earlier the content at a part start aired than its first PDT. |
 | `BucketMinutes` | `10` | Bucket length; buckets are floored on Unix time, so any value 1–60 works. |
@@ -243,6 +245,11 @@ tests opt in explicitly). Telemetry is enabled only when `Telemetry:Enabled` is 
   after a session has existed, but not failed first connects. A part whose size cannot be read
   is counted but gets no size sample. A poll round in which every batch failed marks its span
   `Error`; a partial round leaves the status unset.
+- At startup, from `ApplicationStarted` once the meter provider is listening, every event counter
+  records a zero for each known label value: recorder exit kinds, export outcomes, the configured
+  EventSub transport, and the unlabeled stall, force-kill, and chat-drop counters. This lets
+  Prometheus `increase()` see the first event after a start. The part duration and size histograms
+  are not zeroed, because a zero sample would distort them.
 - Startup refuses enabled telemetry when either `*_DISABLE_URL_QUERY_REDACTION` variable is set to
   any non-blank value.
 - This change adds no logging provider; Serilog remains the only logging pipeline. The startup log

@@ -5,13 +5,14 @@ using static StreamKeepr.E2E.LibraryJourneyTests;
 namespace StreamKeepr.E2E;
 
 [Collection(MockAppCollection.Name)]
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class SettingsJourneyTests(MockAppFixture app)
 {
     [Fact]
     public async Task An_admin_adds_and_removes_a_channel_and_errors_show_inline()
     {
-        await using Session session = await OpenAsync($"{app.BaseUrl}/settings");
+        await using Journey session = await OpenAsync(app, "/settings");
         IPage page = session.Page;
 
         ILocator rows = page.Locator("[data-channel]");
@@ -68,14 +69,14 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Signed_out_settings_shows_the_connect_prompt_without_channel_data()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
 
         // Sign out through the top bar, then open Settings.
         await page.GetByRole(AriaRole.Button, new() { Name = "Twitch account: Mock Admin" }).ClickAsync();
         await page.GetByRole(AriaRole.Menuitem, new() { Name = "Disconnect" }).ClickAsync();
         await page.Locator("a[data-auth-state='disconnected']").WaitForAsync(new() { Timeout = 15_000 });
-        await page.GotoAsync($"{app.BaseUrl}/settings");
+        await session.GotoAsync($"{app.BaseUrl}/settings", JourneyReady.Shell);
 
         ILocator prompt = page.Locator("[data-settings-signed-out]");
         await prompt.WaitForAsync();
@@ -90,7 +91,7 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
     [Fact]
     public async Task An_admin_pauses_and_resumes_a_channel_and_the_library_shows_paused()
     {
-        await using Session session = await OpenAsync($"{app.BaseUrl}/settings");
+        await using Journey session = await OpenAsync(app, "/settings");
         IPage page = session.Page;
 
         ILocator row = page.Locator("[data-channel='mock_nova']");
@@ -107,7 +108,7 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
         await Feedback.Snackbar(page, "Channel paused").WaitForAsync();
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "settings-paused");
 
-        await page.GotoAsync(app.BaseUrl);
+        await session.GotoAsync(app.BaseUrl);
         await LibraryHooks.OpenLibraryAsync(page);
         await page.Locator(LibraryHooks.Channel).First.WaitForAsync();
         Assert.Contains(
@@ -117,7 +118,7 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
             0,
             await page.Locator(LibraryHooks.ChannelFor("mock_nova") + " [data-live-ring]").CountAsync());
 
-        await page.GotoAsync($"{app.BaseUrl}/settings");
+        await session.GotoAsync($"{app.BaseUrl}/settings", JourneyReady.Shell);
         row = page.Locator("[data-channel='mock_nova']");
         await row.Locator("[data-channel-resume]").WaitForAsync();
         await row.Locator("[data-channel-resume]").ClickAsync();
@@ -130,28 +131,29 @@ public sealed class SettingsJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Exit_settings_returns_to_the_previous_page_or_home()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
 
         // From a recording, the exit goes back to it through browser history.
         ILocator row = await LibraryHooks.RowAsync(page);
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
-        await row.ClickAsync();
-        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == $"/r/{id}");
+        await session.OpenRecordingAsync(row);
         // The app's Settings controls open the sheet (#183); the account menu's deep link still
         // reaches the page.
         await page.GetByRole(AriaRole.Button, new() { Name = "Twitch account: Mock Admin" }).ClickAsync();
         await page.GetByRole(AriaRole.Menuitem, new() { Name = "Manage Twitch connection" }).ClickAsync();
-        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/settings");
+        await Journey.WaitForUrlAsync(page, url => new Uri(url).AbsolutePath == "/settings");
         await page.Locator("[data-channel]").First.WaitForAsync();
+        await page.Locator("[data-settings-exit][data-sk-ready]").WaitForAsync(
+            new() { State = WaitForSelectorState.Attached });
         await page.GetByRole(AriaRole.Button, new() { Name = "Exit settings" }).ClickAsync();
-        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == $"/r/{id}");
+        await Journey.WaitForUrlAsync(page, url => new Uri(url).AbsolutePath == $"/r/{id}");
 
         // Opened directly, there is no StreamKeepr page to go back to: Esc goes Home.
-        await page.GotoAsync($"{app.BaseUrl}/settings");
+        await session.GotoAsync($"{app.BaseUrl}/settings", JourneyReady.Shell);
         await page.Locator("[data-channel]").First.WaitForAsync();
         await page.Locator("[data-settings-exit][data-sk-ready]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
         await page.Keyboard.PressAsync("Escape");
-        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/");
+        await Journey.WaitForUrlAsync(page, url => new Uri(url).AbsolutePath == "/");
     }
 }

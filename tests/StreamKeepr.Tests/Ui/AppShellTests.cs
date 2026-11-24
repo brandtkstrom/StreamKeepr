@@ -198,6 +198,11 @@ public sealed class AppShellTests
         Assert.Equal("https://twitch.example/", twitch.GetAttribute("href"));
         Assert.Equal("_blank", twitch.GetAttribute("target"));
         Assert.Contains("noopener", twitch.GetAttribute("rel"));
+
+        var twitchMark = twitch.QuerySelector("[data-twitch-mark]");
+        Assert.NotNull(twitchMark);
+        Assert.Equal("", twitchMark!.GetAttribute("alt"));
+        Assert.EndsWith("twitch-glitch.svg", twitchMark.GetAttribute("src"));
     }
 
     [Fact]

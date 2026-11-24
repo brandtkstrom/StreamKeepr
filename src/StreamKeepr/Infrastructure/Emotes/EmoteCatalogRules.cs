@@ -5,10 +5,16 @@ internal static class EmoteCatalogRules
 {
     public const int MaxEntriesPerCatalog = 2_000;
     public const int MaxCodeLength = 128;
-    public const int MaxResponseBytes = 2 * 1024 * 1024;
+
+    /// <summary>
+    /// Provider payloads carry a deep owner/connection graph per emote: the largest sampled 7TV
+    /// channel catalog was 2.38 MB, while a sampled BetterTTV channel catalog was 64 KB. The cap
+    /// bounds every provider.
+    /// </summary>
+    public const int MaxResponseBytes = 4 * 1024 * 1024;
 
     /// <summary>BetterTTV emote IDs are 24 hexadecimal characters.</summary>
-    public static bool IsValidEmoteId(string? id)
+    public static bool IsValidBttvEmoteId(string? id)
     {
         if (id is not { Length: 24 })
             return false;
@@ -22,6 +28,14 @@ internal static class EmoteCatalogRules
         return true;
     }
 
+    /// <summary>
+    /// 7TV emote and emote-set IDs are 26-character ULIDs. Crockford's alphabet is a subset of
+    /// this range, so the check cannot reject a real ID; it pins the length and alphabet that
+    /// keep the ID a single path segment of a fixed URL template.
+    /// </summary>
+    public static bool IsValidSevenTvId(string? id) =>
+        id is { Length: 26 } && id.All(c => char.IsAsciiDigit(c) || char.IsAsciiLetterUpper(c));
+
     public static bool IsValidCode(string? code) =>
         !string.IsNullOrEmpty(code) && code.Length <= MaxCodeLength;
 
@@ -29,7 +43,12 @@ internal static class EmoteCatalogRules
     public static bool IsValidChannelId(string? channelId) =>
         channelId is { Length: >= 1 and <= 20 } && channelId.All(char.IsAsciiDigit);
 
-    /// <summary>Invalid identifiers never leave a provider; the service enforces it again.</summary>
+    /// <summary>
+    /// Invalid identifiers never leave a provider; the service enforces it again. Every known
+    /// provider's identifier shape is accepted, so a new provider must extend this union or all
+    /// of its entries are dropped as unusable.
+    /// </summary>
     public static bool IsUsable(EmoteCatalogEntry entry) =>
-        IsValidEmoteId(entry.Id) && IsValidCode(entry.Code);
+        (IsValidBttvEmoteId(entry.Id) || IsValidSevenTvId(entry.Id)) &&
+        IsValidCode(entry.Code);
 }

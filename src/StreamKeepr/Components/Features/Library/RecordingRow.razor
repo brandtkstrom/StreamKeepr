@@ -23,7 +23,7 @@
             <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Movie" data-icon="movie" />
         }
         <span class="dur">@Format.Timecode(Recording.DurationSec)</span>
-        @if (Recording.ResumeSec is double resume)
+        @if (Recording.ResumeSec is double resume && resume > 0)
         {
             <span class="prog" data-progress aria-hidden="true"><i style="width:@Format.Percent(resume, Recording.DurationSec)"></i></span>
         }
@@ -89,7 +89,8 @@
     private Task DeleteAsync() =>
         DeleteBlockedReason is null ? OnDelete.InvokeAsync(Recording) : Task.CompletedTask;
 
-    private string Href => $"/r/{Uri.EscapeDataString(Recording.Id)}{ViewQuery}";
+    // A selection opens the player playing once; a direct link or reload stays paused.
+    private string Href => LibraryUrl.WithAutoplay($"/r/{Uri.EscapeDataString(Recording.Id)}{ViewQuery}");
 
     private bool IsRecording => Recording.State == RecordingState.Recording;
 
