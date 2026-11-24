@@ -142,6 +142,8 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 .sk-appbar { border-bottom: 1px solid var(--divider); }
 .sk-appbar .mud-toolbar { gap: var(--space-2); padding: 0 var(--space-4) 0 var(--space-2); }
 .sk-appbar .mud-icon-button { color: var(--action-default); }
+.sk-appbar .sk-twitch-mark { display: grid; place-items: center; width: 24px; height: 24px; }
+.sk-appbar .sk-twitch-mark img { display: block; width: auto; height: 24px; }
 .sk-appbar.scrolled { box-shadow: var(--elevation-4); }
 .sk-wordmark { display: flex; align-items: center; gap: var(--space-2); margin-left: var(--space-1); border-radius: var(--radius-sm); color: var(--text-primary); font: var(--text-wordmark); letter-spacing: var(--text-wordmark-letter-spacing); text-decoration: none; white-space: nowrap; }
 .sk-wordmark:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
