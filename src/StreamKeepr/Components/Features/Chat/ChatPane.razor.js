@@ -194,6 +194,90 @@ export function matchEmotes(text, nativeRanges, catalog) {
   return segments;
 }
 
+// An absolute http(s) URL, up to whitespace or a character that would end it in prose.
+// Only explicit schemes link; bare domains and protocol-relative values stay text.
+const URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+/gi;
+
+/**
+ * The regex only finds http(s) candidates; parsing and the protocol check reject anything that
+ * does not normalize to http or https. Returns the normalized href, or null so it stays text.
+ */
+function safeHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+const SENTENCE_END = new Set([".", ",", "!", "?", ";", ":", "*"]);
+const BRACKET_PAIRS = { ")": "(", "]": "[", "}": "{" };
+
+/**
+ * Cuts a candidate before a comma or semicolon in its host. A host cannot contain either, so
+ * "example.com,it" is the URL "example.com" followed by sentence text, not a longer host.
+ */
+function cutAuthority(value) {
+  const start = value.indexOf("://") + 3;
+  const rest = value.slice(start);
+  const authorityEnd = rest.search(/[/?#]/);
+  const authority = authorityEnd === -1 ? rest : rest.slice(0, authorityEnd);
+  const hostStart = authority.lastIndexOf("@") + 1;
+  const bad = authority.slice(hostStart).search(/[,;]/);
+  return bad === -1 ? value : value.slice(0, start + hostStart + bad);
+}
+
+/**
+ * Drops punctuation that belongs to the sentence around the link. A closing bracket stays when
+ * it closes one inside the URL, so a balanced path such as Foo_(bar) links whole.
+ */
+function trimUrlEnd(value) {
+  let end = value.length;
+  while (end > 0) {
+    const last = value[end - 1];
+    if (SENTENCE_END.has(last)) {
+      end--;
+      continue;
+    }
+    const opener = BRACKET_PAIRS[last];
+    if (!opener) break;
+    const head = value.slice(0, end);
+    const opens = [...head].filter((character) => character === opener).length;
+    const closes = [...head].filter((character) => character === last).length;
+    if (closes <= opens) break;
+    end--;
+  }
+  return value.slice(0, end);
+}
+
+/**
+ * Splits text into plain-text and link segments. Only absolute http:// and https:// URLs link,
+ * and a link segment's text is exactly what the chatter typed.
+ */
+export function linkify(text) {
+  const value = String(text ?? "");
+  const segments = [];
+  const pattern = new RegExp(URL_PATTERN.source, URL_PATTERN.flags);
+  let cursor = 0;
+  let match;
+  while ((match = pattern.exec(value)) !== null) {
+    const start = match.index;
+    const link = trimUrlEnd(cutAuthority(match[0]));
+    const href = safeHttpUrl(link);
+    if (start > cursor) segments.push({ type: "text", text: value.slice(cursor, start) });
+    segments.push(href === null
+      ? { type: "text", text: link }
+      : { type: "link", text: link, href });
+    cursor = start + link.length;
+    // A candidate can swallow what follows it (a sentence comma in the host, or a second URL).
+    // Re-scan from the accepted end so the remainder is matched on its own.
+    pattern.lastIndex = cursor;
+  }
+  if (cursor < value.length) segments.push({ type: "text", text: value.slice(cursor) });
+  return segments;
+}
+
 export function createChatPane(root, {
   dotNet = null,
   fetch: fetchImpl = globalThis.fetch?.bind(globalThis),
@@ -877,7 +961,8 @@ export function createChatPane(root, {
       const reply = document.createElement("div");
       reply.className = "sk-chat-reply";
       const who = message.reply.display || message.reply.login || "";
-      reply.textContent = `↳ ${who}: ${message.reply.text}`;
+      reply.append(document.createTextNode(`↳ ${who}: `));
+      appendLinkified(reply, message.reply.text);
       row.append(reply);
     }
 
@@ -932,6 +1017,22 @@ export function createChatPane(root, {
         parent.append(emoteImage(segment.entry, segment.text));
       } else if (segment.type === "native") {
         parent.append(nativeEmoteImage(segment.id, segment.text));
+      } else {
+        appendLinkified(parent, segment.text);
+      }
+    }
+  }
+
+  /** Appends text with absolute http(s) URLs as safe links; message text is never parsed as HTML. */
+  function appendLinkified(parent, value) {
+    for (const segment of linkify(value)) {
+      if (segment.type === "link") {
+        const link = document.createElement("a");
+        link.href = segment.href;
+        link.textContent = segment.text;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer nofollow";
+        parent.append(link);
       } else {
         parent.append(document.createTextNode(segment.text));
       }

@@ -16,3 +16,4 @@ Keep `ChatPane.razor.js` owning the log, polling, auto-scroll and the open state
 - In theater mode it moves below the player and stays the right-hand column there, taking the height left down to the bottom of the viewport, at least 260px (see `TheaterMode`).
 - Below `Breakpoint.Md` it is the **Chat** tab under the player (`MudTabPanel Icon="@Icons.Material.Rounded.Chat"`), filling the rest of the screen without its own header; the tab owns the disclosure, so the pane is always open.
 - The channel colour comes from .NET (`ChannelColor`) in the pane's payload (`channelLogin`, `channelColor`), so chat and the drawer always agree (player contract §10a).
+- Links in message and reply text use `primary` with an underline; long URLs wrap inside the log's `overflow-wrap: anywhere`. Only absolute `http(s)` URLs link, and the visible text stays as typed.

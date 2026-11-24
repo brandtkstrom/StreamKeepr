@@ -408,7 +408,7 @@ root.dispatchEvent(new CustomEvent("sk:playhead", {
 - **Sub/raid notices:** `USERNOTICE` is **deferred**; v1 ignores it. If added later, render `system-msg` as a system line, not as a user message.
 - **Deleted messages:** the API omits deleted messages; if a delete arrives while one is displayed, remove its node. Do not show “message deleted” unless the owner asks.
 - **Gaps:** render a divider “Chat unavailable for 2m 10s” from the `gaps` array or a `gap` event. Announce reconnects once via the polite status region.
-- **Links:** render message text as text, not clickable, in v1. If linkifying later, use `rel="noopener noreferrer nofollow"` and a URL allowlist.
+- **Links:** v1 rendered message text as text, not clickable. **Shipped (#275):** message and reply text now link absolute `http(s)` URLs; the implementation uses a scheme check rather than a URL allowlist, trims trailing sentence punctuation and an unmatched closing bracket, and opens in a new tab with `rel="noopener noreferrer nofollow"`.
 - **XSS:** all text via `textContent`; no `innerHTML`; validate colors, emote IDs, and badge IDs; cap text length.
 
 ### 6.7 Live behavior
