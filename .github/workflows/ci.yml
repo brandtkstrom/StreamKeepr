@@ -293,11 +293,6 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Set up Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-
       - name: Cache NuGet packages
         uses: actions/cache@v6
         with:
@@ -317,11 +312,22 @@ jobs:
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install --yes ffmpeg
 
+      # Only the E2E project and the app it references; the unit tests run in the dotnet job.
       - name: Restore
-        run: dotnet restore StreamKeepr.sln
+        run: dotnet restore tests/StreamKeepr.E2E/StreamKeepr.E2E.csproj
 
       - name: Build with warnings as errors
-        run: dotnet build StreamKeepr.sln --no-restore -warnaserror
+        run: dotnet build tests/StreamKeepr.E2E/StreamKeepr.E2E.csproj --no-restore -warnaserror
+
+      # Publish once from the build above; the fixture runs this folder instead of publishing again.
+      - name: Publish the app for E2E
+        run: >
+          dotnet publish src/StreamKeepr/StreamKeepr.csproj
+          -c Debug
+          --no-build
+          -warnaserror
+          -o ${{ runner.temp }}/streamkeepr-publish
+          -nologo
 
       - name: Install branded Chrome and Playwright dependencies
         run: >
@@ -331,19 +337,22 @@ jobs:
       - name: Run E2E tests
         env:
           STREAMKEEPR_E2E_ARTIFACTS: ${{ runner.temp }}/streamkeepr-e2e
+          STREAMKEEPR_E2E_PUBLISH_DIR: ${{ runner.temp }}/streamkeepr-publish
         run: >
           dotnet test tests/StreamKeepr.E2E/StreamKeepr.E2E.csproj
           --no-build
           --results-directory ${{ runner.temp }}/streamkeepr-e2e/trx
           --logger trx
 
+      # Passing tests keep no traces or axe output, so only a failed run uploads the report.
       - name: Upload Playwright report, traces, and screenshots
-        if: ${{ !cancelled() }}
+        if: ${{ failure() }}
         uses: actions/upload-artifact@v7
         with:
           name: playwright-results
           path: ${{ runner.temp }}/streamkeepr-e2e
-          if-no-files-found: error
+          # A failure before the tests (build, publish, Chrome install) leaves no folder.
+          if-no-files-found: warn
 
       - name: Upload E2E test results
         if: ${{ !cancelled() }}

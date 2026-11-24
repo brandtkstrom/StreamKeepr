@@ -243,6 +243,11 @@ tests opt in explicitly). Telemetry is enabled only when `Telemetry:Enabled` is 
   after a session has existed, but not failed first connects. A part whose size cannot be read
   is counted but gets no size sample. A poll round in which every batch failed marks its span
   `Error`; a partial round leaves the status unset.
+- At startup, from `ApplicationStarted` once the meter provider is listening, every event counter
+  records a zero for each known label value: recorder exit kinds, export outcomes, the configured
+  EventSub transport, and the unlabeled stall, force-kill, and chat-drop counters. This lets
+  Prometheus `increase()` see the first event after a start. The part duration and size histograms
+  are not zeroed, because a zero sample would distort them.
 - Startup refuses enabled telemetry when either `*_DISABLE_URL_QUERY_REDACTION` variable is set to
   any non-blank value.
 - This change adds no logging provider; Serilog remains the only logging pipeline. The startup log

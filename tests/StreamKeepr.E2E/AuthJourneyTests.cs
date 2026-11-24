@@ -5,13 +5,14 @@ using static StreamKeepr.E2E.LibraryJourneyTests;
 namespace StreamKeepr.E2E;
 
 [Collection(MockAppCollection.Name)]
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class AuthJourneyTests(MockAppFixture app)
 {
     [Fact]
     public async Task The_fake_admin_signs_out_and_back_in_from_the_top_bar_keeping_the_page()
     {
-        await using Session session = await OpenAsync($"{app.BaseUrl}?sort=az");
+        await using Journey session = await OpenAsync(app, "?sort=az");
         IPage page = session.Page;
 
         // The account is an avatar-only menu activator, named for the account (#174).
@@ -53,7 +54,7 @@ public sealed class AuthJourneyTests(MockAppFixture app)
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "auth-disconnected");
 
         // Signed out survives a reload in the Mock profile until the next sign-in.
-        await page.ReloadAsync();
+        await session.ReloadAsync();
         await connect.WaitForAsync();
 
         await connect.ClickAsync();
@@ -64,13 +65,13 @@ public sealed class AuthJourneyTests(MockAppFixture app)
     [Fact]
     public async Task A_sign_in_error_shows_one_snackbar_and_leaves_the_other_query_keys()
     {
-        await using Session session = await OpenAsync($"{app.BaseUrl}?sort=az&authError=notAllowed");
+        await using Journey session = await OpenAsync(app, "?sort=az&authError=notAllowed");
         IPage page = session.Page;
 
         ILocator snackbar = Feedback.Snackbar(page, "This Twitch account is not allowed to manage Stream Keepr.");
         await snackbar.WaitForAsync(new() { Timeout = 15_000 });
         Assert.Contains("This Twitch account is not allowed to manage Stream Keepr.", await snackbar.InnerTextAsync());
-        await page.WaitForURLAsync(url => url.EndsWith("/?sort=az", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.EndsWith("/?sort=az", StringComparison.Ordinal));
         Assert.Equal(1, await snackbar.CountAsync());
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "auth-error");
     }

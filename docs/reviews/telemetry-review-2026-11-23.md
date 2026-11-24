@@ -25,8 +25,8 @@ Ranked by impact. Each one cites the evidence from the captured data.
 Every log line from a channel added in the UI carries the adding Blazor request's context, including recorder progress hours later:
 
 ```
-Recorder {Job} progress …  Channel=alveussanctuary  RequestPath=/_blazor
-  ConnectionId=0HNQ9HUVOEIDQ  RequestId=0HNQ9HUVOEIDQ:00000001  TransportConnectionId=PbnkL1Kw…
+Recorder {Job} progress …  Channel=<channel>  RequestPath=/_blazor
+  ConnectionId=<connection-id>  RequestId=<request-id>  TransportConnectionId=<transport-connection-id>
 ```
 
 The same request context appears on `SessionStore`, `ThumbnailService`'s caller, `TwitchTokenProvider` ("Acquired a Twitch app token (initial)"), and the DVR transition logs.
@@ -53,7 +53,7 @@ This was a channel add, not a keepalive failure. In `RunSessionAsync` (`Infrastr
 
 **Fix:** `ct.ThrowIfCancellationRequested()` before classifying a timeout, plus a test with a fake clock that cancels during a wait.
 
-**Fixed:** as proposed. Test: `EventSubClientTests.Channel_change_is_not_reported_as_a_keepalive_timeout_when_the_watchdog_completes_first`. It uses a fake socket that finishes a cancelled receive late, so the watchdog reliably wins the race.
+**Fixed:** as proposed. Test: `EventSubClientTests.Channel_change_is_not_reported_as_a_keepalive_timeout_when_the_watchdog_completes_first`. It uses a fake socket that holds its cancelled receive until the test releases it, so the watchdog reliably wins the race without a wall-clock delay.
 
 ### 3. Disk-degraded health check floods Warnings, but Degraded is invisible in metrics
 

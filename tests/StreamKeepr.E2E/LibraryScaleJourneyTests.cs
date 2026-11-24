@@ -12,6 +12,7 @@ namespace StreamKeepr.E2E;
 /// The test runs alone, after the parallel classes, so it measures the library rather than
 /// other test apps competing for the runner's CPU.
 /// </summary>
+[CaptureFailure]
 [Trait("Category", "E2E")]
 [Collection(LibraryScaleCollection.Name)]
 public sealed class LibraryScaleJourneyTests : IAsyncLifetime
@@ -52,7 +53,7 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
     public async Task A_two_thousand_item_library_loads_searches_sorts_and_scrolls_within_budget()
     {
         const int totalRows = ArchiveCount + SeededCount;
-        await using Session session = await OpenAsync(_app.BaseUrl);
+        await using Journey session = await OpenAsync(_app);
         IPage page = session.Page;
 
         // Cold: the app's first page, in a browser that has never loaded it.
@@ -65,7 +66,7 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
         var warm = new List<(double FirstByte, double Ready)>();
         for (int i = 0; i < WarmLoads; i++)
         {
-            await page.ReloadAsync(new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+            await session.ReloadAsync();
             await page.Locator($"{Search}[data-sk-ready]").WaitForAsync();
             // The counts are in the open library (Md and up it starts as the rail).
             await LibraryHooks.OpenLibraryAsync(page);
