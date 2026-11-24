@@ -133,7 +133,7 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 
 | Job | Steps |
 |---|---|
-| `dotnet` | setup .NET 10; restore; `dotnet build -warnaserror`; `dotnet format --verify-no-changes`; `dotnet test` with coverage; upload results |
+| `dotnet` | setup .NET 11; restore; `dotnet build -warnaserror`; `dotnet format --verify-no-changes`; `dotnet test` with coverage; upload results |
 | `js` | setup Node 24 LTS; `npm ci`; `npm run lint`; `npm test` |
 | `e2e` | setup .NET; restore and build only `tests/StreamKeepr.E2E` (and the app it references); `dotnet publish` the app once; `playwright install --with-deps`; `dotnet test tests/StreamKeepr.E2E` against that publish; upload the TRX always and the Playwright report, traces, axe output and screenshots only on failure |
 | `docker` | `docker build`; run the image with dummy non-secret config and a temp `/recordings` volume; hit `/health/live` and `/`; verify non-root; stop cleanly |

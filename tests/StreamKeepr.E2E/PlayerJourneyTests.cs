@@ -82,6 +82,42 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     }
 
     [Fact]
+    public async Task Switching_from_a_playing_recording_shows_Play_and_opens_the_next_paused()
+    {
+        await using Journey session = await OpenAsync(app);
+        IPage page = session.Page;
+        ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
+        string first = (await saved.Nth(0).GetAttributeAsync("data-recording-id"))!;
+        await saved.Nth(0).ClickAsync();
+        await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{first}", StringComparison.Ordinal));
+        await ExpandLibraryOnWatchPageAsync(page);
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+
+        await page.Locator("[data-sk='center']").ClickAsync();
+        await page.WaitForFunctionAsync("!document.querySelector('[data-sk=video]').paused");
+        Assert.Equal("Pause", await page.Locator("[data-sk='play']").GetAttributeAsync("aria-label"));
+
+        // The drawer swaps the source while the old recording is still playing; the new one
+        // opens paused, so every play surface must show Play (#304).
+        ILocator next = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow, index: 1);
+        string second = (await next.GetAttributeAsync("data-recording-id"))!;
+        string secondTitle = (await next.Locator("[data-row-title]").InnerTextAsync()).Trim();
+        await next.ClickAsync();
+        await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{second}", StringComparison.Ordinal));
+        await page.WaitForFunctionAsync(
+            "t => document.querySelector('[data-sk=title]').textContent === t", secondTitle);
+        await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
+
+        Assert.True(await Video(page, "v => v.paused"), "the next recording opens paused");
+        Assert.Equal("Play", await page.Locator("[data-sk='play']").GetAttributeAsync("aria-label"));
+        await Assertions.Expect(page.Locator("[data-sk='play'] svg"))
+            .ToHaveAttributeAsync("data-icon", "PlayArrow");
+        await Assertions.Expect(page.Locator("[data-sk='center']")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("[data-sk='center'] svg"))
+            .ToHaveAttributeAsync("data-icon", "PlayArrow");
+    }
+
+    [Fact]
     public async Task Clicking_the_video_frame_toggles_playback()
     {
         await using Journey session = await OpenAsync(app);

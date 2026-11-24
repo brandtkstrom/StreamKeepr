@@ -1,6 +1,7 @@
 # Stream Keepr Decision Digest
 
 Status: accepted (2026-11-10)
+Platform update (2026-11-23): the solution targets .NET 11 and C# 15; see `docs/plans/net11-csharp15-migration.md`. The .NET 10 references in §4–§5 are the decisions as recorded at the time and are kept as written.
 Owner: @brandtkstrom
 Entry point for: `to-spec`
 Source: map issue #1 and decision tickets #2–#18; the binding contracts; ADRs 0001–0013; the plan-review register; `GLOSSARY.md`; `docs/plans/streamkeepr-implementation-plan.md`; `docs/design-assets.md`.

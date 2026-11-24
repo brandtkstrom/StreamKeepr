@@ -21,7 +21,11 @@ public sealed class PartPlaylistReaderTests : IDisposable
         await File.WriteAllTextAsync(path, "old body");
 
         await using FileStream stream = PartPlaylistReader.OpenSharedRead(path);
-        Assert.True(stream.IsAsync);
+        // .NET 11 reports the descriptor's real non-blocking state, and regular-file I/O on
+        // Unix is synchronous at the kernel level, so IsAsync is only observable on Windows.
+        // The FileOptions argument is what still selects async behaviour there.
+        if (OperatingSystem.IsWindows())
+            Assert.True(stream.IsAsync);
 
         // The recorder writes part playlists in place. Read/write sharing lets that write
         // proceed while a refresh still holds the file open.
@@ -56,7 +60,8 @@ public sealed class PartPlaylistReaderTests : IDisposable
 
         await using (FileStream stream = PartPlaylistReader.OpenSharedRead(path))
         {
-            Assert.True(stream.IsAsync);
+            if (OperatingSystem.IsWindows())
+                Assert.True(stream.IsAsync);
 
             if (OperatingSystem.IsWindows())
             {
