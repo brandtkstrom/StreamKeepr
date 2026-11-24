@@ -269,7 +269,6 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         IPage page = session.Page;
 
         ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
-        string id = (await growing.GetAttributeAsync("data-recording-id"))!;
         await session.OpenRecordingAsync(growing);
         await page.Locator("[data-sk='live']").WaitForAsync(
             new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
@@ -336,14 +335,12 @@ public sealed class ChatJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Pause_scroll_up_and_resume_returns_chat_to_the_playhead()
     {
-        await using LibraryJourneyTests.Session session =
-            await LibraryJourneyTests.OpenAsync(app.BaseUrl);
+        await using Journey session =
+            await LibraryJourneyTests.OpenAsync(app);
         IPage page = session.Page;
 
         ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
-        string id = (await growing.GetAttributeAsync("data-recording-id"))!;
-        await growing.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(growing);
         await page.Locator("[data-sk='live']").WaitForAsync(
             new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
 
