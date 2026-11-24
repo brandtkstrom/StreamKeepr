@@ -302,6 +302,23 @@ Two checks in §7 have no local result on this machine:
 The 2 E2E tests that did pass are the publish-guard tests, which inspect the
 publish output without starting the app.
 
+### 7.4 CI result
+
+The authoritative run passed:
+
+- `Build and test` — pass, 18m44s (build, format, and the full
+  `Category!=E2E` suite with coverage on Ubuntu).
+- `JS lint and test` — pass.
+- `E2E (Mock profile)`, `Docker image`, `Compose deployment` — skipped, because
+  the workflow only runs them for pull requests into `main`, not `dev`.
+
+Two CI runs before it failed for reasons outside the change: one exhausted the
+20-minute cap inside `apt-get install ffmpeg` on a stalled runner, and one hit
+`RecordingStopTests.Unauthorized_stop_closes_with_the_reconnect_message`, whose
+fix (`fb14e63`) is in `main` but not yet in `dev`. The suite went green once
+that test's timing happened to hold, so the flake is still present on `dev` and
+will recur until `dev` takes main's fix.
+
 ## 8. Rollback
 
 Revert the merge commit on `dev`. No data, schema, or configuration format
