@@ -46,12 +46,14 @@ public sealed class UiPreferencesTests
     [InlineData("not json")]
     [InlineData("""{"v":2,"theater":true}""")]
     [InlineData("""{"theater":true}""")]
+    [InlineData("""{"v":1,"chatShowBadgeText":"false"}""")]
     public void Malformed_or_unknown_version_falls_back_to_defaults(string cookie)
     {
         var preferences = Create(cookie);
 
         Assert.False(preferences.Theater);
         Assert.True(preferences.DetailsOpen);
+        Assert.True(preferences.ChatShowBadgeText);
     }
 
     [Fact]
@@ -139,6 +141,43 @@ public sealed class UiPreferencesTests
     }
 
     [Fact]
+    public void Badge_text_defaults_to_on_and_reads_the_cookie()
+    {
+        Assert.True(Create().ChatShowBadgeText);
+        Assert.False(Create("""{"v":1,"chatShowBadgeText":false}""").ChatShowBadgeText);
+        // An older cookie without the key keeps the text chips on.
+        Assert.True(Create("""{"v":1,"theater":true}""").ChatShowBadgeText);
+    }
+
+    [Fact]
+    public void SetChatShowBadgeText_raises_changed_only_when_the_value_changes()
+    {
+        var preferences = Create();
+        var changes = 0;
+        preferences.Changed += () => changes++;
+
+        preferences.SetChatShowBadgeText(false);
+        preferences.SetChatShowBadgeText(false);
+        preferences.SetChatShowBadgeText(true);
+
+        Assert.True(preferences.ChatShowBadgeText);
+        Assert.Equal(2, changes);
+    }
+
+    [Fact]
+    public async Task Persist_writes_the_badge_text_preference()
+    {
+        var js = new RecordingJSRuntime();
+        var preferences = Create(js: js);
+        preferences.SetChatShowBadgeText(false);
+
+        await preferences.PersistAsync();
+
+        var state = Assert.IsType<UiPreferencesState>(Assert.Single(Assert.Single(js.Invocations).Arguments));
+        Assert.False(state.ChatShowBadgeText);
+    }
+
+    [Fact]
     public async Task Persist_writes_the_chat_sync_offset()
     {
         var js = new RecordingJSRuntime();
@@ -170,7 +209,7 @@ public sealed class UiPreferencesTests
         // An older version's keys are not written back.
         using JsonDocument json = JsonDocument.Parse(JsonSerializer.Serialize(state));
         Assert.Equal(
-            ["v", "theater", "stats", "details", "chat", "chatSync", "viewers"],
+            ["v", "theater", "stats", "details", "chat", "chatSync", "viewers", "chatShowBadgeText"],
             json.RootElement.EnumerateObject().Select(property => property.Name));
     }
 
@@ -189,7 +228,7 @@ public sealed class UiPreferencesTests
     {
         var prerenderStore = new TestClientStateStore();
         prerenderStore.Cookies[UiPreferences.CookieName] =
-            """{"v":1,"theater":true,"stats":true,"details":false,"viewers":false}""";
+            """{"v":1,"theater":true,"stats":true,"details":false,"viewers":false,"chatShowBadgeText":false}""";
 
         _ = Create(store: prerenderStore);
         var persisted = Assert.IsType<string>(prerenderStore.Persisted[UiPreferences.CookieName]);
@@ -202,6 +241,7 @@ public sealed class UiPreferencesTests
         Assert.True(preferences.StatsOpen);
         Assert.False(preferences.DetailsOpen);
         Assert.False(preferences.ViewersOpen);
+        Assert.False(preferences.ChatShowBadgeText);
     }
 
     private static UiPreferences Create(

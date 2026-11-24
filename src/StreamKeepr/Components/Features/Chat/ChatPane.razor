@@ -8,8 +8,9 @@
 @using StreamKeepr.Infrastructure.Storage
 
 @* Rendered once. ChatPane.razor.js owns the log, polling, and auto-scroll, and applies the viewer's
-   chat sync offset from Settings › Chat (UiPreferences);
-   Blazor never re-renders the pane after init, so the open state is JS-owned too. The pane has
+   chat sync offset from Settings › Chat (UiPreferences); the root's data-open and
+   data-badge-text are painted here for the first frame, and the module owns both afterwards
+   because Blazor never re-renders the pane once it is ready. The pane has
    no toggle of its own: the player's Chat button and C open and close it (sk:chat-toggle), and
    closed it is not shown at all.
    No MudBlazor components: it is drawn like an outlined MudPaper with plain markup.
@@ -18,6 +19,7 @@
 <aside class="sk-chat"
        data-sk-chat
        data-open="@(_open ? "true" : "false")"
+       data-badge-text="@(_showBadgeText ? "true" : "false")"
        aria-label="Chat replay"
        @ref="_root">
     @if (!HideHeader)
@@ -74,11 +76,13 @@
     protected override bool ShouldRender() => !_ready;
 
     private double _syncOffset;
+    private bool _showBadgeText;
 
     protected override void OnInitialized()
     {
         _open = WantsOpen;
         _syncOffset = Preferences.ChatSyncOffset;
+        _showBadgeText = Preferences.ChatShowBadgeText;
         Preferences.Changed += OnPreferencesChanged;
     }
 
@@ -87,11 +91,19 @@
     private void OnPreferencesChanged()
     {
         double offset = Preferences.ChatSyncOffset;
-        if (offset == _syncOffset)
-            return;
+        if (offset != _syncOffset)
+        {
+            _syncOffset = offset;
+            _ = InvokeAsync(() => InvokeModuleAsync("setSyncOffset", _root, offset));
+        }
 
-        _syncOffset = offset;
-        _ = InvokeAsync(() => InvokeModuleAsync("setSyncOffset", _root, offset));
+        // The badge text is a separate preference: a change to one must not swallow the other.
+        bool showBadgeText = Preferences.ChatShowBadgeText;
+        if (showBadgeText != _showBadgeText)
+        {
+            _showBadgeText = showBadgeText;
+            _ = InvokeAsync(() => InvokeModuleAsync("setShowBadgeText", _root, showBadgeText));
+        }
     }
 
     private bool WantsOpen => HideHeader || Open;
@@ -181,6 +193,8 @@
         maxSyncOffsetSec = ChatReader.MaxSyncOffsetSeconds,
         // The viewer's one offset from Settings › Chat (UiPreferences), for every recording.
         syncOffsetSec = _syncOffset,
+        // The text chips that stand in for badges; the module and CSS own the visibility.
+        showBadgeText = _showBadgeText,
     };
 
     private async Task InvokeModuleAsync(string identifier, params object[] args)

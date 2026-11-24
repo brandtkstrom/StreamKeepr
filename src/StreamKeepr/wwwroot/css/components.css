@@ -631,6 +631,10 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   background: var(--surface-raised); color: var(--text-secondary); vertical-align: 1px;
   font: var(--text-label); letter-spacing: var(--text-label-letter-spacing);
 }
+/* Settings › Chat "Show badge text": the pane root carries the preference, and a hidden chip
+   leaves the layout and the accessibility tree (display, not opacity). Badge images are a
+   separate surface and are not covered by this switch. */
+.sk-chat[data-badge-text="false"] .sk-chat-badge { display: none; }
 .sk-chat-reply {
   display: block; margin: 0 0 2px; padding-left: var(--space-2); border-left: 2px solid var(--divider);
   color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
@@ -647,6 +651,11 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-chat-settings svg[data-icon] { display: block; width: 24px; height: 24px; fill: currentColor; flex: none; }
 .sk-chat-settings :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .sk-chat-settings-help { margin: 0; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
+/* Show badge text: a native checkbox in primary with the row's meaning icon. The label wraps
+   the input, so the whole 40px row is the hit target and no id is needed. */
+.sk-chat-badge-text { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; max-width: 420px; margin-top: var(--space-4); color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); cursor: pointer; }
+.sk-chat-badge-text > svg[data-icon] { flex: none; width: 20px; height: 20px; color: var(--action-default); }
+.sk-chat-badge-text-input { flex: none; inline-size: 18px; block-size: 18px; margin: 0; accent-color: var(--primary); cursor: pointer; }
 .sk-chat-sync { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 420px; }
 .sk-chat-sync-head { display: flex; align-items: center; gap: var(--space-2); min-height: 28px; }
 .sk-chat-sync-head > svg[data-icon] { width: 20px; height: 20px; color: var(--action-default); }

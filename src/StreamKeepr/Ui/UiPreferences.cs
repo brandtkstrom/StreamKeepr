@@ -37,6 +37,7 @@ public sealed class UiPreferences
     private bool _viewersOpen = true;
     private bool _chatOpen;
     private double _chatSync;
+    private bool _chatShowBadgeText = true;
 
     public UiPreferences(IClientStateStore store, IJSRuntime js, ILogger<UiPreferences> logger)
     {
@@ -74,6 +75,10 @@ public sealed class UiPreferences
     /// <summary>The viewer's chat sync offset in seconds, the same for every recording.
     /// Positive shows chat later. Always within the chat endpoint's limit, in 0.5 s steps.</summary>
     public double ChatSyncOffset => _chatSync;
+
+    /// <summary>Whether chat rows show the text chips that stand in for badges;
+    /// on by default. These chips are not badge images, which are a separate surface.</summary>
+    public bool ChatShowBadgeText => _chatShowBadgeText;
 
     public event Action? Changed;
 
@@ -137,6 +142,16 @@ public sealed class UiPreferences
         OnChanged();
     }
 
+    /// <summary>Shows or hides the badge text chips in every chat pane.</summary>
+    public void SetChatShowBadgeText(bool show)
+    {
+        if (show == _chatShowBadgeText)
+            return;
+
+        _chatShowBadgeText = show;
+        OnChanged();
+    }
+
     /// <summary>Persists the current state through the browser module.</summary>
     public async Task PersistAsync()
     {
@@ -183,6 +198,7 @@ public sealed class UiPreferences
         _viewersOpen = state.Viewers ?? true;
         _chatOpen = state.Chat ?? false;
         _chatSync = state.ChatSync is { } sync && double.IsFinite(sync) ? SnapChatSync(sync) : 0;
+        _chatShowBadgeText = state.ChatShowBadgeText ?? true;
     }
 
     private static double SnapChatSync(double seconds)
@@ -208,7 +224,8 @@ public sealed class UiPreferences
         _detailsOpen,
         _chatOpen,
         _chatSync,
-        _viewersOpen);
+        _viewersOpen,
+        _chatShowBadgeText);
 
     private string ToJson() => Serialize(CreateState());
 
@@ -230,6 +247,8 @@ public sealed class UiPreferences
         [JsonPropertyName("viewers")] public bool? Viewers { get; set; }
 
         [JsonPropertyName("chatSync")] public double? ChatSync { get; set; }
+
+        [JsonPropertyName("chatShowBadgeText")] public bool? ChatShowBadgeText { get; set; }
     }
 }
 
@@ -241,4 +260,5 @@ public sealed record UiPreferencesState(
     [property: JsonPropertyName("details")] bool Details,
     [property: JsonPropertyName("chat")] bool Chat,
     [property: JsonPropertyName("chatSync")] double ChatSync,
-    [property: JsonPropertyName("viewers")] bool Viewers = true);
+    [property: JsonPropertyName("viewers")] bool Viewers = true,
+    [property: JsonPropertyName("chatShowBadgeText")] bool ChatShowBadgeText = true);

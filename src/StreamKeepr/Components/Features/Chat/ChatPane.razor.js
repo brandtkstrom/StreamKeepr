@@ -232,6 +232,9 @@ export function createChatPane(root, {
   let messages = new Map();
   let gaps = [];
   let syncOffset = 0;
+  // The viewer's "Show badge text" preference. The root attribute drives the pane rule that
+  // hides the chips, so a change costs no rebuild and keeps the viewer's place.
+  let showBadgeText = root?.dataset.badgeText !== "false";
   let following = true;
   let newCount = 0;
   let lastRenderKey = "";
@@ -430,6 +433,9 @@ export function createChatPane(root, {
     const hadChat = view?.hasChat === true;
     view = next;
     fixedOpen = Boolean(next.fixedOpen);
+    // The payload is a boundary: a missing value must not overwrite the state the server
+    // painted (an older payload would otherwise turn the chips back on).
+    if (typeof next.showBadgeText === "boolean") setShowBadgeText(next.showBadgeText);
     // A session's chat log can appear while the recording is live, but it never disappears.
     // Keep a true value when a stale summary payload says false, and keep status in step.
     if (!changed && hadChat) view = { ...next, hasChat: true };
@@ -1038,6 +1044,22 @@ export function createChatPane(root, {
     return Number.isFinite(number) ? clamp(number, -max, max) : 0;
   }
 
+  function applyBadgeText() {
+    if (root) root.dataset.badgeText = showBadgeText ? "true" : "false";
+  }
+
+  /**
+   * Applies "Show badge text" (Settings › Chat). The pane rule hides the chips, so this only
+   * flips the root attribute: no refetch, no rebuild, no scroll movement.
+   */
+  function setShowBadgeText(value) {
+    if (disposed) return;
+    const next = value !== false;
+    if (next === showBadgeText) return;
+    showBadgeText = next;
+    applyBadgeText();
+  }
+
   /**
    * Applies the viewer's chat sync offset (Settings › Chat): chat is refetched around the
    * playhead with it. The same offset again fetches nothing.
@@ -1072,6 +1094,7 @@ export function createChatPane(root, {
     if (!document.hidden && open && !paused) resume();
   });
 
+  applyBadgeText();
   applyOpen();
   updateFooter();
 
@@ -1079,6 +1102,7 @@ export function createChatPane(root, {
     load,
     setOpen,
     setSyncOffset,
+    setShowBadgeText,
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -1115,6 +1139,10 @@ export function setOpen(root, open) {
 
 export function setSyncOffset(root, offset) {
   panes.get(root)?.setSyncOffset(offset);
+}
+
+export function setShowBadgeText(root, value) {
+  panes.get(root)?.setShowBadgeText(value);
 }
 
 export function dispose(root) {
