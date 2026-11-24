@@ -315,9 +315,13 @@ The authoritative run passed:
 Two CI runs before it failed for reasons outside the change: one exhausted the
 20-minute cap inside `apt-get install ffmpeg` on a stalled runner, and one hit
 `RecordingStopTests.Unauthorized_stop_closes_with_the_reconnect_message`, whose
-fix (`fb14e63`) is in `main` but not yet in `dev`. The suite went green once
-that test's timing happened to hold, so the flake is still present on `dev` and
-will recur until `dev` takes main's fix.
+fix (`fb14e63`) was in `main` but not in `dev` at the time.
+
+That gap is closed. `dev` was brought up to date, and the branch merged `dev`
+(`ab95285`), so `fb14e63` and the E2E circuit wait (`50ce242`) are now part of
+this branch. A targeted re-run of the four previously fragile classes —
+`RecordingStopTests`, `PartPlaylistReaderTests`, `StreamKeeprSnackbarsTests`,
+`StreamKeeprThemeTests` — passes 26/26 on the merged tree.
 
 ## 8. Rollback
 
