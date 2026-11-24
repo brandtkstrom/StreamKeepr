@@ -135,6 +135,15 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         // The pane holds no sync control of its own.
         Assert.Equal(0, await pane.GetByRole(AriaRole.Slider).CountAsync());
 
+        // Pause so a leaked arrow key shows as a jump rather than normal playback.
+        ILocator video = page.Locator("[data-sk='video']");
+        if (!await video.EvaluateAsync<bool>("v => v.paused"))
+        {
+            await page.EvaluateAsync("() => document.activeElement?.blur()");
+            await page.Keyboard.PressAsync("k");
+        }
+        Assert.True(await video.EvaluateAsync<bool>("v => v.paused"));
+
         // Settings opens over the recording; the pane stays behind it.
         await page.GetByRole(AriaRole.Banner)
             .GetByRole(AriaRole.Link, new() { Name = "Settings", Exact = true }).ClickAsync();
@@ -143,7 +152,6 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         ILocator readout = sheet.Locator("[data-chat-sync-value]");
         await Assertions.Expect(slider).ToBeVisibleAsync(new() { Timeout = 20_000 });
 
-        ILocator video = page.Locator("[data-sk='video']");
         double playhead = await video.EvaluateAsync<double>("v => v.currentTime");
         await slider.FocusAsync();
         for (int i = 0; i < 3; i++)

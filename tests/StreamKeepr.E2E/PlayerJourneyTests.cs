@@ -229,7 +229,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             new() { Timeout = 10_000 });
 
         // Selecting the same row again starts playing there; a reload stays paused.
-        await session.GotoAsync("/");
+        await session.GotoAsync($"{app.BaseUrl}/");
         await session.OpenRecordingAsync(await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
         await WaitForPlayingAsync(page);
@@ -783,6 +783,11 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             }
             """);
         Assert.NotNull(await live.GetAttributeAsync("data-at-edge"));
+
+        // Pause so the handoff position is stable; following was checked above.
+        await page.Mouse.MoveAsync(5, 5);
+        await page.Locator("[data-sk='play']").ClickAsync();
+        Assert.True(await Video(page, "v => v.paused"));
 
         // ENDLIST arrives on the next playlist refresh: live becomes finished in place.
         double position = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
