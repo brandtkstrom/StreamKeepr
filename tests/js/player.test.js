@@ -172,6 +172,7 @@ function view(overrides = {}) {
     state: "saved",
     durationSec: 120,
     resumeSec: null,
+    autoplay: false,
     statsOpen: false,
     chapters: [
       { startSeconds: 0, title: "Intro", game: "Food" },
@@ -240,7 +241,7 @@ describe("VideoPlayer.razor.js", () => {
   }
 
   describe("engine and source", () => {
-    it("lazily loads hls.js once with the contract config and never autoplays", async () => {
+    it("lazily loads hls.js once with the contract config and does not autoplay without an intent", async () => {
       await start();
 
       expect(loadHls).toHaveBeenCalledOnce();
@@ -491,6 +492,131 @@ describe("VideoPlayer.razor.js", () => {
       expect(hook("play").querySelector("svg").dataset.icon).toBe("PlayArrow");
       expect(hook("center").hidden).toBe(false);
       expect(hook("center").querySelector("svg").dataset.icon).toBe("PlayArrow");
+    });
+
+    describe("selection autoplay", () => {
+      it("autoplays a finished recording at its resume position", async () => {
+        await start(view({ resumeSec: 42, autoplay: true }));
+
+        media.metadata(600);
+
+        expect(hook("video").currentTime).toBe(42);
+        expect(hook("video").play).toHaveBeenCalledOnce();
+        expect(hook("play").getAttribute("aria-label")).toBe("Pause");
+        expect(hook("center").hidden).toBe(true);
+      });
+
+      it("autoplays a finished recording from the start without a resume position", async () => {
+        await start(view({ autoplay: true }));
+
+        media.metadata(120);
+
+        expect(hook("video").currentTime).toBe(0);
+        expect(hook("video").play).toHaveBeenCalledOnce();
+        expect(hook("play").getAttribute("aria-label")).toBe("Pause");
+      });
+
+      it("autoplays a live capture at the live sync position, following", async () => {
+        await start(view({ state: "recording", autoplay: true }));
+        const [instance] = hls.instances;
+        media.seekableEnd = 60;
+        instance.liveSyncPosition = 48;
+
+        media.metadata(60);
+
+        expect(hook("video").currentTime).toBe(48);
+        expect(hook("video").play).toHaveBeenCalledOnce();
+        expect(hook("live").classList.contains("at-edge")).toBe(true);
+
+        // Following the edge writes no progress, as before.
+        media.seekableEnd = 90;
+        instance.liveSyncPosition = 78;
+        media.metadata(90);
+        media.time(50);
+        expect(hook("video").currentTime).toBe(78);
+        vi.advanceTimersByTime(60_000);
+        window.dispatchEvent(new Event("pagehide"));
+        expect(dotNet.invokeMethodAsync).not.toHaveBeenCalled();
+        expect(fetch).not.toHaveBeenCalled();
+      });
+
+      it("leaves the paused UI when the browser rejects play", async () => {
+        await start(view({ resumeSec: 42, autoplay: true }));
+        hook("video").play.mockImplementationOnce(() =>
+          Promise.reject(new DOMException("blocked", "NotAllowedError")));
+
+        media.metadata(600);
+        await Promise.resolve();
+
+        expect(hook("video").currentTime).toBe(42);
+        expect(hook("video").play).toHaveBeenCalledOnce();
+        expect(hook("play").getAttribute("aria-label")).toBe("Play");
+        expect(hook("play").querySelector("svg").dataset.icon).toBe("PlayArrow");
+        expect(hook("center").hidden).toBe(false);
+        expect(hook("center").getAttribute("aria-label")).toBe("Play");
+        expect(hook("overlay").hidden).toBe(true);
+      });
+
+      it("shows Play when a selection after a playing recording is rejected", async () => {
+        await start();
+        media.metadata(120);
+        hook("video").setAttribute("src", "blob:first");
+        hook("center").click();
+        expect(hook("play").getAttribute("aria-label")).toBe("Pause");
+        hook("video").play.mockImplementationOnce(() =>
+          Promise.reject(new DOMException("blocked", "NotAllowedError")));
+
+        await player.load(view({
+          recordingId: "r2",
+          playlistUrl: "/media/ann/r2/index.m3u8",
+          autoplay: true,
+        }));
+        media.metadata(120);
+        await Promise.resolve();
+
+        expect(hook("play").getAttribute("aria-label")).toBe("Play");
+        expect(hook("play").querySelector("svg").dataset.icon).toBe("PlayArrow");
+        expect(hook("center").hidden).toBe(false);
+        expect(hook("center").querySelector("svg").dataset.icon).toBe("PlayArrow");
+        expect(hook("overlay").hidden).toBe(true);
+      });
+    });
+
+    describe("repeat selection", () => {
+      it("starts a paused recording without reloading the source", async () => {
+        await start();
+        media.metadata(120);
+        const instances = hls.instances.length;
+
+        player.play();
+
+        expect(hook("video").play).toHaveBeenCalledOnce();
+        expect(hls.instances).toHaveLength(instances);
+        expect(hook("play").getAttribute("aria-label")).toBe("Pause");
+      });
+
+      it("waits for metadata before playing", async () => {
+        await start();
+
+        player.play();
+        expect(hook("video").play).not.toHaveBeenCalled();
+
+        media.metadata(120);
+        expect(hook("video").play).toHaveBeenCalledOnce();
+      });
+
+      it("replays an ended recording from the start", async () => {
+        await start();
+        media.metadata(120);
+        media.ended = true;
+        media.currentTime = 120;
+        hook("video").dispatchEvent(new Event("ended"));
+
+        player.play();
+
+        expect(media.seeks).toContain(0);
+        expect(hook("video").play).toHaveBeenCalled();
+      });
     });
 
     it("shows replay when ended and restarts from zero", async () => {

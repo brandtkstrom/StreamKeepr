@@ -61,6 +61,14 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{topId}", StringComparison.Ordinal));
         await page.Locator($"[data-selected-recording='{deletedId}']")
             .WaitForAsync(new() { State = WaitForSelectorState.Detached });
+        // The next recording is a plain navigation, so it opens paused with Play and no intent.
+        await page.Locator("[data-sk='seek'][aria-disabled='false']")
+            .WaitForAsync(new() { Timeout = 20_000 });
+        Assert.True(
+            await page.Locator("[data-sk='video']").EvaluateAsync<bool>("v => v.paused"),
+            "deleting opens the next recording paused");
+        Assert.Equal("Play", await page.Locator("[data-sk='play']").GetAttributeAsync("aria-label"));
+        Assert.DoesNotContain("autoplay=", page.Url);
         await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "delete");
     }
 

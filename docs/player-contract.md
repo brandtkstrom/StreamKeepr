@@ -43,13 +43,14 @@ The stitched `index.m3u8` is a **single media playlist**, not a multi-variant ma
   3. Reset media, error, idle, stats, seek, and menu state.
   4. Apply volume, mute, and speed preferences.
   5. Create hls.js or set the native source; attach the new poster, title, streamer login, chapters, and state.
-  6. Restore the resume position when the recording has one; otherwise open at the live edge for Recording/Reconnecting, or at 0 for Completed.
+  6. Restore the resume position when the recording has one; otherwise open at the live edge for Recording/Reconnecting, or at 0 for Completed. When the open carries the one-shot autoplay intent (§4), start playing after that position is applied.
 - `update(view)` runs for the same recording when `LibraryView.Changed` supplies a new `RecordingView`. It updates the title, streamer login, poster, chapters, and state chip. It never applies `ResumeSec` again and never resets playback. The component skips `update` when the `RecordingView` instance is unchanged.
 - The init/update payload uses camelCase:
   - `recordingId`, `playlistUrl`, `title`, `streamerLogin`, `thumbnailUrl`
   - `state`: `recording`, `reconnecting`, `partial`, `saved`
-  - `durationSec`, `resumeSec`, `chapters[]`, `statsOpen`, `theater`, `theaterAvailable`
+  - `durationSec`, `resumeSec`, `autoplay`, `chapters[]`, `statsOpen`, `theater`, `theaterAvailable`
   - `chapters[]` is `{ startSeconds, title, game }` from `RecordingView.Chapters`.
+  - `autoplay` is true only for a library selection; `update` payloads carry it but never apply it.
 - `dispose()` flushes progress, destroys hls/native media, clears timers and listeners, and releases the module reference. The `DotNetObjectReference` is disposed by the component.
 - The .NET reference exposes `SaveProgress(string recordingId, double)`, `ClearProgress(string recordingId)`, `SetStatsOpen(bool)`, `SetTheater(bool)`, and `Notify(string)`. The progress calls carry the recording id so a save in flight across a recording change lands on the recording it belongs to. `Notify` shows a snackbar (`ISnackbar.Show`); it is used only for copy-stats confirmation/failure.
 - `UiPreferences` is the single source for stats/theater state. JS applies `setStatsOpen(bool)`/`setTheater(bool)` when `UiPreferences.Changed` fires; the player's own buttons call .NET to persist.
@@ -58,7 +59,7 @@ The stitched `index.m3u8` is a **single media playlist**, not a multi-variant ma
 
 ## 4. Playback model
 
-- No autoplay. A recording page shows the poster and centre play button; the playhead is positioned at the resume position when there is one, otherwise at the live edge (Recording/Reconnecting) or 0 (Completed). The user presses play.
+- **Autoplay only on a library selection.** Selecting a recording from the library drawer or a Home row opens the watch page playing. Selecting the recording that is already open starts it playing from its current position without reloading the source. The player positions the playhead first (the resume position when there is one, otherwise the live edge for Recording/Reconnecting, otherwise 0 for Completed), then calls `video.play()` with the saved volume, mute and speed preferences. A direct `/r/{id}` link, a reload, and back/forward show the poster and centre play button and wait for Play. A chapter seek never starts playback. If `video.play()` rejects (for example an audible-autoplay policy), the player stays paused with the Play icon/`aria-label` and centre Play, shows no error overlay, and does not retry.
 - hls.js configuration is the defaults plus:
   - `enableWorker: true`
   - `lowLatencyMode: false`
@@ -135,8 +136,8 @@ Control order, left to right, matches the design system:
 
 ## 8. Resume and progress
 
-- Every recording starts at `ResumeSec` when it is set, clamped to `[0, duration - 1]`; there is no resume prompt, toast, or “start over” control. A null `ResumeSec` starts a Completed recording (Saved/Partial) at 0 and a Recording/Reconnecting one at the live edge.
-- Recording/Reconnecting write progress only while the viewer is not following: a pause or a seek behind the live edge starts writing, with the same cadence and flushes as below. Opening at the live edge and never pressing play is following and writes nothing. While live the 30 s end margin is suspended, on the player and the server, because the live edge sits inside it; once ENDLIST makes the duration finite the margin applies again. When the capture finishes, the backend drops a resume position left within 30 s of the final end, so the finished recording opens at 0.
+- Every recording starts at `ResumeSec` when it is set, clamped to `[0, duration - 1]`; there is no resume prompt, toast, or “start over” control. A null `ResumeSec` starts a Completed recording (Saved/Partial) at 0 and a Recording/Reconnecting one at the live edge. A library selection starts playing from that position (§4); a direct link or reload stays paused there.
+- Recording/Reconnecting write progress only while the viewer is not following: a pause or a seek behind the live edge starts writing, with the same cadence and flushes as below. Opening at the live edge, whether it starts playing or stays paused, is following and writes nothing; playing at the edge also writes nothing. While live the 30 s end margin is suspended, on the player and the server, because the live edge sits inside it; once ENDLIST makes the duration finite the margin applies again. When the capture finishes, the backend drops a resume position left within 30 s of the final end, so the finished recording opens at 0.
 - Save every 15 s while playing and once on pause through the component's `SaveProgress` call to `IProgressStore.SetAsync`; this keeps the library's resume bars updating through `LibraryView.Changed`.
 - Flush on route change, component dispose, `pagehide`, and `visibilitychange` → hidden with `PUT /api/recordings/{id}/progress`, `Content-Type: application/json`, `keepalive: true`. Skip a flush within 2 s of the previous write.
 - On `ended`, call `ClearProgress`. Within 30 s of the end, clear instead of writing a position. While the duration is unknown (still loading, or a pause fired while switching recordings), write nothing: clearing then would wipe a stored resume position the viewer never moved past. The backend clamps and enforces the same 30 s rule.
@@ -199,19 +200,22 @@ The chat pane's behaviour (windows, polling, backfill, emotes) is unchanged; thi
 - **Other chatters** keep their Twitch colour only where it reaches 4.5:1 on the pane's background; otherwise the name has no inline colour and keeps `text-primary`.
 - Every keyboard focus in the pane shows the 2 px `primary` ring.
 
-## 11. Chapter seek
+## 11. Chapter seek and play
 
-- A scoped `PlayerBridge` is the only seek seam for sibling components:
+- A scoped `PlayerBridge` is the only seek/play seam for sibling components:
   ```csharp
   public sealed class PlayerBridge
   {
       public bool IsReady { get; }
-      public void Attach(Func<double, ValueTask> seek);
+      public void Attach(Func<double, ValueTask> seek, Func<ValueTask>? play = null);
       public void Detach();
       public ValueTask SeekAsync(double seconds);
+      public ValueTask PlayAsync();
   }
   ```
+- A chapter seek only moves the playhead; it never starts playback.
 - `VideoPlayer` attaches after JS init and detaches on dispose. `SeekAsync` clamps the lower bound to `0`; the player JS clamps the upper bound to the media duration it owns, so the bridge does not carry a second duration copy. If the player is not ready it stores the latest request and flushes it after attach. A click on a chapter in `RecordingDetails` calls it and leaves focus on the chapter button.
+- `Home` uses `PlayAsync` when a library selection repeats the already-open recording: there is no new load payload, so the attached player starts from its current position (or replays from 0 when ended) without reloading the source. A play request that arrives before attach is kept and flushed, like a seek.
 - Chapter ticks, hover chapter names, and the details list all use `Chapter.StartSeconds`; empty or invalid chapter data produces no ticks and no tooltip title.
 
 ## 12. Media URLs, caching, and security
@@ -250,10 +254,10 @@ The chat pane's behaviour (windows, polling, backfill, emotes) is unchanged; thi
 
 bUnit:
 
-- `VideoPlayer` renders the skeleton once, initializes with the correct payload, never re-renders, calls `load` on an id change and `update` on a same-id state/title/chapter change, ignores `ResumeSec` on update, and disposes.
+- `VideoPlayer` renders the skeleton once, initializes with the correct payload (including the one-shot `autoplay` flag), never re-renders, calls `load` on an id change and `update` on a same-id state/title/chapter change, ignores `ResumeSec` on update, and disposes. `Home` consumes `autoplay` into the player and strips it from the URL.
 - `UiPreferences.Changed` drives `setStatsOpen`/`setTheater`; the component's buttons call the .NET setters; `Notify` shows a snackbar (`ISnackbar.Show`).
 - The player dispatches `sk:playhead` with the recording id, time, duration, paused/rate/live flags, throttles `timeupdate` to 250 ms, and emits immediately on the state events above.
-- `PlayerBridge` queues until ready, clamps, flushes, and clears on detach.
+- `PlayerBridge` queues and flushes seeks and play requests, clamps seeks, and clears on detach.
 - `StatsPanel`: the overlay's hooks, its "Statistics" region and header buttons, hidden while closed, the series swatches, the Stream row hidden until samples, and recording changes through `SetRecordingAsync`; its tab form has no header and is always open. `ViewersPanel`: the chart hooks, hidden until samples, the disclosure and `ViewersOpen`, the tab form without a header, the chart's `role="img"` with the sample table outside it, and `Seek` through `PlayerBridge` (#211).
 - `ChatPane` has no toggle (`data-sk="chat-toggle"`) in either form. Tab form: no header, `data-open="true"`, body not inert.
 - `Home` watch layout: Md and up renders player/details/stats in order; below Md the player stays outside `MudTabs`, the summary is outside the tabs, Chat is first when the recording has chat, and the player instance survives the breakpoint.
@@ -262,7 +266,7 @@ bUnit:
 Vitest:
 
 - Timecode, chapter lookup/ticks, seek math, prefs parse/clamp, ring buffer, retry policy, copy JSON, and title/URL text handling.
-- Module with a fake hls loader and fake media: init/load/update/dispose, source swap and live/VOD transitions, live edge/follow, keyboard scope, idle, progress cadence/pagehide/dispose, retries and overlay, native fallback, stats sampler/sparkline/copy, stats/theater sync.
+- Module with a fake hls loader and fake media: init/load/update/dispose, source swap and live/VOD transitions, live edge/follow, selection autoplay at a resume position, the live edge and 0, repeat selection without a reload, a rejected `play()` leaving the paused UI, keyboard scope, idle, progress cadence/pagehide/dispose, retries and overlay, native fallback, stats sampler/sparkline/copy, stats/theater sync.
 - Waiting and reconnect policy (#247): first-load manifest, parse, timeout and empty-playlist waits; a buffered mid-stream playlist failure shows Reconnecting without a spinner and keeps playing; an empty-buffer failure spins with Reconnecting; `LEVEL_LOADED`/`FRAG_LOADED` recovery restores the capture chip; `waiting` with and without a buffer; a seek into an unbuffered region; the 0.5 s boundary; `bufferStalledError`; and Complete-without-a-segment versus mid-stream reconnect.
 - Menu and slider ARIA/keyboard behaviour; reduced motion paths; playhead throttle/immediate events; global keys ignored inside `[data-sk-chat]`.
 - Viewer chart (#211): summary figures, count at the playhead, tooltip/compact/label text, geometry, gridlines and x labels, pointer mapping; the module's fetch on open, once per finished recording, 60 s and reopen refresh while live, abort on close/dispose, stale and mismatched responses, 404 and empty state, playhead, hover, click/drag seek, live edge, and the snapshot's `viewers`.
@@ -275,8 +279,9 @@ xUnit/bUnit (islands):
 
 Playwright (Chrome channel against the Mock profile):
 
-- Open a finished recording and play/pause/seek; resume across reload; progress clears near the end.
-- Growing capture: leave the live edge and pause, the row shows a partial resume bar, and a reload opens paused at that position, not following; Live edge then restores the full bar and the next reload opens at the live edge.
+- Selecting a finished recording opens it at 0 and playing; pause/play/seek; resume across reload; progress clears near the end.
+- Selecting a drawer row or Home card starts playback, strips `autoplay` from the URL, and a reload, direct link, or back/forward stays paused; re-selecting the open recording plays without reloading; a rejected `video.play()` leaves Play and no overlay; deleting opens the next recording paused.
+- Growing capture: a selection opens playing at the live edge; leave the edge and pause, the row shows a partial resume bar, and a reload opens paused at that position, not following; Live edge then restores the full bar and the next reload opens at the live edge.
 - Growing capture: open near the live edge, duration grows, seek back and press Live edge, finalize and observe the live→VOD handoff; reopen a finalized session and observe VOD→live.
 - Delete the open recording: snackbar and next item (or empty library).
 - Stats: open/close, sampler values, player/panel sync, copy with clipboard permission and snackbar; reload restores `sk-ui`.
@@ -290,7 +295,7 @@ Native HLS, iOS fullscreen, and PiP transitions are covered by Vitest/bUnit stub
 
 ## 16. Binding versus implementation freedom
 
-Binding: static-player/JS ownership, module loading and native fallback, source lifecycle and payload, no autoplay, live-edge/follow semantics, live/VOD transitions, delete reaction, control order and responsive hiding, seek commit and ARIA, keyboard scope, idle rules, fullscreen/PiP/theater behaviour, resume cadence/skip/clear rules, `sk-player` schema, stats sampling/metrics/copy JSON, `PlayerBridge`, the watch layout (§2a), media/auth assumptions, error/waiting policy, and the test matrix.
+Binding: static-player/JS ownership, module loading and native fallback, source lifecycle and payload, selection-only autoplay and its paused fallback, live-edge/follow semantics, live/VOD transitions, delete reaction, control order and responsive hiding, seek commit and ARIA, keyboard scope, idle rules, fullscreen/PiP/theater behaviour, resume cadence/skip/clear rules, `sk-player` schema, stats sampling/metrics/copy JSON, `PlayerBridge`, the watch layout (§2a), media/auth assumptions, error/waiting policy, and the test matrix.
 
 Freedom: exact markup beyond the `sk-` classes, JS helper style and internal function names, error wording, menu animation, sparkline path details, and test implementation.
 
