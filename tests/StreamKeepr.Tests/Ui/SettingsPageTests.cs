@@ -136,8 +136,12 @@ public sealed class SettingsPageTests
 
         dialogs.Find("[data-channel-stop-confirm]").Click();
 
-        Assert.Equal(["stop:ann"], channels.Calls);
-        Assert.Equal("Stopping…", cut.Find("[data-channel='ann'] [data-channel-busy]").TextContent);
+        // Click returns before the handler runs when another render holds the dispatcher.
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal(["stop:ann"], channels.Calls);
+            Assert.Equal("Stopping…", cut.Find("[data-channel='ann'] [data-channel-busy]").TextContent);
+        });
         Assert.Equal("status", cut.Find("[data-channel='ann'] [data-channel-busy]").GetAttribute("role"));
 
         channels.Items = [new("ann", "Ann", null, true, true, ChannelRuntimeState.Paused, true, "EventSub connected")];
@@ -276,9 +280,13 @@ public sealed class SettingsPageTests
 
         dialogs.Find("[data-channel-remove-confirm]").Click();
 
-        Assert.Equal(["remove:ann"], channels.Calls);
-        Assert.False(dialogs.HasOpenDialog("Remove Ann?"));
-        Assert.Equal("Removing…", cut.Find("[data-channel='ann'] [data-channel-busy]").TextContent);
+        // Click returns before the handler runs when another render holds the dispatcher.
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal(["remove:ann"], channels.Calls);
+            Assert.Equal("Removing…", cut.Find("[data-channel='ann'] [data-channel-busy]").TextContent);
+        });
+        dialogs.WaitForAssertion(() => Assert.False(dialogs.HasOpenDialog("Remove Ann?")));
         Assert.Equal("status", cut.Find("[data-channel='ann'] [data-channel-busy]").GetAttribute("role"));
         Assert.Empty(cut.FindAll("[data-channel='ann'] [data-channel-remove]"));
 

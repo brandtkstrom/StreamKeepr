@@ -2,7 +2,7 @@ using Microsoft.Playwright;
 
 namespace StreamKeepr.E2E;
 
-/// <summary>The title block's actions: Stop recording and Delete live in More actions.</summary>
+/// <summary>The title block's actions: Copy, Export, Stop recording and Delete live in More actions.</summary>
 internal static class TitleBlock
 {
     /// <summary>The More actions button.</summary>

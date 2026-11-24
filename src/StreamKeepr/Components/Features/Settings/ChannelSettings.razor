@@ -322,7 +322,12 @@
 
         _confirm = null;
         _removing.Add(channel.Login);
+        // BL0012 assumes the framework's post-callback render is soon enough. It is not:
+        // the row must show its removing state while the stop below awaits. Remove when
+        // BL0012 stops treating an intentional render before an await as redundant.
+#pragma warning disable BL0012
         StateHasChanged();
+#pragma warning restore BL0012
         try
         {
             // No client timeout: the recorder's stop budget bounds how long finalizing takes,

@@ -4,6 +4,7 @@ using Microsoft.Playwright;
 namespace StreamKeepr.E2E;
 
 [Collection(MockAppCollection.Name)]
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class EmoteJourneyTests(MockAppFixture app)
 {
@@ -21,8 +22,8 @@ public sealed class EmoteJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Renders_a_third_party_emote_and_falls_back_to_text_when_its_image_fails()
     {
-        await using LibraryJourneyTests.Session session =
-            await LibraryJourneyTests.OpenAsync(app.BaseUrl);
+        await using Journey session =
+            await LibraryJourneyTests.OpenAsync(app);
         IPage page = session.Page;
 
         var betterTvRequests = new ConcurrentQueue<string>();
@@ -50,10 +51,7 @@ public sealed class EmoteJourneyTests(MockAppFixture app)
 
         ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
-        await saved.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
-        await page.Locator("[data-sk='seek'][aria-disabled='false']")
-            .WaitForAsync(new() { Timeout = 20_000 });
+        await session.OpenRecordingAsync(saved);
 
         await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
         await page.WaitForFunctionAsync(

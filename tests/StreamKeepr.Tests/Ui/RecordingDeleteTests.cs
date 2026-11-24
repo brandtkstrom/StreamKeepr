@@ -15,14 +15,21 @@ public sealed class RecordingDeleteTests
     private static readonly DateTimeOffset Now = new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task Signed_out_delete_is_inert_behind_requires_twitch()
+    public async Task Signed_out_delete_is_disabled_in_the_public_menu()
     {
         await using BunitContext context = CreateContext(out _, signedIn: false);
         var dialogs = context.Render<MudBlazor.MudDialogProvider>();
 
         var cut = Render(context, Recording());
 
-        Assert.NotNull(cut.Find("[data-requires-twitch] [inert] button[aria-label='More actions']"));
+        var item = MoreActions.Item(context, cut, "data-delete");
+        Assert.Equal("true", item.GetAttribute("aria-disabled"));
+        var wrapper = item.ParentElement!;
+        Assert.Equal("group", wrapper.GetAttribute("role"));
+        Assert.Equal("0", wrapper.GetAttribute("tabindex"));
+        Assert.Equal(
+            "Connect Twitch to use this",
+            wrapper.QuerySelector("[role='tooltip']")!.TextContent);
     }
 
     [Fact]
@@ -76,12 +83,14 @@ public sealed class RecordingDeleteTests
     {
         await using BunitContext context = CreateContext(out _, out _, signedIn: true);
         var module = context.JSInterop.SetupModule("./Components/Features/Details/RecordingDetails.razor.js");
+        module.SetupVoid("installMenuActivation");
         module.SetupVoid("focusButton", _ => true);
         var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var cut = Render(context, Recording());
         MoreActions.Item(context, cut, "data-delete").Click();
         dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog(DeleteName)));
-        Assert.Empty(module.Invocations);
+        // Opening the dialog must not return focus to More actions; the module install call is not focus.
+        Assert.DoesNotContain(module.Invocations, invocation => invocation.Identifier == "focusButton");
 
         dialogs.Find("[data-delete-cancel]").Click();
 
@@ -119,10 +128,12 @@ public sealed class RecordingDeleteTests
 
         dialogs.Find("[data-delete-confirm]").Click();
 
-        var deleted = Assert.Single(admin.Deletes);
+        // Click returns before the handler runs when another render holds the dispatcher.
+        dialogs.WaitForAssertion(() => Assert.Single(admin.Deletes));
+        var deleted = admin.Deletes[0];
         Assert.Equal("r1", deleted.RecordingId);
         Assert.True(deleted.User.Identity?.IsAuthenticated);
-        Assert.False(dialogs.HasOpenDialog(DeleteName));
+        dialogs.WaitForAssertion(() => Assert.False(dialogs.HasOpenDialog(DeleteName)));
     }
 
     [Fact]
@@ -138,7 +149,7 @@ public sealed class RecordingDeleteTests
 
         dialogs.Find("[data-delete-confirm]").Click();
 
-        Assert.True(dialogs.Find("[data-delete-confirm]").HasAttribute("disabled"));
+        dialogs.WaitForAssertion(() => Assert.True(dialogs.Find("[data-delete-confirm]").HasAttribute("disabled")));
         Assert.True(dialogs.Find("[data-delete-cancel]").HasAttribute("disabled"));
         Assert.Equal("true", dialogs.Find("[data-delete-dialog]").GetAttribute("aria-busy"));
         // Escape and the backdrop are ignored while the server call runs.
@@ -205,7 +216,7 @@ public sealed class RecordingDeleteTests
 
         dialogs.Find("[data-delete-confirm]").Click();
 
-        Assert.False(dialogs.HasOpenDialog(DeleteName));
+        dialogs.WaitForAssertion(() => Assert.False(dialogs.HasOpenDialog(DeleteName)));
         Assert.Contains("already deleted", snackbars.CurrentMessage());
     }
 
@@ -221,7 +232,7 @@ public sealed class RecordingDeleteTests
 
         dialogs.Find("[data-delete-confirm]").Click();
 
-        Assert.False(dialogs.HasOpenDialog(DeleteName));
+        dialogs.WaitForAssertion(() => Assert.False(dialogs.HasOpenDialog(DeleteName)));
         Assert.Contains("Reconnect to delete recordings", snackbars.CurrentMessage());
     }
 

@@ -9,6 +9,7 @@ namespace StreamKeepr.E2E;
 /// the circuit connects.
 /// </summary>
 [Collection(MockAppCollection.Name)]
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class ShellLayoutJourneyTests(MockAppFixture app)
 {
@@ -18,7 +19,7 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
     [Fact]
     public async Task On_a_phone_the_bottom_bar_opens_settings_over_home_and_navigates_home()
     {
-        await using Session session = await OpenAsync(app.BaseUrl, viewport: Phone, hasTouch: true);
+        await using Journey session = await OpenAsync(app, viewport: Phone, hasTouch: true);
         IPage page = session.Page;
         ILocator bar = page.GetByRole(AriaRole.Navigation, new() { Name = "Main" });
         await bar.WaitForAsync();
@@ -39,12 +40,12 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         await dialog.WaitForAsync(new() { State = WaitForSelectorState.Detached });
         await Assertions.Expect(settings).ToHaveAttributeAsync("aria-expanded", "false");
 
-        await page.GotoAsync($"{app.BaseUrl}/settings");
+        await session.GotoAsync($"{app.BaseUrl}/settings", JourneyReady.Shell);
         await Assertions.Expect(bar.GetByRole(AriaRole.Link, new() { Name = "Settings" }))
             .ToHaveAttributeAsync("aria-current", "page");
 
         await bar.GetByRole(AriaRole.Link, new() { Name = "Home" }).TapAsync();
-        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/");
+        await Journey.WaitForUrlAsync(page, url => new Uri(url).AbsolutePath == "/");
         await Assertions.Expect(bar.GetByRole(AriaRole.Link, new() { Name = "Home" }))
             .ToHaveAttributeAsync("aria-current", "page");
     }
@@ -52,7 +53,7 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
     [Fact]
     public async Task On_a_phone_library_opens_the_temporary_drawer_and_picking_a_recording_closes_it()
     {
-        await using Session session = await OpenAsync(app.BaseUrl, viewport: Phone, hasTouch: true);
+        await using Journey session = await OpenAsync(app, viewport: Phone, hasTouch: true);
         IPage page = session.Page;
         ILocator bar = page.GetByRole(AriaRole.Navigation, new() { Name = "Main" });
         ILocator library = bar.GetByRole(AriaRole.Button, new() { Name = "Library" });
@@ -84,8 +85,9 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         ILocator row = column.Locator("a[data-recording-id]").First;
 
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
-        await row.TapAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await session.ActAsync(() => row.TapAsync());
+        await Journey.WaitForUrlAsync(page, url => new Uri(url).AbsolutePath == $"/r/{id}");
+        await session.WaitForRecordingAsync();
         await page.Locator("[data-shell]:not([data-drawer-modal-open])").WaitForAsync();
 
         // The watch page gives the player the room: no bottom bar, and a back arrow home.
@@ -94,8 +96,9 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         await back.WaitForAsync();
         Assert.False(string.IsNullOrWhiteSpace(await page.Locator("header [data-watch-title]").InnerTextAsync()));
 
-        await back.TapAsync();
-        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/");
+        await session.ActAsync(() => back.TapAsync());
+        await Journey.WaitForUrlAsync(page, url => new Uri(url).AbsolutePath == "/");
+        await session.WaitForShellAsync();
         await bar.WaitForAsync();
     }
 
@@ -104,12 +107,12 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
     [InlineData(true)]
     public async Task On_a_phone_clear_search_leaves_focus_on_a_visible_control(bool closeSearchRowFirst)
     {
-        await using Session session = await OpenAsync(app.BaseUrl, viewport: Phone, hasTouch: true);
+        await using Journey session = await OpenAsync(app, viewport: Phone, hasTouch: true);
         IPage page = session.Page;
         ILocator search = page.Locator("input[data-search-input]");
         await page.GetByRole(AriaRole.Button, new() { Name = "Search", Exact = true }).TapAsync();
         await search.FillAsync("zzzz-no-such-stream");
-        await page.WaitForURLAsync(url => url.Contains("q=", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.Contains("q=", StringComparison.Ordinal));
         if (closeSearchRowFirst)
         {
             // The query stays in the URL; only the row is put away.
@@ -124,7 +127,7 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         await noMatch.WaitForAsync();
 
         await noMatch.GetByRole(AriaRole.Button, new() { Name = "Clear search" }).TapAsync();
-        await page.WaitForURLAsync(url => !url.Contains("q=", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => !url.Contains("q=", StringComparison.Ordinal));
         await page.Locator("[data-shell]:not([data-drawer-modal-open])").WaitForAsync();
 
         // Clearing navigates, which closes the temporary drawer. With the search row open, focus
@@ -144,7 +147,7 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
     [Fact]
     public async Task The_library_opens_over_the_rail_without_moving_the_page_and_closes_after_a_pick()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator drawer = page.Locator(LibraryHooks.Drawer);
         ILocator main = page.Locator("main");
@@ -174,8 +177,7 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         await LibraryJourneyTests.Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
 
         // Picking a recording closes it, and the watch page is on the rail.
-        await (await LibraryHooks.RowAsync(page)).ClickAsync();
-        await page.WaitForURLAsync(url => url.Contains("/r/", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(await LibraryHooks.RowAsync(page));
         await LibraryJourneyTests.Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
         await LibraryJourneyTests.Expect(async () => await VisibleWidthAsync(drawer) <= 80 ? 1 : 0, 1);
     }
@@ -183,11 +185,11 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
     [Fact]
     public async Task An_open_library_is_not_remembered_across_a_reload()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         await LibraryHooks.OpenLibraryAsync(page);
 
-        await page.ReloadAsync(new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+        await session.ReloadAsync();
         await page.Locator("[data-shell][data-breakpoint-known]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
         ILocator drawer = page.Locator(LibraryHooks.Drawer);
 
@@ -207,19 +209,19 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
     public async Task The_shell_is_axe_clean_and_never_scrolls_sideways(int width, string screen)
     {
         ViewportSize viewport = width == Phone.Width ? Phone : Desktop;
-        await using Session session = await OpenAsync(app.BaseUrl, viewport: viewport, hasTouch: viewport == Phone);
+        await using Journey session = await OpenAsync(app, viewport: viewport, hasTouch: viewport == Phone);
         IPage page = session.Page;
 
         switch (screen)
         {
             case "recording":
                 string href = (await (await LibraryHooks.RowAsync(page)).GetAttributeAsync("href"))!;
-                await page.GotoAsync($"{app.BaseUrl}{href}", new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+                await session.GotoAsync($"{app.BaseUrl}{href}", JourneyReady.Shell);
                 await page.Locator("[data-sk='seek'][aria-disabled='false']")
                     .WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 30_000 });
                 break;
             case "settings":
-                await page.GotoAsync($"{app.BaseUrl}/settings", new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+                await session.GotoAsync($"{app.BaseUrl}/settings", JourneyReady.Shell);
                 await page.Locator("[data-channel]").First.WaitForAsync();
                 break;
         }
@@ -246,16 +248,12 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
     [InlineData(375)]
     public async Task The_app_bar_and_bottom_bar_links_work_before_the_circuit_connects(int width)
     {
-        using IPlaywright playwright = await Playwright.CreateAsync();
-        await using IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
-        await using IBrowserContext context = await browser.NewContextAsync(new()
-        {
-            ViewportSize = width == Phone.Width ? Phone : Desktop,
-            HasTouch = width == Phone.Width,
-        });
+        await using Journey session = await Journey.OpenAsync(
+            app, url: null, viewport: width == Phone.Width ? Phone : Desktop,
+            hasTouch: width == Phone.Width, ready: JourneyReady.None);
+        IPage page = session.Page;
         // Without blazor.web.js the page stays the prerendered HTML: no circuit, no handlers.
-        await context.RouteAsync("**/_framework/blazor.web*.js", route => route.AbortAsync());
-        IPage page = await context.NewPageAsync();
+        await page.RouteAsync("**/_framework/blazor.web*.js", route => route.AbortAsync());
         await page.GotoAsync(app.BaseUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded });
 
         ILocator banner = page.GetByRole(AriaRole.Banner);
@@ -278,7 +276,7 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
             ? page.GetByRole(AriaRole.Navigation, new() { Name = "Main" }).GetByRole(AriaRole.Link, new() { Name = "Settings" })
             : banner.GetByRole(AriaRole.Link, new() { Name = "Settings" });
         await settings.ClickAsync();
-        await page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/settings");
+        await Journey.WaitForUrlAsync(page, url => new Uri(url).AbsolutePath == "/settings");
         await page.Locator("main h1").WaitForAsync(new() { State = WaitForSelectorState.Attached });
     }
 
@@ -297,18 +295,17 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
 
     private async Task<string> ShellGeometryAsync(ViewportSize viewport, bool blockCircuit)
     {
-        using IPlaywright playwright = await Playwright.CreateAsync();
-        await using IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
-        await using IBrowserContext context = await browser.NewContextAsync(new()
-        {
-            ViewportSize = viewport,
-            HasTouch = viewport == Phone,
-        });
+        await using Journey session = await Journey.OpenAsync(
+            app, url: null, viewport: viewport, hasTouch: viewport == Phone,
+            ready: JourneyReady.None);
+        IPage page = session.Page;
         if (blockCircuit)
-            await context.RouteAsync("**/_framework/blazor.web*.js", route => route.AbortAsync());
-        IPage page = await context.NewPageAsync();
+            await page.RouteAsync("**/_framework/blazor.web*.js", route => route.AbortAsync());
         // ?q= opens the phone's search row, so its position is measured too.
-        await page.GotoAsync($"{app.BaseUrl}/?q=a", new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+        if (blockCircuit)
+            await page.GotoAsync($"{app.BaseUrl}/?q=a", new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+        else
+            await session.GotoAsync($"{app.BaseUrl}/?q=a", JourneyReady.Shell);
         if (!blockCircuit)
             await page.Locator("[data-shell][data-breakpoint-known]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
 

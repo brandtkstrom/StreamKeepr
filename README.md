@@ -115,14 +115,16 @@ axe. It needs ffmpeg and Google Chrome; install the Playwright browser dependenc
 
 ```bash
 dotnet build tests/StreamKeepr.E2E
-pwsh tests/StreamKeepr.E2E/bin/Debug/net10.0/playwright.ps1 install --with-deps chrome
+pwsh tests/StreamKeepr.E2E/bin/Debug/net11.0/playwright.ps1 install --with-deps chrome
 dotnet test tests/StreamKeepr.E2E
 ```
 
-Traces, screenshots, axe results, a small `report.html` index, and the Mock app log are written
-to a unique directory under the system temp directory. Set `STREAMKEEPR_E2E_ARTIFACTS` to keep
-them at a known path; CI sets it and uploads the directory as `playwright-results`. E2E has no
-automatic retries; a failure is fixed or quarantined explicitly.
+Every test records a Playwright trace. A passing test discards it; a failed test writes the
+trace with a `<test>.failure.txt` (browser state and the last Mock app log lines). Screenshots,
+axe results, a small `report.html` index and the Mock app log are written as before, to a unique
+directory under the system temp directory. Set `STREAMKEEPR_E2E_ARTIFACTS` to keep them at a
+known path; CI sets it and uploads the directory as `playwright-results`. E2E has no automatic
+retries; a failure is fixed or quarantined explicitly.
 
 ## Compose deployment
 
