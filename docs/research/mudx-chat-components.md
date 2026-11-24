@@ -1,6 +1,6 @@
 # Research memo: MudX Chat components for the chat replay pane
 
-Written against .NET 10 and the `aspnet:10.0.14` image. Not re-verified against .NET 11 after the 2026-11-23 upgrade; framework behaviour cited here may have changed.
+Written against .NET 10 using a throwaway `net10.0` probe project, not the application image. Not re-verified against .NET 11 after the 2026-11-23 upgrade; framework behaviour cited here may have changed.
 
 Status: research memo, 2026-11-20.
 Issue: none at research time. The request was "Modify the chat component to use the 'Chat' components from the MudX package. Full Blazor rewrite to include MudX. Chat messages should scroll smoothly."

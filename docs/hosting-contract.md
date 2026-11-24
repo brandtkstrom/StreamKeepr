@@ -144,7 +144,7 @@ long-lived routes out of HTTP metrics.
 - `HEALTHCHECK` as above; `ENTRYPOINT ["dotnet", "StreamKeepr.dll"]`.
 - Only `src/` enters the build; tests, secrets, recordings, and docs never enter an image layer.
 
-Pinned versions: .NET SDK `11.0.100`, ASP.NET runtime `11.0.0`, Streamlink `8.6.3`, static FFmpeg/ffprobe `9.0.2-1`, CliWrap `3.10.5`, Resilience `10.11.0`, OAuth `11.0.0`, Serilog.AspNetCore `11.0.0`, OpenTelemetry `1.21.0` (`Extensions.Hosting`, `Exporter.OpenTelemetryProtocol`, `Instrumentation.AspNetCore`, `Instrumentation.Http`). Test-only: `OpenTelemetry.Exporter.InMemory` `1.21.0` and `Microsoft.Extensions.Diagnostics.Testing` `11.0.1`. Update deliberately; Streamlink is the one to watch and the build arg allows a bump.
+Pinned versions: .NET SDK `11.0.100`, ASP.NET runtime `11.0.0`, Streamlink `8.6.3`, static FFmpeg/ffprobe `9.0.2-1`, CliWrap `3.10.5`, OAuth `11.0.0`, Serilog.AspNetCore `11.0.0`, OpenTelemetry `1.21.0` (`Extensions.Hosting`, `Exporter.OpenTelemetryProtocol`, `Instrumentation.AspNetCore`, `Instrumentation.Http`). Test-only: `OpenTelemetry.Exporter.InMemory` `1.21.0`, `Microsoft.Extensions.Diagnostics.Testing` `11.0.1`, and `Microsoft.Extensions.TimeProvider.Testing` `11.0.1`. Update deliberately; Streamlink is the one to watch and the build arg allows a bump.
 
 ### `.dockerignore`
 
