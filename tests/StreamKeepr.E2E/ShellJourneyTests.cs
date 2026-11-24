@@ -245,100 +245,8 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             if (request.Url.Contains("/media/", StringComparison.Ordinal) &&
                 request.Url.EndsWith("/index.m3u8", StringComparison.Ordinal))
             {
-                WaitUntil = WaitUntilState.DOMContentLoaded,
-            });
-            details = page.Locator("[data-slot='details'] [data-recording-details]");
-            await details.WaitForAsync(new LocatorWaitForOptions
-            {
-                State = WaitForSelectorState.Visible,
-                Timeout = 30_000,
-            });
-            await Assertions.Expect(chapters.Locator("[data-collapsible-toggle]")).ToHaveAttributeAsync(
-                "aria-expanded",
-                "false",
-                new LocatorAssertionsToHaveAttributeOptions { Timeout = 10_000 });
-            Assert.Equal(1, await details.CountAsync());
-
-            await chapters.Locator("[data-collapsible-toggle]").ClickAsync();
-            await Assertions.Expect(chapters.Locator("[data-collapsible-toggle]")).ToHaveAttributeAsync(
-                "aria-expanded",
-                "true",
-                new LocatorAssertionsToHaveAttributeOptions { Timeout = 10_000 });
-            await page.Locator("[data-sk='seek'][aria-disabled='false']").WaitForAsync(
-                new LocatorWaitForOptions { State = WaitForSelectorState.Attached, Timeout = 30_000 });
-
-            // Chapter seek moves the playhead without starting playback and keeps focus on the button.
-            ILocator chapter = chapters.Locator("[data-chapter]").First;
-            await chapter.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
-            double chapterStart = double.Parse(
-                (await chapter.GetAttributeAsync("data-chapter"))!, CultureInfo.InvariantCulture);
-            Assert.True(await page.Locator("[data-sk='video']").EvaluateAsync<bool>("v => v.paused"));
-            await chapter.ClickAsync();
-            await page.WaitForFunctionAsync(
-                "expected => Math.abs(document.querySelector('[data-sk=video]').currentTime - expected) < 0.5",
-                chapterStart,
-                new PageWaitForFunctionOptions { Timeout = 10_000 });
-            Assert.True(
-                await page.Locator("[data-sk='video']").EvaluateAsync<bool>("v => v.paused"),
-                "a chapter seek must not autoplay");
-            Assert.True(
-                await chapter.EvaluateAsync<bool>("b => b === document.activeElement"),
-                "focus stays on the chapter button");
-
-            // Copy is public and uses the absolute playlist URL built from the app origin.
-            ILocator copy = await TitleBlock.MenuItemAsync(page, "data-copy-playlist");
-            await copy.ClickAsync();
-            await Feedback.Snackbar(page, "Playlist URL copied").WaitForAsync(new() { Timeout = 10_000 });
-            Assert.False(string.IsNullOrWhiteSpace(playlistUrl), "the player requested a playlist");
-            string copied = await page.EvaluateAsync<string>("navigator.clipboard.readText()");
-            Assert.Equal(playlistUrl, copied);
-
-            // Swapping recordings updates the one details card instead of adding another.
-            ILocator second = await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Co-op horror night");
-            string secondId = (await second.GetAttributeAsync("data-recording-id"))!;
-            await second.ClickAsync();
-            await page.WaitForURLAsync(
-                url => url.EndsWith($"/r/{secondId}", StringComparison.Ordinal),
-                new PageWaitForURLOptions { Timeout = 30_000 });
-            await page.WaitForFunctionAsync(
-                "() => document.querySelector('[data-details-title]').textContent.trim().startsWith('Co-op horror night')",
-                null,
-                new PageWaitForFunctionOptions { Timeout = 30_000 });
-
-            details = page.Locator("[data-recording-details]");
-            Assert.Equal(1, await details.CountAsync());
-            Assert.Equal(
-                "2 parts",
-                (await details.Locator("[data-details-parts]").InnerTextAsync()).Trim());
-            Assert.Equal(2, await chapters.Locator("[data-chapter]").CountAsync());
-
-            // A chapter seek while playing moves the playhead and keeps playback running.
-            await page.Locator("[data-sk='seek'][aria-disabled='false']").WaitForAsync(
-                new LocatorWaitForOptions { State = WaitForSelectorState.Attached, Timeout = 30_000 });
-            await page.Locator("[data-sk='center']").ClickAsync();
-            await page.WaitForFunctionAsync(
-                "() => document.querySelector('[data-sk=video]').currentTime > 0.5",
-                null,
-                new PageWaitForFunctionOptions { Timeout = 10_000 });
-
-            ILocator playingChapter = chapters.Locator("[data-chapter]").Nth(1);
-            double playingStart = double.Parse(
-                (await playingChapter.GetAttributeAsync("data-chapter"))!, CultureInfo.InvariantCulture);
-            await playingChapter.ClickAsync();
-            await page.WaitForFunctionAsync(
-                "expected => !document.querySelector('[data-sk=video]').paused && " +
-                "Math.abs(document.querySelector('[data-sk=video]').currentTime - expected) < 0.5",
-                playingStart,
-                new PageWaitForFunctionOptions { Timeout = 10_000 });
-            Assert.False(await page.Locator("[data-sk='video']").EvaluateAsync<bool>("v => v.paused"));
-
-            await page.ScreenshotAsync(new PageScreenshotOptions
-            {
-                Path = screenshotPath,
-                FullPage = true,
-            });
-            
-          playlistUrl ??= request.Url;  
+                playlistUrl ??= request.Url;
+            }
         };
 
         ILocator first = await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Ranked climb to Diamond");
@@ -432,7 +340,8 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             "focus stays on the chapter button");
 
         // Copy is public and uses the absolute playlist URL built from the app origin.
-        await page.Locator("[data-copy-playlist]").ClickAsync();
+        ILocator copy = await TitleBlock.MenuItemAsync(page, "data-copy-playlist");
+        await copy.ClickAsync();
         await Feedback.Snackbar(page, "Playlist URL copied").WaitForAsync(new() { Timeout = 10_000 });
         Assert.False(string.IsNullOrWhiteSpace(playlistUrl), "the player requested a playlist");
         string copied = await page.EvaluateAsync<string>("navigator.clipboard.readText()");
