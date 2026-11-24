@@ -159,7 +159,7 @@ public sealed class ChatPaneTests
         Assert.Empty(head.QuerySelectorAll("button"));
         Assert.Equal("Chat", head.QuerySelector("svg")!.GetAttribute("data-icon"));
         Assert.Equal("true", head.QuerySelector("svg")!.GetAttribute("aria-hidden"));
-        Assert.Equal("Chat", head.QuerySelector("[data-sk='chat-title']")!.TextContent.Trim());
+        Assert.Equal("Chat replay", head.QuerySelector("[data-sk='chat-title']")!.TextContent.Trim());
     }
 
     [Fact]
