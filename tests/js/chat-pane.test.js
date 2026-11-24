@@ -23,8 +23,11 @@ const emoteCodes = (segments) =>
 const MARKUP = `
   <aside class="sk-chat" data-sk-chat data-open="true">
     <header class="sk-chat-head">
-      <span class="sk-chat-title">Chat</span>
-      <span data-sk="chat-state" role="status"></span>
+      <span class="sk-chat-title">Chat replay</span>
+      <span class="sk-chat-state" data-sk="chat-state" data-state="loading" role="status" aria-live="polite" title="Loading chat…">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-icon="HourglassEmpty"></svg>
+        <span class="sk-visually-hidden" data-sk="chat-state-label">Loading chat…</span>
+      </span>
     </header>
     <div data-sk="chat-body">
       <div data-sk="chat-log" role="log" aria-live="off" tabindex="0"></div>
@@ -131,6 +134,17 @@ function flush() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/** The state element's observable state: data-state, swapped glyph, accessible label, tooltip. */
+function chatState() {
+  const node = document.querySelector("[data-sk='chat-state']");
+  return {
+    state: node.dataset.state,
+    icon: node.querySelector("svg[data-icon]")?.dataset.icon,
+    label: node.querySelector("[data-sk='chat-state-label']")?.textContent,
+    title: node.getAttribute("title"),
+  };
+}
+
 afterEach(() => {
   vi.useRealTimers();
   document.body.replaceChildren();
@@ -153,7 +167,9 @@ describe("chat replay pane", () => {
     const log = document.querySelector("[data-sk='chat-log']");
     expect(log.textContent).toContain("hello");
     expect(log.querySelector("img")?.getAttribute("alt")).toBe("Kappa");
-    expect(document.querySelector("[data-sk='chat-state']").textContent).toBe("Chat replay");
+    expect(chatState()).toEqual({
+      state: "complete", icon: "History", label: "Chat replay", title: "Chat replay",
+    });
 
     pane.dispose();
   });
@@ -403,6 +419,9 @@ describe("chat replay pane", () => {
     expect(notice.textContent).toBe("Chat could not be loaded.");
     expect(notice.closest("[data-sk='chat-footer']")).toBeNull();
     expect(document.querySelector("[data-sk='chat-footer']")).toBeNull();
+    expect(chatState()).toEqual({
+      state: "disconnected", icon: "WifiOff", label: "Chat disconnected", title: "Chat disconnected",
+    });
 
     await vi.advanceTimersByTimeAsync(1000);
     playhead(10);
@@ -411,6 +430,42 @@ describe("chat replay pane", () => {
     expect(notice.hidden).toBe(true);
     expect(notice.textContent).toBe("");
     expect(document.querySelector("[data-sk='chat-footer']")).toBeNull();
+    expect(chatState()).toEqual({
+      state: "complete", icon: "History", label: "Chat replay", title: "Chat replay",
+    });
+
+    pane.dispose();
+  });
+
+  it("returns a disconnected pane to live after a successful live fetch", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    let calls = 0;
+    const fetch = vi.fn(async () => {
+      calls++;
+      if (calls === 1) return { ok: false, status: 503, json: async () => ({}) };
+      return {
+        ok: true,
+        json: async () => ({
+          v: 1, recordingId: "r1", state: "recording", hasChat: true, source: "mock",
+          leadInSec: 0, fromSec: 0, toSec: 120, syncOffsetSec: 0, gaps: [],
+          hasMoreBefore: false, hasMoreAfter: false, messages: [],
+        }),
+      };
+    });
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, state: "recording" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(chatState().state).toBe("disconnected");
+
+    await vi.advanceTimersByTimeAsync(1000);
+    playhead(10);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(chatState()).toEqual({
+      state: "live", icon: "Wifi", label: "Chat connected", title: "Chat connected",
+    });
 
     pane.dispose();
   });
@@ -461,8 +516,9 @@ describe("chat replay pane", () => {
     await pane.load({ ...VIEW, open: false, state: "recording", hasChat: true });
 
     await pane.load({ ...VIEW, open: false, state: "recording", hasChat: false });
-    expect(document.querySelector("[data-sk='chat-state']").textContent)
-      .toBe("Chat connected");
+    expect(chatState()).toEqual({
+      state: "live", icon: "Wifi", label: "Chat connected", title: "Chat connected",
+    });
 
     pane.dispose();
   });
@@ -473,8 +529,60 @@ describe("chat replay pane", () => {
     const pane = createChatPane(root, { storage: storage() });
 
     await pane.load({ ...VIEW, open: false, state: "starting", hasChat: true });
-    expect(document.querySelector("[data-sk='chat-state']").textContent)
-      .toBe("Chat connected");
+    expect(chatState()).toEqual({
+      state: "live", icon: "Wifi", label: "Chat connected", title: "Chat connected",
+    });
+
+    pane.dispose();
+  });
+
+  it("spins the Sync glyph while reconnecting, then returns to Wifi on recording", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, { storage: storage() });
+
+    await pane.load({ ...VIEW, open: false, state: "reconnecting", hasChat: true });
+    expect(chatState()).toEqual({
+      state: "reconnecting", icon: "Sync", label: "Reconnecting", title: "Reconnecting",
+    });
+
+    await pane.load({ ...VIEW, open: false, state: "recording", hasChat: true });
+    expect(chatState()).toEqual({
+      state: "live", icon: "Wifi", label: "Chat connected", title: "Chat connected",
+    });
+
+    pane.dispose();
+  });
+
+  it("keeps waiting for chat while reconnecting with no chat captured", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, { storage: storage() });
+
+    await pane.load({ ...VIEW, open: false, state: "reconnecting", hasChat: false });
+    expect(chatState()).toEqual({
+      state: "starting", icon: "Schedule", label: "Waiting for chat…", title: "Waiting for chat…",
+    });
+
+    pane.dispose();
+  });
+
+  it.each([
+    ["starting", "starting", "Schedule", "Waiting for chat…"],
+    ["complete", "empty", "SpeakerNotesOff", "No chat captured"],
+    ["unavailable", "unavailable", "CloudOff", "Chat unavailable"],
+  ])("maps a %s payload with no chat to its icon and label", async (state, expectedState, icon, label) => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, { storage: storage() });
+
+    await pane.load({ ...VIEW, open: false, state, hasChat: false });
+    expect(chatState()).toEqual({
+      state: expectedState,
+      icon,
+      label,
+      title: label,
+    });
 
     pane.dispose();
   });
