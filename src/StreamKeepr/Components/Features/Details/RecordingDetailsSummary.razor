@@ -420,6 +420,19 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender)
+        {
+            try
+            {
+                _module ??= await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
+                await _module.InvokeVoidAsync("installMenuActivation");
+            }
+            catch (JSDisconnectedException ex)
+            {
+                Logger.LogDebug(ex, "Menu keyboard activation was not installed because the circuit disconnected.");
+            }
+        }
+
         if (_stopOpen || _deleteOpen)
         {
             _dialogOpenFor = Recording.Id;

@@ -83,12 +83,14 @@ public sealed class RecordingDeleteTests
     {
         await using BunitContext context = CreateContext(out _, out _, signedIn: true);
         var module = context.JSInterop.SetupModule("./Components/Features/Details/RecordingDetails.razor.js");
+        module.SetupVoid("installMenuActivation");
         module.SetupVoid("focusButton", _ => true);
         var dialogs = context.Render<MudBlazor.MudDialogProvider>();
         var cut = Render(context, Recording());
         MoreActions.Item(context, cut, "data-delete").Click();
         dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog(DeleteName)));
-        Assert.Empty(module.Invocations);
+        // Opening the dialog must not return focus to More actions; the module install call is not focus.
+        Assert.DoesNotContain(module.Invocations, invocation => invocation.Identifier == "focusButton");
 
         dialogs.Find("[data-delete-cancel]").Click();
 

@@ -119,7 +119,7 @@ public sealed class TwitchTokenProvider(
 
 ### OAuth
 
-- `AspNet.Security.OAuth.Twitch` (pinned 10.1.0), same Twitch app as the recorder.
+- `AspNet.Security.OAuth.Twitch` (pinned 11.0.0), same Twitch app as the recorder.
 - `CallbackPath = "/signin-twitch"`; the Twitch app redirect URI must match the public origin exactly.
 - No additional scopes; `SaveTokens = false`.
 - `OnCreatingTicket` resolves the Twitch login, applies the allowlist, and saves access/refresh tokens through `IAdminTokenStore`. A rejected login saves nothing. A successful sign-in logs `Information` with the normalized `Login`; a rejection keeps its `Warning` with the `Reason`.

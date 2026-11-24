@@ -1,5 +1,7 @@
 # Live HLS playback resilience
 
+Written against .NET 10 and the `aspnet:10.0.14` image. Not re-verified against .NET 11 after the 2026-11-23 upgrade; framework behaviour cited here may have changed.
+
 Status: proposed; incident diagnosis and issue set (2026-11-19)
 Tracking issue: [#240](https://github.com/brandtkstrom/StreamKeepr/issues/240)
 Work issues: [#241](https://github.com/brandtkstrom/StreamKeepr/issues/241), [#242](https://github.com/brandtkstrom/StreamKeepr/issues/242), [#243](https://github.com/brandtkstrom/StreamKeepr/issues/243), [#244](https://github.com/brandtkstrom/StreamKeepr/issues/244), [#245](https://github.com/brandtkstrom/StreamKeepr/issues/245), [#246](https://github.com/brandtkstrom/StreamKeepr/issues/246), [#247](https://github.com/brandtkstrom/StreamKeepr/issues/247), [#248](https://github.com/brandtkstrom/StreamKeepr/issues/248)

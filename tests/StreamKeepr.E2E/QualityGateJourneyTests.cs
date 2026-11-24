@@ -227,9 +227,12 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         await TabToAsync(page, "e => e.getAttribute('aria-label') === 'More actions'", "More actions");
         await page.Keyboard.PressAsync("Enter");
         await page.Locator("[role='menuitem'][data-delete]").WaitForAsync();
-        for (int press = 0; press < 6 && !await FocusedMatchesAsync(page, "e => e.hasAttribute('data-delete')"); press++)
-            await page.Keyboard.PressAsync("ArrowDown");
-        Assert.True(await FocusedMatchesAsync(page, "e => e.hasAttribute('data-delete')"), "arrows reach Delete in More actions");
+        // The menu moves focus on the next server render, so wait for each move before pressing
+        // again; pressing faster than the round trip laps the focus and skips Delete.
+        const string deleteFocused = "e => e.hasAttribute('data-delete')";
+        for (int press = 0; press < 6 && !await FocusedMatchesAsync(page, deleteFocused); press++)
+            await PressArrowDownAndAwaitFocusAsync(page);
+        Assert.True(await FocusedMatchesAsync(page, deleteFocused), "arrows reach Delete in More actions");
         await page.Keyboard.PressAsync("Enter");
         ILocator deleteDialog = Feedback.Dialog(page, "Delete recording?");
         await deleteDialog.WaitForAsync();
@@ -403,6 +406,21 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
 
     private static Task<bool> FocusedMatchesAsync(IPage page, string predicate) =>
         page.EvaluateAsync<bool>($"() => {{ const e = document.activeElement; return !!e && e !== document.body && ({predicate})(e); }}");
+
+    /// <summary>
+    /// Presses ArrowDown and waits for the menu to move focus. MudMenu moves focus in a JS call
+    /// after the server render, so pressing again before it lands laps the focus and skips items.
+    /// </summary>
+    private static async Task PressArrowDownAndAwaitFocusAsync(IPage page)
+    {
+        IJSHandle previous = await page.EvaluateHandleAsync("() => document.activeElement");
+        await page.Keyboard.PressAsync("ArrowDown");
+        await page.WaitForFunctionAsync(
+            "previous => document.activeElement !== previous",
+            previous,
+            new PageWaitForFunctionOptions { Timeout = 5_000 });
+        await previous.DisposeAsync();
+    }
 
     /// <summary>
     /// The shell renders the drawer's state first and moves focus in a later JS call, so a check
