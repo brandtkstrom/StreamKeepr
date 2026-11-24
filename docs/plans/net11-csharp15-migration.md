@@ -2,14 +2,15 @@
 title: Upgrade to .NET 11 and C# 15
 version: 1.0
 date_created: 2026-11-23
-last_updated: 2026-11-23
+last_updated: 2026-11-24
 owner: @brandtkstrom
 tags: [platform, build, upgrade, tooling]
 ---
 
 Status: accepted (2026-11-23). Binding: yes for the target versions, the
 package set, and the acceptance criteria; commit order and wording are advisory.
-Branch: `chore/net11-csharp15`, based on `dev` at `68eae17`.
+Branch: `chore/net11-csharp15`, based on `dev` at `68eae17`; PR #300
+retargeted to `main` on 2026-11-24.
 
 # Introduction
 
@@ -49,7 +50,7 @@ release rather than a forced one.
 
 | # | Decision | Rationale |
 | --- | --- | --- |
-| D1 | Branch from `dev` at `68eae17`; PR targets `dev`. | `dev` is current with `main` (0 behind, 3 unique commits). No branch sync needed. |
+| D1 | Branch from `dev` at `68eae17`; PR #300 retargeted to `main` on 2026-11-24. | `dev` was current with `main` at branch time (0 behind, 3 unique commits), so no sync was needed. The retarget runs the full CI suite, including E2E and the container jobs. |
 | D2 | Plan document plus the migration on the same branch, committed incrementally. | The plan is reviewable before the diff. |
 | D3 | Retarget only; no C# 15 feature adoption. | Language features are unrequested and would widen an already broad diff. |
 | D4 | Bump only version-coupled packages (see §3.2). | Mixing 10.x test packages with an ASP.NET Core 11 runtime is the likeliest silent failure. MudBlazor's exact pin looks deliberate and stays. |
@@ -69,9 +70,9 @@ release rather than a forced one.
 | `tests/StreamKeepr.E2E/StreamKeepr.E2E.csproj:4` | `net10.0` → `net11.0` |
 
 No `<LangVersion>` is added: C# 15 is the default language version for
-`net11.0`. No project sets `LangVersion`, `NoWarn`, `WarningsAsErrors`, or an
-analyzer level today, and no source file uses a `#if NET*` symbol, so nothing
-else guards the version.
+`net11.0`. No project sets `LangVersion`, `WarningsAsErrors`, or an analyzer
+level; `NoWarn` appears only in the test project, for `BL0016` (§5.1). No source
+file uses a `#if NET*` symbol, so nothing else guards the version.
 
 ### 3.2 Packages
 
@@ -120,9 +121,10 @@ Update, because they describe the current stack:
 
 Annotate, because they are dated records:
 
-- `docs/decision-digest.md` — §3 is a decision ledger and §9 a conformance
-  review, so the .NET 10 entries stay as written. A dated platform note under
-  the status line points at this plan instead.
+- `docs/decision-digest.md` — the .NET 10 references in the §4–§5 decision
+  registers stay as written, because that document records decisions as they
+  were made. A dated platform note under the status line points at this plan
+  instead.
 - `docs/research/live-hls-playback-resilience.md`,
   `opentelemetry.md`, `mudx-chat-components.md`, `live-transcode-vaapi.md`, and
   `vaapi-streamlink-spike.md` — one line under the title, because their claims
@@ -134,6 +136,13 @@ Annotate, because they are dated records:
 Leave unchanged: `docs/plans/streamkeepr-implementation-plan.md`, whose version
 snippets are a historical snapshot and are already stale relative to the
 Dockerfile.
+
+### 3.5 Tests
+
+| File | Change |
+| --- | --- |
+| `tests/StreamKeepr.Tests/StreamKeepr.Tests.csproj` | `<NoWarn>$(NoWarn);BL0016</NoWarn>` for the four bUnit-double calls (§5.1). |
+| `tests/StreamKeepr.Tests/Storage/PartPlaylistReaderTests.cs` | The two `Assert.True(stream.IsAsync)` checks are now Windows-only, because .NET 11 reports the descriptor's real state and Unix regular files report `false` (§5). |
 
 ## 4. Verified baseline
 
@@ -153,25 +162,25 @@ Solution shape: three projects, all `net10.0`. 420 C# files / 57,302 lines and
 
 ## 5. Breaking-change checklist
 
-Each item is recorded here with how it was or was not exercised. "Build" means
-the compiler or an existing test would have caught it; "reasoned" means the
-code was inspected and the change cannot affect it.
+Each item is recorded with how it was or was not exercised. "Build" means the
+compiler or an existing test would have caught it; "reasoned" means the code was
+inspected and the change cannot affect it. CI results are from §7.4.
 
-| .NET 11 change | Relevance | Plan |
+| .NET 11 change | Relevance | Exercised as |
 | --- | --- | --- |
-| `IHost.RunAsync`/`StopAsync` throw when a `BackgroundService` fails | High: several hosted services, and the compose smoke asserts a clean stop | Exercise the Mock E2E and the documented shutdown path; reason over each hosted service. |
-| Hosting emits OpenTelemetry HTTP semantic-convention tags by default | Medium: custom telemetry and an observability overlay | Compare emitted tag names in the E2E telemetry assertions; record any difference. |
-| Blazor SSR defers antiforgery validation to middleware | Medium: forms plus hand-ordered middleware in `Program.cs:417-457` | Build plus E2E form flows; confirm the antiforgery middleware position is still correct. |
-| Response compression always emits `Vary: Accept-Encoding` | Low-medium: static assets | Build; check the E2E asset guard. |
-| `DeflateStream`/`GZipStream` write headers for empty payloads | Related to the static-asset workaround | Covered by the workaround removal experiment (D6). |
-| Decimal/BigInteger floating-point conversions correctly rounded | Low: no `(decimal)` casts found in `src/` | Reasoned; recheck after the compiler swap. |
+| `IHost.RunAsync`/`StopAsync` throw when a `BackgroundService` fails | High: several hosted services, and the compose smoke asserts a clean stop | Exercised: CI `Compose deployment` stopped both phases with exit 0 and restarted cleanly; all 9 `BackgroundService` subclasses were reasoned over. |
+| Hosting emits OpenTelemetry HTTP semantic-convention tags by default | Medium: custom telemetry and an observability overlay | Reasoned: the only tag the application reads is `http.route` (`TelemetryPaths.cs:33`); nothing asserts the new tag names. |
+| Blazor SSR defers antiforgery validation to middleware | Medium: forms plus hand-ordered middleware in `Program.cs:417-457` | Reasoned: `UseAntiforgery()` still precedes `MapStaticAssets` and `MapRazorComponents`; the CI E2E run passed. |
+| Response compression always emits `Vary: Accept-Encoding` | Low-medium: static assets | Reasoned: no code reads `Vary`; the E2E precompressed-asset guard (`MockAppFixture.cs:245`) passed on CI. |
+| `DeflateStream`/`GZipStream` write headers for empty payloads | Related to the static-asset workaround | Not exercised: the D6 workaround removal is deferred (Follow-ups in the PR). |
+| Decimal/BigInteger floating-point conversions correctly rounded | Low: no `(decimal)` casts found in `src/` | Reasoned; build clean after the compiler swap. |
 | `DateOnly`/`TimeOnly` `TryParse` throws for invalid input | Low: no `DateOnly`/`TimeOnly` parse calls found in `src/` | Reasoned. |
 | `ZipArchive` CRC32 validation on read | Low: no `ZipArchive` usage found in `src/` | Reasoned. |
-| `Uri` parsing and `UriBuilder` validation changes | Low-medium: Twitch and media URLs | Covered by unit tests over URL handling. |
+| `Uri` parsing and `UriBuilder` validation changes | Low-medium: Twitch and media URLs | Exercised: the unit tests over URL handling passed on CI. |
 | Minimum hardware requirements updated | Deployment note | Recorded in the PR; no code change. |
-| Obsolete APIs and removed Blazor/MVC APIs | Unknown until compile | Build with `-warnaserror`. |
-| New Blazor analyzers `BL0011`–`BL0016` | Confirmed: 8 build errors, all `BL0012`/`BL0016` | See §5.1. |
-| `FileStream.IsAsync` reports real non-blocking state on Unix | Confirmed: two tests failed in CI, Linux only | Regular files now report `false` on Unix. Neither production code nor any assertion depends on it at runtime, so the two `Assert.True(stream.IsAsync)` checks became Windows-only. |
+| Obsolete APIs and removed Blazor/MVC APIs | Unknown until compile | Exercised: `dotnet build -warnaserror` clean. |
+| New Blazor analyzers `BL0011`–`BL0016` | Confirmed: 8 build errors, all `BL0012`/`BL0016` | Exercised: build; see §5.1. |
+| `FileStream.IsAsync` reports real non-blocking state on Unix | Confirmed: two tests failed in CI, Linux only | Exercised: CI caught it. Regular files now report `false` on Unix; neither production code nor any assertion depends on it, so the two `Assert.True(stream.IsAsync)` checks became Windows-only (§3.5). |
 | `QuickGrid` controls render as links | None: no `QuickGrid` usage found | N/A. |
 
 This list is the .NET 11 migration guide's own set; it is not exhaustive by the
@@ -304,16 +313,25 @@ publish output without starting the app.
 
 ### 7.4 CI result
 
-The authoritative run passed:
+Run [45361323338](https://github.com/brandtkstrom/StreamKeepr/actions/runs/45361323338)
+at `1ade81e` (PR #300, base `main`) passed every job:
 
-- `Build and test` — pass, 18m44s (build, format, and the full
+- `Build and test` — pass, 2m51s (build, format, and the full
   `Category!=E2E` suite with coverage on Ubuntu).
-- `JS lint and test` — pass.
-- `E2E (Mock profile)`, `Docker image`, `Compose deployment` — skipped, because
-  the workflow only runs them for pull requests into `main`, not `dev`.
+- `JS lint and test` — pass, 18s.
+- `E2E (Mock profile)` — pass, 6m31s; the suite that §7.3 says cannot run on
+  this Windows machine.
+- `Docker image` — pass, 59s; the pinned `sdk:11.0.100` / `aspnet:11.0.0`
+  build.
+- `Compose deployment` — pass, 1m16s; production and Mock phases each stopped
+  with exit 0 and restarted, and the mid-recording stop finalized every part
+  playlist.
 
-Two CI runs before it failed for reasons outside the change: one exhausted the
-20-minute cap inside `apt-get install ffmpeg` on a stalled runner, and one hit
+An earlier run, from when the PR still targeted `dev`, skipped the three
+container/E2E jobs by design (`.github/workflows/ci.yml:26-29`) and covered only
+`Build and test` and `JS lint and test`. Two runs before it failed for reasons
+outside the change: one exhausted the 20-minute cap inside
+`apt-get install ffmpeg` on a stalled runner, and one hit
 `RecordingStopTests.Unauthorized_stop_closes_with_the_reconnect_message`, whose
 fix (`fb14e63`) was in `main` but not in `dev` at the time.
 
@@ -325,10 +343,11 @@ this branch. A targeted re-run of the four previously fragile classes —
 
 ## 8. Rollback
 
-Revert the merge commit on `dev`. No data, schema, or configuration format
-changes are involved, and the previous container image tag remains pullable, so
-rollback needs no coordinated migration. The only irreversible step would be
-deleting the .NET 10 image pins from published tags, which this plan does not do.
+Revert the merge commit that lands this branch on `main`. No data, schema, or
+configuration format changes are involved, and the previous container image tag
+remains pullable, so rollback needs no coordinated migration. The only
+irreversible step would be deleting the .NET 10 image pins from published tags,
+which this plan does not do.
 
 ## 9. Risks
 
