@@ -205,6 +205,32 @@ public sealed class ChatPaneTests
     }
 
     [Fact]
+    public async Task The_notice_sits_outside_the_footer_and_starts_hidden()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(
+            out BunitJSModuleInterop _, out TestLibraryView _);
+        context.JSInterop.SetupModule(Module).Mode = JSRuntimeMode.Loose;
+
+        IRenderedComponent<ChatPane> cut = context.Render<ChatPane>(p => p
+            .Add(c => c.Recording, WithChat())
+            .Add(c => c.Open, true));
+
+        IElement notice = cut.Find("[data-sk='chat-notice']");
+        IElement footer = cut.Find("[data-sk='chat-footer']");
+
+        // The notice is a sibling of the footer, not a child, so an error cannot keep the
+        // footer (and its border and padding) alive while the viewer is at the current time.
+        Assert.Equal("chat-body", notice.ParentElement!.GetAttribute("data-sk"));
+        Assert.Equal("chat-body", footer.ParentElement!.GetAttribute("data-sk"));
+        Assert.True(notice.HasAttribute("hidden"));
+        Assert.True(footer.HasAttribute("hidden"));
+        Assert.Empty(footer.QuerySelectorAll("[data-sk='chat-notice']"));
+        Assert.Single(footer.QuerySelectorAll("[data-sk='chat-jump']"));
+        Assert.Equal("status", notice.GetAttribute("role"));
+        Assert.Equal("polite", notice.GetAttribute("aria-live"));
+    }
+
+    [Fact]
     public async Task The_phone_tab_form_has_no_header_and_starts_open()
     {
         await using BunitContext context = HomePlayerTests.CreateContext(
@@ -218,8 +244,13 @@ public sealed class ChatPaneTests
             .Add(c => c.HideHeader, true));
 
         Assert.Empty(cut.FindAll("[data-sk='chat-toggle']"));
+        Assert.Empty(cut.FindAll("[data-sk='chat-state']"));
         Assert.Equal("true", cut.Find("[data-sk-chat]").GetAttribute("data-open"));
         Assert.False(cut.Find("[data-sk='chat-body']").HasAttribute("inert"));
+        // The header is omitted here, so the notice row is the only error surface; it must
+        // still be part of the pane.
+        Assert.Equal("chat-body",
+            cut.Find("[data-sk='chat-notice']").ParentElement!.GetAttribute("data-sk"));
 
         JSRuntimeInvocation init = Assert.Single(module.Invocations, call => call.Identifier == "init");
         JsonElement payload = JsonSerializer.SerializeToElement(

@@ -180,6 +180,10 @@ _Avoid_: Missing messages, lost chat
 A per-recording viewing adjustment that shifts chat replay earlier or later relative to the recording.
 _Avoid_: Chat delay, latency
 
+**Chat following**:
+The chat replay's scroll state in which the log is at its newest row. Scrolling away leaves it; playback that starts or seeks, and reopening the pane, return to it. Distinct from the player's live-edge **Following**.
+_Avoid_: Auto-scroll (when the state is meant)
+
 **Live edge**:
 The newest playback position the player treats as live: the sync position about one target duration behind the end of a session that is still Recording or Reconnecting.
 _Avoid_: Live point, now, end of stream

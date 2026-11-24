@@ -262,14 +262,13 @@ public sealed class ChatJourneyTests(MockAppFixture app)
     }
 
     [Fact]
-    public async Task Live_chat_scrolls_inside_a_full_height_column_and_keeps_its_footer_in_view()
+    public async Task Live_chat_scrolls_inside_a_full_height_column_without_a_footer_at_the_bottom()
     {
         await using Journey session =
             await LibraryJourneyTests.OpenAsync(app);
         IPage page = session.Page;
 
         ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
-        string id = (await growing.GetAttributeAsync("data-recording-id"))!;
         await session.OpenRecordingAsync(growing);
         await page.Locator("[data-sk='live']").WaitForAsync(
             new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
@@ -303,14 +302,13 @@ public sealed class ChatJourneyTests(MockAppFixture app)
               const player = document.querySelector('[data-sk-player]').getBoundingClientRect();
               const main = document.querySelector('main').getBoundingClientRect();
               const log = document.querySelector('[data-sk=chat-log]');
-              const footer = document.querySelector('[data-sk=chat-footer]').getBoundingClientRect();
               const rows = log.querySelectorAll('[data-message-id]');
               const last = rows[rows.length - 1].getBoundingClientRect();
               const logBox = log.getBoundingClientRect();
               return {
                 paneHeight: pane.height,
                 playerHeight: player.height,
-                footerBottom: footer.bottom,
+                paneBottom: pane.bottom,
                 playerBottom: player.bottom,
                 viewBottom: main.bottom,
                 scrollable: log.scrollHeight > log.clientHeight,
@@ -321,15 +319,100 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             """);
 
         // The pane is the view's height (design system: AppShell, chat as a full-height column)
-        // instead of growing with its content, so its footer stays inside the view.
+        // instead of growing with its content, so it stays inside the view.
         Assert.True(layout.PaneHeight > layout.PlayerHeight,
             $"chat pane {layout.PaneHeight}px is no taller than the player {layout.PlayerHeight}px");
-        Assert.True(layout.FooterBottom <= layout.ViewBottom + 1,
-            $"chat footer bottom {layout.FooterBottom}px is below the view {layout.ViewBottom}px");
+        Assert.True(layout.PaneBottom <= layout.ViewBottom + 1,
+            $"chat pane bottom {layout.PaneBottom}px is below the view {layout.ViewBottom}px");
         Assert.True(layout.Scrollable, "the chat log scrolls once it overflows");
-        // Following the live edge keeps the newest row in view at the bottom of the log.
+        // Following the live edge keeps the newest row in view at the bottom of the log, and
+        // there is no footer to reserve space while the viewer is at the current time.
         Assert.True(layout.LastRowBottom <= layout.LogBottom + 1,
             $"newest row bottom {layout.LastRowBottom}px is below the log {layout.LogBottom}px");
+        Assert.Equal(0, await page.Locator("[data-sk='chat-footer']").CountAsync());
+    }
+
+    [Fact]
+    public async Task Pause_scroll_up_and_resume_returns_chat_to_the_playhead()
+    {
+        await using Journey session =
+            await LibraryJourneyTests.OpenAsync(app);
+        IPage page = session.Page;
+
+        ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
+        await session.OpenRecordingAsync(growing);
+        await page.Locator("[data-sk='live']").WaitForAsync(
+            new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
+
+        ILocator pane = page.Locator("[data-sk-chat]");
+        if (await pane.GetAttributeAsync("data-open") != "true")
+            await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
+        await page.Locator("[data-sk='live']").ClickAsync();
+        ILocator video = page.Locator("[data-sk='video']");
+        await video.EvaluateAsync("v => { v.muted = true; return v.play(); }");
+
+        // Overflow the log and follow the newest row before pausing.
+        await page.WaitForFunctionAsync(
+            """
+            () => {
+              const log = document.querySelector('[data-sk=chat-log]');
+              const rows = [...log.querySelectorAll('[data-message-id]')];
+              const total = rows.reduce((sum, row) => sum + row.getBoundingClientRect().height, 0);
+              return total > log.clientHeight &&
+                rows[rows.length - 1].getBoundingClientRect().bottom <= log.getBoundingClientRect().bottom + 1;
+            }
+            """,
+            null,
+            new() { Timeout = 45_000 });
+
+        await video.EvaluateAsync("v => v.pause()");
+        await page.WaitForFunctionAsync(
+            "() => document.querySelector('[data-sk=video]').paused === true");
+        // The pause event drives the chat's previous-paused state; wait until the player has
+        // rendered it before the scroll, so the resume cannot be mistaken for a normal tick.
+        await page.Locator("[data-sk-player] [data-sk='play'][aria-label='Play']")
+            .WaitForAsync(new() { Timeout = 5_000 });
+
+        // The wheel intent stops any glide; the scroll then reads as the viewer leaving.
+        await page.Locator("[data-sk='chat-log']").EvaluateAsync(
+            """
+            (log) => {
+              log.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true }));
+              log.scrollTop = 0;
+              log.dispatchEvent(new Event('scroll'));
+            }
+            """);
+
+        ILocator footer = page.Locator("[data-sk='chat-footer']");
+        await footer.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 5_000 });
+        Assert.Equal("Jump to current time", (await footer.InnerTextAsync()).Trim());
+        bool centered = await footer.EvaluateAsync<bool>(
+            """
+            (footer) => {
+              const button = footer.querySelector('[data-sk=chat-jump]');
+              const f = footer.getBoundingClientRect();
+              const b = button.getBoundingClientRect();
+              return Math.abs((b.left + b.right) / 2 - (f.left + f.right) / 2) <= 1;
+            }
+            """);
+        Assert.True(centered, "the jump control is centered in the footer");
+
+        await video.EvaluateAsync("v => { v.muted = true; return v.play(); }");
+        await page.WaitForFunctionAsync(
+            """
+            () => {
+              const log = document.querySelector('[data-sk=chat-log]');
+              const rows = [...log.querySelectorAll('[data-message-id]')];
+              const last = rows[rows.length - 1];
+              return !document.querySelector('[data-sk=chat-footer]') &&
+                log.scrollTop + log.clientHeight >= log.scrollHeight - 1 &&
+                last.getBoundingClientRect().bottom <= log.getBoundingClientRect().bottom + 1;
+            }
+            """,
+            null,
+            new() { Timeout = 10_000 });
+
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "chat-resume");
     }
 
     [Fact]
@@ -401,7 +484,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
     {
         public double PaneHeight { get; set; }
         public double PlayerHeight { get; set; }
-        public double FooterBottom { get; set; }
+        public double PaneBottom { get; set; }
         public double PlayerBottom { get; set; }
         public double ViewBottom { get; set; }
         public bool Scrollable { get; set; }

@@ -6,7 +6,7 @@ import { shortcutBlocked } from "/js/player-keys.js";
 import { isLiveState } from "/js/recording-state.js";
 
 const HOOKS = [
-  "chat-state", "chat-body", "chat-log", "chat-jump", "chat-notice",
+  "chat-state", "chat-body", "chat-log", "chat-jump", "chat-notice", "chat-footer",
 ];
 
 const POLL_MS = 500;
@@ -210,6 +210,9 @@ export function createChatPane(root, {
   let disposed = false;
   let currentTime = 0;
   let paused = true;
+  // The playhead's paused flag from the previous event, so only a pause -> play transition
+  // reattaches the log; a rate change or seek while already playing must not.
+  let wasPaused = true;
   let loaded = false;
   // Media time through which every message has been fetched. Continuations start here.
   let loadedTo = 0;
@@ -269,7 +272,12 @@ export function createChatPane(root, {
   }
 
   function notice(text) {
-    if (el["chat-notice"]) el["chat-notice"].textContent = text || "";
+    const node = el["chat-notice"];
+    if (!node) return;
+    const value = text || "";
+    // Unhide before writing so a live region that was display:none is announced.
+    node.hidden = value === "";
+    node.textContent = value;
   }
 
   function applyOpen() {
@@ -379,8 +387,7 @@ export function createChatPane(root, {
     if (fixedOpen) {
       if (!open) {
         open = true;
-        applyOpen();
-        resume();
+        openAtPlayhead();
       }
       return;
     }
@@ -388,8 +395,16 @@ export function createChatPane(root, {
     const value = Boolean(next);
     if (open === value) return;
     open = value;
+    if (open) openAtPlayhead();
+    else applyOpen();
+  }
+
+  /** Applies an already-set open state and returns the pane to the current chat. */
+  function openAtPlayhead() {
     applyOpen();
-    if (open) resume();
+    // A closed pane misses the resume path; opening it lands on the current chat.
+    jumpToCurrent();
+    resume();
   }
 
   function resetWindow() {
@@ -406,6 +421,7 @@ export function createChatPane(root, {
     freshLog = true;
     following = true;
     newCount = 0;
+    updateFooter();
   }
 
   async function load(next) {
@@ -420,6 +436,7 @@ export function createChatPane(root, {
     open = fixedOpen || Boolean(next.open);
     if (changed) {
       resetWindow();
+      wasPaused = true;
       emoteController?.abort();
       emoteController = null;
       emoteCatalog = new Map();
@@ -432,6 +449,7 @@ export function createChatPane(root, {
     }
     applyOpen();
     updateStatus();
+    updateFooter();
     // The same recording reloaded with another offset: apply it like a Settings change.
     if (!changed) setSyncOffset(next.syncOffsetSec);
     if (view.state === "complete" || view.state === "unavailable") stopPolling();
@@ -502,7 +520,7 @@ export function createChatPane(root, {
       loaded = true;
       if (!following && added > 0) {
         newCount += added;
-        updateJump();
+        updateFooter();
       }
       updateStatus();
       render();
@@ -627,12 +645,29 @@ export function createChatPane(root, {
     status("Chat replay", "complete");
   }
 
-  function updateJump() {
-    if (!el["chat-jump"]) return;
-    el["chat-jump"].hidden = following || newCount === 0;
-    el["chat-jump"].textContent = newCount > 0
-      ? `Jump to current time (${newCount})`
-      : "Jump to current time";
+  function updateFooter() {
+    const footer = el["chat-footer"];
+    const button = el["chat-jump"];
+    if (!footer) return;
+    // An unavailable or not-yet-captured chat has no position to jump to; the status and
+    // notice explain it instead.
+    const behind = !following && Boolean(view) && view.hasChat !== false &&
+      view.state !== "unavailable";
+    if (!behind) {
+      // No footer at all at the current position: no container, border, padding or reserved
+      // height. The node is kept so its listener survives until the viewer scrolls away.
+      footer.remove();
+    } else {
+      // Behind, even with nothing new: the jump control is the way back. The initial markup
+      // hides the footer so it cannot flash before this module runs.
+      footer.hidden = false;
+      if (!footer.isConnected) el["chat-body"]?.append(footer);
+    }
+    if (button) {
+      button.textContent = newCount > 0
+        ? `Jump to current time (${newCount})`
+        : "Jump to current time";
+    }
   }
 
   function nearBottom() {
@@ -647,7 +682,7 @@ export function createChatPane(root, {
     if (atBottom !== following) {
       following = atBottom;
       if (following) newCount = 0;
-      updateJump();
+      updateFooter();
     }
   }
 
@@ -715,7 +750,7 @@ export function createChatPane(root, {
   function jumpToCurrent() {
     following = true;
     newCount = 0;
-    updateJump();
+    updateFooter();
     // Up to MAX_ROWS of scrollback may lie between; an animation would sweep through it all.
     scrollToEnd("instant");
   }
@@ -765,6 +800,7 @@ export function createChatPane(root, {
       } else {
         log.textContent = "No chat at this point.";
       }
+      updateFooter();
       return;
     }
 
@@ -812,7 +848,7 @@ export function createChatPane(root, {
     if (following && (rebuild || appended || inserted)) {
       scrollToEnd(rebuild || inserted || instant ? "instant" : "smooth");
     }
-    updateJump();
+    updateFooter();
   }
 
   function renderGap(gap) {
@@ -957,7 +993,13 @@ export function createChatPane(root, {
     if (!view || detail.recordingId !== view.recordingId) return;
     const previous = currentTime;
     currentTime = Number.isFinite(detail.time) ? detail.time : 0;
-    paused = Boolean(detail.paused);
+    const nowPaused = Boolean(detail.paused);
+    const resumed = wasPaused && !nowPaused;
+    wasPaused = nowPaused;
+    paused = nowPaused;
+    // Starting playback always returns the chat to the playhead, even when the viewer left it
+    // in older scrollback during the pause.
+    if (resumed) jumpToCurrent();
 
     if (!loaded) {
       if (currentTime < windowFrom || currentTime > windowTo) {
@@ -973,6 +1015,7 @@ export function createChatPane(root, {
     // Playing on keeps the scrollback; a seek before it, back, or far ahead starts over.
     // Polls never move windowFrom past the playhead, so they cannot trigger this.
     const backward = currentTime < previous - SEEK_SEC;
+    const forwardSeek = currentTime > previous + SEEK_SEC;
     const farForward = currentTime > previous + WINDOW_AFTER_SEC;
     if (backward || farForward || currentTime < windowFrom) {
       resetWindow();
@@ -980,7 +1023,10 @@ export function createChatPane(root, {
       return;
     }
 
-    render({ instant: currentTime > previous + SEEK_SEC });
+    // A forward seek within the kept window lands on the seeked chat instead of leaving the
+    // viewer in older scrollback; resetWindow already handles the cases above.
+    render({ instant: forwardSeek });
+    if (forwardSeek) jumpToCurrent();
     // A live pane polls on a timer; a complete one reads ahead as the playhead nears the end.
     if (!liveState() && !endReached && currentTime + LOOKAHEAD_SEC > loadedTo) continueWindow();
   }
@@ -1027,6 +1073,7 @@ export function createChatPane(root, {
   });
 
   applyOpen();
+  updateFooter();
 
   return {
     load,

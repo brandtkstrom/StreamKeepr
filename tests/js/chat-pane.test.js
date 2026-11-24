@@ -27,9 +27,9 @@ const MARKUP = `
     </header>
     <div data-sk="chat-body">
       <div data-sk="chat-log" role="log" aria-live="off" tabindex="0"></div>
-      <div>
-        <button data-sk="chat-jump" hidden></button>
-        <span data-sk="chat-notice"></span>
+      <span data-sk="chat-notice" role="status" aria-live="polite" hidden></span>
+      <div data-sk="chat-footer" hidden>
+        <button data-sk="chat-jump" type="button">Jump to current time</button>
       </div>
     </div>
   </aside>`;
@@ -117,6 +117,12 @@ function emoteFetch(entries, { available = true, chat = emoteMessage } = {}) {
 function playhead(time) {
   document.dispatchEvent(new CustomEvent("sk:playhead", {
     detail: { recordingId: "r1", time, duration: 60, paused: true },
+  }));
+}
+
+function playing(time) {
+  document.dispatchEvent(new CustomEvent("sk:playhead", {
+    detail: { recordingId: "r1", time, duration: 60, paused: false },
   }));
 }
 
@@ -365,6 +371,45 @@ describe("chat replay pane", () => {
     playhead(12);
     await vi.advanceTimersByTimeAsync(0);
     expect(fetch).toHaveBeenCalledTimes(2);
+
+    pane.dispose();
+  });
+
+  it("shows the load error outside the footer and clears it on recovery", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    let calls = 0;
+    const fetch = vi.fn(async () => {
+      calls++;
+      if (calls === 1) return { ok: false, status: 503, json: async () => ({}) };
+      return {
+        ok: true,
+        json: async () => ({
+          v: 1, recordingId: "r1", state: "complete", hasChat: true, source: "mock",
+          leadInSec: 0, fromSec: 0, toSec: 120, syncOffsetSec: 0, gaps: [],
+          hasMoreBefore: false, hasMoreAfter: false, messages: [message],
+        }),
+      };
+    });
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const notice = document.querySelector("[data-sk='chat-notice']");
+    expect(notice.hidden).toBe(false);
+    expect(notice.textContent).toBe("Chat could not be loaded.");
+    expect(notice.closest("[data-sk='chat-footer']")).toBeNull();
+    expect(document.querySelector("[data-sk='chat-footer']")).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(1000);
+    playhead(10);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(notice.hidden).toBe(true);
+    expect(notice.textContent).toBe("");
+    expect(document.querySelector("[data-sk='chat-footer']")).toBeNull();
 
     pane.dispose();
   });
@@ -741,13 +786,19 @@ describe("chat replay pane", () => {
     }
 
     // Playback in one-second steps, as the player's throttled playhead reports it.
-    function playOn(from, to) {
+    function playPaused(from, to) {
       for (let t = from; t <= to; t++) playhead(t);
+    }
+
+    // The same, with the player reporting that it is playing.
+    function playPlaying(from, to) {
+      for (let t = from; t <= to; t++) playing(t);
     }
 
     const rows = (log) => [...log.querySelectorAll(".sk-chat-row")];
     const end = (log) => Math.max(log.scrollHeight - log.clientHeight, 0);
     const jump = () => document.querySelector("[data-sk='chat-jump']");
+    const footer = () => document.querySelector("[data-sk='chat-footer']");
     const frames = (count) => vi.advanceTimersByTime(count * 16);
     // Long enough for any glide to land.
     const settle = () => frames(120);
@@ -770,11 +821,11 @@ describe("chat replay pane", () => {
 
     it("keeps rendered rows and appends new ones as playback runs on", async () => {
       const { pane, log } = await openPane();
-      playOn(1, 2);
+      playPaused(1, 2);
       const before = rows(log);
       expect(before.map((row) => row.dataset.messageId)).toEqual(["m0", "m1", "m2"]);
 
-      playOn(3, 4);
+      playPaused(3, 4);
       const after = rows(log);
       expect(after.map((row) => row.dataset.messageId)).toEqual(["m0", "m1", "m2", "m3", "m4"]);
       // The same elements, not a rebuild: a rebuilt log jumps and drops the browser's anchor.
@@ -785,7 +836,7 @@ describe("chat replay pane", () => {
 
     it("glides new rows in over several frames, easing in and landing on the end", async () => {
       const { pane, log } = await openPane();
-      playOn(1, 3);
+      playPaused(1, 3);
       settle();
       const start = log.scrollTop;
       expect(start).toBe(end(log));
@@ -806,7 +857,7 @@ describe("chat replay pane", () => {
 
     it("keeps its speed when more rows arrive mid-glide instead of starting over", async () => {
       const { pane, log } = await openPane();
-      playOn(1, 3);
+      playPaused(1, 3);
       settle();
       playhead(4);
       // Still speeding up, where a restart from rest shows most.
@@ -829,10 +880,10 @@ describe("chat replay pane", () => {
 
     it("lands instantly when the end is more than a screen away", async () => {
       const { pane, log } = await openPane();
-      playOn(1, 3);
+      playPaused(1, 3);
       settle();
       // Three rows (60 px) arrive before any frame runs, as after a throttled tab.
-      playOn(4, 6);
+      playPaused(4, 6);
       expect(log.scrollTop).toBe(end(log));
 
       pane.dispose();
@@ -840,7 +891,7 @@ describe("chat replay pane", () => {
 
     it("lands instantly after a short seek ahead within the kept window", async () => {
       const { pane, log } = await openPane();
-      playOn(1, 2);
+      playPaused(1, 2);
       settle();
       // Eight seconds ahead keeps the scrollback but must not sweep through the burst.
       playhead(10);
@@ -853,7 +904,7 @@ describe("chat replay pane", () => {
       vi.stubGlobal("matchMedia", (query) =>
         ({ matches: query === "(prefers-reduced-motion: reduce)" }));
       const { pane, log } = await openPane();
-      playOn(1, 3);
+      playPaused(1, 3);
       settle();
 
       playhead(4);
@@ -864,10 +915,10 @@ describe("chat replay pane", () => {
 
     it("keeps following while its own glide is under way", async () => {
       const { pane, log } = await openPane();
-      playOn(1, 3);
+      playPaused(1, 3);
       settle();
       // Two rows (40 px), so the glide is still short of the bottom after a frame.
-      playOn(4, 5);
+      playPaused(4, 5);
       frames(1);
       // Mid-glide the log is still above the bottom; that is not the viewer leaving.
       expect(end(log) - log.scrollTop).toBeGreaterThan(24);
@@ -876,14 +927,14 @@ describe("chat replay pane", () => {
       playhead(6);
       settle();
       expect(log.scrollTop).toBe(end(log));
-      expect(jump().hidden).toBe(true);
+      expect(footer()).toBeNull();
 
       pane.dispose();
     });
 
     it("keeps following when the viewer clicks a row or scrolls down mid-glide", async () => {
       const { pane, log } = await openPane();
-      playOn(1, 3);
+      playPaused(1, 3);
       settle();
       playhead(4);
       frames(2);
@@ -899,7 +950,7 @@ describe("chat replay pane", () => {
 
     it("stops gliding and following when the viewer scrolls up mid-glide", async () => {
       const { pane, log } = await openPane();
-      playOn(1, 3);
+      playPaused(1, 3);
       settle();
       playhead(4);
       frames(2);
@@ -921,7 +972,7 @@ describe("chat replay pane", () => {
         (log) => log.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })),
       ]) {
         const { pane, log } = await openPane();
-        playOn(1, 3);
+        playPaused(1, 3);
         settle();
         playhead(4);
         frames(2);
@@ -938,10 +989,10 @@ describe("chat replay pane", () => {
 
     it("jumps to the current time instantly", async () => {
       const { pane, log } = await openPane();
-      playOn(1, 5);
+      playPaused(1, 5);
       settle();
       scrollAway(log);
-      playOn(6, 8);
+      playPaused(6, 8);
 
       jump().click();
       expect(log.scrollTop).toBe(end(log));
@@ -949,9 +1000,162 @@ describe("chat replay pane", () => {
       pane.dispose();
     });
 
+    describe("replay reset", () => {
+      it("reattaches to the playhead when playback resumes after a pause", async () => {
+        const { pane, log } = await openPane();
+        playPaused(1, 3);
+        settle();
+        scrollAway(log);
+        expect(log.scrollTop).toBe(0);
+
+        playing(4);
+        settle();
+
+        expect(log.scrollTop).toBe(end(log));
+        expect(footer()).toBeNull();
+
+        pane.dispose();
+      });
+
+      it("renders the footer only while the viewer is behind", async () => {
+        const { pane, log } = await openPane();
+        playPaused(1, 3);
+        settle();
+        expect(footer()).toBeNull();
+
+        scrollAway(log);
+        expect(footer()).not.toBeNull();
+        expect(footer().hidden).toBe(false);
+        expect(jump().hidden).toBe(false);
+        expect(jump().textContent).toBe("Jump to current time");
+
+        jump().click();
+        expect(footer()).toBeNull();
+        expect(log.scrollTop).toBe(end(log));
+
+        pane.dispose();
+      });
+
+      it("reattaches on a forward seek beyond the seek threshold", async () => {
+        const { pane, log } = await openPane();
+        playPlaying(1, 3);
+        settle();
+        scrollAway(log);
+        expect(footer()).not.toBeNull();
+
+        playing(10);
+
+        expect(log.scrollTop).toBe(end(log));
+        expect(footer()).toBeNull();
+
+        pane.dispose();
+      });
+
+      it("lands on the seeked chat for a qualifying seek while paused", async () => {
+        const { pane, log } = await openPane();
+        playPaused(1, 3);
+        settle();
+        scrollAway(log);
+
+        playhead(10);
+
+        expect(log.scrollTop).toBe(end(log));
+        expect(footer()).toBeNull();
+
+        pane.dispose();
+      });
+
+      it("hides the footer when the chat is unavailable or not captured", async () => {
+        const { pane, log } = await openPane();
+        playPaused(1, 3);
+        settle();
+        scrollAway(log);
+        expect(footer()).not.toBeNull();
+
+        await pane.load({ ...VIEW, state: "unavailable", hasChat: false });
+        expect(footer()).toBeNull();
+
+        await pane.load({ ...VIEW });
+        expect(footer()).not.toBeNull();
+
+        pane.dispose();
+      });
+
+      it("reattaches when the pane is reopened after playback moved on", async () => {
+        const { pane, log } = await openPane();
+        playPlaying(1, 3);
+        settle();
+        scrollAway(log);
+
+        pane.setOpen(false);
+        playing(4);
+        pane.setOpen(true);
+
+        expect(log.scrollTop).toBe(end(log));
+        expect(footer()).toBeNull();
+
+        pane.dispose();
+      });
+
+      it("keeps the scrollback on a pause, a rate change, a small move or another recording", async () => {
+        const { pane, log } = await openPane();
+        playPlaying(1, 3);
+        settle();
+        scrollAway(log);
+
+        playing(4); // an ordinary tick, less than the seek threshold
+        playing(4); // the same time again, as a rate change reports
+        playhead(4); // a pause by itself
+        document.dispatchEvent(new CustomEvent("sk:playhead", {
+          detail: { recordingId: "r2", time: 30, duration: 60, paused: false },
+        }));
+
+        expect(log.scrollTop).toBe(0);
+        expect(footer()).not.toBeNull();
+
+        pane.dispose();
+      });
+
+      it("counts chat that arrives while the viewer is behind", async () => {
+        vi.useFakeTimers();
+        document.body.innerHTML = MARKUP;
+        const log = layout(document.querySelector("[data-sk='chat-log']"));
+        let now = 10;
+        const fetch = vi.fn(async (url) => ({
+          ok: true,
+          json: async () => ({
+            v: 1, recordingId: "r1", state: "recording", hasChat: true, source: "mock",
+            leadInSec: 0,
+            fromSec: Number(url.searchParams.get("fromSec")),
+            toSec: Number(url.searchParams.get("toSec")),
+            syncOffsetSec: 0, gaps: [], hasMoreBefore: false, hasMoreAfter: false,
+            messages: steady.filter((entry) => entry.mt <= now),
+          }),
+        }));
+        const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+          { fetch, storage: storage() });
+        await pane.load({ ...VIEW, state: "recording" });
+        await vi.advanceTimersByTimeAsync(0);
+        playing(5);
+        await vi.advanceTimersByTimeAsync(0);
+        scrollAway(log);
+        expect(log.scrollTop).toBe(0);
+
+        now = 13;
+        await vi.advanceTimersByTimeAsync(500);
+
+        expect(log.scrollTop).toBe(0);
+        expect(jump().textContent).toBe("Jump to current time (3)");
+        expect(footer()).not.toBeNull();
+
+        pane.dispose();
+        vi.useRealTimers();
+      });
+    });
+
     it("stops its glide when the pane is disposed", async () => {
       const { pane, log } = await openPane();
-      playOn(1, 3);
+      playPaused(1, 3);
       settle();
       playhead(4);
       frames(1);
@@ -999,7 +1203,7 @@ describe("chat replay pane", () => {
     it("redraws kept rows when the channel colour changes", async () => {
       const view = { ...VIEW, channelLogin: "alice", channelColor: 3 };
       const { pane, log } = await openPane({ view });
-      playOn(1, 2);
+      playPaused(1, 2);
       await pane.load({ ...view, channelColor: 5 });
       playhead(3);
       const colors = [...log.querySelectorAll("[data-chat-name]")]
@@ -1021,9 +1225,9 @@ describe("chat replay pane", () => {
       }));
       const { pane, log } = await openPane({ fetch });
 
-      playOn(1, 2);
+      playPaused(1, 2);
       const kept = rows(log)[0];
-      playOn(3, 4);
+      playPaused(3, 4);
       const order = [...log.children].map((child) =>
         child.classList.contains("sk-chat-gap") ? "gap" : child.dataset.messageId);
       expect(order).toEqual(["m0", "m1", "m2", "gap", "m3", "m4"]);
@@ -1043,7 +1247,7 @@ describe("chat replay pane", () => {
         }),
       }));
       const { pane, log } = await openPane({ fetch });
-      playOn(1, 3);
+      playPaused(1, 3);
       settle();
       expect(log.querySelector(".sk-chat-gap")).toBeNull();
 
