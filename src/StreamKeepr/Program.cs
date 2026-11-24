@@ -289,6 +289,7 @@ try
             services.GetRequiredService<IrcChatClient>());
 
         builder.Services.AddSingleton<IEmoteProvider, BttvEmoteProvider>();
+        builder.Services.AddSingleton<IEmoteProvider, SevenTvEmoteProvider>();
     }
 
     builder.Services.AddSingleton<DvrSupervisor>();
@@ -348,6 +349,9 @@ try
     builder.Services.AddHttpClient(EmoteHttpClients.Bttv, client =>
                                        client.BaseAddress = new Uri(EmoteHttpClients.BttvBaseAddress));
 
+    builder.Services.AddHttpClient(EmoteHttpClients.SevenTv, client =>
+                                       client.BaseAddress = new Uri(EmoteHttpClients.SevenTvBaseAddress));
+
     builder.Services.AddSingleton<IAdminTokenStore, AdminTokenStore>();
 
     if (mock)
@@ -406,7 +410,6 @@ try
             // started, and hosted services (and so the telemetry singleton) are built before that.
             app.Services.GetRequiredService<StreamKeeprTelemetry>().InitializeCounters(
                 app.Services.GetRequiredService<IEventSubClient>().Transport);
-
         }
 
         string endpoint = SanitizeEndpoint(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);

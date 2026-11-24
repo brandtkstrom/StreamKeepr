@@ -141,8 +141,28 @@ A service that publishes emote catalogs for Twitch channels, such as BetterTTV o
 _Avoid_: Emote source, emote service
 
 **Emote catalog**:
-A provider's global and channel-specific set of emote codes and image references.
-_Avoid_: Emote list, emote set
+A provider's global and channel-specific set of emote codes and image references. 7TV's API calls it an "emote set": that is the wire name, not the domain term.
+_Avoid_: Emote list
+
+**Global catalog**:
+The emote catalog a provider publishes for every channel.
+_Avoid_: Global emotes (for the catalog)
+
+**Channel catalog**:
+The emote catalog a provider publishes for one Twitch channel.
+_Avoid_: Channel emotes (for the catalog)
+
+**Provider emote ID**:
+The identifier a provider assigns to one emote. Its shape belongs to the provider, not to StreamKeepr: BetterTTV uses 24 hexadecimal characters and 7TV a 26-character ULID.
+_Avoid_: Emote ID (when the provider matters), provider ID
+
+**Static image**:
+The still first frame of an emote, as opposed to its animation.
+_Avoid_: Thumbnail
+
+**Zero-width emote**:
+A provider emote whose image occupies no advance width, so it stacks onto the emote beside it.
+_Avoid_: Zero-width modifier (unless modifier semantics are meant), overlay emote
 
 **Chat log event**:
 A non-message record in the chat log: deletion, clear, room-state change, notice, gap, dropped events, truncation, end, or purge.

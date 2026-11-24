@@ -5,6 +5,7 @@ using Microsoft.Playwright;
 namespace StreamKeepr.E2E;
 
 [Collection(MockAppCollection.Name)]
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class LibraryJourneyTests(MockAppFixture app)
 {
@@ -13,14 +14,14 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Search_filters_sort_and_shortcuts_live_in_the_url()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         int historyLength = await page.EvaluateAsync<int>("history.length");
         // The library opens over the page from the menu; the app bar's search filters it live.
         await LibraryHooks.OpenLibraryAsync(page);
 
         await page.Locator(Search).FillAsync("NIGHT");
-        await page.WaitForURLAsync(url => url.Contains("q=NIGHT", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.Contains("q=NIGHT", StringComparison.Ordinal));
         // The channels count matches, not totals; each match is highlighted in its column.
         await Expect(() => TotalRecordingsAsync(page), 2);
         await (await LibraryHooks.RowAsync(page)).WaitForAsync();
@@ -28,7 +29,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         await AssertAxeCleanAsync(page, "library-search");
 
         await page.Locator(Search).PressAsync("Escape");
-        await page.WaitForURLAsync(url => !url.Contains("q=", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => !url.Contains("q=", StringComparison.Ordinal));
         await Expect(async () => await TotalRecordingsAsync(page) >= 7 ? 1 : 0, 1);
 
         // "/" focuses the search from anywhere outside a field.
@@ -39,27 +40,25 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
 
         await LibraryHooks.OpenLibraryAsync(page);
         await page.Locator("[data-filter='saved']").ClickAsync();
-        await page.WaitForURLAsync(url => url.Contains("state=saved", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.Contains("state=saved", StringComparison.Ordinal));
         await Expect(async () => (await RowStatesAsync(page)).Count(state => state is "rec" or "reconnecting"), 0);
         Assert.True(await TotalRecordingsAsync(page) >= 5);
 
         // Selecting a recording keeps the filtered view instead of resetting it.
-        await (await LibraryHooks.RowAsync(page)).ClickAsync();
-        await page.WaitForURLAsync(url => url.Contains("/r/", StringComparison.Ordinal) &&
-            url.Contains("state=saved", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(await LibraryHooks.RowAsync(page));
         Assert.Equal("true", await page.Locator("[data-filter='saved']").GetAttributeAsync("aria-pressed"));
         historyLength++; // selecting a recording is real navigation; view changes are not
 
         await page.GetByRole(AriaRole.Button, new() { Name = "Library options" }).ClickAsync();
         await page.GetByRole(AriaRole.Menuitem, new() { Name = "A–Z by streamer" }).ClickAsync();
-        await page.WaitForURLAsync(url => url.Contains("sort=az", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.Contains("sort=az", StringComparison.Ordinal));
         // NavigateTo changes the URL before the circuit renders the new label, so retry the read.
         await Assertions.Expect(page.Locator("[data-sort]")).ToContainTextAsync("A–Z by streamer");
 
         // Every view change replaced the current entry instead of adding history.
         Assert.Equal(historyLength, await page.EvaluateAsync<int>("history.length"));
 
-        await page.ReloadAsync();
+        await session.ReloadAsync();
         await page.Locator($"{Search}[data-sk-ready]").WaitForAsync();
         await LibraryHooks.OpenLibraryAsync(page);
         Assert.Equal("true", await page.Locator("[data-filter='saved']").GetAttributeAsync("aria-pressed"));
@@ -74,7 +73,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Keyboard_users_move_through_the_channels_and_into_a_column()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator channels = page.Locator($"{LibraryHooks.Drawer} [role='listbox']");
         await LibraryHooks.OpenLibraryAsync(page);
@@ -93,9 +92,8 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         string login = (await first.GetAttributeAsync("data-library-channel"))!;
 
         // → selects the channel, opens its column and moves focus to its first recording.
-        await page.Keyboard.PressAsync("ArrowRight");
+        await session.OpenFocusedChannelAsync();
         await Assertions.Expect(first).ToHaveAttributeAsync("aria-selected", "true");
-        await page.WaitForFunctionAsync("() => document.activeElement?.matches('[data-recordings-column] a[data-recording-id]')");
         await page.Keyboard.PressAsync("ArrowDown");
         string? second = await page.EvaluateAsync<string?>("document.activeElement.dataset.recordingId");
         Assert.False(string.IsNullOrEmpty(second));
@@ -111,11 +109,10 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         await Assertions.Expect(page.Locator($"{LibraryHooks.Drawer} [data-recordings-column='{login}']")).ToBeVisibleAsync();
 
         // Enter on a recording opens it; Tab leaves the channels list in one step.
-        await page.Keyboard.PressAsync("ArrowRight");
-        await page.WaitForFunctionAsync("() => document.activeElement?.matches('[data-recordings-column] a[data-recording-id]')");
+        await session.OpenFocusedChannelAsync();
         string? id = await page.EvaluateAsync<string?>("document.activeElement.dataset.recordingId");
         await page.Keyboard.PressAsync("Enter");
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
         await ExpandLibraryOnWatchPageAsync(page);
         await LibraryHooks.OpenLibraryAsync(page);
         await first.FocusAsync();
@@ -126,7 +123,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Rail_avatar_opens_the_drawer_on_its_channel()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator drawer = page.Locator(LibraryHooks.Drawer);
 
@@ -148,7 +145,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     [Fact]
     public async Task A_channels_recordings_open_beside_the_list_without_moving_the_page()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator main = page.Locator("main");
         LocatorBoundingBoxResult before = (await main.BoundingBoxAsync())!;
@@ -181,14 +178,13 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         await Assertions.Expect(first).ToBeFocusedAsync();
 
         await first.ClickAsync();
-        await (await LibraryHooks.RowAsync(page)).ClickAsync();
-        await page.WaitForURLAsync(url => url.Contains("/r/", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(await LibraryHooks.RowAsync(page));
     }
 
     [Fact]
     public async Task Rail_sort_menu_opens_right_and_remains_usable()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator drawer = page.Locator(LibraryHooks.Drawer);
         ILocator trigger = page.GetByRole(AriaRole.Button, new() { Name = "Library options" });
@@ -247,7 +243,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         Assert.True(hit, "the rail menu is not clipped by the drawer");
 
         await page.GetByRole(AriaRole.Menuitem, new() { Name = "Oldest first" }).ClickAsync();
-        await page.WaitForURLAsync(url => url.Contains("sort=oldest", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.Contains("sort=oldest", StringComparison.Ordinal));
         await AssertAxeCleanAsync(page, "library-rail-sort-menu");
     }
 
@@ -267,7 +263,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
             window.addEventListener("unhandledrejection", (event) =>
               window.__skRejections.push(String(event.reason?.stack ?? event.reason)));
             """;
-        await using Session session = await OpenAsync(app.BaseUrl, initScript: probe);
+        await using Journey session = await OpenAsync(app, initScript: probe);
         IPage page = session.Page;
 
         await session.Context.SetOfflineAsync(true);
@@ -286,7 +282,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
             new PageWaitForFunctionOptions { Timeout = 30_000 });
         await LibraryHooks.OpenLibraryAsync(page);
         await page.Locator(Search).FillAsync("NIGHT");
-        await page.WaitForURLAsync(url => url.Contains("q=NIGHT", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => url.Contains("q=NIGHT", StringComparison.Ordinal));
 
         string[] rejections = await page.EvaluateAsync<string[]>("window.__skRejections");
         Assert.True(rejections.Length == 0, string.Join("\n---\n", rejections));
@@ -304,7 +300,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
               constructor(...args) { super(...args); window.__skSockets.push(this); }
             };
             """;
-        await using Session session = await OpenAsync(app.BaseUrl, initScript: recordSockets);
+        await using Journey session = await OpenAsync(app, initScript: recordSockets);
         IPage page = session.Page;
         ILocator note = page.GetByRole(AriaRole.Status).Filter(new() { HasTextString = "Live updates paused" });
         Assert.False(await note.IsVisibleAsync());
@@ -318,9 +314,19 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
 
         Assert.True(await note.IsVisibleAsync());
         Assert.Equal(0, await page.GetByRole(AriaRole.Dialog).CountAsync());
-        await AssertAxeCleanAsync(page, "updates-paused");
 
-        // Retry works while the circuit is down: reconnect.js serves it, not a Blazor handler.
+        // Restore the network before the retry; the click is served by reconnect.js, not a
+        // Blazor handler, so it works while the circuit is down. Axe runs after recovery: a
+        // long scan while offline can escalate the note to the modal before the retry (#296).
+        await session.Context.SetOfflineAsync(false);
+        await page.WaitForFunctionAsync(
+            """
+            async () => {
+              try { return (await fetch('/health/ready')).ok; } catch { return false; }
+            }
+            """,
+            null,
+            new PageWaitForFunctionOptions { Timeout = 10_000 });
         await page.EvaluateAsync("""
             () => {
               window.__skRetries = 0;
@@ -328,15 +334,26 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
               window.Blazor.reconnect = (...args) => { window.__skRetries++; return reconnect(...args); };
             }
             """);
-        await session.Context.SetOfflineAsync(false);
         await note.GetByRole(AriaRole.Button, new() { Name = "Retry" }).ClickAsync();
         Assert.True(await page.EvaluateAsync<int>("window.__skRetries") >= 1, "Retry called Blazor.reconnect");
-        await page.WaitForFunctionAsync(
-            "document.body.dataset.skReconnect === 'hide'",
-            null,
-            new PageWaitForFunctionOptions { Timeout = 30_000 });
+
+        // A successful reconnect sets "hide"; a failed one reloads, which clears the state
+        // instead. Both leave the page healthy, so wait for the shell rather than the literal
+        // "hide" value (#296).
+        await session.WaitForShellAsync(timeoutMs: 30_000);
         Assert.False(await note.IsVisibleAsync());
         await page.Locator(LibraryHooks.Channel).First.WaitForAsync();
+
+        // Axe the paused-note state after the recovery path has been verified. The modal is
+        // still axe clean if the scan reaches it.
+        await session.Context.SetOfflineAsync(true);
+        await page.EvaluateAsync("window.__skSockets.forEach(socket => socket.close())");
+        await page.WaitForFunctionAsync(
+            "['show','retrying'].includes(document.body.dataset.skReconnect)",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 20_000 });
+        Assert.True(await note.IsVisibleAsync());
+        await AssertAxeCleanAsync(page, "updates-paused");
     }
 
     [Theory]
@@ -346,7 +363,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     public async Task A_hard_loss_raises_the_reconnect_dialog_with_the_cards_copy(
         string state, string title, string action)
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         await page.Locator(LibraryHooks.Channel).First.WaitForAsync();
 
@@ -420,7 +437,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     [Fact]
     public async Task A_search_with_no_match_offers_to_clear_it()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         await LibraryHooks.OpenLibraryAsync(page);
 
@@ -431,7 +448,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         await AssertAxeCleanAsync(page, "library-no-match");
 
         await noMatch.GetByRole(AriaRole.Button, new() { Name = "Clear search" }).ClickAsync();
-        await page.WaitForURLAsync(url => !url.Contains("q=", StringComparison.Ordinal));
+        await Journey.WaitForUrlAsync(page, url => !url.Contains("q=", StringComparison.Ordinal));
         await Expect(async () => await TotalRecordingsAsync(page) >= 7 ? 1 : 0, 1);
         Assert.Equal("", await page.Locator(Search).InputValueAsync());
         await Expect(
@@ -439,25 +456,25 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
             1);
     }
 
-    internal static async Task<Session> OpenAsync(
-        string url, ViewportSize? viewport = null, string? initScript = null, bool hasTouch = false)
+    internal static async Task<Journey> OpenAsync(
+        MockAppFixture app, string? path = null, ViewportSize? viewport = null,
+        string? initScript = null, bool hasTouch = false)
     {
-        IPlaywright playwright = await Playwright.CreateAsync();
-        IBrowser browser = await playwright.Chromium.LaunchAsync(E2EBrowser.LaunchOptions);
-        IBrowserContext context = await browser.NewContextAsync(new BrowserNewContextOptions
+        string url = path is null ? app.BaseUrl : new Uri(new Uri(app.BaseUrl), path).ToString();
+        Journey journey = await Journey.OpenAsync(app, url, viewport, initScript, hasTouch);
+        try
         {
-            ViewportSize = viewport ?? new ViewportSize { Width = 1280, Height = 820 },
-            HasTouch = hasTouch,
-        });
-        if (initScript is not null)
-            await context.AddInitScriptAsync(initScript);
-
-        IPage page = await context.NewPageAsync();
-        await page.GotoAsync(url, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
-        // Attached, not visible: on a phone the search row and the drawer start closed (#174).
-        await page.Locator($"{Search}[data-sk-ready]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
-        await page.Locator(LibraryHooks.Channel).First.WaitForAsync(new() { State = WaitForSelectorState.Attached });
-        return new Session(playwright, browser, context, page);
+            // The seeded journeys assume channels exist. The empty-library and private-mode
+            // classes open their own sessions, where that assumption does not hold.
+            await journey.Page.Locator(LibraryHooks.Channel).First.WaitForAsync(
+                new LocatorWaitForOptions { State = WaitForSelectorState.Attached });
+            return journey;
+        }
+        catch
+        {
+            await journey.DisposeAsync();
+            throw;
+        }
     }
 
     internal async Task AssertAxeCleanAsync(IPage page, string name, AxeRunOptions? options = null)
@@ -471,8 +488,12 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
               .map(a => a.finished.catch(() => {})))
             """);
         AxeResult results = options is null ? await page.RunAxe() : await page.RunAxe(options);
-        await File.WriteAllTextAsync(
-            Path.Combine(app.ArtifactsDirectory, $"{name}.axe.json"), results.ToString());
+        // Only a failing check leaves its axe output behind.
+        if (results.Violations.Length > 0)
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(app.ArtifactsDirectory, $"{name}.axe.json"), results.ToString());
+        }
 
         string violations = string.Join(
             Environment.NewLine,
@@ -480,17 +501,5 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
                 $"{violation.Id} ({violation.Impact}): " +
                 string.Join(", ", violation.Nodes.Select(node => node.Target))));
         Assert.True(results.Violations.Length == 0, $"{name}: {violations}");
-    }
-
-    internal sealed record Session(
-        IPlaywright Playwright, IBrowser Browser, IBrowserContext Context, IPage Page)
-        : IAsyncDisposable
-    {
-        public async ValueTask DisposeAsync()
-        {
-            await Context.DisposeAsync();
-            await Browser.DisposeAsync();
-            Playwright.Dispose();
-        }
     }
 }

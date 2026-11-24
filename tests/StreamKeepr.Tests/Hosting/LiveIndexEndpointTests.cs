@@ -487,7 +487,7 @@ public sealed class LiveIndexEndpointTests
     private static Task WritePartAsync(Session session, params string[] segments)
     {
         Directory.CreateDirectory(session.Directory);
-        return File.WriteAllTextAsync(
+        return AtomicPartPlaylist.WriteAsync(
             Path.Combine(session.Directory, "p001.m3u8"),
             PlaylistTestData.LivePlaylist(
                 6,

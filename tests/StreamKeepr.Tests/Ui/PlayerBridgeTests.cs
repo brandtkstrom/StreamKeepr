@@ -81,4 +81,55 @@ public sealed class PlayerBridgeTests
 
         Assert.Equal([42d], seeks);
     }
+
+    [Fact]
+    public async Task Before_attach_a_play_request_waits_and_flushes()
+    {
+        var bridge = new PlayerBridge();
+        int plays = 0;
+
+        await bridge.PlayAsync();
+        Assert.Equal(0, plays);
+
+        bridge.Attach(_ => ValueTask.CompletedTask, () =>
+        {
+            plays++;
+            return ValueTask.CompletedTask;
+        });
+
+        Assert.Equal(1, plays);
+    }
+
+    [Fact]
+    public async Task An_attached_bridge_forwards_play_requests()
+    {
+        var bridge = new PlayerBridge();
+        int plays = 0;
+        bridge.Attach(_ => ValueTask.CompletedTask, () =>
+        {
+            plays++;
+            return ValueTask.CompletedTask;
+        });
+
+        await bridge.PlayAsync();
+
+        Assert.Equal(1, plays);
+    }
+
+    [Fact]
+    public async Task Detach_discards_a_pending_play()
+    {
+        var bridge = new PlayerBridge();
+        int plays = 0;
+
+        await bridge.PlayAsync();
+        bridge.Detach();
+        bridge.Attach(_ => ValueTask.CompletedTask, () =>
+        {
+            plays++;
+            return ValueTask.CompletedTask;
+        });
+
+        Assert.Equal(0, plays);
+    }
 }

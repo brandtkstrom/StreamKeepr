@@ -8,6 +8,7 @@
 @inject MudBlazor.ISnackbar Snackbars
 @inject NavigationManager Navigation
 @inject IOptions<ChatOptions> ChatOptions
+@inject PlayerBridge Bridge
 
 <PageTitle>@(RecordingId is null ? "Stream Keepr" : $"{RecordingId} · Stream Keepr")</PageTitle>
 
@@ -59,6 +60,7 @@ else
                 @if (Selected is { } playing)
                 {
                     <VideoPlayer Recording="playing"
+                                 Autoplay="@(_autoplayRecordingId == RecordingId)"
                                  StatsOpen="@Preferences.StatsOpen"
                                  TheaterAvailable="@(!Compact)" />
                 }
@@ -139,13 +141,24 @@ else
 @code {
     [Parameter] public string? RecordingId { get; set; }
 
+    /// <summary>
+    /// The one-shot player-open intent a library selection adds to its watch link. Home consumes
+    /// it for this recording once, then removes it from the URL so a reload, back/forward, or
+    /// the next recording opens paused. A direct link without it stays paused.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = LibraryUrl.AutoplayKey)]
+    public string? Autoplay { get; set; }
+
     // Md and up keep the desktop watch layout; below Md the shell reports compact (#175).
     [CascadingParameter(Name = AppShell.CompactCascade)]
     private bool Compact { get; set; }
 
     private string? _lastRecordingId;
+    private string? _autoplayRecordingId;
     private bool _resolved;
     private bool _theaterResetPending;
+    private bool _stripAutoplay;
+    private bool _playOnRender;
 
     private RecordingView? Selected =>
         RecordingId is not null && Library.IsLoaded ? Library.Find(RecordingId) : null;
@@ -177,10 +190,23 @@ else
             _theaterResetPending = true;
         }
 
+        bool autoplay = LibraryUrl.IsAutoplayIntent(Autoplay);
+        bool sameRecording = string.Equals(_lastRecordingId, RecordingId, StringComparison.Ordinal);
+        if (autoplay && RecordingId is not null)
+        {
+            _autoplayRecordingId = RecordingId;
+            _stripAutoplay = true;
+            // A selection of the already-open recording gets no new load payload, so ask the
+            // attached player to start playing instead.
+            _playOnRender |= sameRecording;
+        }
+
         if (!string.Equals(_lastRecordingId, RecordingId, StringComparison.Ordinal))
         {
             _lastRecordingId = RecordingId;
             _resolved = Selected is not null;
+            if (!autoplay)
+                _autoplayRecordingId = null;
         }
         else if (Selected is not null)
         {
@@ -190,6 +216,19 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_playOnRender)
+        {
+            _playOnRender = false;
+            await Bridge.PlayAsync();
+        }
+
+        if (_stripAutoplay)
+        {
+            _stripAutoplay = false;
+            if (LibraryUrl.AutoplayRequested(Navigation.Uri))
+                Navigation.NavigateTo(LibraryUrl.WithoutAutoplay(Navigation.Uri), replace: true);
+        }
+
         if (!_theaterResetPending)
             return;
 

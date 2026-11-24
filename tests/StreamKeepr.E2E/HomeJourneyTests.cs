@@ -8,6 +8,7 @@ namespace StreamKeepr.E2E;
 /// "Show all". Read-only against the shared Mock app.
 /// </summary>
 [Collection(MockAppCollection.Name)]
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class HomeJourneyTests(MockAppFixture app)
 {
@@ -16,7 +17,7 @@ public sealed class HomeJourneyTests(MockAppFixture app)
     [Fact]
     public async Task At_375_the_rows_swipe_without_scrolling_the_page_and_are_axe_clean()
     {
-        await using Session session = await OpenAsync(app.BaseUrl, viewport: Phone, hasTouch: true);
+        await using Journey session = await OpenAsync(app, viewport: Phone, hasTouch: true);
         IPage page = session.Page;
         await page.Locator("[data-shell][data-layout='compact']").WaitForAsync();
         ILocator recent = HomeRows.Recent(page);
@@ -90,14 +91,13 @@ public sealed class HomeJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Cards_are_links_to_the_recording_and_show_all_opens_the_saved_library()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator recent = HomeRows.Recent(page);
         ILocator card = HomeRows.Cards(recent).First;
         await card.WaitForAsync();
-        Assert.Equal(
-            $"/r/{await card.GetAttributeAsync("data-recording-id")}",
-            await card.GetAttributeAsync("href"));
+        string cardId = (await card.GetAttributeAsync("data-recording-id"))!;
+        Assert.Equal($"/r/{cardId}?autoplay=1", await card.GetAttributeAsync("href"));
         Assert.True(await HomeRows.Cards(HomeRows.Now(page)).CountAsync() >= 1, "the growing capture is recording");
 
         // The mouse-only chevron pages the row by its visible width.
@@ -108,7 +108,7 @@ public sealed class HomeJourneyTests(MockAppFixture app)
 
         await page.GetByRole(AriaRole.Button, new() { Name = "Show all" }).ClickAsync();
 
-        await page.WaitForURLAsync(url => new Uri(url).Query == "?state=saved");
+        await Journey.WaitForUrlAsync(page, url => new Uri(url).Query == "?state=saved");
         await Assertions.Expect(page.Locator("[data-filter='saved']")).ToHaveAttributeAsync("aria-pressed", "true");
         Assert.Equal("expanded", await page.Locator(LibraryHooks.Drawer).GetAttributeAsync("data-drawer"));
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "home-rows-1280");
@@ -117,13 +117,13 @@ public sealed class HomeJourneyTests(MockAppFixture app)
     [Fact]
     public async Task On_a_phone_show_all_opens_the_temporary_drawer_on_the_saved_filter()
     {
-        await using Session session = await OpenAsync(app.BaseUrl, viewport: Phone, hasTouch: true);
+        await using Journey session = await OpenAsync(app, viewport: Phone, hasTouch: true);
         IPage page = session.Page;
         await page.Locator("[data-shell][data-layout='compact']").WaitForAsync();
 
         await page.GetByRole(AriaRole.Button, new() { Name = "Show all" }).TapAsync();
 
-        await page.WaitForURLAsync(url => new Uri(url).Query == "?state=saved");
+        await Journey.WaitForUrlAsync(page, url => new Uri(url).Query == "?state=saved");
         await page.Locator("[data-shell][data-drawer-modal-open]").WaitForAsync();
         await Assertions.Expect(page.Locator("[data-filter='saved']")).ToHaveAttributeAsync("aria-pressed", "true");
     }
@@ -135,6 +135,7 @@ public sealed class HomeJourneyTests(MockAppFixture app)
 /// Home. Stopping is destructive, so this class owns a disposable app, with the timed feed off
 /// so nothing else changes the rows.
 /// </summary>
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class HomeRowMoveJourneyTests : IAsyncLifetime
 {
@@ -152,7 +153,7 @@ public sealed class HomeRowMoveJourneyTests : IAsyncLifetime
     [Fact]
     public async Task An_open_session_moves_from_the_first_row_to_the_second_when_it_completes()
     {
-        await using Session session = await OpenAsync(_app.BaseUrl);
+        await using Journey session = await OpenAsync(_app);
         IPage home = session.Page;
         ILocator now = HomeRows.Now(home);
         ILocator recent = HomeRows.Recent(home);

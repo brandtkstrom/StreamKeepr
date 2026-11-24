@@ -4,21 +4,20 @@ using static StreamKeepr.E2E.LibraryJourneyTests;
 namespace StreamKeepr.E2E;
 
 [Collection(MockAppCollection.Name)]
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class ExportJourneyTests(MockAppFixture app)
 {
     [Fact]
     public async Task An_admin_exports_a_finished_recording_and_downloads_one_mp4()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
-        await saved.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(saved);
 
-        ILocator export = page.Locator("button[data-export]");
-        await export.WaitForAsync();
+        ILocator export = await TitleBlock.MenuItemAsync(page, "data-export");
         await export.ClickAsync();
 
         // Wait for the card to rehydrate the queued job before checking the delete guard.
@@ -45,28 +44,29 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         // The download leaves the page and its circuit alone: no reconnect, the card still reacts.
         await page.WaitForTimeoutAsync(1_000);
         Assert.False(await page.Locator("dialog[open]").IsVisibleAsync());
-        await page.Locator("[data-copy-playlist]").ClickAsync();
+        ILocator copy = await TitleBlock.MenuItemAsync(page, "data-copy-playlist");
+        await copy.ClickAsync();
         await Feedback.Snackbar(page, "Playlist URL").WaitForAsync();
 
         // A reload rehydrates the row from the service (E-22).
-        await page.ReloadAsync();
+        await session.ReloadAsync();
         await page.Locator("a[data-export-download]").WaitForAsync(new() { Timeout = 20_000 });
     }
 
     [Fact]
     public async Task A_running_export_can_be_cancelled_and_retried()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         // A different finished recording from the download journey, so the two never share a job.
         ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow, index: 1));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
-        await saved.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(saved);
 
-        // Started from the keyboard: a pointer resting on Export would hold its tooltip open,
-        // and MudBlazor renders tooltips outside the page's landmarks.
-        await page.Locator("button[data-export]").PressAsync("Enter");
+        // Started from More actions; the menu closes before the export row appears. Keyboard
+        // activation of the menu's items is covered by the QualityGate journey.
+        ILocator export = await TitleBlock.MenuItemAsync(page, "data-export");
+        await export.ClickAsync();
         ILocator status = page.Locator("[data-export-row] [role='status']");
         await page.Locator("[data-export-row='Running'] [role='progressbar']").WaitForAsync(new() { Timeout = 30_000 });
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "export-running");
@@ -87,14 +87,14 @@ public sealed class ExportJourneyTests(MockAppFixture app)
     [Fact]
     public async Task A_live_recording_cannot_be_exported()
     {
-        await using Session session = await OpenAsync(app.BaseUrl);
+        await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
-        ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
-        await growing.ClickAsync();
+        ILocator growing = await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day");
+        await session.OpenRecordingAsync(growing);
 
-        ILocator export = page.Locator("button[data-export]");
-        await export.WaitForAsync();
-        Assert.True(await export.IsDisabledAsync());
+        ILocator export = await TitleBlock.MenuItemAsync(page, "data-export");
+        Assert.Equal("true", await export.GetAttributeAsync("aria-disabled"));
+        await TitleBlock.CloseMenuAsync(page);
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "export-live-disabled");
     }
 }

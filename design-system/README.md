@@ -12,7 +12,7 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 
 | Width (MudBlazor breakpoint) | Top bar | Navigation | Watching a recording |
 |---|---|---|---|
-| **Md and up** (≥ 960px): laptop, desktop | `MudAppBar`, 64px: menu, wordmark, search field, GitHub and Twitch links, settings, account avatar | `MudDrawer Variant="Mini" ClipMode="Always"`: the 72px rail, or the 320px library when opened | Two columns. Left: the player, the title block with its icon actions and More menu at the top right, Chapters (when there are any) and Viewers (when there are samples); Statistics is an overlay inside the player. Right: chat, 320–400px wide and the full height of the view. |
+| **Md and up** (≥ 960px): laptop, desktop | `MudAppBar`, 64px: menu, wordmark, search field, GitHub and Twitch links, settings, account avatar | `MudDrawer Variant="Mini" ClipMode="Always"`: the 72px rail, or the 320px library when opened | Two columns. Left: the player, the title block with its live chip and More actions menu at the top right, Chapters (when there are any) and Viewers (when there are samples); Statistics is an overlay inside the player. Right: chat, 320–400px wide and the full height of the view. |
 | **Sm** (600–959px): tablet, small window | `MudAppBar Dense`, 48px | Bottom app bar (`BottomNav`); the library is a temporary drawer | Player edge to edge, then the title block, then `MudTabs`: Chat · Chapters · Stats (Chapters only when there are any) |
 | **Xs** (< 600px): phone portrait | Dense, 48px; a back arrow on the watch page | Bottom app bar; temporary drawer | As Sm, with the player sticky under the top bar while the tabs scroll |
 | Phone landscape (height < 500px) | Hidden | Hidden | The player fills the screen, with controls overlaid |
@@ -23,7 +23,7 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 - Opening a recording on desktop collapses the drawer to the rail. Home opens it fully again. Both choices are remembered per viewer.
 - **Theater mode** (desktop only) makes the player span the full width of the view: no drawer, no gutters, no sidecar. Its height is capped at the viewport minus the app bar. The two columns move below it, chat still on the right, filling the height left. Fullscreen takes over theater mode's job on phones.
 - Nothing ever sits above the player, and nothing sits to the right of the open chat: it is the full-height right-hand column on desktop.
-- The recording's title, meta and actions sit directly under the player on the page, not in a panel; the actions are a compact row of icon buttons beside the title, with Stop and Delete in a More actions menu (`RecordingDetails`). The chapters are their own panel, `Chapters`, shown only when the recording has chapters.
+- The recording's title, meta and actions sit directly under the player on the page, not in a panel; the live chip and a More actions menu sit beside the title, with Copy, Export, Stop and Delete in that menu (`RecordingDetails`). The chapters are their own panel, `Chapters`, shown only when the recording has chapters.
 
 ### The rest
 
@@ -114,11 +114,11 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 | Actions | `PlaylistPlay` (copy playlist URL) · `Output` (export MP4) · `Download` (download an export) · `ContentCopy` (copy stats) · `Delete` · `Stop` · `Refresh` · `Add` |
 | Recording without a thumbnail | `Movie` |
 | Back · menu · search · more | `ArrowBack` · `Menu` · `Search` · `MoreVert` |
-| GitHub link · Twitch link | `Icons.Custom.Brands.GitHub` · Twitch's official Glitch mark (never redrawn; `LiveTv` stands in until the asset is added) |
+| GitHub link · Twitch link | `Icons.Custom.Brands.GitHub` · Twitch's Glitch mark (`wwwroot/img/twitch-glitch.svg`, full-colour image; never redrawn) |
 | States | `CheckCircle`, `Warning`, `Error`, `Sync`, `CloudOff`, `WifiOff`, `Schedule` (polling) |
 
 - The previews draw their icons from `components/icons.js`, which holds the exact SVG of the `Icons.Material.Rounded` constants from MudBlazor 9.12.0. In the app, use the constants. Inside JS-owned islands and the reconnect dialog, paste the same SVG.
-- No Twitch logo is included yet. The Connect with Twitch button uses `Link`, and the app bar's Twitch link shows `LiveTv` as a stand-in. When shipping, use Twitch's official Glitch mark from its brand assets in both places, unmodified. Never redraw it. The GitHub link uses MudBlazor's own `Icons.Custom.Brands.GitHub`.
+- The app bar's Twitch link uses Twitch's Glitch mark from `wwwroot/img/twitch-glitch.svg`, unmodified and in full colour. The Connect with Twitch button keeps `Link`, and the previews keep `LiveTv` for the app bar link because they cannot load the app's static assets. Never redraw the mark. The GitHub link uses MudBlazor's own `Icons.Custom.Brands.GitHub`.
 
 ## Logo
 

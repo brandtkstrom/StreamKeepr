@@ -28,7 +28,7 @@
         {
             <span class="prog" data-progress aria-hidden="true"><i style="width:100%"></i></span>
         }
-        else if (Recording.ResumeSec is double resume)
+        else if (Recording.ResumeSec is double resume && resume > 0)
         {
             <span class="prog" data-progress aria-hidden="true"><i style="width:@Format.Percent(resume, Recording.DurationSec)"></i></span>
         }
@@ -68,7 +68,7 @@
     /// <summary>The viewer's current time, for "Today" and "Yesterday".</summary>
     [Parameter] public DateTimeOffset Now { get; set; }
 
-    private string Href => $"/r/{Uri.EscapeDataString(Recording.Id)}";
+    private string Href => LibraryUrl.WithAutoplay($"/r/{Uri.EscapeDataString(Recording.Id)}");
 
     private bool IsOpen => Recording.State.IsOpen();
 

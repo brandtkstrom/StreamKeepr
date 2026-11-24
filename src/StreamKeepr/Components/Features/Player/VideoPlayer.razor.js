@@ -132,7 +132,7 @@ export function createPlayer(
   let hadPlaylist = false; // a live playlist with fragments has loaded since the source started
   let networkUnhealthy = false; // a live playlist refresh failed and has not recovered
   let chipState = null; // the state currently drawn in the chip
-  let resumePlaying = false; // VOD→live reload keeps playing if it was
+  let playWhenReady = false; // a selection or a VOD→live reload plays once metadata is ready
   let prefs = readPlayerPrefs(storage); // read once; applied on every load
   let theater = false;
   let theaterAvailable = true;
@@ -626,6 +626,10 @@ export function createPlayer(
       video.load?.();
     }
     native = false;
+    // Tearing the engine down resets the element to paused without a pause event (via
+    // hls.destroy or the load above), so redraw the controls from the reset element rather
+    // than from the previous recording's playback.
+    renderPlayState();
   }
 
   function resetUi() {
@@ -798,8 +802,8 @@ export function createPlayer(
       seekTo(Math.min(startAt, duration() - 1));
     }
     startAt = null;
-    if (resumePlaying) {
-      resumePlaying = false;
+    if (playWhenReady) {
+      playWhenReady = false;
       void video.play()?.catch?.(() => {});
     }
     renderTicks();
@@ -1126,10 +1130,10 @@ export function createPlayer(
       renderView();
       renderSpeed();
       renderVolume();
-      renderPlayState();
       // Open at the resume position when there is one; a live capture without one opens at
-      // the live edge, a finished recording at the start.
-      resumePlaying = false;
+      // the live edge, a finished recording at the start. A library selection also starts
+      // playing once, after loadedmetadata has applied that position.
+      playWhenReady = next.autoplay === true;
       const resume = Number.isFinite(view.resumeSec) && view.resumeSec > 0 ? view.resumeSec : null;
       await start(resume ?? (live ? LIVE_EDGE : null));
     },
@@ -1148,7 +1152,7 @@ export function createPlayer(
         // VOD→live: a finished session reopened. Reload the same playlist where the viewer
         // is, keeping play/pause; Live edge is theirs to press.
         live = true;
-        resumePlaying = !video.paused && !video.ended;
+        playWhenReady = !video.paused && !video.ended;
         void start(video.currentTime);
       } else if (!nowLive && live) {
         networkUnhealthy = false;
@@ -1184,6 +1188,25 @@ export function createPlayer(
         return;
       }
       userSeek(time);
+    },
+
+    /**
+     * A repeated library selection: ensure playback starts without reloading the source. An
+     * ended recording replays from 0; otherwise it continues from the current position. A
+     * rejected play leaves the paused UI in place.
+     */
+    play() {
+      if (disposed || !view) return;
+      if (video.ended) {
+        seekTo(0);
+        progress.restarted();
+      }
+      if (!hasMetadata()) {
+        playWhenReady = true;
+        return;
+      }
+      if (video.paused) void video.play()?.catch?.(() => {});
+      renderPlayState();
     },
 
     dispose() {
@@ -1234,6 +1257,10 @@ export function setTheaterAvailable(root, available) {
 
 export function seek(root, seconds) {
   players.get(root)?.seek(seconds);
+}
+
+export function play(root) {
+  players.get(root)?.play();
 }
 
 export function dispose(root) {

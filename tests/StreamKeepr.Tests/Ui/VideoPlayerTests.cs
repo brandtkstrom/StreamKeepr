@@ -121,9 +121,35 @@ public sealed class VideoPlayerTests
         Assert.Equal("saved", payload.GetProperty("state").GetString());
         Assert.Equal(3600, payload.GetProperty("durationSec").GetDouble());
         Assert.False(payload.GetProperty("statsOpen").GetBoolean());
+        Assert.False(payload.GetProperty("autoplay").GetBoolean());
         Assert.True(payload.GetProperty("theaterAvailable").GetBoolean());
         Assert.Equal(60, payload.GetProperty("chapters")[0].GetProperty("startSeconds").GetDouble());
         Assert.Equal("Main", payload.GetProperty("chapters")[0].GetProperty("title").GetString());
+    }
+
+    [Fact]
+    public void A_selection_load_carries_the_one_shot_autoplay_flag()
+    {
+        using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+
+        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(p => p
+            .Add(c => c.Recording, Recording("r1", "First"))
+            .Add(c => c.Autoplay, true));
+
+        JSRuntimeInvocation init = Assert.Single(module.Invocations, call => call.Identifier == "init");
+        JsonElement payload = JsonSerializer.SerializeToElement(
+            init.Arguments[2], new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.True(payload.GetProperty("autoplay").GetBoolean());
+
+        // The next recording is a plain navigation: its load carries the flag off again.
+        cut.Render(p => p
+            .Add(c => c.Recording, Recording("r2", "Second"))
+            .Add(c => c.Autoplay, false));
+
+        JSRuntimeInvocation load = Assert.Single(module.Invocations, call => call.Identifier == "load");
+        JsonElement next = JsonSerializer.SerializeToElement(
+            load.Arguments[1], new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.False(next.GetProperty("autoplay").GetBoolean());
     }
 
     [Fact]

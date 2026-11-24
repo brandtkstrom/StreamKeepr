@@ -7,22 +7,20 @@ using Microsoft.Playwright;
 namespace StreamKeepr.E2E;
 
 [Collection(MockAppCollection.Name)]
+[CaptureFailure]
 [Trait("Category", "E2E")]
 public sealed class ChatJourneyTests(MockAppFixture app)
 {
     [Fact]
     public async Task Opens_the_chat_pane_seeks_and_persists_the_open_state()
     {
-        await using LibraryJourneyTests.Session session =
-            await LibraryJourneyTests.OpenAsync(app.BaseUrl);
+        await using Journey session =
+            await LibraryJourneyTests.OpenAsync(app);
         IPage page = session.Page;
 
         ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
-        await saved.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
-        await page.Locator("[data-sk='seek'][aria-disabled='false']")
-            .WaitForAsync(new() { Timeout = 20_000 });
+        await session.OpenRecordingAsync(saved);
 
         await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
         await page.WaitForFunctionAsync(
@@ -37,7 +35,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await page.Locator("[data-sk='chat-log']").GetByText("Welcome to the Mock stream")
             .WaitForAsync(new() { Timeout = 20_000 });
 
-        await page.ReloadAsync();
+        await session.ReloadAsync();
         await page.Locator("[data-sk='seek'][aria-disabled='false']")
             .WaitForAsync(new() { Timeout = 20_000 });
         Assert.Equal("true", await page.Locator("[data-sk-chat]").GetAttributeAsync("data-open"));
@@ -48,16 +46,13 @@ public sealed class ChatJourneyTests(MockAppFixture app)
     [Fact]
     public async Task The_player_chat_button_mirrors_C_and_the_streamer_speaks_in_the_channel_colour()
     {
-        await using LibraryJourneyTests.Session session =
-            await LibraryJourneyTests.OpenAsync(app.BaseUrl);
+        await using Journey session =
+            await LibraryJourneyTests.OpenAsync(app);
         IPage page = session.Page;
 
         ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
-        await saved.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
-        await page.Locator("[data-sk='seek'][aria-disabled='false']")
-            .WaitForAsync(new() { Timeout = 20_000 });
+        await session.OpenRecordingAsync(saved);
 
         ILocator pane = page.Locator("[data-sk-chat]");
         ILocator chat = page.Locator("[data-sk-player]").GetByRole(AriaRole.Button, new() { Name = "Chat", Exact = true });
@@ -117,8 +112,8 @@ public sealed class ChatJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Chat_sync_in_settings_applies_live_to_the_open_pane_and_persists()
     {
-        await using LibraryJourneyTests.Session session =
-            await LibraryJourneyTests.OpenAsync(app.BaseUrl);
+        await using Journey session =
+            await LibraryJourneyTests.OpenAsync(app);
         IPage page = session.Page;
         var offsets = new ConcurrentQueue<string>();
         page.Request += (_, request) =>
@@ -132,16 +127,22 @@ public sealed class ChatJourneyTests(MockAppFixture app)
 
         ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
-        await saved.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
-        await page.Locator("[data-sk='seek'][aria-disabled='false']")
-            .WaitForAsync(new() { Timeout = 20_000 });
+        await session.OpenRecordingAsync(saved);
         ILocator pane = page.Locator("[data-sk-chat]");
         if (await pane.GetAttributeAsync("data-open") != "true")
             await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
         await WaitForOffsetAsync(offsets, "0.000");
         // The pane holds no sync control of its own.
         Assert.Equal(0, await pane.GetByRole(AriaRole.Slider).CountAsync());
+
+        // Pause so a leaked arrow key shows as a jump rather than normal playback.
+        ILocator video = page.Locator("[data-sk='video']");
+        if (!await video.EvaluateAsync<bool>("v => v.paused"))
+        {
+            await page.EvaluateAsync("() => document.activeElement?.blur()");
+            await page.Keyboard.PressAsync("k");
+        }
+        Assert.True(await video.EvaluateAsync<bool>("v => v.paused"));
 
         // Settings opens over the recording; the pane stays behind it.
         await page.GetByRole(AriaRole.Banner)
@@ -151,7 +152,6 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         ILocator readout = sheet.Locator("[data-chat-sync-value]");
         await Assertions.Expect(slider).ToBeVisibleAsync(new() { Timeout = 20_000 });
 
-        ILocator video = page.Locator("[data-sk='video']");
         double playhead = await video.EvaluateAsync<double>("v => v.currentTime");
         await slider.FocusAsync();
         for (int i = 0; i < 3; i++)
@@ -161,8 +161,15 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         // The open pane behind the sheet refetches with the new offset at once.
         await WaitForOffsetAsync(offsets, "1.500");
 
+        // Rapid presses can outrun the circuit's per-step round trip; the contract is one
+        // rendered step per press, so wait for each step rather than requiring lossless
+        // rapid input (#296).
         for (int i = 0; i < 8; i++)
+        {
+            string before = await slider.InputValueAsync();
             await page.Keyboard.PressAsync("ArrowLeft");
+            await Assertions.Expect(slider).Not.ToHaveValueAsync(before, new() { Timeout = 5_000 });
+        }
         await Assertions.Expect(readout).ToHaveTextAsync("\u22122.5 s");
         await Assertions.Expect(slider).ToHaveAttributeAsync("aria-valuetext", "2.5 seconds earlier");
         await WaitForOffsetAsync(offsets, "-2.500");
@@ -191,7 +198,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
 
         // The offset is the viewer's preference: a reload keeps it, for the pane and the sheet.
         while (offsets.TryDequeue(out _)) { }
-        await page.ReloadAsync();
+        await session.ReloadAsync();
         await WaitForOffsetAsync(offsets, dragged);
         await Assertions.Expect(slider).ToHaveValueAsync(value, new() { Timeout = 20_000 });
 
@@ -217,8 +224,8 @@ public sealed class ChatJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Polls_live_chat_while_a_growing_capture_plays()
     {
-        await using LibraryJourneyTests.Session session =
-            await LibraryJourneyTests.OpenAsync(app.BaseUrl);
+        await using Journey session =
+            await LibraryJourneyTests.OpenAsync(app);
         IPage page = session.Page;
         int chatRequests = 0;
         page.Request += (_, request) =>
@@ -229,8 +236,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
 
         ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
-        await growing.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(growing);
         await page.Locator("[data-sk='live']").WaitForAsync(
             new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
 
@@ -258,14 +264,13 @@ public sealed class ChatJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Live_chat_scrolls_inside_a_full_height_column_without_a_footer_at_the_bottom()
     {
-        await using LibraryJourneyTests.Session session =
-            await LibraryJourneyTests.OpenAsync(app.BaseUrl);
+        await using Journey session =
+            await LibraryJourneyTests.OpenAsync(app);
         IPage page = session.Page;
 
         ILocator growing = (await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day"));
         string id = (await growing.GetAttributeAsync("data-recording-id"))!;
-        await growing.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
+        await session.OpenRecordingAsync(growing);
         await page.Locator("[data-sk='live']").WaitForAsync(
             new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
 
@@ -416,16 +421,13 @@ public sealed class ChatJourneyTests(MockAppFixture app)
     [Fact]
     public async Task Short_chat_is_anchored_to_the_bottom_of_the_log()
     {
-        await using LibraryJourneyTests.Session session =
-            await LibraryJourneyTests.OpenAsync(app.BaseUrl);
+        await using Journey session =
+            await LibraryJourneyTests.OpenAsync(app);
         IPage page = session.Page;
 
         ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
-        await saved.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
-        await page.Locator("[data-sk='seek'][aria-disabled='false']")
-            .WaitForAsync(new() { Timeout = 20_000 });
+        await session.OpenRecordingAsync(saved);
 
         ILocator pane = page.Locator("[data-sk-chat]");
         if (await pane.GetAttributeAsync("data-open") != "true")
@@ -467,16 +469,13 @@ public sealed class ChatJourneyTests(MockAppFixture app)
     [Fact]
     public async Task The_chat_pane_uses_the_library_drawer_background()
     {
-        await using LibraryJourneyTests.Session session =
-            await LibraryJourneyTests.OpenAsync(app.BaseUrl);
+        await using Journey session =
+            await LibraryJourneyTests.OpenAsync(app);
         IPage page = session.Page;
 
         ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
-        await saved.ClickAsync();
-        await page.WaitForURLAsync(url => url.EndsWith($"/r/{id}", StringComparison.Ordinal));
-        await page.Locator("[data-sk='seek'][aria-disabled='false']")
-            .WaitForAsync(new() { Timeout = 20_000 });
+        await session.OpenRecordingAsync(saved);
 
         string chat = await page.Locator("[data-sk-chat]")
             .EvaluateAsync<string>("e => getComputedStyle(e).backgroundColor");

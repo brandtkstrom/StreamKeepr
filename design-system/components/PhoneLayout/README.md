@@ -9,7 +9,7 @@ The layout below MudBlazor's `Breakpoint.Md` (960px), phones and tablets: a dens
 - **Watching:**
   1. The player, edge to edge with square corners, at 16:9. On phones (Xs) it is `position: sticky` under the top bar, so it stays in view while the tabs scroll.
   2. The title in `h6`, then the meta line (streamer, `Event` start, `Timer` duration).
-  3. The same actions as desktop (`RecordingDetails`): Copy playlist URL and Export MP4 as icon buttons, then the `MoreVert` menu with Stop recording and Delete, on one row after the REC chip. An export's progress row follows.
+  3. The same actions as desktop (`RecordingDetails`): the REC chip and the `MoreVert` menu, with Copy playlist URL, Export MP4, Stop recording and Delete as menu items. An export's progress row follows.
   4. `MudTabs` (`Color.Primary`, full width, `KeepPanelsAlive`), with **Chat** (`Chat`), **Chapters** (`Toc`) and **Stats** (`QueryStats`: Video and Network, then the viewer tile and chart; phones get no overlay and no Viewers panel). Chapters is left out when the recording has no chapters. Chat comes first and is selected when the recording has chat; otherwise Chapters is, or Stats when there are no chapters either. Each panel gets at least half the viewport, and the main column scrolls under the sticky player.
 - **Phone landscape** (height below 500px): the top bar hides and the player fills the screen, with its controls overlaid. Rotating back restores the layout.
 

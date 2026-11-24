@@ -1,5 +1,7 @@
+using System.Text.Json;
 using Bunit.TestDoubles;
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 using Microsoft.AspNetCore.Components.Rendering;
 using StreamKeepr.Configuration;
 using StreamKeepr.Components.Layout;
@@ -74,6 +76,61 @@ public sealed class HomePlayerTests
         Assert.Equal("true", cut.Find("[data-sk='stats']").GetAttribute("aria-pressed"));
         // The viewer chart left the stats: it is the Viewers panel under the title block.
         Assert.Single(cut.FindAll("[data-slot='viewers'] [data-viewers-panel] [data-sk='viewer-chart']"));
+    }
+
+    [Fact]
+    public async Task A_selection_intent_reaches_the_player_once_and_is_stripped_from_the_url()
+    {
+        await using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+        NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo("/r/r1?q=chef&autoplay=1");
+
+        IRenderedComponent<Home> cut = context.Render<Home>(p => p
+            .Add(c => c.RecordingId, "r1"));
+
+        JSRuntimeInvocation init = Assert.Single(module.Invocations, call => call.Identifier == "init");
+        JsonElement payload = JsonSerializer.SerializeToElement(
+            init.Arguments[2], new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.True(payload.GetProperty("autoplay").GetBoolean());
+        cut.WaitForAssertion(() => Assert.Equal("/r/r1?q=chef", new Uri(navigation.Uri).PathAndQuery));
+    }
+
+    [Fact]
+    public async Task A_later_recording_does_not_inherit_the_selection_intent()
+    {
+        await using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+        NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo("/r/r1?autoplay=1");
+
+        IRenderedComponent<Home> cut = context.Render<Home>(p => p.Add(c => c.RecordingId, "r1"));
+        cut.WaitForAssertion(() => Assert.Equal("/r/r1", new Uri(navigation.Uri).PathAndQuery));
+
+        cut.Render(p => p.Add(c => c.RecordingId, "r2"));
+
+        JSRuntimeInvocation load = Assert.Single(module.Invocations, call => call.Identifier == "load");
+        JsonElement payload = JsonSerializer.SerializeToElement(
+            load.Arguments[1], new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.False(payload.GetProperty("autoplay").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Re_selecting_the_open_recording_plays_without_reloading()
+    {
+        await using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+        NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo("/r/r1");
+
+        IRenderedComponent<Home> cut = context.Render<Home>(p => p.Add(c => c.RecordingId, "r1"));
+        Assert.Single(module.Invocations, call => call.Identifier == "init");
+        Assert.DoesNotContain(module.Invocations, call => call.Identifier == "load");
+
+        navigation.NavigateTo("/r/r1?autoplay=1");
+        cut.Render(p => p.Add(c => c.RecordingId, "r1"));
+
+        cut.WaitForAssertion(() =>
+            Assert.Contains(module.Invocations, call => call.Identifier == "play"));
+        Assert.DoesNotContain(module.Invocations, call => call.Identifier == "load");
+        Assert.Equal("/r/r1", new Uri(navigation.Uri).PathAndQuery);
     }
 
     [Fact]

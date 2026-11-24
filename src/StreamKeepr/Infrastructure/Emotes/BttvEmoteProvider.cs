@@ -14,8 +14,11 @@ internal sealed class BttvEmoteProvider(
     IOptions<ChatOptions> options) : IEmoteProvider
 {
     public const string ProviderId = "bttv";
+    public const string DisplayName = "BetterTTV";
     public const string GlobalPath = "3/cached/emotes/global";
     public const string ChannelPath = "3/cached/users/twitch";
+
+    private const string ImageHost = "https://cdn.betterttv.net";
 
     public string Id => ProviderId;
 
@@ -43,9 +46,9 @@ internal sealed class BttvEmoteProvider(
         using HttpResponseMessage response = await http.GetAsync(
             GlobalPath, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!response.IsSuccessStatusCode)
-            throw Failure(response, "global");
+            throw EmoteProviderException.HttpFailure(ProviderId, DisplayName, response, "global");
 
-        byte[] body = await ReadBodyAsync(response, ct);
+        byte[] body = await EmoteResponseBody.ReadAsync(response, ProviderId, DisplayName, ct);
         BttvEmote[]? emotes;
         try
         {
@@ -53,10 +56,12 @@ internal sealed class BttvEmoteProvider(
         }
         catch (JsonException)
         {
-            throw Invalid("global");
+            throw EmoteProviderException.InvalidPayload(ProviderId, DisplayName, "global");
         }
 
-        return emotes is null ? throw Invalid("global") : Normalize(emotes);
+        return emotes is null
+            ? throw EmoteProviderException.InvalidPayload(ProviderId, DisplayName, "global")
+            : Normalize(emotes);
     }
 
     private static async Task<IReadOnlyList<EmoteCatalogEntry>> FetchChannelAsync(
@@ -70,9 +75,9 @@ internal sealed class BttvEmoteProvider(
             return [];
 
         if (!response.IsSuccessStatusCode)
-            throw Failure(response, "channel");
+            throw EmoteProviderException.HttpFailure(ProviderId, DisplayName, response, "channel");
 
-        byte[] body = await ReadBodyAsync(response, ct);
+        byte[] body = await EmoteResponseBody.ReadAsync(response, ProviderId, DisplayName, ct);
         BttvChannel? payload;
         try
         {
@@ -80,11 +85,11 @@ internal sealed class BttvEmoteProvider(
         }
         catch (JsonException)
         {
-            throw Invalid("channel");
+            throw EmoteProviderException.InvalidPayload(ProviderId, DisplayName, "channel");
         }
 
         if (payload is null)
-            throw Invalid("channel");
+            throw EmoteProviderException.InvalidPayload(ProviderId, DisplayName, "channel");
 
         // Shared entries precede channel entries so shared codes win the first-entry-wins dedupe.
         return [.. Normalize(payload.SharedEmotes), .. Normalize(payload.ChannelEmotes)];
@@ -99,7 +104,7 @@ internal sealed class BttvEmoteProvider(
         foreach (BttvEmote? emote in emotes)
         {
             if (emote is null ||
-                !EmoteCatalogRules.IsValidEmoteId(emote.Id) ||
+                !EmoteCatalogRules.IsValidBttvEmoteId(emote.Id) ||
                 !EmoteCatalogRules.IsValidCode(emote.Code) ||
                 emote.Modifier ||
                 HasRestrictions(emote.Restrictions))
@@ -132,49 +137,8 @@ internal sealed class BttvEmoteProvider(
         };
     }
 
-    private static async Task<byte[]> ReadBodyAsync(
-        HttpResponseMessage response, CancellationToken ct)
-    {
-        if (response.Content.Headers.ContentLength is > EmoteCatalogRules.MaxResponseBytes)
-            throw TooLarge();
-
-        await using Stream stream = await response.Content.ReadAsStreamAsync(ct);
-        using var buffer = new MemoryStream();
-        byte[] chunk = new byte[81_920];
-        int read;
-        while ((read = await stream.ReadAsync(chunk, ct)) > 0)
-        {
-            if (buffer.Length + read > EmoteCatalogRules.MaxResponseBytes)
-                throw TooLarge();
-
-            buffer.Write(chunk, 0, read);
-        }
-
-        return buffer.ToArray();
-    }
-
-    private static EmoteProviderException TooLarge() =>
-        new(
-            ProviderId,
-            httpStatus: null,
-            "BetterTTV catalog response exceeded two mebibytes.",
-            EmoteProviderFailureKind.TooLarge);
-
-    private static EmoteProviderException Failure(HttpResponseMessage response, string scope) =>
-        new(
-            ProviderId,
-            (int)response.StatusCode,
-            $"BetterTTV {scope} catalog request failed with HTTP {(int)response.StatusCode}.");
-
-    private static EmoteProviderException Invalid(string scope) =>
-        new(
-            ProviderId,
-            httpStatus: null,
-            $"BetterTTV returned an invalid {scope} catalog.",
-            EmoteProviderFailureKind.InvalidPayload);
-
-    public EmoteImageSet GetStaticImage(EmoteCatalogEntry entry) =>
-        StaticEmoteImage.Create("https://cdn.betterttv.net", entry);
+    public EmoteImageSet GetImageSet(EmoteCatalogEntry entry) =>
+        BttvEmoteImage.Create(ImageHost, entry, options.Value.Emotes.Animated);
 }
 
 internal sealed record BttvEmote(
