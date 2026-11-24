@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildEmoteCatalog,
   createChatPane,
+  linkify,
   matchEmotes,
 } from "../../src/StreamKeepr/Components/Features/Chat/ChatPane.razor.js";
 
@@ -1769,5 +1770,294 @@ describe("third-party emote matching", () => {
     expect(emote[0]).toMatchObject({ type: "native", text: "🔥" });
     expect(emoteCodes(emote)).toEqual(["KEKW"]);
     expect(emote.at(-1).text).toBe(" 😀");
+  });
+});
+
+describe("chat linkification", () => {
+  it("links absolute http and https URLs and keeps the typed text", () => {
+    expect(linkify("see https://example.com and http://example.com/path?q=1")).toEqual([
+      { type: "text", text: "see " },
+      { type: "link", text: "https://example.com", href: "https://example.com/" },
+      { type: "text", text: " and " },
+      { type: "link", text: "http://example.com/path?q=1", href: "http://example.com/path?q=1" },
+    ]);
+  });
+
+  it("keeps sentence punctuation outside the link and balances brackets in the URL", () => {
+    const text = "(see https://example.com/a). and https://en.wikipedia.org/wiki/Foo_(bar), plus https://example.com/b]";
+    const segments = linkify(text);
+    expect(segments.filter((segment) => segment.type === "link")).toEqual([
+      { type: "link", text: "https://example.com/a", href: "https://example.com/a" },
+      {
+        type: "link",
+        text: "https://en.wikipedia.org/wiki/Foo_(bar)",
+        href: "https://en.wikipedia.org/wiki/Foo_(bar)",
+      },
+      { type: "link", text: "https://example.com/b", href: "https://example.com/b" },
+    ]);
+    expect(segments.map((segment) => segment.text).join("")).toBe(text);
+  });
+
+  it("trims a trailing semicolon, colon, or unmatched brace", () => {
+    const text = "https://example.com/a; https://example.com/b: https://example.com/c}";
+    const segments = linkify(text);
+    expect(segments.filter((segment) => segment.type === "link").map((segment) => segment.text))
+      .toEqual([
+        "https://example.com/a",
+        "https://example.com/b",
+        "https://example.com/c",
+      ]);
+    expect(segments.map((segment) => segment.text).join("")).toBe(text);
+  });
+
+  it("ends a URL before a comma that continues the sentence", () => {
+    expect(linkify("check https://example.com,it is great")).toEqual([
+      { type: "text", text: "check " },
+      { type: "link", text: "https://example.com", href: "https://example.com/" },
+      { type: "text", text: ",it is great" },
+    ]);
+  });
+
+  it("links adjacent URLs separated by punctuation on their own", () => {
+    const text = "https://a.com,https://b.com";
+    const segments = linkify(text);
+    expect(segments.filter((segment) => segment.type === "link").map((segment) => segment.text))
+      .toEqual(["https://a.com", "https://b.com"]);
+    expect(segments.map((segment) => segment.text).join("")).toBe(text);
+  });
+
+  it("trims emphasis markers around a URL", () => {
+    expect(linkify("**https://example.com**")).toEqual([
+      { type: "text", text: "**" },
+      { type: "link", text: "https://example.com", href: "https://example.com/" },
+      { type: "text", text: "**" },
+    ]);
+  });
+
+  it("leaves other schemes, bare hosts, and malformed values as text", () => {
+    for (const text of [
+      "javascript:alert(1)",
+      "data:text/html,<b>x</b>",
+      "file:///etc/passwd",
+      "ftp://example.com",
+      "//example.com",
+      "www.example.com",
+      "example.com",
+      "http://",
+      "https:// example.com",
+    ]) {
+      const segments = linkify(text);
+      expect(segments.every((segment) => segment.type === "text")).toBe(true);
+      expect(segments.map((segment) => segment.text).join("")).toBe(text);
+    }
+  });
+
+  it("links uppercase schemes and URLs around and inside Unicode text", () => {
+    expect(linkify("HTTPS://Example.COM/Path")).toEqual([
+      { type: "link", text: "HTTPS://Example.COM/Path", href: "https://example.com/Path" },
+    ]);
+
+    const text = "見て https://example.com/パス?q=日本 です";
+    const segments = linkify(text);
+    expect(segments.find((segment) => segment.type === "link")).toEqual({
+      type: "link",
+      text: "https://example.com/パス?q=日本",
+      href: "https://example.com/%E3%83%91%E3%82%B9?q=%E6%97%A5%E6%9C%AC",
+    });
+    expect(segments.map((segment) => segment.text).join("")).toBe(text);
+  });
+});
+
+describe("chat links in the pane", () => {
+  it("renders a message URL as a safe link in a new tab", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, {
+      fetch: windowFetch([{ ...message, text: "see https://example.com now", emotes: [] }]),
+      storage: storage(),
+    });
+
+    await pane.load({ ...VIEW });
+    playhead(10);
+    await flush();
+
+    const link = document.querySelector(".sk-chat-text a");
+    expect(link).not.toBeNull();
+    expect(link.getAttribute("href")).toBe("https://example.com/");
+    expect(link.textContent).toBe("https://example.com");
+    expect(link.target).toBe("_blank");
+    expect(link.rel).toBe("noopener noreferrer nofollow");
+    expect(document.querySelector(".sk-chat-text").textContent).toBe("see https://example.com now");
+
+    pane.dispose();
+  });
+
+  it("links reply quote URLs and keeps the quote prefix plain", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, {
+      fetch: windowFetch([{
+        ...message,
+        text: "look",
+        emotes: [],
+        reply: { display: "Bob", login: "bob", text: "see https://example.com and KEKW" },
+      }]),
+      storage: storage(),
+    });
+
+    await pane.load({ ...VIEW });
+    playhead(10);
+    await flush();
+
+    const reply = document.querySelector(".sk-chat-reply");
+    const links = reply.querySelectorAll("a");
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute("href")).toBe("https://example.com/");
+    expect(links[0].textContent).toBe("https://example.com");
+    expect(reply.textContent).toBe("↳ Bob: see https://example.com and KEKW");
+    expect(reply.querySelector("img")).toBeNull();
+
+    pane.dispose();
+  });
+
+  it("renders every URL in a message once and keeps the punctuation outside", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const text = "a https://one.example/x, b http://two.example/y.";
+    const pane = createChatPane(root, {
+      fetch: windowFetch([{ ...message, text, emotes: [] }]),
+      storage: storage(),
+    });
+
+    await pane.load({ ...VIEW });
+    playhead(10);
+    await flush();
+
+    const links = [...document.querySelectorAll(".sk-chat-text a")];
+    expect(links.map((link) => link.textContent)).toEqual([
+      "https://one.example/x",
+      "http://two.example/y",
+    ]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "https://one.example/x",
+      "http://two.example/y",
+    ]);
+    expect(document.querySelector(".sk-chat-text").textContent).toBe(text);
+
+    pane.dispose();
+  });
+
+  it("links a URL next to an emote without consuming the emote", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const kappa = { ...KEKW, id: "kappa", code: "Kappa", src: "https://cdn.betterttv.net/emote/kappa/1x.webp" };
+    const pane = createChatPane(root, {
+      fetch: emoteFetch([kappa], {
+        chat: { ...message, text: "see https://example.com Kappa", emotes: [] },
+      }),
+      storage: storage(),
+    });
+
+    await pane.load({ ...VIEW, emotesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+
+    const text = document.querySelector(".sk-chat-text");
+    expect(text.querySelector("img")?.getAttribute("alt")).toBe("Kappa");
+    expect(text.querySelector("a")?.textContent).toBe("https://example.com");
+    expect(text.textContent).toBe("see https://example.com ");
+
+    pane.dispose();
+  });
+
+  it("never links text inside a native emote range", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, {
+      fetch: windowFetch([{
+        ...message,
+        text: "https://example.com/Kappa",
+        emotes: [{ id: "25", ranges: [{ from: 20, to: 24 }] }],
+      }]),
+      storage: storage(),
+    });
+
+    await pane.load({ ...VIEW });
+    playhead(10);
+    await flush();
+
+    const text = document.querySelector(".sk-chat-text");
+    expect(text.querySelector("a")?.textContent).toBe("https://example.com/");
+    expect(text.querySelector("a img")).toBeNull();
+    expect(text.querySelector("img")?.getAttribute("alt")).toBe("Kappa");
+
+    pane.dispose();
+  });
+
+  it("keeps HTML-looking message text inert", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const text = '<b>bold</b> <img src=x onerror="alert(1)"> https://example.com';
+    const pane = createChatPane(root, {
+      fetch: windowFetch([{ ...message, text, emotes: [] }]),
+      storage: storage(),
+    });
+
+    await pane.load({ ...VIEW });
+    playhead(10);
+    await flush();
+
+    const body = document.querySelector(".sk-chat-text");
+    expect(body.querySelector("b")).toBeNull();
+    expect(body.querySelector("img")).toBeNull();
+    expect(body.textContent).toBe(text);
+    expect(body.querySelector("a")?.textContent).toBe("https://example.com");
+
+    pane.dispose();
+  });
+
+  it("links URLs in action text and keeps the action row", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, {
+      fetch: windowFetch([{
+        ...message,
+        action: true,
+        text: "waves at https://example.com",
+        emotes: [],
+      }]),
+      storage: storage(),
+    });
+
+    await pane.load({ ...VIEW });
+    playhead(10);
+    await flush();
+
+    const row = document.querySelector(".sk-chat-row");
+    expect(row.classList.contains("action")).toBe(true);
+    expect(row.querySelector(".sk-chat-text a")?.getAttribute("href")).toBe("https://example.com/");
+
+    pane.dispose();
+  });
+
+  it("keeps a link clickable in theater-mode markup", async () => {
+    document.body.innerHTML = '<div class="sk-shell" data-theater-mode>' + MARKUP + "</div>";
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, {
+      fetch: windowFetch([{ ...message, text: "see https://example.com", emotes: [] }]),
+      storage: storage(),
+    });
+
+    await pane.load({ ...VIEW });
+    playhead(10);
+    await flush();
+
+    const link = document.querySelector(".sk-chat-text a");
+    expect(link.getAttribute("href")).toBe("https://example.com/");
+    expect(link.closest("[inert]")).toBeNull();
+    expect(document.querySelector("[data-sk='chat-log']").closest("[inert]")).toBeNull();
+
+    pane.dispose();
   });
 });
