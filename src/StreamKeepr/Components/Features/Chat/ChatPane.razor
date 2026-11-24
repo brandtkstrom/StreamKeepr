@@ -37,12 +37,15 @@
              aria-label="Chat replay"
              tabindex="0"></div>
 
-        <div class="sk-chat-footer" data-sk="chat-footer">
-            @* A native range styled like MudSlider Color.Primary: chat is a JS-owned island. The
-               module draws the readout, aria-valuetext and fill, and applies the offset on change.
-               The readout repeats the slider's value text, so it is hidden from assistive tech. *@
-            <button type="button" class="sk-chat-jump" data-sk="chat-jump" hidden>Jump to current time</button>
-            <span class="sk-chat-notice" data-sk="chat-notice" role="status" aria-live="polite"></span>
+        @* Outside the footer: a load error must not keep the footer, its border or its padding
+           alive while the viewer is at the current time. This row is also the only visible
+           error surface below Md, where the pane hides its header. *@
+        <span class="sk-chat-notice" data-sk="chat-notice" role="status" aria-live="polite" hidden></span>
+
+        @* JS owns this footer's presence: no footer is rendered while following; the node is
+           reattached from here when the viewer is behind. *@
+        <div class="sk-chat-footer" data-sk="chat-footer" hidden>
+            <button type="button" class="sk-chat-jump" data-sk="chat-jump">Jump to current time</button>
         </div>
     </div>
 </aside>
