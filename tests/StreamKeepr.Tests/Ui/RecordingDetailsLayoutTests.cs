@@ -28,17 +28,17 @@ public sealed class RecordingDetailsLayoutTests
     [Theory]
     [InlineData(RecordingState.Recording, "rec")]
     [InlineData(RecordingState.Reconnecting, "reconnecting")]
-    public async Task A_live_recording_leads_the_meta_line_with_its_live_chip(RecordingState state, string status)
+    public async Task A_live_recording_places_its_live_chip_beside_more_actions(RecordingState state, string status)
     {
         await using BunitContext context = CreateContext(signedIn: false);
 
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording(state));
 
-        IElement chip = cut.Find("[data-details-meta] [data-status]");
+        Assert.Empty(cut.FindAll("[data-details-meta] [data-status]"));
+        IElement chip = cut.Find("[data-details-actions] [data-status]");
         Assert.Equal(status, chip.GetAttribute("data-status"));
-        // First on the line: it comes before the streamer, the first of the meta pairs.
-        IElement streamer = cut.Find("[data-details-streamer]");
-        Assert.True(chip.CompareDocumentPosition(streamer).HasFlag(DocumentPositions.Following));
+        IElement more = cut.Find("button[aria-label='More actions']");
+        Assert.True(chip.CompareDocumentPosition(more).HasFlag(DocumentPositions.Following));
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public sealed class RecordingDetailsLayoutTests
 
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
-        Assert.Empty(cut.FindAll("[data-details-meta] [data-status]"));
+        Assert.Empty(cut.FindAll("[data-details-actions] [data-status]"));
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public sealed class RecordingDetailsLayoutTests
     }
 
     [Fact]
-    public async Task More_actions_offers_stop_and_a_disabled_delete_while_live()
+    public async Task More_actions_offers_copy_export_stop_and_a_disabled_delete_while_live()
     {
         await using BunitContext context = CreateContext(signedIn: true);
         var dialogs = context.Render<MudBlazor.MudDialogProvider>();
@@ -102,7 +102,10 @@ public sealed class RecordingDetailsLayoutTests
 
         cut.Find("button[aria-label='More actions']").Click();
 
-        popovers.WaitForAssertion(() => Assert.Equal(2, popovers.FindAll("[role='menuitem']").Count));
+        popovers.WaitForAssertion(() => Assert.Equal(4, popovers.FindAll("[role='menuitem']").Count));
+        IElement export = MenuItem(popovers, "Export MP4");
+        Assert.Equal("true", export.GetAttribute("aria-disabled"));
+        Assert.Contains("Available when the recording finishes", export.TextContent);
         IElement delete = MenuItem(popovers, "Delete recording");
         Assert.Equal("true", delete.GetAttribute("aria-disabled"));
         Assert.Contains("Available when the recording finishes", delete.TextContent);
@@ -121,7 +124,7 @@ public sealed class RecordingDetailsLayoutTests
 
         cut.Find("button[aria-label='More actions']").Click();
 
-        popovers.WaitForAssertion(() => Assert.Single(popovers.FindAll("[role='menuitem']")));
+        popovers.WaitForAssertion(() => Assert.Equal(3, popovers.FindAll("[role='menuitem']").Count));
         MenuItem(popovers, "Delete recording").Click();
         dialogs.WaitForAssertion(() => Assert.True(dialogs.HasOpenDialog("Delete recording?")));
     }
@@ -151,27 +154,14 @@ public sealed class RecordingDetailsLayoutTests
     }
 
     [Fact]
-    public async Task Copy_and_export_are_icon_buttons_and_stop_and_delete_only_live_in_the_menu()
-    {
-        await using BunitContext context = CreateContext(signedIn: true);
-
-        IRenderedComponent<RecordingDetails> cut = Render(context, Recording(RecordingState.Recording));
-
-        Assert.Equal("Copy playlist URL", cut.Find("button[data-copy-playlist]").GetAttribute("aria-label"));
-        Assert.Equal("Export MP4", cut.Find("button[data-export]").GetAttribute("aria-label"));
-        Assert.Empty(cut.FindAll("[data-stop-recording]"));
-        Assert.Empty(cut.FindAll("[data-delete]"));
-        Assert.Single(cut.FindAll("button[aria-label='More actions']"));
-    }
-
-    [Fact]
-    public async Task Signed_out_more_actions_is_inert_behind_requires_twitch()
+    public async Task Signed_out_more_actions_is_not_inert()
     {
         await using BunitContext context = CreateContext(signedIn: false);
 
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
-        Assert.NotNull(cut.Find("[data-requires-twitch] [inert] button[aria-label='More actions']"));
+        Assert.Empty(cut.FindAll("[data-requires-twitch] [inert] button[aria-label='More actions']"));
+        Assert.Single(cut.FindAll("button[aria-label='More actions']"));
     }
 
     [Fact]
@@ -188,6 +178,93 @@ public sealed class RecordingDetailsLayoutTests
         Assert.Equal("Export progress", bar.GetAttribute("aria-label"));
         Assert.Equal("off", bar.GetAttribute("aria-live"));
         Assert.Empty(bar.QuerySelectorAll("[aria-live]:not([aria-live='off'])"));
+    }
+
+    [Fact]
+    public async Task Copy_and_export_move_into_more_actions_and_the_live_chip_sits_beside_it()
+    {
+        await using BunitContext context = CreateContext(signedIn: true);
+        var popovers = context.Render<MudBlazor.MudPopoverProvider>();
+        IRenderedComponent<RecordingDetails> cut = Render(context, Recording(RecordingState.Recording));
+
+        Assert.Empty(cut.FindAll("[data-details-meta] [data-status]"));
+        IElement chip = cut.Find("[data-details-actions] [data-status]");
+        Assert.Equal("rec", chip.GetAttribute("data-status"));
+        Assert.Null(chip.ParentElement!.GetAttribute("role"));
+        Assert.Empty(cut.FindAll("button[data-copy-playlist]"));
+        Assert.Empty(cut.FindAll("button[data-export]"));
+
+        IElement more = cut.Find("button[aria-label='More actions']");
+        Assert.True(chip.CompareDocumentPosition(more).HasFlag(DocumentPositions.Following));
+
+        more.Click();
+
+        popovers.WaitForAssertion(() => Assert.Equal(4, popovers.FindAll("[role='menuitem']").Count));
+        IReadOnlyList<IElement> items = popovers.FindAll("[role='menuitem']");
+        Assert.StartsWith("Copy playlist URL", items[0].TextContent.Trim(), StringComparison.Ordinal);
+        Assert.StartsWith("Export MP4", items[1].TextContent.Trim(), StringComparison.Ordinal);
+        Assert.StartsWith("Stop recording", items[2].TextContent.Trim(), StringComparison.Ordinal);
+        Assert.StartsWith("Delete recording", items[3].TextContent.Trim(), StringComparison.Ordinal);
+        Assert.Equal("false", items[0].GetAttribute("aria-disabled"));
+        Assert.Equal("true", items[1].GetAttribute("aria-disabled"));
+        Assert.Contains("finishes", items[1].TextContent);
+        Assert.Equal("true", items[3].GetAttribute("aria-disabled"));
+    }
+
+    [Fact]
+    public async Task Signed_out_more_actions_opens_with_copy_enabled_and_admin_items_disabled()
+    {
+        await using BunitContext context = CreateContext(signedIn: false);
+        var popovers = context.Render<MudBlazor.MudPopoverProvider>();
+        IRenderedComponent<RecordingDetails> cut = Render(context, Recording(RecordingState.Reconnecting));
+
+        cut.Find("button[aria-label='More actions']").Click();
+
+        popovers.WaitForAssertion(() => Assert.Equal(4, popovers.FindAll("[role='menuitem']").Count));
+        IElement copy = MenuItem(popovers, "Copy playlist URL");
+        Assert.Equal("false", copy.GetAttribute("aria-disabled"));
+        Assert.Null(copy.GetAttribute("title"));
+
+        foreach (string label in new[] { "Export MP4", "Stop recording", "Delete recording" })
+        {
+            IElement item = MenuItem(popovers, label);
+            Assert.Equal("true", item.GetAttribute("aria-disabled"));
+            IElement wrapper = item.ParentElement!;
+            Assert.Equal("group", wrapper.GetAttribute("role"));
+            Assert.Equal("0", wrapper.GetAttribute("tabindex"));
+            Assert.Equal(
+                "Connect Twitch to use this",
+                wrapper.QuerySelector("[role='tooltip']")!.TextContent);
+        }
+
+        Assert.Equal(
+            3,
+            popovers.FindComponents<MudBlazor.MudTooltip>().Count(tooltip =>
+                tooltip.Instance.Text == "Connect Twitch to use this" &&
+                tooltip.Instance.RootClass == "sk-menu-tooltip-root"));
+        Assert.Empty(cut.FindAll("[data-requires-twitch] [inert] button[aria-label='More actions']"));
+    }
+
+    [Fact]
+    public async Task Signing_out_after_render_disables_the_admin_items()
+    {
+        await using BunitContext context = CreateContext(signedIn: true, out BunitAuthorizationContext auth);
+        var popovers = context.Render<MudBlazor.MudPopoverProvider>();
+        IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
+
+        IElement before = MoreActions.Item(context, cut, "data-export", popovers);
+        Assert.Equal("false", before.GetAttribute("aria-disabled"));
+
+        auth.SetNotAuthorized();
+
+        cut.WaitForAssertion(() =>
+        {
+            IElement after = MoreActions.Item(context, cut, "data-export", popovers);
+            Assert.Equal("true", after.GetAttribute("aria-disabled"));
+            Assert.Equal(
+                "Connect Twitch to use this",
+                after.ParentElement!.QuerySelector("[role='tooltip']")!.TextContent);
+        });
     }
 
     [Fact]
@@ -211,7 +288,9 @@ public sealed class RecordingDetailsLayoutTests
     private static IRenderedComponent<RecordingDetails> Render(BunitContext context, RecordingView recording) =>
         context.Render<RecordingDetails>(parameters => parameters.Add(component => component.Recording, recording));
 
-    private static BunitContext CreateContext(bool signedIn)
+    private static BunitContext CreateContext(bool signedIn) => CreateContext(signedIn, out _);
+
+    private static BunitContext CreateContext(bool signedIn, out BunitAuthorizationContext auth)
     {
         var context = new BunitContext();
         context.Services.AddStreamKeeprMudServices();
@@ -225,7 +304,7 @@ public sealed class RecordingDetailsLayoutTests
         context.Services.AddSingleton<IExportService>(new TestExportService());
         context.Services.AddSingleton<IRecordingAdmin>(new TestRecordingAdmin());
         context.Services.AddSingleton<IChannelsView>(new TestChannelsView());
-        BunitAuthorizationContext auth = context.AddAuthorization();
+        auth = context.AddAuthorization();
         if (signedIn)
             auth.SetAuthorized("mock_admin");
         else

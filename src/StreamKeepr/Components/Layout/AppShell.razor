@@ -89,14 +89,18 @@
                                                  aria-label="StreamKeepr on GitHub (opens in a new tab)" />
                     </MudBlazor.MudTooltip>
 
-                    @* MudBlazor has no Twitch icon. LiveTv stands in until Twitch's official Glitch
-                       mark is added from its brand assets; the mark is never redrawn. *@
+                    @* MudBlazor has no Twitch icon. The image is Twitch's Glitch mark, used
+                       unmodified and in full colour, so it is the button's content instead of
+                       an Icon path; the mark is never redrawn. *@
                     <MudBlazor.MudTooltip Text="Twitch" RootClass="sk-appbar-link">
-                        <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.LiveTv"
-                                                 Href="@Links.Value.Twitch"
+                        <MudBlazor.MudIconButton Href="@Links.Value.Twitch"
                                                  Target="_blank"
                                                  Rel="noopener"
-                                                 aria-label="Twitch (opens in a new tab)" />
+                                                 aria-label="Twitch (opens in a new tab)">
+                            <span class="sk-twitch-mark">
+                                <img src="img/twitch-glitch.svg" alt="" data-twitch-mark />
+                            </span>
+                        </MudBlazor.MudIconButton>
                     </MudBlazor.MudTooltip>
 
                     @* A real link to the page, so it works before the circuit connects. With the

@@ -227,7 +227,7 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         await TabToAsync(page, "e => e.getAttribute('aria-label') === 'More actions'", "More actions");
         await page.Keyboard.PressAsync("Enter");
         await page.Locator("[role='menuitem'][data-delete]").WaitForAsync();
-        for (int press = 0; press < 4 && !await FocusedMatchesAsync(page, "e => e.hasAttribute('data-delete')"); press++)
+        for (int press = 0; press < 6 && !await FocusedMatchesAsync(page, "e => e.hasAttribute('data-delete')"); press++)
             await page.Keyboard.PressAsync("ArrowDown");
         Assert.True(await FocusedMatchesAsync(page, "e => e.hasAttribute('data-delete')"), "arrows reach Delete in More actions");
         await page.Keyboard.PressAsync("Enter");

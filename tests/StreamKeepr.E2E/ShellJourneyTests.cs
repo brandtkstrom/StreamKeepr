@@ -340,7 +340,8 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             "focus stays on the chapter button");
 
         // Copy is public and uses the absolute playlist URL built from the app origin.
-        await page.Locator("[data-copy-playlist]").ClickAsync();
+        ILocator copy = await TitleBlock.MenuItemAsync(page, "data-copy-playlist");
+        await copy.ClickAsync();
         await Feedback.Snackbar(page, "Playlist URL copied").WaitForAsync(new() { Timeout = 10_000 });
         Assert.False(string.IsNullOrWhiteSpace(playlistUrl), "the player requested a playlist");
         string copied = await page.EvaluateAsync<string>("navigator.clipboard.readText()");

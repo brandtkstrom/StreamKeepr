@@ -17,8 +17,7 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await session.OpenRecordingAsync(saved);
 
-        ILocator export = page.Locator("button[data-export]");
-        await export.WaitForAsync();
+        ILocator export = await TitleBlock.MenuItemAsync(page, "data-export");
         await export.ClickAsync();
 
         // Wait for the card to rehydrate the queued job before checking the delete guard.
@@ -45,7 +44,8 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         // The download leaves the page and its circuit alone: no reconnect, the card still reacts.
         await page.WaitForTimeoutAsync(1_000);
         Assert.False(await page.Locator("dialog[open]").IsVisibleAsync());
-        await page.Locator("[data-copy-playlist]").ClickAsync();
+        ILocator copy = await TitleBlock.MenuItemAsync(page, "data-copy-playlist");
+        await copy.ClickAsync();
         await Feedback.Snackbar(page, "Playlist URL").WaitForAsync();
 
         // A reload rehydrates the row from the service (E-22).
@@ -63,9 +63,10 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         string id = (await saved.GetAttributeAsync("data-recording-id"))!;
         await session.OpenRecordingAsync(saved);
 
-        // Started from the keyboard: a pointer resting on Export would hold its tooltip open,
-        // and MudBlazor renders tooltips outside the page's landmarks.
-        await page.Locator("button[data-export]").PressAsync("Enter");
+        // Started from More actions; the menu closes before the export row appears. Keyboard
+        // activation of the menu's items is covered by the QualityGate journey.
+        ILocator export = await TitleBlock.MenuItemAsync(page, "data-export");
+        await export.ClickAsync();
         ILocator status = page.Locator("[data-export-row] [role='status']");
         await page.Locator("[data-export-row='Running'] [role='progressbar']").WaitForAsync(new() { Timeout = 30_000 });
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "export-running");
@@ -91,9 +92,9 @@ public sealed class ExportJourneyTests(MockAppFixture app)
         ILocator growing = await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Community day");
         await session.OpenRecordingAsync(growing);
 
-        ILocator export = page.Locator("button[data-export]");
-        await export.WaitForAsync();
-        Assert.True(await export.IsDisabledAsync());
+        ILocator export = await TitleBlock.MenuItemAsync(page, "data-export");
+        Assert.Equal("true", await export.GetAttributeAsync("aria-disabled"));
+        await TitleBlock.CloseMenuAsync(page);
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "export-live-disabled");
     }
 }

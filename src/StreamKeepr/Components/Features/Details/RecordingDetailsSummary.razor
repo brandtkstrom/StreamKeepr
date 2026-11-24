@@ -10,11 +10,13 @@
 @inject IExportService Exports
 @inject IChannelsView Channels
 @inject IRecordingAdmin Admin
+@inject AuthenticationStateProvider AuthStateProvider
 
 @* The recording's title, meta line and actions (design system: RecordingDetails, #178, #175):
-   the title and meta on the left, the icon actions at the top right. It sits directly under the
-   player at every width, outside any panel; below Md also outside the tabs, so the title and
-   actions stay visible while a tab scrolls. The export row is RecordingDetailsBody. *@
+   the title and meta on the left, the live chip and More actions menu at the top right. It sits
+   directly under the player at every width, outside any panel; below Md also outside the tabs,
+   so the title and actions stay visible while a tab scrolls. The export row is
+   RecordingDetailsBody. *@
 <div class="sk-details-summary" data-details-summary>
     @* The title wraps to two lines, then the tooltip has the rest.
        It is a tab stop so keyboard users can open that tooltip too (MudTooltip shows on
@@ -31,10 +33,6 @@
         </MudBlazor.MudTooltip>
 
         <div class="sk-details-meta" data-details-meta="true">
-            @if (!Compact && LiveChip is { } chip)
-            {
-                <StatusChip Status="@chip" />
-            }
             <span class="who">
                 <ChannelAvatar Login="@Recording.StreamerLogin"
                                Name="@Recording.StreamerLogin"
@@ -80,64 +78,79 @@
         </div>
     </div>
 
-    <div class="sk-actions" role="group" aria-label="Recording actions" data-details-actions="true">
-        @* The live state leads the phone's actions row (PhoneLayout); Md and up it leads
-           the meta line instead. *@
-        @if (Compact && LiveChip is { } phoneChip)
+    <div class="sk-actions" data-details-actions="true">
+        @* The live state sits beside More actions, where the Export icon used to be. It is
+           a status, not an action, so it stays outside the action group. *@
+        @if (LiveChip is { } liveChip)
         {
-            <StatusChip Status="@phoneChip" />
+            <StatusChip Status="@liveChip" />
         }
-        @* Icon buttons for the everyday actions, then More actions for the rare and
-           destructive ones (design system: RecordingDetails). A blocked button is
-           disabled and sits in its reason's tooltip; the menu gives its reason under
-           the item. *@
-        <MudBlazor.MudTooltip Text="Copy playlist URL" Placement="MudBlazor.Placement.Top">
-            <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.PlaylistPlay"
-                                     aria-label="Copy playlist URL"
-                                     OnClick="CopyPlaylistAsync"
-                                     data-copy-playlist="true" />
-        </MudBlazor.MudTooltip>
-        <RequiresTwitch>
-            @if (ExportTooltip is { } blocked)
-            {
-                <Tooltip Text="@blocked" tabindex="0" data-export-blocked>@ExportButton</Tooltip>
-            }
-            else
-            {
-                <MudBlazor.MudTooltip Text="Export MP4" Placement="MudBlazor.Placement.Top">@ExportButton</MudBlazor.MudTooltip>
-            }
-        </RequiresTwitch>
-        <RequiresTwitch>
+        <div class="sk-actions-group" role="group" aria-label="Recording actions">
             <span class="sk-more" @ref="_more">
-            <MudBlazor.MudMenu Icon="@MudBlazor.Icons.Material.Rounded.MoreVert"
-                               AriaLabel="More actions"
-                               AnchorOrigin="MudBlazor.Origin.BottomRight"
-                               TransformOrigin="MudBlazor.Origin.TopRight"
-                               ListClass="sk-more-menu"
-                               data-more-actions="true">
-                @if (IsLive)
-                {
-                    <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Stop"
-                                           IconColor="MudBlazor.Color.Error"
-                                           Class="sk-menu-error"
-                                           Disabled="@_stopping"
-                                           OnClick="OpenStopDialog"
-                                           data-stop-recording="true">Stop recording</MudBlazor.MudMenuItem>
-                    <MudBlazor.MudDivider />
-                }
-                <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Delete"
-                                       Disabled="@(DeleteBlockedReason is not null)"
-                                       OnClick="OpenDeleteDialog"
-                                       data-delete="true">
-                    Delete recording
-                    @if (DeleteBlockedReason is { } menuReason)
+                <MudBlazor.MudMenu Icon="@MudBlazor.Icons.Material.Rounded.MoreVert"
+                                   AriaLabel="More actions"
+                                   AnchorOrigin="MudBlazor.Origin.BottomRight"
+                                   TransformOrigin="MudBlazor.Origin.TopRight"
+                                   ListClass="sk-more-menu"
+                                   data-more-actions="true">
+                    <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.PlaylistPlay"
+                                           OnClick="CopyPlaylistAsync"
+                                           data-copy-playlist="true">Copy playlist URL</MudBlazor.MudMenuItem>
+                    @if (_signedIn)
                     {
-                        <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="sk-menu-reason" data-delete-blocked>@menuReason</MudBlazor.MudText>
+                        <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Output"
+                                               Disabled="@ExportDisabled"
+                                               OnClick="StartExportAsync"
+                                               data-export="true">
+                            Export MP4
+                            @if (ExportReason is { } exportReason)
+                            {
+                                <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="sk-menu-reason" data-export-blocked>@exportReason</MudBlazor.MudText>
+                            }
+                        </MudBlazor.MudMenuItem>
                     }
-                </MudBlazor.MudMenuItem>
-            </MudBlazor.MudMenu>
+                    else
+                    {
+                        @SignedOutItem(MudBlazor.Icons.Material.Rounded.Output, "Export MP4", "data-export")
+                    }
+                    <MudBlazor.MudDivider />
+                    @if (IsLive)
+                    {
+                        @if (_signedIn)
+                        {
+                            <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Stop"
+                                                   IconColor="MudBlazor.Color.Error"
+                                                   Class="sk-menu-error"
+                                                   Disabled="@_stopping"
+                                                   OnClick="OpenStopDialog"
+                                                   data-stop-recording="true">Stop recording</MudBlazor.MudMenuItem>
+                        }
+                        else
+                        {
+                            @SignedOutItem(MudBlazor.Icons.Material.Rounded.Stop, "Stop recording", "data-stop-recording", error: true)
+                        }
+                        <MudBlazor.MudDivider />
+                    }
+                    @if (_signedIn)
+                    {
+                        <MudBlazor.MudMenuItem Icon="@MudBlazor.Icons.Material.Rounded.Delete"
+                                               Disabled="@(DeleteBlockedReason is not null)"
+                                               OnClick="OpenDeleteDialog"
+                                               data-delete="true">
+                            Delete recording
+                            @if (DeleteBlockedReason is { } menuReason)
+                            {
+                                <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="sk-menu-reason" data-delete-blocked>@menuReason</MudBlazor.MudText>
+                            }
+                        </MudBlazor.MudMenuItem>
+                    }
+                    else
+                    {
+                        @SignedOutItem(MudBlazor.Icons.Material.Rounded.Delete, "Delete recording", "data-delete")
+                    }
+                </MudBlazor.MudMenu>
             </span>
-        </RequiresTwitch>
+        </div>
     </div>
 </div>
 
@@ -166,6 +179,7 @@
     private ElementReference _more;
     private string? _dialogOpenFor;
 
+    private bool _signedIn;
     private bool _starting;
     private bool _stopOpen;
     private bool _stopping;
@@ -188,21 +202,15 @@
 
     private string StopRecordingTitle => $"Stop recording for {Recording.StreamerLogin}?";
 
-    // The live chip that leads the meta line; null once the recording has finished (a
-    // Partial recording's chip belongs to the library row, not here).
+    // The live chip that sits beside More actions; null once the recording has finished
+    // (a Partial recording's chip belongs to the library row, not here).
     private StatusChipKind? LiveChip => IsLive ? RecordingStatusChip.For(Recording.State) : null;
 
-    // One Export MP4 icon button: tonal primary, the one emphasised action.
-    private RenderFragment ExportButton => @<MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Output"
-                                                                    Color="MudBlazor.Color.Primary"
-                                                                    Class="sk-tonal"
-                                                                    aria-label="Export MP4"
-                                                                    Disabled="@(ExportBlockedReason is not null || ExportActive || _starting)"
-                                                                    OnClick="StartExportAsync"
-                                                                    data-export="true" />;
+    // The menu's Export item stays disabled while it is blocked, already running, or starting.
+    private bool ExportDisabled => ExportBlockedReason is not null || ExportActive || _starting;
 
-    // The disabled Export button's tooltip: why it is blocked, or that it is already running.
-    private string? ExportTooltip => ExportBlockedReason ?? (ExportActive ? "Exporting…" : null);
+    // The reason under Export in the menu; null when the item is live.
+    private string? ExportReason => ExportActive ? "Exporting…" : ExportBlockedReason;
 
     private bool ExportActive => Exports.FindByRecording(Recording.Id) is { IsActive: true };
 
@@ -210,13 +218,13 @@
         Exports.FindByRecording(Recording.Id) is
             { State: ExportState.Failed, Error: ExportService.IncompatibleParts };
 
-    // Why Export MP4 is disabled with a tooltip; null when the button is live.
+    // Why the Export menu item is disabled, shown under its label; null when it is live.
     private string? ExportBlockedReason =>
         IsLive ? "Available when the recording finishes"
         : IsIncompatible ? "Its parts use different video settings, so one MP4 is not possible"
         : null;
 
-    // Why Delete is disabled with a tooltip; null when the icon button is live.
+    // Why the Delete menu item is disabled, shown under its label; null when it is live.
     private string? DeleteBlockedReason => RecordingDelete.BlockedReason(Recording, ExportActive);
 
     private bool ShowSize =>
@@ -230,11 +238,51 @@
     private string AbsolutePlaylistUrl =>
         new Uri(new Uri(Navigation.BaseUri), Recording.PlaylistUrl).AbsoluteUri;
 
+    // One admin-only menu item while signed out: disabled, with a focusable wrapper so the
+    // sign-in hint can show on hover and keyboard focus. `error` keeps Stop's destructive colour.
+    private RenderFragment SignedOutItem(string icon, string label, string hook, bool error = false) =>
+        @<MudBlazor.MudTooltip Text="@RequiresTwitch.SignedOutMessage"
+                               Placement="MudBlazor.Placement.Left"
+                               RootClass="sk-menu-tooltip-root"
+                               role="none">
+            <div class="sk-menu-disabled-wrap"
+                 role="group"
+                 tabindex="0"
+                 aria-label="@label"
+                 aria-describedby="@HintId(label)">
+                <MudBlazor.MudMenuItem Icon="@icon"
+                                       IconColor="@(error ? MudBlazor.Color.Error : MudBlazor.Color.Inherit)"
+                                       Class="@(error ? "sk-menu-error" : null)"
+                                       Disabled="true"
+                                       @attributes="@(new Dictionary<string, object> { [hook] = "true" })">@label</MudBlazor.MudMenuItem>
+                <span id="@HintId(label)" class="sk-visually-hidden" role="tooltip">@RequiresTwitch.SignedOutMessage</span>
+            </div>
+        </MudBlazor.MudTooltip>;
+
+    private static string HintId(string label) =>
+        $"sk-menu-hint-{label.ToLowerInvariant().Replace(' ', '-')}";
+
     protected override void OnInitialized()
     {
         Clock.Changed += OnClockChanged;
         Exports.Changed += OnExportsChanged;
     }
+
+    // The menu is public (Copy is public), so it renders the signed-out admin items itself
+    // rather than relying on AuthorizeView inside the menu popover.
+    protected override async Task OnInitializedAsync()
+    {
+        AuthStateProvider.AuthenticationStateChanged += OnAuthenticationStateChanged;
+        _signedIn = (await AuthStateProvider.GetAuthenticationStateAsync())
+            .User.Identity?.IsAuthenticated == true;
+    }
+
+    private void OnAuthenticationStateChanged(Task<AuthenticationState> state) =>
+        _ = InvokeAsync(async () =>
+        {
+            _signedIn = (await state).User.Identity?.IsAuthenticated == true;
+            StateHasChanged();
+        });
 
     protected override void OnParametersSet()
     {
@@ -401,5 +449,6 @@
     {
         Clock.Changed -= OnClockChanged;
         Exports.Changed -= OnExportsChanged;
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthenticationStateChanged;
     }
 }
