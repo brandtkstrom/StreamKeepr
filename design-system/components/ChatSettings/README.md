@@ -14,7 +14,7 @@ Settings › Chat: viewer preferences for the chat replay — one Chat sync offs
   - The top line: a `FormatSize` icon, "Chat font size" in `label` (the slider's `<label>`), and the current percentage right-aligned as a numeric readout ("100%").
   - Below, a native range with "Smaller" at the left and "Larger" at the right in `caption`, at most 420px wide, filled from the left in `primary`; `aria-valuetext` reads "100 percent". Keyboard is the browser's: ←/→ 5%, Home/End 85%/145%.
   - Under it, one line of help in `caption`, `text-secondary`: "Scales chat replay messages and names on every recording."
-  - Stored in `UiPreferences` (`chatFontScale`, 85–145, default 100). It scales message text and names; replies, gaps and badge chips keep their `caption`/`label` sizes, and emote images are `2em` (28px at 100%). A change persists and applies to an open pane at once without a refetch or a log rebuild.
+  - Stored in `UiPreferences` (`chatFontScale`, 85–145, default 100). It scales message text and names; badge chips scale up above 100% (10px floor) and never shrink; replies and gaps keep `caption`; emote images are `2em` (28px at 100%). A change persists and applies to an open pane at once without a refetch or a log rebuild.
 - **Chat font weight**: a native select labelled "Chat font weight", led by the `FormatBold` icon, offering Normal (400), Medium (500) and Bold (700), 400 by default, with one line of help: "Sets message text weight; usernames stay bold."
   - Stored in `UiPreferences` (`chatFontWeight`, default 400). It sets message text only; usernames stay 700, and replies, gaps and badges keep their design weights. A change persists and applies to an open pane at once.
 
@@ -22,7 +22,7 @@ Settings › Chat: viewer preferences for the chat replay — one Chat sync offs
 
 - One offset for every recording. There is no per-recording offset.
 - One font size and one font weight for every recording, like Chat sync. Size is a percentage of the design's `body2`, not px: 100% reproduces the design at any browser root size.
-- The font settings change only the log's conversation text. Metadata (replies, gaps, badge chips) and the pane's header/footer keep their design sizes; emote images scale with the message text.
+- The font size scales the log's conversation text, names, emotes, and badge chips (upward only, 10px floor). Replies, gaps and the pane's header/footer keep their design sizes.
 - The size slider renders its `value` once; the browser owns the thumb afterwards, for the same slow-round-trip reason as Chat sync.
 - The badge text switch hides only the text chips. Badge images are a separate, later surface; this switch does not gate them.
 - The Settings sheet opens over a playing recording, so a change applies to the open chat pane at once: the pane refetches around the playhead with the new offset. Playback never stops.

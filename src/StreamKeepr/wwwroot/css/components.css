@@ -641,6 +641,8 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   display: inline-block; margin-right: var(--space-1); padding: 0 var(--space-1); border-radius: var(--radius-sm);
   background: var(--surface-raised); color: var(--text-secondary); vertical-align: 1px;
   font: var(--text-label); letter-spacing: var(--text-label-letter-spacing);
+  /* Badges grow with larger chat text but never shrink below the label size; 10px is the floor. */
+  font-size: max(10px, 0.75rem, calc(0.75rem * var(--sk-chat-font-scale, 100) / 100));
 }
 /* Settings › Chat "Show badge text": the pane root carries the preference, and a hidden chip
    leaves the layout and the accessibility tree (display, not opacity). Badge images are a

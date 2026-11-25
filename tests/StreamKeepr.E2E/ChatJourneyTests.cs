@@ -347,17 +347,28 @@ public sealed class ChatJourneyTests(MockAppFixture app)
 
         while (chatRequests.TryDequeue(out _)) { }
 
-        // One arrow press is one 5% step; the browser owns the thumb.
+        // One arrow press is one 5% step; the browser owns the thumb. Below 100% the text
+        // shrinks but the badge keeps its 12px design size.
         await size.FocusAsync();
-        await page.Keyboard.PressAsync("ArrowRight");
+        await page.Keyboard.PressAsync("ArrowLeft");
+        await page.Keyboard.PressAsync("ArrowLeft");
+        await Assertions.Expect(readout).ToHaveTextAsync("90%");
+        await Assertions.Expect(size).ToHaveAttributeAsync("aria-valuetext", "90 percent");
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-font-scale", "90");
+        Assert.InRange(await log.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 12.5, 12.7);
+        Assert.InRange(await chip.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 11.9, 12.1);
+
+        // Above 100% the badge scales up with the message text.
+        for (int i = 0; i < 3; i++)
+            await page.Keyboard.PressAsync("ArrowRight");
         await Assertions.Expect(readout).ToHaveTextAsync("105%");
         await Assertions.Expect(size).ToHaveAttributeAsync("aria-valuetext", "105 percent");
         await Assertions.Expect(pane).ToHaveAttributeAsync(
             "data-font-scale", "105", new() { Timeout = 10_000 });
-        // Messages and names scale; metadata keeps its design size; following stays at the end.
+        // Messages and names scale; the badge grows above 100%; following stays at the end.
         Assert.InRange(await log.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 14.6, 14.8);
         Assert.InRange(await name.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 14.6, 14.8);
-        Assert.InRange(await chip.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 11.9, 12.1);
+        Assert.InRange(await chip.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 12.5, 12.7);
         Assert.True(await log.EvaluateAsync<bool>(
             "el => el.scrollHeight - el.scrollTop - el.clientHeight < 24"));
         // The open pane applies it without a chat refetch, and playback does not move. 300 ms
