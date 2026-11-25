@@ -20,8 +20,9 @@ internal sealed record BadgeCatalogResult(
 /// hour. Every cache key has its own in-flight refresh, stale fallback, and failure boundary, so
 /// one scope failing never discards the other's catalog. A failure with no cache leaves that scope
 /// empty and never surfaces as an error. Badge failures never affect chat, emotes, capture,
-/// recording, or health. The cache semantics deliberately mirror <c>EmoteCatalogService</c>
-/// without sharing its provider seam: badges are not emotes (ADR-0011).
+/// recording, or health. The refresh, stale, and failure semantics deliberately mirror
+/// <c>EmoteCatalogService</c>; keep them in step when either changes. The provider seam is not
+/// shared: badges are not emotes (ADR-0011).
 /// </summary>
 internal sealed class BadgeCatalogService(
     IBadgeSource source,
@@ -32,10 +33,7 @@ internal sealed class BadgeCatalogService(
     /// <summary>Badges change rarely; an hour keeps the app off Helix without visible drift.</summary>
     public static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(60);
 
-    /// <summary>
-    /// The global catalog and channel-ID resolution share this budget; each channel refresh has
-    /// its own budget of the same length.
-    /// </summary>
+    /// <summary>Each scope refresh and the channel-ID lookup gets its own budget of this length.</summary>
     public static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(3);
 
     /// <summary>One channel catalog is small; this only bounds an unbounded recording library.</summary>
@@ -48,30 +46,23 @@ internal sealed class BadgeCatalogService(
     private readonly ConcurrentDictionary<string, SingleFlightSlot<BadgeScope>> _channels =
         new(StringComparer.Ordinal);
 
+    private readonly object _channelCacheGate = new();
+
     /// <summary>
     /// Returns the global and channel scopes for a recording's channel login. A blank or
     /// unresolved login is not an error: the result carries the global catalog and no channel one.
     /// </summary>
     public async Task<BadgeCatalogResult> GetCatalogAsync(string login, CancellationToken ct)
     {
-        using var budget = new CancellationTokenSource();
-        using ITimer timer = clock.CreateTimer(
-            static state => ((CancellationTokenSource)state!).Cancel(),
-            budget,
-            FetchTimeout,
-            Timeout.InfiniteTimeSpan);
-        using CancellationTokenSource linked =
-            CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
-
-        // Start the global refresh before resolving the channel so a slow lookup cannot consume
-        // the budget a cold global catalog needs (the same ordering as EmoteCatalogService).
+        // Every scope gets its own three-second budget, so one slow dependency cannot cancel
+        // another. The global refresh starts before resolution so both make progress together.
         Task<BadgeScope?> globalTask = RefreshScopeAsync(
-            _global, "global", null, linked.Token, ct, source.GetGlobalAsync);
+            _global, "global", null, ct, source.GetGlobalAsync);
 
         string? channelId;
         try
         {
-            channelId = await ResolveChannelAsync(login, linked.Token, ct);
+            channelId = await ResolveChannelAsync(login, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -91,15 +82,15 @@ internal sealed class BadgeCatalogService(
             await channelTask.ConfigureAwait(false));
     }
 
-    private async Task<string?> ResolveChannelAsync(
-        string login, CancellationToken work, CancellationToken callerCt)
+    private async Task<string?> ResolveChannelAsync(string login, CancellationToken callerCt)
     {
         if (string.IsNullOrWhiteSpace(login))
             return null;
 
+        using var budget = new FetchBudget(clock, callerCt);
         try
         {
-            return await resolver.ResolveAsync(login, work);
+            return await resolver.ResolveAsync(login, budget.Token);
         }
         catch (OperationCanceledException exception) when (!callerCt.IsCancellationRequested)
         {
@@ -112,43 +103,52 @@ internal sealed class BadgeCatalogService(
     }
 
     /// <summary>
-    /// Refreshes one channel under its own three-second budget, so a slow channel lookup cannot
-    /// shorten the time the catalog itself is allowed.
+    /// Returns this channel's single-flight slot. The cache is capped; when every slot is in
+    /// flight there is nothing safe to evict, so the request uses a temporary slot and leaves the
+    /// cache untouched rather than breaking an existing single-flight refresh.
     /// </summary>
-    private async Task<BadgeScope?> RefreshChannelAsync(
-        string channelId, CancellationToken callerCt)
+    private Task<BadgeScope?> RefreshChannelAsync(string channelId, CancellationToken callerCt)
     {
-        using var budget = new CancellationTokenSource();
-        using ITimer timer = clock.CreateTimer(
-            static state => ((CancellationTokenSource)state!).Cancel(),
-            budget,
-            FetchTimeout,
-            Timeout.InfiniteTimeSpan);
-        using CancellationTokenSource linked =
-            CancellationTokenSource.CreateLinkedTokenSource(callerCt, budget.Token);
-
-        if (!_channels.TryGetValue(channelId, out SingleFlightSlot<BadgeScope>? slot))
+        SingleFlightSlot<BadgeScope> slot;
+        if (_channels.TryGetValue(channelId, out SingleFlightSlot<BadgeScope>? cached) &&
+            cached is not null)
         {
-            // Trim one below the limit so the entry about to be added still leaves at most
-            // ChannelCacheLimit broadcasters in the cache.
-            BoundedEmoteCache.Trim(
-                _channels,
-                ChannelCacheLimit - 1,
-                clock.GetUtcNow(),
-                CacheTtl,
-                static cached => cached.FetchedAt,
-                // An in-flight refresh has no value yet; evicting its slot would let a second
-                // request start a duplicate fetch and detach the completed one.
-                static slot => slot.Value is not null);
-            slot = _channels.GetOrAdd(
-                channelId, static _ => new SingleFlightSlot<BadgeScope>());
+            slot = cached;
+        }
+        else
+        {
+            lock (_channelCacheGate)
+            {
+                if (_channels.TryGetValue(channelId, out cached) && cached is not null)
+                {
+                    slot = cached;
+                }
+                else
+                {
+                    // Trim one below the limit so the entry about to be added still leaves at
+                    // most ChannelCacheLimit broadcasters in the cache.
+                    BoundedEmoteCache.Trim(
+                        _channels,
+                        ChannelCacheLimit - 1,
+                        clock.GetUtcNow(),
+                        CacheTtl,
+                        static value => value.FetchedAt,
+                        // An in-flight refresh has no value yet; evicting its slot would let a
+                        // second request start a duplicate fetch and detach the completed one.
+                        static value => value.Value is not null);
+
+                    slot = _channels.Count < ChannelCacheLimit
+                        ? _channels.GetOrAdd(
+                            channelId, static _ => new SingleFlightSlot<BadgeScope>())
+                        : new SingleFlightSlot<BadgeScope>();
+                }
+            }
         }
 
-        return await RefreshScopeAsync(
+        return RefreshScopeAsync(
             slot,
             "channel",
             channelId,
-            linked.Token,
             callerCt,
             token => source.GetChannelAsync(channelId, token));
     }
@@ -163,18 +163,25 @@ internal sealed class BadgeCatalogService(
         SingleFlightSlot<BadgeScope> slot,
         string scope,
         string? channelId,
-        CancellationToken work,
         CancellationToken callerCt,
         Func<CancellationToken, Task<IReadOnlyList<BadgeCatalogEntry>>> fetch)
     {
-        // The budget may have expired while this caller waited, or during channel-ID resolution
-        // for the global scope.
-        if (work.IsCancellationRequested)
-            return Served(slot.Value, clock.GetUtcNow());
-
         DateTimeOffset now = clock.GetUtcNow();
         if (IsFresh(slot.Value, now))
             return slot.Value;
+
+        using var budget = new FetchBudget(clock, callerCt);
+        CancellationToken work = budget.Token;
+
+        // The caller may have left before the budget started; a budget timeout is handled by the
+        // gate wait and the fetch below.
+        if (work.IsCancellationRequested)
+        {
+            if (callerCt.IsCancellationRequested)
+                throw new OperationCanceledException(callerCt);
+
+            return Served(slot.Value, clock.GetUtcNow());
+        }
 
         bool acquired = false;
         try
@@ -271,6 +278,36 @@ internal sealed class BadgeCatalogService(
             TwitchApiException => (null, "twitch-api"),
             _ => (null, "error"),
         };
+
+    /// <summary>
+    /// One operation's three-second budget, linked to the caller. Each scope and the channel-ID
+    /// lookup gets its own budget, so one slow dependency cannot cancel another.
+    /// </summary>
+    private sealed class FetchBudget : IDisposable
+    {
+        private readonly CancellationTokenSource _budget = new();
+        private readonly CancellationTokenSource _linked;
+        private readonly ITimer _timer;
+
+        public FetchBudget(TimeProvider clock, CancellationToken caller)
+        {
+            _timer = clock.CreateTimer(
+                static state => ((CancellationTokenSource)state!).Cancel(),
+                _budget,
+                FetchTimeout,
+                Timeout.InfiniteTimeSpan);
+            _linked = CancellationTokenSource.CreateLinkedTokenSource(caller, _budget.Token);
+        }
+
+        public CancellationToken Token => _linked.Token;
+
+        public void Dispose()
+        {
+            _timer.Dispose();
+            _linked.Dispose();
+            _budget.Dispose();
+        }
+    }
 
     private sealed record BadgeScope(
         IReadOnlyList<BadgeCatalogEntry> Entries, DateTimeOffset FetchedAt, bool Stale = false);

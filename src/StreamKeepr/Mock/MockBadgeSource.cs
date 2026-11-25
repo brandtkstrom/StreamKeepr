@@ -13,7 +13,10 @@ internal sealed class MockBadgeSource : IBadgeSource
 {
     public const string ImageHost = "https://badges.mock.invalid";
 
-    /// <summary>The broadcaster ID of the first seeded channel, <c>mock_nova</c>.</summary>
+    /// <summary>The login of the first seeded channel, which has the channel fixture.</summary>
+    public const string ChannelLogin = "mock_nova";
+
+    /// <summary>The broadcaster ID of <see cref="ChannelLogin"/>.</summary>
     public const string ChannelBroadcasterId = "9100001";
 
     private static readonly BadgeCatalogEntry[] Fixture =

@@ -578,6 +578,75 @@ public sealed class BadgeCatalogServiceTests
     }
 
     [Fact]
+    public async Task The_channel_catalog_refreshes_once_the_hour_has_elapsed()
+    {
+        int calls = 0;
+        var source = new StubBadgeSource
+        {
+            Global = _ => Task.FromResult<IReadOnlyList<BadgeCatalogEntry>>(
+                [BadgeTestData.Entry()]),
+            Channel = (_, _) => Task.FromResult<IReadOnlyList<BadgeCatalogEntry>>(
+                [BadgeTestData.Entry("subscriber", "0", $"Channel {++calls}")]),
+        };
+        BadgeCatalogService service =
+            Create(source, new FakeEmoteChannelResolver("9100001"));
+
+        BadgeCatalogResult first =
+            await service.GetCatalogAsync("mock_nova", CancellationToken.None);
+        Assert.Equal("Channel 1", Assert.Single(first.Channel).Title);
+
+        _clock.Advance(TimeSpan.FromMinutes(59) + TimeSpan.FromSeconds(59));
+        BadgeCatalogResult stillFresh =
+            await service.GetCatalogAsync("mock_nova", CancellationToken.None);
+        Assert.Equal("Channel 1", Assert.Single(stillFresh.Channel).Title);
+        Assert.Equal(1, source.ChannelCalls);
+
+        _clock.Advance(TimeSpan.FromSeconds(1));
+        BadgeCatalogResult refreshed =
+            await service.GetCatalogAsync("mock_nova", CancellationToken.None);
+        Assert.Equal("Channel 2", Assert.Single(refreshed.Channel).Title);
+        Assert.Equal(2, source.ChannelCalls);
+    }
+
+    [Fact]
+    public async Task A_global_timeout_keeps_the_cached_channel_catalog()
+    {
+        var hangGlobal = false;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var source = new StubBadgeSource
+        {
+            Global = async ct =>
+            {
+                if (!hangGlobal)
+                    return [BadgeTestData.Entry(title: "Cached Global")];
+
+                started.TrySetResult();
+                await EmoteTestData.NeverAsync(ct);
+                return [];
+            },
+            Channel = (_, _) => Task.FromResult<IReadOnlyList<BadgeCatalogEntry>>(
+                [BadgeTestData.Entry("bits", "100", "Channel")]),
+        };
+        BadgeCatalogService service =
+            Create(source, new FakeEmoteChannelResolver("9100001"));
+        await service.GetCatalogAsync("mock_nova", CancellationToken.None);
+
+        _clock.Advance(BadgeCatalogService.CacheTtl);
+        hangGlobal = true;
+        Task<BadgeCatalogResult> pending =
+            service.GetCatalogAsync("mock_nova", CancellationToken.None);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        _clock.Advance(BadgeCatalogService.FetchTimeout);
+        BadgeCatalogResult result = await pending;
+
+        Assert.True(result.Available);
+        Assert.True(result.Stale);
+        Assert.Equal("Cached Global", Assert.Single(result.Global).Title);
+        Assert.Equal("Channel", Assert.Single(result.Channel).Title);
+        Assert.Equal(2, source.ChannelCalls);
+    }
+
+    [Fact]
     public async Task The_channel_cache_holds_256_broadcasters_and_evicts_beyond_that()
     {
         var source = new StubBadgeSource

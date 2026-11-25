@@ -105,6 +105,27 @@ const VIEW = {
   maxSyncOffsetSec: 30,
 };
 
+const GLOBAL_SUBSCRIBER = {
+  set: "subscriber",
+  version: "0",
+  title: "Subscriber",
+  src: "https://global.test/subscriber/0",
+};
+
+const CHANNEL_SUBSCRIBER = {
+  set: "subscriber",
+  version: "0",
+  title: "Nova Subscriber",
+  src: "https://channel.test/subscriber/0",
+};
+
+const CHANNEL_SUBSCRIBER_MONTHS = {
+  set: "subscriber",
+  version: "3",
+  title: "Nova Subscriber 3 months",
+  src: "https://channel.test/subscriber/3",
+};
+
 const emoteMessage = { ...message, text: "hello KEKW", emotes: [] };
 
 function emoteFetch(entries, { available = true, chat = emoteMessage } = {}) {
@@ -1923,31 +1944,13 @@ describe("badges in the pane", () => {
   it("prefers channel badges over global ones at the same version", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
-    const GLOBAL_SUB = {
-      set: "subscriber",
-      version: "0",
-      title: "Subscriber",
-      src: "https://global.test/subscriber/0",
-    };
-    const CHANNEL_SUB = {
-      set: "subscriber",
-      version: "0",
-      title: "Nova Subscriber",
-      src: "https://channel.test/subscriber/0",
-    };
-    const CHANNEL_SUB3 = {
-      set: "subscriber",
-      version: "3",
-      title: "Nova Subscriber 3 months",
-      src: "https://channel.test/subscriber/3",
-    };
     const badges = [
       { set: "subscriber", version: "0", info: "6" },
       { set: "subscriber", version: "3", info: null },
       { set: "subscriber", version: "12", info: "12" },
     ];
-    const fetch = badgeFetch([GLOBAL_SUB], {
-      channel: [CHANNEL_SUB, CHANNEL_SUB3],
+    const fetch = badgeFetch([GLOBAL_SUBSCRIBER], {
+      channel: [CHANNEL_SUBSCRIBER, CHANNEL_SUBSCRIBER_MONTHS],
       chat: { ...message, badges },
     });
     const pane = createChatPane(root, { fetch });
@@ -1960,7 +1963,7 @@ describe("badges in the pane", () => {
     const log = document.querySelector("[data-sk='chat-log']");
     const images = [...log.querySelectorAll("img.sk-chat-badge-img")];
     expect(images.map((image) => image.getAttribute("src")))
-      .toEqual([CHANNEL_SUB.src, CHANNEL_SUB3.src]);
+      .toEqual([CHANNEL_SUBSCRIBER.src, CHANNEL_SUBSCRIBER_MONTHS.src]);
     expect(images[0].getAttribute("alt")).toBe("Nova Subscriber");
     expect(images[0].getAttribute("title")).toBe("Nova Subscriber 6");
 
@@ -1975,36 +1978,17 @@ describe("badges in the pane", () => {
 });
 
 describe("badge catalog scopes", () => {
-  const GLOBAL_SUB = {
-    set: "subscriber",
-    version: "0",
-    title: "Subscriber",
-    src: "https://global.test/subscriber/0",
-  };
-  const CHANNEL_SUB = {
-    set: "subscriber",
-    version: "0",
-    title: "Nova Subscriber",
-    src: "https://channel.test/subscriber/0",
-  };
-  const CHANNEL_SUB3 = {
-    set: "subscriber",
-    version: "3",
-    title: "Nova Subscriber 3 months",
-    src: "https://channel.test/subscriber/3",
-  };
-
   it("looks up the channel scope first for the exact set and version", () => {
-    const catalog = buildBadgeCatalog([GLOBAL_SUB], [CHANNEL_SUB]);
+    const catalog = buildBadgeCatalog([GLOBAL_SUBSCRIBER], [CHANNEL_SUBSCRIBER]);
 
-    expect(catalog.get("subscriber/0")).toBe(CHANNEL_SUB);
+    expect(catalog.get("subscriber/0")).toBe(CHANNEL_SUBSCRIBER);
   });
 
   it("never borrows a different version from either scope", () => {
-    const catalog = buildBadgeCatalog([GLOBAL_SUB], [CHANNEL_SUB3]);
+    const catalog = buildBadgeCatalog([GLOBAL_SUBSCRIBER], [CHANNEL_SUBSCRIBER_MONTHS]);
 
-    expect(catalog.get("subscriber/0")).toBe(GLOBAL_SUB);
-    expect(catalog.get("subscriber/3")).toBe(CHANNEL_SUB3);
+    expect(catalog.get("subscriber/0")).toBe(GLOBAL_SUBSCRIBER);
+    expect(catalog.get("subscriber/3")).toBe(CHANNEL_SUBSCRIBER_MONTHS);
     expect(catalog.has("subscriber/12")).toBe(false);
   });
 });

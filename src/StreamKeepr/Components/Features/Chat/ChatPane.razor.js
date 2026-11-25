@@ -505,10 +505,8 @@ export function createChatPane(root, {
       if (!response.ok) throw new Error(`badges ${response.status}`);
       const data = await response.json();
       if (disposed || request.signal.aborted || view?.recordingId !== recordingId) return;
-      badgeCatalog = buildBadgeCatalog(
-        data.available ? data.global : [],
-        data.available ? data.channel : [],
-      );
+      const scopes = data.available ? data : {};
+      badgeCatalog = buildBadgeCatalog(scopes.global, scopes.channel);
       badgeVersion++;
       render();
     } catch (error) {
