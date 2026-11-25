@@ -590,6 +590,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
    the player's height and the log scrolls; without it every new message grows the pane and
    pushes the sync footer down the page. */
 .sk-chat {
+  --sk-chat-font-scale: 100; --sk-chat-font-weight: 400;
   width: 100%; flex: none; display: flex; flex-direction: column; min-height: 0; overflow: hidden; contain: size;
   background: var(--drawer-background); border: 1px solid var(--lines-default); border-radius: var(--radius-lg); color: var(--text-primary);
 }
@@ -624,6 +625,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; padding: var(--space-2) var(--space-3);
   display: flex; flex-direction: column; gap: var(--space-1);
   color: var(--text-primary); font: var(--text-body2); letter-spacing: var(--text-body2-letter-spacing);
+  font-size: calc(0.875rem * var(--sk-chat-font-scale, 100) / 100); font-weight: var(--sk-chat-font-weight, 400);
   overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--surface-raised) transparent;
 }
 /* Anchor short chat to the bottom so it grows upward. An auto margin, unlike
@@ -652,12 +654,12 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   margin: var(--space-2) 0; padding: var(--space-1) 0; border-top: 1px dashed var(--divider); text-align: center;
   color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
 }
-.sk-chat-text img { height: 28px; width: auto; vertical-align: middle; }
+.sk-chat-text img { height: 2em; width: auto; vertical-align: middle; }
 .sk-chat-text a, .sk-chat-reply a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
 .sk-chat-footer { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--divider); }
-/* Settings › Chat (design system: ChatSettings). Chat sync is a native range drawn like MudSlider
-   Color.Primary; ChatSettings sets --sk-sync-lo and --sk-sync-hi (0–1 along the track) so the
-   fill runs from the centre to the thumb. */
+/* Settings › Chat (design system: ChatSettings). Both ranges are native ranges drawn like
+   MudSlider Color.Primary; ChatSettings sets --sk-range-lo and --sk-range-hi (0–1 along the
+   track), so Chat sync fills from the centre and font size from the left. */
 .sk-chat-settings svg[data-icon] { display: block; width: 24px; height: 24px; fill: currentColor; flex: none; }
 .sk-chat-settings :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .sk-chat-settings-help { margin: 0; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
@@ -666,15 +668,15 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-chat-badge-text { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; max-width: 420px; margin-top: var(--space-4); color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); cursor: pointer; }
 .sk-chat-badge-text > svg[data-icon] { flex: none; width: 20px; height: 20px; color: var(--action-default); }
 .sk-chat-badge-text-input { flex: none; inline-size: 18px; block-size: 18px; margin: 0; accent-color: var(--primary); cursor: pointer; }
-.sk-chat-sync { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 420px; }
-.sk-chat-sync-head { display: flex; align-items: center; gap: var(--space-2); min-height: 28px; }
-.sk-chat-sync-head > svg[data-icon] { width: 20px; height: 20px; color: var(--action-default); }
-.sk-chat-sync-label { flex: 1; min-width: 0; color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
-.sk-chat-sync-value {
+.sk-chat-setting-row { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 420px; }
+.sk-chat-setting-head { display: flex; align-items: center; gap: var(--space-2); min-height: 28px; }
+.sk-chat-setting-head > svg[data-icon] { width: 20px; height: 20px; color: var(--action-default); }
+.sk-chat-setting-label { flex: 1; min-width: 0; color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
+.sk-chat-setting-value {
   color: var(--text-primary); font: var(--text-timecode); letter-spacing: var(--text-timecode-letter-spacing);
   font-variant-numeric: var(--text-timecode-numeric); white-space: nowrap;
 }
-.sk-chat-sync-value[data-zero="true"] { color: var(--text-secondary); }
+.sk-chat-setting-value[data-zero="true"] { color: var(--text-secondary); }
 .sk-chat-sync-reset {
   display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0;
   border: 0; border-radius: var(--radius-full); background: transparent; color: var(--action-default); cursor: pointer;
@@ -682,35 +684,48 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-chat-sync-reset svg[data-icon] { width: 18px; height: 18px; }
 .sk-chat-sync-reset:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
 /* The zero tick sits behind the input, centred, so the thumb covers it at 0. */
-.sk-chat-sync-slider { position: relative; display: flex; align-items: center; height: 20px; }
+.sk-chat-setting-slider { position: relative; display: flex; align-items: center; height: 20px; }
 .sk-chat-sync-slider::before {
   content: ""; position: absolute; left: 50%; top: 4px; width: 2px; height: 12px; margin-left: -1px;
   border-radius: 1px; background: var(--text-secondary); pointer-events: none;
 }
-.sk-chat-sync-range {
-  --sk-sync-lo: 0.5; --sk-sync-hi: 0.5;
+.sk-chat-range {
+  --sk-range-lo: 0.5; --sk-range-hi: 0.5;
   /* Thumb centres run from 8px to 100% − 8px, so the fill stops are mapped onto that span. */
-  --sk-sync-from: calc(8px + (100% - 16px) * var(--sk-sync-lo));
-  --sk-sync-to: calc(8px + (100% - 16px) * var(--sk-sync-hi));
-  --sk-sync-track:
-    linear-gradient(to right, transparent var(--sk-sync-from), var(--primary) var(--sk-sync-from),
-      var(--primary) var(--sk-sync-to), transparent var(--sk-sync-to)),
+  --sk-range-from: calc(8px + (100% - 16px) * var(--sk-range-lo));
+  --sk-range-to: calc(8px + (100% - 16px) * var(--sk-range-hi));
+  --sk-range-track:
+    linear-gradient(to right, transparent var(--sk-range-from), var(--primary) var(--sk-range-from),
+      var(--primary) var(--sk-range-to), transparent var(--sk-range-to)),
     color-mix(in srgb, var(--primary) 24%, transparent);
   position: relative; width: 100%; height: 20px; margin: 0; background: transparent; cursor: pointer;
   -webkit-appearance: none; appearance: none;
 }
-.sk-chat-sync-range::-webkit-slider-runnable-track { height: 4px; border-radius: var(--radius-full); background: var(--sk-sync-track); }
-.sk-chat-sync-range::-moz-range-track { height: 4px; border-radius: var(--radius-full); background: var(--sk-sync-track); }
-.sk-chat-sync-range::-webkit-slider-thumb {
+.sk-chat-range::-webkit-slider-runnable-track { height: 4px; border-radius: var(--radius-full); background: var(--sk-range-track); }
+.sk-chat-range::-moz-range-track { height: 4px; border-radius: var(--radius-full); background: var(--sk-range-track); }
+.sk-chat-range::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin-top: -6px;
   border: 0; border-radius: 50%; background: var(--primary);
 }
-.sk-chat-sync-range::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--primary); }
-.sk-chat-sync-range:hover::-webkit-slider-thumb { box-shadow: 0 0 0 8px color-mix(in srgb, var(--primary) calc(var(--hover-opacity) * 100%), transparent); }
-.sk-chat-sync-range:hover::-moz-range-thumb { box-shadow: 0 0 0 8px color-mix(in srgb, var(--primary) calc(var(--hover-opacity) * 100%), transparent); }
-.sk-chat-sync-ends {
+.sk-chat-range::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--primary); }
+.sk-chat-range:hover::-webkit-slider-thumb { box-shadow: 0 0 0 8px color-mix(in srgb, var(--primary) calc(var(--hover-opacity) * 100%), transparent); }
+.sk-chat-range:hover::-moz-range-thumb { box-shadow: 0 0 0 8px color-mix(in srgb, var(--primary) calc(var(--hover-opacity) * 100%), transparent); }
+.sk-chat-setting-ends {
   display: flex; justify-content: space-between; color: var(--text-secondary);
   font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
+}
+.sk-chat-font { margin-top: var(--space-4); }
+.sk-chat-font-weight {
+  display: flex; align-items: center; gap: var(--space-2); min-height: 40px; max-width: 420px;
+  margin-top: var(--space-4); color: var(--text-primary);
+}
+.sk-chat-font-weight > svg[data-icon] { flex: none; width: 20px; height: 20px; color: var(--action-default); }
+.sk-chat-font-weight-label { flex: 1; min-width: 0; font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
+.sk-chat-font-select {
+  flex: none; max-width: 190px; height: 32px; padding: 0 var(--space-2);
+  border: 1px solid var(--lines-default); border-radius: var(--radius-sm);
+  background: var(--surface-raised); color: var(--text-primary);
+  font: var(--text-body2); letter-spacing: var(--text-body2-letter-spacing); cursor: pointer;
 }
 .sk-chat-jump {
   height: 24px; padding: 0 var(--space-3); border: 1px solid var(--primary); border-radius: var(--radius-full); background: transparent;

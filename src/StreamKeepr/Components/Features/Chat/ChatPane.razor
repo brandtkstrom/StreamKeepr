@@ -1,3 +1,4 @@
+@using System.Globalization
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 @inject UiPreferences Preferences
@@ -8,9 +9,9 @@
 @using StreamKeepr.Infrastructure.Storage
 
 @* Rendered once. ChatPane.razor.js owns the log, polling, and auto-scroll, and applies the viewer's
-   chat sync offset from Settings › Chat (UiPreferences); the root's data-open and
-   data-badge-text are painted here for the first frame, and the module owns both afterwards
-   because Blazor never re-renders the pane once it is ready. The pane has
+   chat sync offset from Settings › Chat (UiPreferences); the root's data-open,
+   data-badge-text and font custom properties are painted here for the first frame, and the
+   module owns them afterwards because Blazor never re-renders the pane once it is ready. The pane has
    no toggle of its own: the player's Chat button and C open and close it (sk:chat-toggle), and
    closed it is not shown at all.
    No MudBlazor components: it is drawn like an outlined MudPaper with plain markup.
@@ -20,6 +21,7 @@
        data-sk-chat
        data-open="@(_open ? "true" : "false")"
        data-badge-text="@(_showBadgeText ? "true" : "false")"
+       style="@TypographyStyle"
        aria-label="Chat replay"
        @ref="_root">
     @if (!HideHeader)
@@ -84,12 +86,16 @@
 
     private double _syncOffset;
     private bool _showBadgeText;
+    private int _fontScale;
+    private int _fontWeight;
 
     protected override void OnInitialized()
     {
         _open = WantsOpen;
         _syncOffset = Preferences.ChatSyncOffset;
         _showBadgeText = Preferences.ChatShowBadgeText;
+        _fontScale = Preferences.ChatFontScale;
+        _fontWeight = Preferences.ChatFontWeight;
         Preferences.Changed += OnPreferencesChanged;
     }
 
@@ -110,6 +116,17 @@
         {
             _showBadgeText = showBadgeText;
             _ = InvokeAsync(() => InvokeModuleAsync("setShowBadgeText", _root, showBadgeText));
+        }
+
+        // Font size and weight are one preference pair for the log: apply both when either
+        // changes, and never touch the sync offset or the chips.
+        int fontScale = Preferences.ChatFontScale;
+        int fontWeight = Preferences.ChatFontWeight;
+        if (fontScale != _fontScale || fontWeight != _fontWeight)
+        {
+            _fontScale = fontScale;
+            _fontWeight = fontWeight;
+            _ = InvokeAsync(() => InvokeModuleAsync("setTypography", _root, fontScale, fontWeight));
         }
     }
 
@@ -178,6 +195,10 @@
     // Provider registration is the single source of truth, so adding 7TV needs no pane change.
     private bool EmotesEnabled => EmoteProviders.Any(provider => provider.Enabled);
 
+    // Painted for the first frame; the module owns these properties after it loads.
+    private string TypographyStyle => string.Create(CultureInfo.InvariantCulture,
+        $"--sk-chat-font-scale: {_fontScale}; --sk-chat-font-weight: {_fontWeight}");
+
     private object ToPayload(RecordingView recording, bool open) => new
     {
         recordingId = recording.Id,
@@ -202,6 +223,9 @@
         syncOffsetSec = _syncOffset,
         // The text chips that stand in for badges; the module and CSS own the visibility.
         showBadgeText = _showBadgeText,
+        // The chat log's font size and weight; the root carries them for the first frame.
+        fontScale = _fontScale,
+        fontWeight = _fontWeight,
     };
 
     private async Task InvokeModuleAsync(string identifier, params object[] args)

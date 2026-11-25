@@ -1418,6 +1418,55 @@ describe("chat replay pane", () => {
     expect(root.dataset.badgeText).toBe("false");
   });
 
+  it("applies the viewer's font settings as custom properties without a rebuild", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = fakeFetch();
+    const pane = createChatPane(root, { fetch });
+    await pane.load({ ...VIEW });
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    const row = log.querySelector("[data-message-id]");
+    const calls = fetch.mock.calls.length;
+
+    pane.setTypography(120, 700);
+
+    expect(root.style.getPropertyValue("--sk-chat-font-scale")).toBe("120");
+    expect(root.style.getPropertyValue("--sk-chat-font-weight")).toBe("700");
+    expect(fetch.mock.calls).toHaveLength(calls);
+    expect(log.querySelector("[data-message-id]")).toBe(row);
+
+    pane.dispose();
+  });
+
+  it("applies the payload font settings on load", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, { fetch: fakeFetch() });
+
+    await pane.load({ ...VIEW, fontScale: 120, fontWeight: 500 });
+
+    expect(root.style.getPropertyValue("--sk-chat-font-scale")).toBe("120");
+    expect(root.style.getPropertyValue("--sk-chat-font-weight")).toBe("500");
+
+    pane.dispose();
+  });
+
+  it("keeps the painted font settings when an older payload omits them", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    root.style.setProperty("--sk-chat-font-scale", "110");
+    const pane = createChatPane(root, { fetch: fakeFetch() });
+
+    await pane.load({ ...VIEW });
+
+    expect(root.style.getPropertyValue("--sk-chat-font-scale")).toBe("110");
+
+    pane.dispose();
+  });
+
   it("starts with the badge text off when the payload says so", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");

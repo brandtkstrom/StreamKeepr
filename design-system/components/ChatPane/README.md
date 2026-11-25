@@ -1,4 +1,4 @@
-Chat replay beside the player: messages synced to the playhead, shifted by the viewer's Chat sync offset from Settings, with a jump back to the current time. A JS-owned island.
+Chat replay beside the player: messages synced to the playhead, shifted by the viewer's Chat sync offset and set in their chat typography from Settings, with a jump back to the current time. A JS-owned island.
 
 ## Build it from
 
@@ -13,6 +13,7 @@ Keep `ChatPane.razor.js` owning the log, polling, auto-scroll and the open state
 
 - The streamer's own messages take their channel colour (`channel-*`). Other chatters' names use their Twitch colour only where it reaches 4.5:1 on `surface`; otherwise `text-primary`.
 - Each row may open with the text chips that stand in for badges (MOD, SUB, VIP…), labelled from the badge set. Settings › Chat's "Show badge text" (`UiPreferences.ChatShowBadgeText`, on by default) hides them in every pane through the root's `data-badge-text` and `display: none`, so they leave the layout and the accessibility tree. Badge images are a separate, unbuilt surface and are not gated by this switch.
+- Settings › Chat's font size (85–145% of `body2`, default 100%) and font weight (400/500/700, default 400) apply to every pane. The log's message text and names take the size; names stay 700; replies and gaps keep `caption`, badge chips keep `label`, and emote images are `2em` (28px at 100%). The pane root carries `--sk-chat-font-scale` and `--sk-chat-font-weight`; a change applies live without a refetch or a log rebuild.
 - In theater mode it moves below the player and stays the right-hand column there, taking the height left down to the bottom of the viewport, at least 260px (see `TheaterMode`).
 - Below `Breakpoint.Md` it is the **Chat** tab under the player (`MudTabPanel Icon="@Icons.Material.Rounded.Chat"`), filling the rest of the screen without its own header; the tab owns the disclosure, so the pane is always open.
 - The channel colour comes from .NET (`ChannelColor`) in the pane's payload (`channelLogin`, `channelColor`), so chat and the drawer always agree (player contract §10a).

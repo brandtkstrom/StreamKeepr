@@ -1,6 +1,6 @@
 // Chat replay pane. Blazor renders the skeleton once; this module owns the log, polling,
-// auto-scroll, and the C shortcut, and applies the viewer's chat sync offset, which .NET sends
-// from Settings › Chat. The player owns the <video> element.
+// auto-scroll, and the C shortcut, and applies the viewer's chat sync offset, font size and
+// weight, which .NET sends from Settings › Chat. The player owns the <video> element.
 import { callDotNet } from "/js/circuit.js";
 import { setIcon } from "/js/island-icons.js";
 import { shortcutBlocked } from "/js/player-keys.js";
@@ -547,6 +547,9 @@ export function createChatPane(root, {
     // The payload is a boundary: a missing value must not overwrite the state the server
     // painted (an older payload would otherwise turn the chips back on).
     if (typeof next.showBadgeText === "boolean") setShowBadgeText(next.showBadgeText);
+    // The root already carries these for the first frame; applying the payload keeps a
+    // reinitialized pane in step without a scroll or a log rebuild.
+    applyTypography(next.fontScale, next.fontWeight);
     // A session's chat log can appear while the recording is live, but it never disappears.
     // Keep a true value when a stale summary payload says false, and keep status in step.
     if (!changed && hadChat) view = { ...next, hasChat: true };
@@ -1175,6 +1178,28 @@ export function createChatPane(root, {
     return Number.isFinite(number) ? clamp(number, -max, max) : 0;
   }
 
+  /**
+   * Writes the viewer's font size and weight (Settings › Chat) onto the pane root. C# owns the
+   * bounds; this only applies them, so the log reflows without a refetch or a row rebuild.
+   */
+  function applyTypography(scale, weight) {
+    if (!root) return;
+    if (Number.isFinite(Number(scale))) root.style.setProperty("--sk-chat-font-scale", String(scale));
+    if (Number.isFinite(Number(weight))) root.style.setProperty("--sk-chat-font-weight", String(weight));
+  }
+
+  /**
+   * Applies a Settings › Chat typography change to the open pane. A following log stays at its
+   * newest row after the reflow; a scrolled-back log keeps the viewer's place, which the
+   * browser's scroll anchoring holds. No refetch and no rebuild.
+   */
+  function setTypography(scale, weight) {
+    if (disposed) return;
+    const wasFollowing = following;
+    applyTypography(scale, weight);
+    if (wasFollowing) scrollToEnd("instant");
+  }
+
   function applyBadgeText() {
     if (root) root.dataset.badgeText = showBadgeText ? "true" : "false";
   }
@@ -1234,6 +1259,7 @@ export function createChatPane(root, {
     setOpen,
     setSyncOffset,
     setShowBadgeText,
+    setTypography,
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -1274,6 +1300,10 @@ export function setSyncOffset(root, offset) {
 
 export function setShowBadgeText(root, value) {
   panes.get(root)?.setShowBadgeText(value);
+}
+
+export function setTypography(root, scale, weight) {
+  panes.get(root)?.setTypography(scale, weight);
 }
 
 export function dispose(root) {

@@ -20,6 +20,18 @@ public sealed class UiPreferences
     /// <summary>Chat sync moves and is stored in steps of this many seconds (the Settings slider's step).</summary>
     public const double ChatSyncStepSeconds = 0.5;
 
+    /// <summary>The chat log's font size as a percentage of the design's body2 size: the slider's bounds, step and default.</summary>
+    public const int ChatFontScaleMin = 85;
+    public const int ChatFontScaleMax = 145;
+    public const int ChatFontScaleStep = 5;
+    public const int ChatFontScaleDefault = 100;
+
+    /// <summary>The chat message text weight (Settings › Chat); names keep 700.</summary>
+    public const int ChatFontWeightDefault = 400;
+
+    /// <summary>The weights Settings › Chat offers, in the design system's three steps.</summary>
+    public static IReadOnlyList<int> ChatFontWeights { get; } = [400, 500, 700];
+
     private const string PersistenceKey = "sk-ui";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -38,6 +50,8 @@ public sealed class UiPreferences
     private bool _chatOpen;
     private double _chatSync;
     private bool _chatShowBadgeText = true;
+    private int _chatFontScale = ChatFontScaleDefault;
+    private int _chatFontWeight = ChatFontWeightDefault;
 
     public UiPreferences(IClientStateStore store, IJSRuntime js, ILogger<UiPreferences> logger)
     {
@@ -79,6 +93,13 @@ public sealed class UiPreferences
     /// <summary>Whether chat rows show the text chips that stand in for badges;
     /// on by default. These chips are not badge images, which are a separate surface.</summary>
     public bool ChatShowBadgeText => _chatShowBadgeText;
+
+    /// <summary>The chat log's font size as a percentage of the body2 design size (100 is the
+    /// design). Always within the slider's bounds and a multiple of its step.</summary>
+    public int ChatFontScale => _chatFontScale;
+
+    /// <summary>The chat message text weight, one of <see cref="ChatFontWeights"/>; names keep 700.</summary>
+    public int ChatFontWeight => _chatFontWeight;
 
     public event Action? Changed;
 
@@ -152,6 +173,27 @@ public sealed class UiPreferences
         OnChanged();
     }
 
+    /// <summary>Sets the chat font scale, clamped to the slider's bounds and snapped to its step.</summary>
+    public void SetChatFontScale(int percent)
+    {
+        var value = NormalizeChatFontScale(percent);
+        if (value == _chatFontScale)
+            return;
+
+        _chatFontScale = value;
+        OnChanged();
+    }
+
+    /// <summary>Sets the chat message text weight; a value outside <see cref="ChatFontWeights"/> is ignored.</summary>
+    public void SetChatFontWeight(int weight)
+    {
+        if (!ChatFontWeights.Contains(weight) || weight == _chatFontWeight)
+            return;
+
+        _chatFontWeight = weight;
+        OnChanged();
+    }
+
     /// <summary>Persists the current state through the browser module.</summary>
     public async Task PersistAsync()
     {
@@ -199,7 +241,23 @@ public sealed class UiPreferences
         _chatOpen = state.Chat ?? false;
         _chatSync = state.ChatSync is { } sync && double.IsFinite(sync) ? SnapChatSync(sync) : 0;
         _chatShowBadgeText = state.ChatShowBadgeText ?? true;
+        _chatFontScale = state.ChatFontScale is { } scale ? NormalizeChatFontScale(scale) : ChatFontScaleDefault;
+        _chatFontWeight = state.ChatFontWeight is { } weight ? NormalizeChatFontWeight(weight) : ChatFontWeightDefault;
     }
+
+    private static int NormalizeChatFontScale(double percent)
+    {
+        if (!double.IsFinite(percent))
+            return ChatFontScaleDefault;
+
+        // Clamp before the cast so a hostile cookie cannot overflow the int.
+        var clamped = Math.Clamp(percent, ChatFontScaleMin, ChatFontScaleMax);
+        var snapped = (int)Math.Round(clamped / ChatFontScaleStep, MidpointRounding.AwayFromZero) * ChatFontScaleStep;
+        return Math.Clamp(snapped, ChatFontScaleMin, ChatFontScaleMax);
+    }
+
+    private static int NormalizeChatFontWeight(double weight) =>
+        weight is 400 or 500 or 700 ? (int)weight : ChatFontWeightDefault;
 
     private static double SnapChatSync(double seconds)
     {
@@ -225,7 +283,9 @@ public sealed class UiPreferences
         _chatOpen,
         _chatSync,
         _viewersOpen,
-        _chatShowBadgeText);
+        _chatShowBadgeText,
+        _chatFontScale,
+        _chatFontWeight);
 
     private string ToJson() => Serialize(CreateState());
 
@@ -249,6 +309,10 @@ public sealed class UiPreferences
         [JsonPropertyName("chatSync")] public double? ChatSync { get; set; }
 
         [JsonPropertyName("chatShowBadgeText")] public bool? ChatShowBadgeText { get; set; }
+
+        [JsonPropertyName("chatFontScale")] public double? ChatFontScale { get; set; }
+
+        [JsonPropertyName("chatFontWeight")] public double? ChatFontWeight { get; set; }
     }
 }
 
@@ -261,4 +325,6 @@ public sealed record UiPreferencesState(
     [property: JsonPropertyName("chat")] bool Chat,
     [property: JsonPropertyName("chatSync")] double ChatSync,
     [property: JsonPropertyName("viewers")] bool Viewers = true,
-    [property: JsonPropertyName("chatShowBadgeText")] bool ChatShowBadgeText = true);
+    [property: JsonPropertyName("chatShowBadgeText")] bool ChatShowBadgeText = true,
+    [property: JsonPropertyName("chatFontScale")] int ChatFontScale = UiPreferences.ChatFontScaleDefault,
+    [property: JsonPropertyName("chatFontWeight")] int ChatFontWeight = UiPreferences.ChatFontWeightDefault);

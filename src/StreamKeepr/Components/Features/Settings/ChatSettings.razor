@@ -1,4 +1,5 @@
 @using System.Globalization
+@using System.Linq
 @using StreamKeepr.Infrastructure.Storage
 @inject UiPreferences Preferences
 
@@ -8,17 +9,20 @@
    A native range rather than MudSlider: MudSlider fills from its minimum, and this fill runs
    from the centre (0) to the thumb.
    "Show badge text" is the viewer's one switch for the text chips that stand in for badges.
-   It is not the badge-image switch: images are a separate, later surface. *@
+   It is not the badge-image switch: images are a separate, later surface.
+   "Chat font size" scales the log's messages and names (85–145% of body2); "Chat font weight"
+   sets message text weight (400/500/700) while names keep 700. Both apply to an open pane at
+   once, without a refetch. *@
 <SettingsSection HeadingId="sk-settings-chat"
                  Title="Chat"
                  Icon="@MudBlazor.Icons.Material.Rounded.Chat"
                  class="sk-chat-settings"
                  data-chat-settings>
-    <div class="sk-chat-sync" role="group" aria-labelledby="sk-chat-sync-label" aria-describedby="sk-chat-sync-help">
-        <div class="sk-chat-sync-head">
+    <div class="sk-chat-setting-row" role="group" aria-labelledby="sk-chat-sync-label" aria-describedby="sk-chat-sync-help">
+        <div class="sk-chat-setting-head">
             @IslandIcon.Svg("Tune")
-            <label class="sk-chat-sync-label" id="sk-chat-sync-label" for="sk-chat-sync-range">Chat sync</label>
-            <span class="sk-chat-sync-value"
+            <label class="sk-chat-setting-label" id="sk-chat-sync-label" for="sk-chat-sync-range">Chat sync</label>
+            <span class="sk-chat-setting-value"
                   data-chat-sync-value
                   data-zero="@(_shown == 0 ? "true" : "false")"
                   aria-hidden="true">@FormatOffset(_shown)</span>
@@ -31,22 +35,22 @@
                 @IslandIcon.Svg("RestartAlt")
             </button>
         </div>
-        <div class="sk-chat-sync-slider">
+        <div class="sk-chat-setting-slider sk-chat-sync-slider">
             <input @key="_sliderGeneration"
                    id="sk-chat-sync-range"
-                   class="sk-chat-sync-range"
+                   class="sk-chat-range"
                    type="range"
                    min="@SyncMin"
                    max="@SyncMax"
                    step="@SyncStep"
                    value="@Invariant(_sliderValue)"
-                   style="@FillStyle(_shown)"
+                   style="@SyncFillStyle(_shown)"
                    aria-valuetext="@ValueText(_shown)"
                    @oninput="OnInput"
                    @onchange="OnChangeAsync"
                    data-chat-sync-range />
         </div>
-        <div class="sk-chat-sync-ends" aria-hidden="true">
+        <div class="sk-chat-setting-ends" aria-hidden="true">
             <span>Earlier</span>
             <span>Later</span>
         </div>
@@ -70,6 +74,54 @@
     <p class="sk-chat-settings-help" id="sk-chat-badge-text-help" data-chat-badge-text-help>
         Shows the MOD, SUB, VIP and other role text before each name.
     </p>
+    <div class="sk-chat-setting-row sk-chat-font"
+         role="group"
+         aria-labelledby="sk-chat-font-scale-label"
+         aria-describedby="sk-chat-font-scale-help">
+        <div class="sk-chat-setting-head">
+            @IslandIcon.Svg("FormatSize")
+            <label class="sk-chat-setting-label" id="sk-chat-font-scale-label" for="sk-chat-font-scale">Chat font size</label>
+            <span class="sk-chat-setting-value" data-chat-font-value aria-hidden="true">@FormatScale(_shownScale)</span>
+        </div>
+        <div class="sk-chat-setting-slider">
+            <input id="sk-chat-font-scale"
+                   class="sk-chat-range"
+                   type="range"
+                   min="@FontScaleMin"
+                   max="@FontScaleMax"
+                   step="@FontScaleStep"
+                   value="@Invariant(_sliderScale)"
+                   style="@ScaleFillStyle(_shownScale)"
+                   aria-valuetext="@ScaleValueText(_shownScale)"
+                   @oninput="OnFontScaleInput"
+                   @onchange="OnFontScaleChangeAsync"
+                   data-chat-font-scale />
+        </div>
+        <div class="sk-chat-setting-ends" aria-hidden="true">
+            <span>Smaller</span>
+            <span>Larger</span>
+        </div>
+    </div>
+    <p class="sk-chat-settings-help" id="sk-chat-font-scale-help">
+        Scales chat replay messages and names on every recording.
+    </p>
+    <div class="sk-chat-font-weight">
+        @IslandIcon.Svg("FormatBold")
+        <label class="sk-chat-font-weight-label" for="sk-chat-font-weight">Chat font weight</label>
+        <select id="sk-chat-font-weight"
+                class="sk-chat-font-select"
+                aria-describedby="sk-chat-font-weight-help"
+                @onchange="OnFontWeightChangedAsync"
+                data-chat-font-weight>
+            @foreach (int weight in UiPreferences.ChatFontWeights)
+            {
+                <option value="@weight" selected="@(weight == _weight)">@WeightLabel(weight)</option>
+            }
+        </select>
+    </div>
+    <p class="sk-chat-settings-help" id="sk-chat-font-weight-help">
+        Sets message text weight; usernames stay bold.
+    </p>
 </SettingsSection>
 
 @code {
@@ -77,6 +129,9 @@
     private static readonly string SyncMax = Invariant(ChatReader.MaxSyncOffsetSeconds);
     private static readonly string SyncMin = Invariant(-ChatReader.MaxSyncOffsetSeconds);
     private static readonly string SyncStep = Invariant(UiPreferences.ChatSyncStepSeconds);
+    private static readonly string FontScaleMin = Invariant(UiPreferences.ChatFontScaleMin);
+    private static readonly string FontScaleMax = Invariant(UiPreferences.ChatFontScaleMax);
+    private static readonly string FontScaleStep = Invariant(UiPreferences.ChatFontScaleStep);
 
     // What the readout shows: the thumb while dragging, the saved offset otherwise.
     private double _shown;
@@ -88,7 +143,19 @@
     private double _sliderValue;
     private int _sliderGeneration;
 
-    protected override void OnInitialized() => _shown = _sliderValue = Preferences.ChatSyncOffset;
+    // The font size readout and the value the range was created with. The browser owns the
+    // thumb after the first render, for the same slow-round-trip reason as Chat sync.
+    private int _shownScale;
+    private int _sliderScale;
+
+    private int _weight;
+
+    protected override void OnInitialized()
+    {
+        _shown = _sliderValue = Preferences.ChatSyncOffset;
+        _shownScale = _sliderScale = Preferences.ChatFontScale;
+        _weight = Preferences.ChatFontWeight;
+    }
 
     // Dragging only redraws the readout; the offset is saved, and chat refetched, on change.
     private void OnInput(ChangeEventArgs args)
@@ -126,6 +193,39 @@
         await Preferences.PersistAsync();
     }
 
+    // Dragging only redraws the readout; the scale is saved, and applied to the pane, on change.
+    private void OnFontScaleInput(ChangeEventArgs args)
+    {
+        if (TryParseInt(args.Value, out int value))
+            _shownScale = value;
+    }
+
+    private async Task OnFontScaleChangeAsync(ChangeEventArgs args)
+    {
+        if (TryParseInt(args.Value, out int value))
+            await SaveFontScaleAsync(value);
+    }
+
+    private async Task SaveFontScaleAsync(int value)
+    {
+        Preferences.SetChatFontScale(value);
+        _shownScale = Preferences.ChatFontScale;
+        await Preferences.PersistAsync();
+    }
+
+    private async Task OnFontWeightChangedAsync(ChangeEventArgs args)
+    {
+        if (!TryParseInt(args.Value, out int weight) || !UiPreferences.ChatFontWeights.Contains(weight))
+            return;
+
+        Preferences.SetChatFontWeight(weight);
+        _weight = Preferences.ChatFontWeight;
+        await Preferences.PersistAsync();
+    }
+
+    private static bool TryParseInt(object? value, out int result) =>
+        int.TryParse(value?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out result);
+
     private static bool TryParse(object? value, out double result) =>
         double.TryParse(value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out result) &&
         double.IsFinite(result);
@@ -148,13 +248,32 @@
         return size == 0 ? $"0 {unit}" : $"{amount} {unit} {(value > 0 ? "later" : "earlier")}";
     }
 
-    // The fill runs from the centre to the thumb: --sk-sync-lo and --sk-sync-hi are 0–1 along
-    // the track (components.css draws them).
-    private static string FillStyle(double value)
+    // The sync fill runs from the centre to the thumb: --sk-range-lo and --sk-range-hi are 0–1
+    // along the track (components.css draws them). The font size fill runs from the left.
+    private static string SyncFillStyle(double value)
     {
         double max = ChatReader.MaxSyncOffsetSeconds;
         double at = (value + max) / (2 * max);
         return string.Create(CultureInfo.InvariantCulture,
-            $"--sk-sync-lo: {Math.Min(at, 0.5)}; --sk-sync-hi: {Math.Max(at, 0.5)}");
+            $"--sk-range-lo: {Math.Min(at, 0.5)}; --sk-range-hi: {Math.Max(at, 0.5)}");
     }
+
+    private static string ScaleFillStyle(int value)
+    {
+        double at = (double)(value - UiPreferences.ChatFontScaleMin) /
+            (UiPreferences.ChatFontScaleMax - UiPreferences.ChatFontScaleMin);
+        return string.Create(CultureInfo.InvariantCulture, $"--sk-range-lo: 0; --sk-range-hi: {at}");
+    }
+
+    private static string FormatScale(int value) => $"{value}%";
+
+    private static string ScaleValueText(int value) => $"{value} percent";
+
+    private static string WeightLabel(int weight) => weight switch
+    {
+        400 => "Normal (400)",
+        500 => "Medium (500)",
+        700 => "Bold (700)",
+        _ => weight.ToString(CultureInfo.InvariantCulture),
+    };
 }

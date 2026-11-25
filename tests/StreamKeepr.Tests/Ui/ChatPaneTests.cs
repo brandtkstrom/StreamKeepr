@@ -321,6 +321,63 @@ public sealed class ChatPaneTests
         Assert.True(payload.GetProperty("open").GetBoolean());
     }
 
+    [Fact]
+    public async Task The_pane_paints_the_font_settings_for_the_first_frame_and_sends_them()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(
+            out BunitJSModuleInterop module, out TestLibraryView _);
+        module = context.JSInterop.SetupModule(Module);
+        module.Mode = JSRuntimeMode.Loose;
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
+        preferences.SetChatFontScale(120);
+        preferences.SetChatFontWeight(700);
+
+        IRenderedComponent<ChatPane> cut = context.Render<ChatPane>(p => p
+            .Add(c => c.Recording, WithChat())
+            .Add(c => c.Open, true));
+
+        string style = cut.Find("[data-sk-chat]").GetAttribute("style")!;
+        Assert.Contains("--sk-chat-font-scale: 120", style, StringComparison.Ordinal);
+        Assert.Contains("--sk-chat-font-weight: 700", style, StringComparison.Ordinal);
+
+        JSRuntimeInvocation init = Assert.Single(module.Invocations, call => call.Identifier == "init");
+        JsonElement payload = JsonSerializer.SerializeToElement(
+            init.Arguments[2], new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal(120, payload.GetProperty("fontScale").GetInt32());
+        Assert.Equal(700, payload.GetProperty("fontWeight").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_font_setting_change_applies_to_the_open_pane_at_once()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(
+            out BunitJSModuleInterop module, out TestLibraryView _);
+        module = context.JSInterop.SetupModule(Module);
+        module.Mode = JSRuntimeMode.Loose;
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
+        IRenderedComponent<ChatPane> cut = context.Render<ChatPane>(p => p
+            .Add(c => c.Recording, WithChat())
+            .Add(c => c.Open, true));
+
+        await cut.InvokeAsync(() => preferences.SetChatFontScale(120));
+        await cut.InvokeAsync(() => preferences.SetChatFontWeight(700));
+
+        JSRuntimeInvocation[] applies = module.Invocations
+            .Where(call => call.Identifier == "setTypography")
+            .ToArray();
+        Assert.Equal(2, applies.Length);
+        Assert.Equal(120, applies[0].Arguments[1]);
+        Assert.Equal(400, applies[0].Arguments[2]);
+        Assert.Equal(120, applies[1].Arguments[1]);
+        Assert.Equal(700, applies[1].Arguments[2]);
+        Assert.DoesNotContain(module.Invocations, call => call.Identifier == "setSyncOffset");
+        Assert.DoesNotContain(module.Invocations, call => call.Identifier == "setShowBadgeText");
+
+        // The same values again send nothing.
+        await cut.InvokeAsync(() => preferences.SetChatFontScale(120));
+        Assert.Equal(2, module.Invocations.Count(call => call.Identifier == "setTypography"));
+    }
+
     private static RecordingView WithChat() =>
         VideoPlayerTests.Recording("r1", "First") with { HasChat = true };
 

@@ -1,3 +1,4 @@
+using System.Globalization;
 using AngleSharp.Dom;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
@@ -142,5 +143,120 @@ public sealed class ChatSettingsTests
         IRenderedComponent<ChatSettings> cut = context.Render<ChatSettings>();
 
         Assert.False(cut.Find("[data-chat-badge-text]").HasAttribute("checked"));
+    }
+
+    [Fact]
+    public async Task The_font_size_row_runs_from_85_to_145_in_five_percent_steps()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out _);
+
+        IRenderedComponent<ChatSettings> cut = context.Render<ChatSettings>();
+
+        IElement range = cut.Find("[data-chat-font-scale]");
+        Assert.Equal("range", range.GetAttribute("type"));
+        Assert.Equal("85", range.GetAttribute("min"));
+        Assert.Equal("145", range.GetAttribute("max"));
+        Assert.Equal("5", range.GetAttribute("step"));
+        Assert.Equal("100", range.GetAttribute("value"));
+        Assert.Equal("100 percent", range.GetAttribute("aria-valuetext"));
+        Assert.Equal("Chat font size", cut.Find($"label[for='{range.Id}']").TextContent.Trim());
+        Assert.Equal("100%", cut.Find("[data-chat-font-value]").TextContent.Trim());
+        string text = cut.Find("[data-chat-settings]").TextContent;
+        Assert.Contains("Smaller", text, StringComparison.Ordinal);
+        Assert.Contains("Larger", text, StringComparison.Ordinal);
+        Assert.Contains("Scales chat replay messages and names", text, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(85, "85%", "85 percent")]
+    [InlineData(100, "100%", "100 percent")]
+    [InlineData(145, "145%", "145 percent")]
+    public async Task Reads_out_and_names_the_font_size(int scale, string shown, string spoken)
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out _);
+        context.Services.GetRequiredService<UiPreferences>().SetChatFontScale(scale);
+
+        IRenderedComponent<ChatSettings> cut = context.Render<ChatSettings>();
+
+        Assert.Equal(shown, cut.Find("[data-chat-font-value]").TextContent.Trim());
+        IElement range = cut.Find("[data-chat-font-scale]");
+        Assert.Equal(scale.ToString(CultureInfo.InvariantCulture), range.GetAttribute("value"));
+        Assert.Equal(spoken, range.GetAttribute("aria-valuetext"));
+    }
+
+    [Fact]
+    public async Task Dragging_the_font_size_updates_the_readout_and_the_drag_end_saves()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out _);
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
+        IRenderedComponent<ChatSettings> cut = context.Render<ChatSettings>();
+
+        cut.Find("[data-chat-font-scale]").Input("120");
+
+        Assert.Equal("120%", cut.Find("[data-chat-font-value]").TextContent.Trim());
+        Assert.Equal(100, preferences.ChatFontScale);
+
+        cut.Find("[data-chat-font-scale]").Change("120");
+
+        Assert.Equal(120, preferences.ChatFontScale);
+        Assert.Equal("120 percent", cut.Find("[data-chat-font-scale]").GetAttribute("aria-valuetext"));
+        JSRuntimeInvocation write = Assert.Single(
+            context.JSInterop.Invocations, call => call.Identifier == "skPrefs.writeUi");
+        var state = Assert.IsType<UiPreferencesState>(Assert.Single(write.Arguments));
+        Assert.Equal(120, state.ChatFontScale);
+    }
+
+    [Fact]
+    public async Task The_server_never_writes_the_font_size_thumb_back_while_it_moves()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out _);
+        IRenderedComponent<ChatSettings> cut = context.Render<ChatSettings>();
+
+        foreach (string value in new[] { "105", "110", "115" })
+        {
+            cut.Find("[data-chat-font-scale]").Input(value);
+            cut.Find("[data-chat-font-scale]").Change(value);
+        }
+
+        Assert.Equal("100", cut.Find("[data-chat-font-scale]").GetAttribute("value"));
+        Assert.Equal("115%", cut.Find("[data-chat-font-value]").TextContent.Trim());
+    }
+
+    [Fact]
+    public async Task The_font_weight_row_offers_the_design_weights()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out _);
+        context.Services.GetRequiredService<UiPreferences>().SetChatFontWeight(500);
+
+        IRenderedComponent<ChatSettings> cut = context.Render<ChatSettings>();
+
+        IElement select = cut.Find("[data-chat-font-weight]");
+        Assert.Equal("select", select.LocalName);
+        Assert.Equal("Chat font weight", cut.Find($"label[for='{select.Id}']").TextContent.Trim());
+        var options = select.QuerySelectorAll("option")
+            .Select(option => (Value: option.GetAttribute("value"), Label: option.TextContent.Trim()))
+            .ToArray();
+        Assert.Equal(
+            [("400", "Normal (400)"), ("500", "Medium (500)"), ("700", "Bold (700)")],
+            options);
+        Assert.Equal("500", select.QuerySelector("option[selected]")!.GetAttribute("value"));
+        Assert.Contains("usernames stay bold", cut.Find("[data-chat-settings]").TextContent, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_font_weight_row_saves_and_persists()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(out _, out _);
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
+        IRenderedComponent<ChatSettings> cut = context.Render<ChatSettings>();
+
+        cut.Find("[data-chat-font-weight]").Change("700");
+
+        Assert.Equal(700, preferences.ChatFontWeight);
+        Assert.Equal("700", cut.Find("[data-chat-font-weight] option[selected]")!.GetAttribute("value"));
+        JSRuntimeInvocation write = Assert.Single(
+            context.JSInterop.Invocations, call => call.Identifier == "skPrefs.writeUi");
+        var state = Assert.IsType<UiPreferencesState>(Assert.Single(write.Arguments));
+        Assert.Equal(700, state.ChatFontWeight);
     }
 }

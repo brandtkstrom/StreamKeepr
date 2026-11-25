@@ -309,6 +309,109 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         }
     }
 
+    [Fact]
+    public async Task Chat_font_settings_apply_live_to_the_open_pane_and_persist()
+    {
+        await using Journey session = await LibraryJourneyTests.OpenAsync(app);
+        IPage page = session.Page;
+        var chatRequests = new ConcurrentQueue<string>();
+        page.Request += (_, request) =>
+        {
+            if (request.Url.Contains("/chat?", StringComparison.Ordinal))
+                chatRequests.Enqueue(request.Url);
+        };
+
+        ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
+        await session.OpenRecordingAsync(saved);
+        ILocator pane = page.Locator("[data-sk-chat]");
+        if (await pane.GetAttributeAsync("data-open") != "true")
+            await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
+
+        await SeekToChatAsync();
+        ILocator row = page.Locator("[data-message-id='seed-1']");
+        await row.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 20_000 });
+
+        // Pause so a leaked arrow key shows as a jump rather than normal playback.
+        ILocator video = page.Locator("[data-sk='video']");
+        if (!await video.EvaluateAsync<bool>("v => v.paused"))
+        {
+            await page.EvaluateAsync("() => document.activeElement?.blur()");
+            await page.Keyboard.PressAsync("k");
+        }
+        Assert.True(await video.EvaluateAsync<bool>("v => v.paused"));
+        double playhead = await video.EvaluateAsync<double>("v => v.currentTime");
+
+        // Settings opens over the recording; the pane stays behind it.
+        await page.GetByRole(AriaRole.Banner)
+            .GetByRole(AriaRole.Link, new() { Name = "Settings", Exact = true }).ClickAsync();
+        ILocator sheet = page.GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true });
+        ILocator size = sheet.GetByRole(AriaRole.Slider, new() { Name = "Chat font size", Exact = true });
+        ILocator readout = sheet.Locator("[data-chat-font-value]");
+        ILocator weight = sheet.GetByRole(AriaRole.Combobox, new() { Name = "Chat font weight", Exact = true });
+        await Assertions.Expect(size).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        Assert.Equal("85", await size.GetAttributeAsync("min"));
+        Assert.Equal("145", await size.GetAttributeAsync("max"));
+        Assert.Equal("5", await size.GetAttributeAsync("step"));
+        Assert.Equal("100", await size.InputValueAsync());
+        await Assertions.Expect(readout).ToHaveTextAsync("100%");
+        await Assertions.Expect(size).ToHaveAttributeAsync("aria-valuetext", "100 percent");
+
+        while (chatRequests.TryDequeue(out _)) { }
+
+        // One arrow press is one 5% step; the browser owns the thumb.
+        await size.FocusAsync();
+        await page.Keyboard.PressAsync("ArrowRight");
+        await Assertions.Expect(readout).ToHaveTextAsync("105%");
+        await Assertions.Expect(size).ToHaveAttributeAsync("aria-valuetext", "105 percent");
+        await Assertions.Expect(pane).ToHaveAttributeAsync(
+            "style", new Regex("--sk-chat-font-scale: 105"), new() { Timeout = 10_000 });
+        // The open pane applies it without a chat refetch, and playback does not move.
+        await page.WaitForTimeoutAsync(300);
+        Assert.Empty(chatRequests);
+        Assert.Equal(playhead, await video.EvaluateAsync<double>("v => v.currentTime"));
+
+        await weight.SelectOptionAsync(new SelectOptionValue { Label = "Bold (700)" });
+        await Assertions.Expect(pane).ToHaveAttributeAsync(
+            "style", new Regex("--sk-chat-font-weight: 700"), new() { Timeout = 10_000 });
+        // The row inherits the log's weight; names keep their own 700.
+        Assert.Equal("700", await row.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+        await page.WaitForTimeoutAsync(300);
+        Assert.Empty(chatRequests);
+        Assert.Equal(playhead, await video.EvaluateAsync<double>("v => v.currentTime"));
+
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "chat-font-settings");
+
+        // The viewer's preference: a reload keeps both the pane's typography and the controls.
+        await session.ReloadAsync();
+        ILocator reloadedPane = page.Locator("[data-sk-chat]");
+        await Assertions.Expect(reloadedPane).ToHaveAttributeAsync(
+            "style", new Regex("--sk-chat-font-scale: 105"), new() { Timeout = 20_000 });
+        await Assertions.Expect(reloadedPane).ToHaveAttributeAsync(
+            "style", new Regex("--sk-chat-font-weight: 700"));
+
+        ILocator reloadedSize = sheet.GetByRole(AriaRole.Slider, new() { Name = "Chat font size", Exact = true });
+        if (!await reloadedSize.IsVisibleAsync())
+        {
+            await page.GetByRole(AriaRole.Banner)
+                .GetByRole(AriaRole.Link, new() { Name = "Settings", Exact = true }).ClickAsync();
+        }
+        await Assertions.Expect(reloadedSize).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        Assert.Equal("105", await reloadedSize.InputValueAsync());
+        Assert.Equal("700", await sheet.GetByRole(AriaRole.Combobox, new() { Name = "Chat font weight", Exact = true })
+            .InputValueAsync());
+
+        async Task SeekToChatAsync()
+        {
+            await page.Locator("[data-sk='seek'][aria-disabled='false']")
+                .WaitForAsync(new() { Timeout = 20_000 });
+            ILocator seek = page.Locator("[data-sk='seek']");
+            await seek.FocusAsync();
+            await page.Keyboard.PressAsync("Home");
+            for (int i = 0; i < 4; i++)
+                await page.Keyboard.PressAsync("ArrowRight");
+        }
+    }
+
     private static async Task WaitForOffsetAsync(
         ConcurrentQueue<string> offsets, string expected)
     {
