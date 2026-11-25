@@ -32,6 +32,10 @@ _Avoid_: Unlinked channel, profile-less channel
 The colour that identifies a channel's Twitch login wherever it appears, such as its avatar and its name in chat. It belongs to the login, not to the watch, so recordings of a removed channel keep it.
 _Avoid_: Streamer colour, user colour
 
+**Record store**:
+The app's single durable record of its channels, sessions, chat logs, resume positions and sign-in state. It is kept apart from the recordings media, which it describes but does not contain.
+_Avoid_: Database, data store, app data
+
 **Session**:
 One continuous recording of a stream, identified by the stream's start time and stream ID. A session owns one or more parts and a manifest.
 _Avoid_: Recording (use “recording” for the product concept, not the domain object), capture
