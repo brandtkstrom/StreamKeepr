@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-11-13). Scoped to the private-home-use project posture.
+Accepted (2026-11-13). Scoped to the private-home-use project posture. The storage format ("Do not add a database" and the JSONL layout) is superseded by ADR-0014; the retention, tombstone, purge and cap rules stand.
 
 ## Context
 
