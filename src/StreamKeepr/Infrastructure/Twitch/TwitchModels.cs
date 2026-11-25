@@ -37,7 +37,7 @@ internal sealed record HelixUser(
     [property: JsonPropertyName("display_name")] string DisplayName,
     [property: JsonPropertyName("profile_image_url")] string? ProfileImageUrl);
 
-internal sealed record HelixGlobalBadgesResponse(
+internal sealed record HelixBadgesResponse(
     [property: JsonPropertyName("data")] List<HelixBadgeSet>? Data);
 
 internal sealed record HelixBadgeSet(

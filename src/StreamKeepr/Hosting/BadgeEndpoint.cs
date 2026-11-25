@@ -6,9 +6,9 @@ using StreamKeepr.Infrastructure.Storage;
 namespace StreamKeepr.Hosting;
 
 /// <summary>
-/// Public read-only global badge catalog for a recording. Optional decoration: a failed fetch
-/// serves the stale cache or an empty, unavailable catalog with a 200, so it never blocks chat.
-/// <c>channel</c> is present for the channel-scope extension (#277) and is always empty here.
+/// Public read-only global and channel badge catalogs for a recording. Optional decoration: a
+/// failed scope serves its stale cache or an empty list with a 200, so it never blocks chat. The
+/// panes merge the scopes by exact set and version, with the channel taking precedence.
 /// </summary>
 internal static class BadgeEndpoint
 {
@@ -23,10 +23,10 @@ internal static class BadgeEndpoint
     {
         context.Response.Headers.CacheControl = "no-store";
 
-        if (library.Find(id) is null)
+        if (library.Find(id) is not { } summary)
             return Results.NotFound();
 
-        BadgeCatalogResult result = await catalog.GetGlobalAsync(ct);
+        BadgeCatalogResult result = await catalog.GetCatalogAsync(summary.Channel, ct);
         return Results.Json(BadgeCatalogResponse.From(result));
     }
 }
@@ -43,11 +43,24 @@ internal sealed record BadgeCatalogResponse(
 
     public static BadgeCatalogResponse From(BadgeCatalogResult result)
     {
-        var global = new BadgeCatalogEntryResponse[result.Global.Count];
-        for (int index = 0; index < global.Length; index++)
+        return new BadgeCatalogResponse(
+            CurrentVersion,
+            result.Available,
+            result.Stale,
+            result.FetchedAt?.ToUniversalTime().ToString(
+                "yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
+            Entries(result.Global),
+            Entries(result.Channel));
+    }
+
+    private static BadgeCatalogEntryResponse[] Entries(
+        IReadOnlyList<BadgeCatalogEntry> entries)
+    {
+        var response = new BadgeCatalogEntryResponse[entries.Count];
+        for (int index = 0; index < response.Length; index++)
         {
-            BadgeCatalogEntry entry = result.Global[index];
-            global[index] = new BadgeCatalogEntryResponse(
+            BadgeCatalogEntry entry = entries[index];
+            response[index] = new BadgeCatalogEntryResponse(
                 entry.Set,
                 entry.Version,
                 entry.Title,
@@ -55,14 +68,7 @@ internal sealed record BadgeCatalogResponse(
                 entry.SrcSet);
         }
 
-        return new BadgeCatalogResponse(
-            CurrentVersion,
-            result.Available,
-            result.Stale,
-            result.FetchedAt?.ToUniversalTime().ToString(
-                "yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
-            global,
-            []);
+        return response;
     }
 }
 

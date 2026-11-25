@@ -5,16 +5,29 @@ namespace StreamKeepr.Tests.Badges;
 internal sealed class StubBadgeSource : IBadgeSource
 {
     private int _calls;
+    private int _channelCalls;
 
     public Func<CancellationToken, Task<IReadOnlyList<BadgeCatalogEntry>>> Global { get; set; } =
         _ => Task.FromResult<IReadOnlyList<BadgeCatalogEntry>>([]);
 
+    public Func<string, CancellationToken, Task<IReadOnlyList<BadgeCatalogEntry>>> Channel { get; set; } =
+        (_, _) => Task.FromResult<IReadOnlyList<BadgeCatalogEntry>>([]);
+
     public int Calls => Volatile.Read(ref _calls);
+
+    public int ChannelCalls => Volatile.Read(ref _channelCalls);
 
     public Task<IReadOnlyList<BadgeCatalogEntry>> GetGlobalAsync(CancellationToken ct)
     {
         Interlocked.Increment(ref _calls);
         return Global(ct);
+    }
+
+    public Task<IReadOnlyList<BadgeCatalogEntry>> GetChannelAsync(
+        string broadcasterId, CancellationToken ct)
+    {
+        Interlocked.Increment(ref _channelCalls);
+        return Channel(broadcasterId, ct);
     }
 }
 

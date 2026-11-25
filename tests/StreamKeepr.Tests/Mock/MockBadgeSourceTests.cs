@@ -17,13 +17,46 @@ public sealed class MockBadgeSourceTests
         Assert.Contains(entries, entry => entry is { Set: "vip", Version: "1" });
         Assert.Contains(entries, entry => entry is { Set: "broadcaster", Version: "1" });
         Assert.Contains(entries, entry => entry is { Set: "subscriber", Version: "0" });
+        Assert.Contains(entries, entry => entry is { Set: "subscriber", Version: "12" });
+    }
+
+    [Fact]
+    public async Task The_first_channel_overrides_subscriber_and_adds_channel_badges()
+    {
+        IReadOnlyList<BadgeCatalogEntry> entries =
+            await new MockBadgeSource().GetChannelAsync(
+                MockBadgeSource.ChannelBroadcasterId, CancellationToken.None);
+
+        Assert.Equal(
+            ["subscriber/0", "subscriber/3", "bits/100"],
+            entries.Select(entry => $"{entry.Set}/{entry.Version}"));
+        Assert.All(entries, entry =>
+        {
+            Assert.StartsWith(
+                $"{MockBadgeSource.ImageHost}/channel/", entry.Src, StringComparison.Ordinal);
+            Assert.Contains(entry.Src, entry.SrcSet, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public async Task Other_channels_have_no_custom_catalog()
+    {
+        IReadOnlyList<BadgeCatalogEntry> entries =
+            await new MockBadgeSource().GetChannelAsync("9100003", CancellationToken.None);
+
+        Assert.Empty(entries);
     }
 
     [Fact]
     public async Task Image_urls_use_the_reserved_mock_host()
     {
+        var source = new MockBadgeSource();
         IReadOnlyList<BadgeCatalogEntry> entries =
-            await new MockBadgeSource().GetGlobalAsync(CancellationToken.None);
+        [
+            .. await source.GetGlobalAsync(CancellationToken.None),
+            .. await source.GetChannelAsync(
+                MockBadgeSource.ChannelBroadcasterId, CancellationToken.None),
+        ];
 
         Assert.All(entries, entry =>
         {

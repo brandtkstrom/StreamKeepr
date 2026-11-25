@@ -232,7 +232,10 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             });
         });
 
-        ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
+        // The first saved channel is not necessarily the one with a custom badge catalog; open
+        // a mock_nova recording so the channel scope has entries to render.
+        ILocator saved = await LibraryHooks.RowAsync(
+            page, LibraryHooks.SavedRow, hasText: "Ranked climb to Diamond");
         await session.OpenRecordingAsync(saved);
         ILocator pane = page.Locator("[data-sk-chat]");
         if (await pane.GetAttributeAsync("data-open") != "true")
@@ -251,6 +254,47 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         Assert.Equal(
             $"{ImageHost}badges/moderator/1/1",
             await moderatorBadge.GetAttributeAsync("src"));
+
+        // The resolved channel's catalog wins for subscriber/0 and supplies subscriber/3 and
+        // bits/100; subscriber/12 comes from global, and subscriber/99 keeps the text chip.
+        ILocator channelSubscriber = page.Locator("[data-message-id='seed-channel-0']")
+            .GetByRole(AriaRole.Img, new() { Name = "Nova Subscriber", Exact = true });
+        ILocator channelMonths = page.Locator("[data-message-id='seed-channel-3']")
+            .GetByRole(AriaRole.Img, new() { Name = "Nova Subscriber 3 months", Exact = true });
+        ILocator channelBits = page.Locator("[data-message-id='seed-bits']")
+            .GetByRole(AriaRole.Img, new() { Name = "100 Bits", Exact = true });
+        await Assertions.Expect(channelSubscriber).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        await Assertions.Expect(channelMonths).ToBeVisibleAsync();
+        await Assertions.Expect(channelBits).ToBeVisibleAsync();
+        await WaitForDecodedAsync(channelSubscriber);
+        Assert.Equal(
+            $"{ImageHost}channel/subscriber/0/1",
+            await channelSubscriber.GetAttributeAsync("src"));
+        Assert.Equal("lazy", await channelSubscriber.GetAttributeAsync("loading"));
+        Assert.Equal("async", await channelSubscriber.GetAttributeAsync("decoding"));
+        Assert.Equal("no-referrer", await channelSubscriber.GetAttributeAsync("referrerpolicy"));
+        Assert.Equal(
+            $"{ImageHost}channel/subscriber/3/1",
+            await channelMonths.GetAttributeAsync("src"));
+        Assert.Equal(
+            $"{ImageHost}channel/bits/100/1",
+            await channelBits.GetAttributeAsync("src"));
+
+        // The channel omits subscriber/12, so the pane uses the global catalog at that exact version.
+        ILocator globalSubscriber = page.Locator("[data-message-id='seed-global-12']")
+            .GetByRole(AriaRole.Img, new() { Name = "Subscriber", Exact = true });
+        await Assertions.Expect(globalSubscriber).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        Assert.Equal(
+            $"{ImageHost}badges/subscriber/12/1",
+            await globalSubscriber.GetAttributeAsync("src"));
+
+        // subscriber/99 exists in neither scope, so it keeps the text chip.
+        ILocator missingChip = page.Locator("[data-message-id='seed-unmatched']")
+            .GetByText("SUB", new() { Exact = true });
+        await Assertions.Expect(missingChip).ToHaveTextAsync("SUB");
+        Assert.Equal(
+            0,
+            await page.Locator("[data-message-id='seed-unmatched']").Locator("img").CountAsync());
         string srcset = (await moderatorBadge.GetAttributeAsync("srcset"))!;
         Assert.Contains($"{ImageHost}badges/moderator/1/2 2x", srcset, StringComparison.Ordinal);
         Assert.Contains($"{ImageHost}badges/moderator/1/3 4x", srcset, StringComparison.Ordinal);
@@ -272,10 +316,11 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await toggle.UncheckAsync();
         await page.WaitForFunctionAsync(
             """
-            () => [...document.querySelectorAll("[data-message-id='seed-1'] img, [data-message-id='seed-streamer'] img")]
+            () => [...document.querySelectorAll("[data-message-id='seed-1'] img, [data-message-id='seed-streamer'] img, [data-message-id='seed-channel-0'] img")]
               .every((image) => getComputedStyle(image).display === "none")
             """);
         await Assertions.Expect(pane).ToHaveAttributeAsync("data-badges", "false");
+        await Assertions.Expect(channelSubscriber).ToBeHiddenAsync();
         // Visibility only: the open pane keeps its loaded chat and does not refetch.
         Assert.Empty(chatRequests);
 

@@ -12,7 +12,7 @@ This contract defines the test seams, projects, fake-Twitch harness, determinism
 
 | Layer | Project | Scope |
 |---|---|---|
-| Unit | `tests/StreamKeepr.Tests` | Pure reducer, stitcher, parser, recovery, args, path/media rules, poll schedule, token cache, allowlist logic, IRC/Twitch chat parser, chat timeline, chat log and purge, third-party emote providers and cache (BetterTTV, 7TV), global badge source and cache |
+| Unit | `tests/StreamKeepr.Tests` | Pure reducer, stitcher, parser, recovery, args, path/media rules, poll schedule, token cache, allowlist logic, IRC/Twitch chat parser, chat timeline, chat log and purge, third-party emote providers and cache (BetterTTV, 7TV), badge sources and caches |
 | Integration | `tests/StreamKeepr.Tests` | `WebApplicationFactory`: media, health, auth, progress, export, channel, chat, emote catalog, and badge catalog endpoints; real DI with fake external services |
 | Component | `tests/StreamKeepr.Tests` | bUnit: primitives, library, player shell, stats, chat pane, details, auth, settings |
 | JS | `tests/js` | Vitest: timecode, preferences, tree navigation, shortcuts, sparkline, player pure logic, chat playhead/reveal/sync, third-party emote matching, badge image/chip fallback |
@@ -168,7 +168,7 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 | Hosting | Media allowlist/traversal/content types/cache/Range; live vs final index; health push-aware/readiness; Data Protection persistence; preflight; endpoint auth; Serilog pipeline (Serilog factory, levels from the `Serilog` section, no duplicate providers, static logger untouched by test hosts); request logging (one completion event per request with `RequestId`, level policy for quiet paths/4xx/5xx, query string never logged, handled 500 logged as an error); shipped logging config and template, fatal startup log and non-zero exit; lifecycle breadcrumbs (one startup summary, one stopping line, no client secret or chat token) |
 | Frontend | bUnit primitives and feature components; Vitest helpers/player logic; Playwright journeys; axe/keyboard |
 | Emotes | Provider normalization and static URL assembly; cache TTL/stale/single-flight and bounds; channel-ID fallback and memoization; cold global with a slow resolver; endpoint shape/disabled/failure; matcher precedence and native-range protection; image attributes and text fallback; Mock/E2E fixture; no external network |
-| Badges | Helix request URL/Client-Id/bearer and 401 retry; payload normalization, URL/ID limits and caps; cache TTL/stale/single-flight/timeout; endpoint shape/404/no-store/unavailable; one fetch per recording open; image-vs-chip, image-error fallback and the Show badges toggle; Mock/E2E fixture; no external network |
+| Badges | Global/channel Helix request URL/Client-Id/bearer, `broadcaster_id` and 401 retry; payload normalization, URL/ID limits and caps; channel resolution/unresolved fallback; per-broadcaster cache TTL/stale/single-flight/timeout/bound and scope independence; endpoint shape/404/no-store/unavailable; one fetch per recording open; channel-over-global precedence, no-cross-version, image-vs-chip, image-error fallback and the Show badges toggle; Mock/E2E fixture; no external network |
 | Container | Build; non-root; health; deep links; volume; secrets; stop finalize; restart recovery |
 
 ## 11. Failure modes
