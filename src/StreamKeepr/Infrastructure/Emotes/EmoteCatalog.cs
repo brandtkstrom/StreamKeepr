@@ -72,7 +72,9 @@ internal static class BttvEmoteImage
 /// <summary>
 /// Keeps a cache dictionary bounded: above <paramref name="limit"/> entries it first removes
 /// expired slots, then arbitrary slots until the size is back under the limit. The second pass
-/// is what bounds the cache when every entry is still fresh.
+/// is what bounds the cache when every entry is still fresh. A caller can protect slots with
+/// <paramref name="canRemove"/>; if every remaining entry is protected, the cache can stay above
+/// the limit until a later trim.
 /// </summary>
 internal static class BoundedEmoteCache
 {
@@ -81,7 +83,8 @@ internal static class BoundedEmoteCache
         int limit,
         DateTimeOffset now,
         TimeSpan ttl,
-        Func<T, DateTimeOffset> fetchedAt)
+        Func<T, DateTimeOffset> fetchedAt,
+        Func<SingleFlightSlot<T>, bool>? canRemove = null)
         where T : class
     {
         if (cache.Count <= limit)
@@ -89,6 +92,9 @@ internal static class BoundedEmoteCache
 
         foreach (KeyValuePair<string, SingleFlightSlot<T>> entry in cache)
         {
+            if (canRemove is not null && !canRemove(entry.Value))
+                continue;
+
             if (entry.Value.Value is not { } value || now - fetchedAt(value) >= ttl)
                 cache.TryRemove(entry.Key, out _);
         }
@@ -97,6 +103,13 @@ internal static class BoundedEmoteCache
         {
             if (cache.Count <= limit)
                 break;
+
+            if (canRemove is not null &&
+                cache.TryGetValue(key, out SingleFlightSlot<T>? slot) &&
+                !canRemove(slot))
+            {
+                continue;
+            }
 
             cache.TryRemove(key, out _);
         }

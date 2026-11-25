@@ -37,6 +37,24 @@ internal sealed record HelixUser(
     [property: JsonPropertyName("display_name")] string DisplayName,
     [property: JsonPropertyName("profile_image_url")] string? ProfileImageUrl);
 
+internal sealed record HelixBadgesResponse(
+    [property: JsonPropertyName("data")] List<HelixBadgeSet>? Data);
+
+internal sealed record HelixBadgeSet(
+    [property: JsonPropertyName("set_id")] string? SetId,
+    [property: JsonPropertyName("versions")] List<HelixBadgeVersion>? Versions);
+
+/// <summary>
+/// One version in Twitch's badge catalog. `description`, `click_action` and `click_url` are
+/// deliberately not modelled: v1 renders images only and badges are not clickable.
+/// </summary>
+internal sealed record HelixBadgeVersion(
+    [property: JsonPropertyName("id")] string? Id,
+    [property: JsonPropertyName("image_url_1x")] string? ImageUrl1X,
+    [property: JsonPropertyName("image_url_2x")] string? ImageUrl2X,
+    [property: JsonPropertyName("image_url_4x")] string? ImageUrl4X,
+    [property: JsonPropertyName("title")] string? Title);
+
 internal sealed record EventSubSubscriptionRequest(
     [property: JsonPropertyName("type")] string Type,
     [property: JsonPropertyName("version")] string Version,

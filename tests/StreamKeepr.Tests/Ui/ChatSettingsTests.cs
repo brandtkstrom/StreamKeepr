@@ -110,39 +110,39 @@ public sealed class ChatSettingsTests
     }
 
     [Fact]
-    public async Task The_badge_text_row_reads_and_saves_the_preference()
+    public async Task The_badge_row_reads_and_saves_the_preference()
     {
         await using BunitContext context = HomePlayerTests.CreateContext(out _, out _);
         UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
         IRenderedComponent<ChatSettings> cut = context.Render<ChatSettings>();
 
-        IElement toggle = cut.Find("[data-chat-badge-text]");
+        IElement toggle = cut.Find("[data-chat-badges]");
         Assert.Equal("checkbox", toggle.GetAttribute("type"));
         Assert.True(toggle.HasAttribute("checked"));
-        Assert.Equal("Show badge text", toggle.ParentElement!.TextContent.Trim());
-        IElement help = cut.Find("[data-chat-badge-text-help]");
+        Assert.Equal("Show badges", toggle.ParentElement!.TextContent.Trim());
+        IElement help = cut.Find("[data-chat-badges-help]");
         Assert.Equal(help.Id, toggle.GetAttribute("aria-describedby"));
-        Assert.Contains("MOD, SUB, VIP", help.TextContent, StringComparison.Ordinal);
+        Assert.Contains("moderator, subscriber, VIP", help.TextContent, StringComparison.Ordinal);
 
         toggle.Change(false);
 
-        Assert.False(preferences.ChatShowBadgeText);
-        Assert.False(cut.Find("[data-chat-badge-text]").HasAttribute("checked"));
+        Assert.False(preferences.ChatShowBadges);
+        Assert.False(cut.Find("[data-chat-badges]").HasAttribute("checked"));
         JSRuntimeInvocation write = Assert.Single(
             context.JSInterop.Invocations, call => call.Identifier == "skPrefs.writeUi");
         var state = Assert.IsType<UiPreferencesState>(Assert.Single(write.Arguments));
-        Assert.False(state.ChatShowBadgeText);
+        Assert.False(state.ChatShowBadges);
     }
 
     [Fact]
-    public async Task The_badge_text_row_shows_an_off_preference()
+    public async Task The_badge_row_shows_an_off_preference()
     {
         await using BunitContext context = HomePlayerTests.CreateContext(out _, out _);
-        context.Services.GetRequiredService<UiPreferences>().SetChatShowBadgeText(false);
+        context.Services.GetRequiredService<UiPreferences>().SetChatShowBadges(false);
 
         IRenderedComponent<ChatSettings> cut = context.Render<ChatSettings>();
 
-        Assert.False(cut.Find("[data-chat-badge-text]").HasAttribute("checked"));
+        Assert.False(cut.Find("[data-chat-badges]").HasAttribute("checked"));
     }
 
     [Fact]
@@ -164,7 +164,7 @@ public sealed class ChatSettingsTests
         string text = cut.Find("[data-chat-settings]").TextContent;
         Assert.Contains("Smaller", text, StringComparison.Ordinal);
         Assert.Contains("Larger", text, StringComparison.Ordinal);
-        Assert.Contains("Scales chat replay text and emotes", text, StringComparison.Ordinal);
+        Assert.Contains("Scales chat replay text, emotes and badges", text, StringComparison.Ordinal);
     }
 
     [Theory]

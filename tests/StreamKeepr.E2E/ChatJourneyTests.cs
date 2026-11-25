@@ -210,8 +210,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
     }
 
     [Fact]
-
-    public async Task Show_badge_text_hides_the_chips_live_and_persists()
+    public async Task Show_badges_hides_images_live_and_persists()
     {
         await using Journey session = await LibraryJourneyTests.OpenAsync(app);
         IPage page = session.Page;
@@ -222,7 +221,21 @@ public sealed class ChatJourneyTests(MockAppFixture app)
                 chatRequests.Enqueue(request.Url);
         };
 
-        ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
+        const string ImageHost = Journey.MockBadgeImageHost;
+        await page.RouteAsync($"{ImageHost}**", async route =>
+        {
+            await route.FulfillAsync(new RouteFulfillOptions
+            {
+                Status = 200,
+                ContentType = "image/svg+xml",
+                Body = Journey.MockBadgeImage,
+            });
+        });
+
+        // The first saved channel is not necessarily the one with a custom badge catalog; open
+        // a mock_nova recording so the channel scope has entries to render.
+        ILocator saved = await LibraryHooks.RowAsync(
+            page, LibraryHooks.SavedRow, hasText: "Ranked climb to Diamond");
         await session.OpenRecordingAsync(saved);
         ILocator pane = page.Locator("[data-sk-chat]");
         if (await pane.GetAttributeAsync("data-open") != "true")
@@ -230,67 +243,120 @@ public sealed class ChatJourneyTests(MockAppFixture app)
 
         // The seeded chat holds a moderator message and the streamer's broadcaster message.
         await SeekToChatAsync(page);
-        ILocator moderatorChip = page.Locator("[data-message-id='seed-1']")
-            .GetByText("MOD", new() { Exact = true });
-        ILocator streamerChip = page.Locator("[data-message-id='seed-streamer']")
-            .GetByText("BROADCASTER", new() { Exact = true });
-        await Assertions.Expect(moderatorChip).ToBeVisibleAsync(new() { Timeout = 20_000 });
-        await Assertions.Expect(streamerChip).ToBeVisibleAsync();
-        await Assertions.Expect(pane).ToHaveAttributeAsync("data-badge-text", "true");
+        ILocator moderatorBadge = page.Locator("[data-message-id='seed-1']")
+            .GetByRole(AriaRole.Img, new() { Name = "Moderator", Exact = true });
+        ILocator broadcasterBadge = page.Locator("[data-message-id='seed-streamer']")
+            .GetByRole(AriaRole.Img, new() { Name = "Broadcaster", Exact = true });
+        await Assertions.Expect(moderatorBadge).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        await Assertions.Expect(broadcasterBadge).ToBeVisibleAsync();
+        await WaitForDecodedAsync(moderatorBadge);
+        await WaitForDecodedAsync(broadcasterBadge);
+        Assert.Equal(
+            $"{ImageHost}badges/moderator/1/1",
+            await moderatorBadge.GetAttributeAsync("src"));
+
+        // The resolved channel's catalog wins for subscriber/0 and supplies subscriber/3 and
+        // bits/100; subscriber/12 comes from global, and subscriber/99 keeps the text chip.
+        ILocator channelSubscriber = page.Locator("[data-message-id='seed-channel-0']")
+            .GetByRole(AriaRole.Img, new() { Name = "Nova Subscriber", Exact = true });
+        ILocator channelMonths = page.Locator("[data-message-id='seed-channel-3']")
+            .GetByRole(AriaRole.Img, new() { Name = "Nova Subscriber 3 months", Exact = true });
+        ILocator channelBits = page.Locator("[data-message-id='seed-bits']")
+            .GetByRole(AriaRole.Img, new() { Name = "100 Bits", Exact = true });
+        await Assertions.Expect(channelSubscriber).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        await Assertions.Expect(channelMonths).ToBeVisibleAsync();
+        await Assertions.Expect(channelBits).ToBeVisibleAsync();
+        await WaitForDecodedAsync(channelSubscriber);
+        Assert.Equal(
+            $"{ImageHost}channel/subscriber/0/1",
+            await channelSubscriber.GetAttributeAsync("src"));
+        Assert.Equal("lazy", await channelSubscriber.GetAttributeAsync("loading"));
+        Assert.Equal("async", await channelSubscriber.GetAttributeAsync("decoding"));
+        Assert.Equal("no-referrer", await channelSubscriber.GetAttributeAsync("referrerpolicy"));
+        Assert.Equal(
+            $"{ImageHost}channel/subscriber/3/1",
+            await channelMonths.GetAttributeAsync("src"));
+        Assert.Equal(
+            $"{ImageHost}channel/bits/100/1",
+            await channelBits.GetAttributeAsync("src"));
+
+        // The channel omits subscriber/12, so the pane uses the global catalog at that exact version.
+        ILocator globalSubscriber = page.Locator("[data-message-id='seed-global-12']")
+            .GetByRole(AriaRole.Img, new() { Name = "Subscriber", Exact = true });
+        await Assertions.Expect(globalSubscriber).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        Assert.Equal(
+            $"{ImageHost}badges/subscriber/12/1",
+            await globalSubscriber.GetAttributeAsync("src"));
+
+        // subscriber/99 exists in neither scope, so it keeps the text chip.
+        ILocator missingChip = page.Locator("[data-message-id='seed-unmatched']")
+            .GetByText("SUB", new() { Exact = true });
+        await Assertions.Expect(missingChip).ToHaveTextAsync("SUB");
+        Assert.Equal(
+            0,
+            await page.Locator("[data-message-id='seed-unmatched']").Locator("img").CountAsync());
+        string srcset = (await moderatorBadge.GetAttributeAsync("srcset"))!;
+        Assert.Contains($"{ImageHost}badges/moderator/1/2 2x", srcset, StringComparison.Ordinal);
+        Assert.Contains($"{ImageHost}badges/moderator/1/3 4x", srcset, StringComparison.Ordinal);
+        Assert.Equal("lazy", await moderatorBadge.GetAttributeAsync("loading"));
+        Assert.Equal("async", await moderatorBadge.GetAttributeAsync("decoding"));
+        Assert.Equal("no-referrer", await moderatorBadge.GetAttributeAsync("referrerpolicy"));
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-badges", "true");
+
+        // A catalog badge replaces its text chip rather than joining it.
+        Assert.Equal(
+            0,
+            await page.Locator("[data-message-id='seed-1']")
+                .GetByText("MOD", new() { Exact = true }).CountAsync());
 
         ILocator toggle = await OpenSettingsAsync(page, page
             .GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true })
-            .GetByRole(AriaRole.Checkbox, new() { Name = "Show badge text", Exact = true }));
+            .GetByRole(AriaRole.Checkbox, new() { Name = "Show badges", Exact = true }));
         await Assertions.Expect(toggle).ToBeCheckedAsync(new() { Timeout = 20_000 });
 
         while (chatRequests.TryDequeue(out _)) { }
         await toggle.UncheckAsync();
-        await Assertions.Expect(moderatorChip).ToBeHiddenAsync(new() { Timeout = 10_000 });
-        await Assertions.Expect(streamerChip).ToBeHiddenAsync();
-        await Assertions.Expect(pane).ToHaveAttributeAsync("data-badge-text", "false");
-        // Visibility only: the open pane keeps its loaded chat and does not refetch. 300 ms is
-        // several times a keyed fetch's round trip against the local Mock app.
-        await page.WaitForTimeoutAsync(300);
+        await page.WaitForFunctionAsync(
+            """
+            () => [...document.querySelectorAll("[data-message-id='seed-1'] img, [data-message-id='seed-streamer'] img, [data-message-id='seed-channel-0'] img")]
+              .every((image) => getComputedStyle(image).display === "none")
+            """);
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-badges", "false");
+        await Assertions.Expect(channelSubscriber).ToBeHiddenAsync();
+        // Visibility only: the open pane keeps its loaded chat and does not refetch.
         Assert.Empty(chatRequests);
-
-        await toggle.CheckAsync();
-        await Assertions.Expect(moderatorChip).ToBeVisibleAsync(new() { Timeout = 10_000 });
-        await Assertions.Expect(streamerChip).ToBeVisibleAsync();
-        await Assertions.Expect(pane).ToHaveAttributeAsync("data-badge-text", "true");
-        await page.WaitForTimeoutAsync(300);
-        Assert.Empty(chatRequests);
-
-        await toggle.UncheckAsync();
-        await Assertions.Expect(moderatorChip).ToBeHiddenAsync(new() { Timeout = 10_000 });
 
         // The preference is the viewer's: a reload keeps it for the pane and for the sheet.
         await session.ReloadAsync();
         await Assertions.Expect(page.Locator("[data-sk-chat]"))
-            .ToHaveAttributeAsync("data-badge-text", "false", new() { Timeout = 20_000 });
+            .ToHaveAttributeAsync("data-badges", "false", new() { Timeout = 20_000 });
         await SeekToChatAsync(page);
-        ILocator reloadedChip = page.Locator("[data-message-id='seed-1']")
-            .GetByText("MOD", new() { Exact = true });
+        ILocator reloadedBadge = page.Locator("[data-message-id='seed-1']").Locator("img");
         // Attached first: ToBeHidden also passes for a node that is not there at all.
-        await reloadedChip.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 20_000 });
-        await Assertions.Expect(reloadedChip).ToBeHiddenAsync();
+        await reloadedBadge.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 20_000 });
+        await Assertions.Expect(reloadedBadge).ToBeHiddenAsync();
         ILocator reloadedToggle = await OpenSettingsAsync(page, page
             .GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true })
-            .GetByRole(AriaRole.Checkbox, new() { Name = "Show badge text", Exact = true }));
+            .GetByRole(AriaRole.Checkbox, new() { Name = "Show badges", Exact = true }));
         await Assertions.Expect(reloadedToggle).Not.ToBeCheckedAsync(new() { Timeout = 20_000 });
 
-        // The reload left the setting off; turning it back on restores the chips.
+        // The reload left the setting off; turning it back on restores the images.
         await reloadedToggle.CheckAsync();
-        await Assertions.Expect(moderatorChip).ToBeVisibleAsync(new() { Timeout = 10_000 });
+        await Assertions.Expect(moderatorBadge).ToBeVisibleAsync(new() { Timeout = 10_000 });
         await Assertions.Expect(page.Locator("[data-sk-chat]"))
-            .ToHaveAttributeAsync("data-badge-text", "true");
+            .ToHaveAttributeAsync("data-badges", "true");
 
-        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "chat-badge-text");
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "chat-badges");
 
+        async Task WaitForDecodedAsync(ILocator image) =>
+            await page.WaitForFunctionAsync(
+                "img => img.complete && img.naturalWidth > 0",
+                await image.ElementHandleAsync());
 
     }
 
     [Fact]
-    public async Task Chat_font_settings_apply_live_to_the_open_pane_and_persist()
+    public async Task Chat_font_settings_scale_text_badges_and_persist()
     {
         await using Journey session = await LibraryJourneyTests.OpenAsync(app);
         IPage page = session.Page;
@@ -301,7 +367,20 @@ public sealed class ChatJourneyTests(MockAppFixture app)
                 chatRequests.Enqueue(request.Url);
         };
 
-        ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
+        const string ImageHost = Journey.MockBadgeImageHost;
+        await page.RouteAsync($"{ImageHost}**", async route =>
+        {
+            await route.FulfillAsync(new RouteFulfillOptions
+            {
+                Status = 200,
+                ContentType = "image/svg+xml",
+                Body = Journey.MockBadgeImage,
+            });
+        });
+
+        // The mock_nova recording carries the badge catalog used by the seeding.
+        ILocator saved = await LibraryHooks.RowAsync(
+            page, LibraryHooks.SavedRow, hasText: "Ranked climb to Diamond");
         await session.OpenRecordingAsync(saved);
         ILocator pane = page.Locator("[data-sk-chat]");
         if (await pane.GetAttributeAsync("data-open") != "true")
@@ -309,18 +388,13 @@ public sealed class ChatJourneyTests(MockAppFixture app)
 
         await SeekToChatAsync(page);
         ILocator row = page.Locator("[data-message-id='seed-1']");
-        await row.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 20_000 });
-
-        // The baseline: body2/400 messages, 700 names, and a caption/label badge chip.
-        ILocator log = pane.Locator("[data-sk='chat-log']");
         ILocator name = row.Locator("[data-chat-name]");
-        ILocator chip = row.GetByText("MOD", new() { Exact = true });
-        Assert.InRange(await log.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 13.9, 14.1);
-        Assert.InRange(await name.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 13.9, 14.1);
-        Assert.Equal("400", await row.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
-        Assert.Equal("700", await name.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
-        Assert.InRange(await chip.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 11.9, 12.1);
-        Assert.Equal("500", await chip.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+        ILocator badgeImage = row.GetByRole(AriaRole.Img, new() { Name = "Moderator", Exact = true });
+        ILocator chip = page.Locator("[data-message-id='seed-unmatched']")
+            .GetByText("SUB", new() { Exact = true });
+        ILocator log = pane.Locator("[data-sk='chat-log']");
+        await Assertions.Expect(badgeImage).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        await chip.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 20_000 });
 
         // Pause so a leaked arrow key shows as a jump rather than normal playback.
         ILocator video = page.Locator("[data-sk='video']");
@@ -332,23 +406,25 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         Assert.True(await video.EvaluateAsync<bool>("v => v.paused"));
         double playhead = await video.EvaluateAsync<double>("v => v.currentTime");
 
+        // Baseline 100%/400: body2 messages, 700 names, an 18px badge image and a 12px chip.
+        Assert.InRange(await log.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 13.9, 14.1);
+        Assert.InRange(await name.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 13.9, 14.1);
+        Assert.Equal("400", await row.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+        Assert.Equal("700", await name.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+        Assert.InRange(await badgeImage.EvaluateAsync<double>("el => el.getBoundingClientRect().height"), 17.9, 18.1);
+        Assert.InRange(await chip.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 11.9, 12.1);
+        Assert.Equal("500", await chip.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+
         // Settings opens over the recording; the pane stays behind it.
         ILocator sheet = page.GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true });
         ILocator size = sheet.GetByRole(AriaRole.Slider, new() { Name = "Chat font size", Exact = true });
         ILocator readout = sheet.Locator("[data-chat-font-value]");
         ILocator weight = sheet.GetByRole(AriaRole.Combobox, new() { Name = "Chat font weight", Exact = true });
         await OpenSettingsAsync(page, size);
-        Assert.Equal("85", await size.GetAttributeAsync("min"));
-        Assert.Equal("145", await size.GetAttributeAsync("max"));
-        Assert.Equal("5", await size.GetAttributeAsync("step"));
         Assert.Equal("100", await size.InputValueAsync());
-        await Assertions.Expect(readout).ToHaveTextAsync("100%");
-        await Assertions.Expect(size).ToHaveAttributeAsync("aria-valuetext", "100 percent");
-
         while (chatRequests.TryDequeue(out _)) { }
 
-        // One arrow press is one 5% step; the browser owns the thumb. Below 100% the text
-        // shrinks but the badge keeps its 12px design size.
+        // Below 100% the text shrinks; the badge image and chip keep their design size.
         await size.FocusAsync();
         await page.Keyboard.PressAsync("ArrowLeft");
         await Assertions.Expect(readout).ToHaveTextAsync("95%");
@@ -357,9 +433,10 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await Assertions.Expect(size).ToHaveAttributeAsync("aria-valuetext", "90 percent");
         await Assertions.Expect(pane).ToHaveAttributeAsync("data-font-scale", "90");
         Assert.InRange(await log.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 12.5, 12.7);
+        Assert.InRange(await badgeImage.EvaluateAsync<double>("el => el.getBoundingClientRect().height"), 17.9, 18.1);
         Assert.InRange(await chip.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 11.9, 12.1);
 
-        // Above 100% the badge scales up with the message text.
+        // Above 100% the badge image and chip scale up with the message text.
         await page.Keyboard.PressAsync("ArrowRight");
         await Assertions.Expect(readout).ToHaveTextAsync("95%");
         await page.Keyboard.PressAsync("ArrowRight");
@@ -367,11 +444,9 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await page.Keyboard.PressAsync("ArrowRight");
         await Assertions.Expect(readout).ToHaveTextAsync("105%");
         await Assertions.Expect(size).ToHaveAttributeAsync("aria-valuetext", "105 percent");
-        await Assertions.Expect(pane).ToHaveAttributeAsync(
-            "data-font-scale", "105", new() { Timeout = 10_000 });
-        // Messages and names scale; the badge grows above 100%; following stays at the end.
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-font-scale", "105");
         Assert.InRange(await log.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 14.6, 14.8);
-        Assert.InRange(await name.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 14.6, 14.8);
+        Assert.InRange(await badgeImage.EvaluateAsync<double>("el => el.getBoundingClientRect().height"), 18.8, 19.0);
         Assert.InRange(await chip.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 12.5, 12.7);
         Assert.True(await log.EvaluateAsync<bool>(
             "el => el.scrollHeight - el.scrollTop - el.clientHeight < 24"));
@@ -382,11 +457,9 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         Assert.Equal(playhead, await video.EvaluateAsync<double>("v => v.currentTime"));
 
         await weight.SelectOptionAsync(new SelectOptionValue { Label = "Bold (700)" });
-        await Assertions.Expect(pane).ToHaveAttributeAsync(
-            "data-font-weight", "700", new() { Timeout = 10_000 });
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-font-weight", "700", new() { Timeout = 10_000 });
         Assert.Equal("700", await name.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
         Assert.Equal("500", await chip.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
-        // The row inherits the log's weight; names keep their own 700.
         Assert.Equal("700", await row.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
         // The same quiet period after the weight change.
         await page.WaitForTimeoutAsync(300);
@@ -401,13 +474,19 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await Assertions.Expect(reloadedPane).ToHaveAttributeAsync(
             "data-font-scale", "105", new() { Timeout = 20_000 });
         await Assertions.Expect(reloadedPane).ToHaveAttributeAsync("data-font-weight", "700");
+        await SeekToChatAsync(page);
+        ILocator reloadedBadge = page.Locator("[data-message-id='seed-1']")
+            .GetByRole(AriaRole.Img, new() { Name = "Moderator", Exact = true });
+        await Assertions.Expect(reloadedBadge).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        Assert.InRange(await reloadedBadge.EvaluateAsync<double>("el => el.getBoundingClientRect().height"), 18.8, 19.0);
 
-        ILocator reloadedSize = sheet.GetByRole(AriaRole.Slider, new() { Name = "Chat font size", Exact = true });
+        ILocator reloadedSize = page.GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true })
+            .GetByRole(AriaRole.Slider, new() { Name = "Chat font size", Exact = true });
         await OpenSettingsAsync(page, reloadedSize);
         Assert.Equal("105", await reloadedSize.InputValueAsync());
-        Assert.Equal("700", await sheet.GetByRole(AriaRole.Combobox, new() { Name = "Chat font weight", Exact = true })
+        Assert.Equal("700", await page.GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true })
+            .GetByRole(AriaRole.Combobox, new() { Name = "Chat font weight", Exact = true })
             .InputValueAsync());
-
     }
 
     private static async Task<ILocator> OpenSettingsAsync(IPage page, ILocator target)

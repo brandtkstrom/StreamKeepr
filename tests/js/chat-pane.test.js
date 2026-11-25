@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildBadgeCatalog,
   buildEmoteCatalog,
   createChatPane,
   linkify,
@@ -104,6 +105,27 @@ const VIEW = {
   maxSyncOffsetSec: 30,
 };
 
+const GLOBAL_SUBSCRIBER = {
+  set: "subscriber",
+  version: "0",
+  title: "Subscriber",
+  src: "https://global.test/subscriber/0",
+};
+
+const CHANNEL_SUBSCRIBER = {
+  set: "subscriber",
+  version: "0",
+  title: "Nova Subscriber",
+  src: "https://channel.test/subscriber/0",
+};
+
+const CHANNEL_SUBSCRIBER_MONTHS = {
+  set: "subscriber",
+  version: "3",
+  title: "Nova Subscriber 3 months",
+  src: "https://channel.test/subscriber/3",
+};
+
 const emoteMessage = { ...message, text: "hello KEKW", emotes: [] };
 
 function emoteFetch(entries, { available = true, chat = emoteMessage } = {}) {
@@ -113,6 +135,19 @@ function emoteFetch(entries, { available = true, chat = emoteMessage } = {}) {
       ok: true,
       json: async () => ({
         v: 1, available, stale: false, fetchedAt: "2026-11-14T12:34:56Z", entries,
+      }),
+    })
+    : chatFetch(url, init));
+}
+
+function badgeFetch(entries, { available = true, chat = message, channel = [] } = {}) {
+  const chatFetch = fakeFetch(chat);
+  return vi.fn((url, init) => url.pathname.endsWith("/badges")
+    ? Promise.resolve({
+      ok: true,
+      json: async () => ({
+        v: 1, available, stale: false, fetchedAt: "2026-11-25T09:00:00Z",
+        global: entries, channel,
       }),
     })
     : chatFetch(url, init));
@@ -1371,7 +1406,7 @@ describe("chat replay pane", () => {
     });
   });
 
-  it("toggles the badge text state without refetching or rebuilding the log", async () => {
+  it("toggles badges without refetching or rebuilding the log", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
     const badges = [
@@ -1388,135 +1423,49 @@ describe("chat replay pane", () => {
 
     const log = root.querySelector("[data-sk='chat-log']");
     const row = log.querySelector("[data-message-id]");
-    expect(root.dataset.badgeText).toBe("true");
-    expect([...log.querySelectorAll("[data-chat-badge]")].map((chip) => chip.textContent))
+    expect(root.dataset.badges).toBe("true");
+    expect([...log.querySelectorAll("span[data-chat-badge]")].map((chip) => chip.textContent))
       .toEqual(["MOD", "SUB", "glhf-pledge"]);
 
     const calls = fetch.mock.calls.length;
 
-    pane.setShowBadgeText(false);
+    pane.setShowBadges(false);
 
     // The root carries the state the pane rule reads. No refetch, and the row nodes stay put,
     // so turning it back on needs no rebuild and the viewer keeps their place.
-    expect(root.dataset.badgeText).toBe("false");
+    expect(root.dataset.badges).toBe("false");
     expect(fetch.mock.calls).toHaveLength(calls);
     expect(log.querySelector("[data-message-id]")).toBe(row);
 
-    pane.setShowBadgeText(true);
+    pane.setShowBadges(true);
 
-    expect(root.dataset.badgeText).toBe("true");
+    expect(root.dataset.badges).toBe("true");
   });
 
-  it("keeps the painted badge text when an older payload omits it", async () => {
+  it("keeps the painted badge state when an older payload omits it", async () => {
     document.body.innerHTML = MARKUP.replace(
-      'data-open="true"', 'data-open="true" data-badge-text="false"');
+      'data-open="true"', 'data-open="true" data-badges="false"');
     const root = document.querySelector("[data-sk-chat]");
     const pane = createChatPane(root, { fetch: fakeFetch() });
 
     await pane.load({ ...VIEW });
 
-    expect(root.dataset.badgeText).toBe("false");
+    expect(root.dataset.badges).toBe("false");
   });
 
-  it("applies the viewer's font settings as custom properties without a rebuild", async () => {
-    document.body.innerHTML = MARKUP;
-    const root = document.querySelector("[data-sk-chat]");
-    const fetch = fakeFetch();
-    const pane = createChatPane(root, { fetch });
-    await pane.load({ ...VIEW });
-    playhead(10);
-    await flush();
-
-    const log = document.querySelector("[data-sk='chat-log']");
-    const row = log.querySelector("[data-message-id]");
-    const calls = fetch.mock.calls.length;
-
-    pane.setTypography(120, 700);
-
-    expect(root.dataset.fontScale).toBe("120");
-    expect(root.dataset.fontWeight).toBe("700");
-    expect(root.style.getPropertyValue("--sk-chat-font-scale")).toBe("120");
-    expect(root.style.getPropertyValue("--sk-chat-font-weight")).toBe("700");
-    expect(fetch.mock.calls).toHaveLength(calls);
-    expect(log.querySelector("[data-message-id]")).toBe(row);
-
-    pane.dispose();
-  });
-
-  it("applies the payload font settings on load", async () => {
+  it("starts with badges off when the payload says so", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
     const pane = createChatPane(root, { fetch: fakeFetch() });
 
-    await pane.load({ ...VIEW, fontScale: 120, fontWeight: 500 });
+    await pane.load({ ...VIEW, showBadges: false });
 
-    expect(root.dataset.fontScale).toBe("120");
-    expect(root.dataset.fontWeight).toBe("500");
-    expect(root.style.getPropertyValue("--sk-chat-font-scale")).toBe("120");
-    expect(root.style.getPropertyValue("--sk-chat-font-weight")).toBe("500");
-
-    pane.dispose();
-  });
-
-  it("keeps the painted font settings when an older payload omits them", async () => {
-    document.body.innerHTML = MARKUP;
-    const root = document.querySelector("[data-sk-chat]");
-    root.style.setProperty("--sk-chat-font-scale", "110");
-    root.dataset.fontScale = "110";
-    const pane = createChatPane(root, { fetch: fakeFetch() });
-
-    await pane.load({ ...VIEW, fontScale: null, fontWeight: null });
-
-    expect(root.dataset.fontScale).toBe("110");
-    expect(root.style.getPropertyValue("--sk-chat-font-scale")).toBe("110");
-
-    pane.dispose();
-  });
-
-  it("keeps a following log at the end when the font changes, and leaves a scrolled-back log put", async () => {
-    document.body.innerHTML = MARKUP;
-    const root = document.querySelector("[data-sk-chat]");
-    const pane = createChatPane(root, { fetch: fakeFetch() });
-    await pane.load({ ...VIEW });
-    playhead(10);
-    await flush();
-
-    const log = document.querySelector("[data-sk='chat-log']");
-    let scrollTop = 1000;
-    Object.defineProperty(log, "scrollHeight", { configurable: true, value: 1000 });
-    Object.defineProperty(log, "clientHeight", { configurable: true, value: 300 });
-    Object.defineProperty(log, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value) => { scrollTop = value; },
-    });
-
-    // Following: the reflow lands on the newest row.
-    pane.setTypography(120, 400);
-    expect(log.scrollTop).toBe(1000);
-
-    // Scrolled back: the viewer keeps their place.
-    log.scrollTop = 0;
-    log.dispatchEvent(new Event("scroll"));
-    pane.setTypography(130, 400);
-    expect(log.scrollTop).toBe(0);
-
-    pane.dispose();
-  });
-
-  it("starts with the badge text off when the payload says so", async () => {
-    document.body.innerHTML = MARKUP;
-    const root = document.querySelector("[data-sk-chat]");
-    const pane = createChatPane(root, { fetch: fakeFetch() });
-
-    await pane.load({ ...VIEW, showBadgeText: false });
-
-    expect(root.dataset.badgeText).toBe("false");
+    expect(root.dataset.badges).toBe("false");
 
     // A recording reload carries the viewer's current value.
-    await pane.load({ ...VIEW, showBadgeText: true });
+    await pane.load({ ...VIEW, showBadges: true });
 
-    expect(root.dataset.badgeText).toBe("true");
+    expect(root.dataset.badges).toBe("true");
   });
 });
 
@@ -1862,6 +1811,185 @@ describe("third-party emotes in the pane", () => {
       .toHaveLength(1);
 
     pane.dispose();
+  });
+});
+
+describe("badges in the pane", () => {
+  const MOD_BADGE = {
+    set: "moderator",
+    version: "1",
+    title: "Moderator",
+    src: "https://static-cdn.jtvnw.net/badges/v1/moderator/1",
+    srcset: "https://static-cdn.jtvnw.net/badges/v1/moderator/1 1x, " +
+      "https://static-cdn.jtvnw.net/badges/v1/moderator/2 2x, " +
+      "https://static-cdn.jtvnw.net/badges/v1/moderator/3 4x",
+  };
+
+  it("renders the matching catalog image in place of the chip", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const badges = [
+      { set: "moderator", version: "1", info: "Lead" },
+      { set: "subscriber", version: "12", info: "12" },
+      { set: "glhf-pledge", version: "1", info: null },
+    ];
+    const fetch = badgeFetch([MOD_BADGE], { chat: { ...message, badges } });
+    const pane = createChatPane(root, { fetch });
+
+    await pane.load({ ...VIEW, badgesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    const image = log.querySelector("img[data-chat-badge]");
+    expect(image).not.toBeNull();
+    expect(image.getAttribute("src")).toBe(MOD_BADGE.src);
+    expect(image.getAttribute("srcset")).toBe(MOD_BADGE.srcset);
+    expect(image.getAttribute("alt")).toBe("Moderator");
+    expect(image.getAttribute("title")).toBe("Moderator Lead");
+    expect(image.getAttribute("loading")).toBe("lazy");
+    expect(image.getAttribute("decoding")).toBe("async");
+    expect(image.getAttribute("referrerpolicy")).toBe("no-referrer");
+
+    // Unknown versions and sets keep the existing chip, info included.
+    const chips = [...log.querySelectorAll("span[data-chat-badge]")];
+    expect(chips.map((chip) => chip.textContent)).toEqual(["SUB", "glhf-pledge"]);
+    expect(chips[0].getAttribute("title")).toBe("SUB 12");
+    expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r1/badges"))
+      .toHaveLength(1);
+
+    pane.dispose();
+  });
+
+  it("falls back to the chip once when a badge image fails", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const badges = [{ set: "moderator", version: "1", info: null }];
+    const fetch = badgeFetch([MOD_BADGE], { chat: { ...message, badges } });
+    const pane = createChatPane(root, { fetch });
+
+    await pane.load({ ...VIEW, badgesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    const image = log.querySelector("img[data-chat-badge]");
+    expect(image).not.toBeNull();
+    image.dispatchEvent(new Event("error"));
+
+    expect(log.querySelector("img[data-chat-badge]")).toBeNull();
+    expect(log.querySelector("span[data-chat-badge]").textContent).toBe("MOD");
+
+    // A rebuild from the same messages keeps the chip and never retries the image.
+    pane.setSyncOffset(1);
+    await flush();
+
+    expect(log.querySelector("img[data-chat-badge]")).toBeNull();
+    expect(log.querySelector("span[data-chat-badge]").textContent).toBe("MOD");
+    expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r1/badges"))
+      .toHaveLength(1);
+
+    pane.dispose();
+  });
+
+  it("fetches once per recording open, not per message, reload or reopen", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = badgeFetch([MOD_BADGE]);
+    const pane = createChatPane(root, { fetch });
+
+    await pane.load({ ...VIEW, badgesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+    playhead(11);
+    await flush();
+    await pane.load({ ...VIEW, badgesEnabled: true });
+    await flush();
+
+    pane.setOpen(false);
+    pane.setOpen(true);
+    await flush();
+
+    expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r1/badges"))
+      .toHaveLength(1);
+
+    pane.dispose();
+  });
+
+  it("makes no badge request while disabled or closed", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = badgeFetch([MOD_BADGE]);
+    const pane = createChatPane(root, { fetch });
+
+    await pane.load({ ...VIEW, badgesEnabled: false });
+    await flush();
+    expect(fetch.mock.calls.some(([url]) => url.pathname.endsWith("/badges"))).toBe(false);
+
+    await pane.load({ ...VIEW, open: false, badgesEnabled: true });
+    await flush();
+    expect(fetch.mock.calls.some(([url]) => url.pathname.endsWith("/badges"))).toBe(false);
+
+    pane.setOpen(true);
+    await flush();
+    expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r1/badges"))
+      .toHaveLength(1);
+
+    pane.dispose();
+  });
+
+  it("prefers channel badges over global ones at the same version", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const badges = [
+      { set: "subscriber", version: "0", info: "6" },
+      { set: "subscriber", version: "3", info: null },
+      { set: "subscriber", version: "12", info: "12" },
+    ];
+    const fetch = badgeFetch([GLOBAL_SUBSCRIBER], {
+      channel: [CHANNEL_SUBSCRIBER, CHANNEL_SUBSCRIBER_MONTHS],
+      chat: { ...message, badges },
+    });
+    const pane = createChatPane(root, { fetch });
+
+    await pane.load({ ...VIEW, badgesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    const images = [...log.querySelectorAll("img[data-chat-badge]")];
+    expect(images.map((image) => image.getAttribute("src")))
+      .toEqual([CHANNEL_SUBSCRIBER.src, CHANNEL_SUBSCRIBER_MONTHS.src]);
+    expect(images[0].getAttribute("alt")).toBe("Nova Subscriber");
+    expect(images[0].getAttribute("title")).toBe("Nova Subscriber 6");
+
+    // subscriber/12 exists in neither scope, so it keeps the chip; the global subscriber/0
+    // never renders because the channel owns that exact version.
+    const chips = [...log.querySelectorAll("span[data-chat-badge]")];
+    expect(chips.map((chip) => chip.textContent)).toEqual(["SUB"]);
+    expect(chips[0].getAttribute("title")).toBe("SUB 12");
+
+    pane.dispose();
+  });
+});
+
+describe("badge catalog scopes", () => {
+  it("looks up the channel scope first for the exact set and version", () => {
+    const catalog = buildBadgeCatalog([GLOBAL_SUBSCRIBER], [CHANNEL_SUBSCRIBER]);
+
+    expect(catalog.get("subscriber/0")).toBe(CHANNEL_SUBSCRIBER);
+  });
+
+  it("never borrows a different version from either scope", () => {
+    const catalog = buildBadgeCatalog([GLOBAL_SUBSCRIBER], [CHANNEL_SUBSCRIBER_MONTHS]);
+
+    expect(catalog.get("subscriber/0")).toBe(GLOBAL_SUBSCRIBER);
+    expect(catalog.get("subscriber/3")).toBe(CHANNEL_SUBSCRIBER_MONTHS);
+    expect(catalog.has("subscriber/12")).toBe(false);
   });
 });
 
@@ -2251,6 +2379,94 @@ describe("chat links in the pane", () => {
     expect(link.getAttribute("href")).toBe("https://example.com/");
     expect(link.closest("[inert]")).toBeNull();
     expect(document.querySelector("[data-sk='chat-log']").closest("[inert]")).toBeNull();
+
+    pane.dispose();
+  });
+});
+
+describe("chat typography", () => {
+  it("applies the viewer's font settings as custom properties without a rebuild", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = fakeFetch();
+    const pane = createChatPane(root, { fetch });
+    await pane.load({ ...VIEW });
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    const row = log.querySelector("[data-message-id]");
+    const calls = fetch.mock.calls.length;
+
+    pane.setTypography(120, 700);
+
+    expect(root.dataset.fontScale).toBe("120");
+    expect(root.dataset.fontWeight).toBe("700");
+    expect(root.style.getPropertyValue("--sk-chat-font-scale")).toBe("120");
+    expect(root.style.getPropertyValue("--sk-chat-font-weight")).toBe("700");
+    expect(fetch.mock.calls).toHaveLength(calls);
+    expect(log.querySelector("[data-message-id]")).toBe(row);
+
+    pane.dispose();
+  });
+
+  it("applies the payload font settings on load", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, { fetch: fakeFetch() });
+
+    await pane.load({ ...VIEW, fontScale: 120, fontWeight: 500 });
+
+    expect(root.dataset.fontScale).toBe("120");
+    expect(root.dataset.fontWeight).toBe("500");
+    expect(root.style.getPropertyValue("--sk-chat-font-scale")).toBe("120");
+    expect(root.style.getPropertyValue("--sk-chat-font-weight")).toBe("500");
+
+    pane.dispose();
+  });
+
+  it("keeps the painted font settings when an older payload omits them", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    root.style.setProperty("--sk-chat-font-scale", "110");
+    root.dataset.fontScale = "110";
+    const pane = createChatPane(root, { fetch: fakeFetch() });
+
+    await pane.load({ ...VIEW, fontScale: null, fontWeight: null });
+
+    expect(root.dataset.fontScale).toBe("110");
+    expect(root.style.getPropertyValue("--sk-chat-font-scale")).toBe("110");
+
+    pane.dispose();
+  });
+
+  it("keeps a following log at the end when the font changes, and leaves a scrolled-back log put", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, { fetch: fakeFetch() });
+    await pane.load({ ...VIEW });
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    let scrollTop = 1000;
+    Object.defineProperty(log, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(log, "clientHeight", { configurable: true, value: 300 });
+    Object.defineProperty(log, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value) => { scrollTop = value; },
+    });
+
+    // Following: the reflow lands on the newest row.
+    pane.setTypography(120, 400);
+    expect(log.scrollTop).toBe(1000);
+
+    // Scrolled back: the viewer keeps their place.
+    log.scrollTop = 0;
+    log.dispatchEvent(new Event("scroll"));
+    pane.setTypography(130, 400);
+    expect(log.scrollTop).toBe(0);
 
     pane.dispose();
   });

@@ -1,4 +1,4 @@
-<!-- @dsCard group="Settings" height=620 width=760 subtitle="Settings › Chat: one chat sync offset, one badge-text switch, one font size and one font weight for every recording, applied live to an open chat pane" -->
+<!-- @dsCard group="Settings" height=620 width=760 subtitle="Settings › Chat: one chat sync offset, one badges switch, one font size and one font weight for every recording, applied live to an open chat pane" -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -10,8 +10,8 @@
   .body { padding: var(--space-2) var(--space-4) var(--space-4); }
   .ds-sync { max-width: 420px; }
   .help { margin: var(--space-1) 0 0; font: var(--text-caption); letter-spacing: 0.03333em; color: var(--text-secondary); }
-  .ds-badge-text { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; max-width: 420px; margin-top: var(--space-4); font: var(--text-label); letter-spacing: 0.03333em; color: var(--text-primary); cursor: pointer; }
-  .ds-badge-text input { flex: none; inline-size: 18px; block-size: 18px; margin: 0; accent-color: var(--primary); cursor: pointer; }
+  .ds-badges { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; max-width: 420px; margin-top: var(--space-4); font: var(--text-label); letter-spacing: 0.03333em; color: var(--text-primary); cursor: pointer; }
+  .ds-badges input { flex: none; inline-size: 18px; block-size: 18px; margin: 0; accent-color: var(--primary); cursor: pointer; }
   .ds-font-weight { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; max-width: 420px; margin-top: var(--space-4); color: var(--text-primary); font: var(--text-label); letter-spacing: 0.03333em; }
   .ds-font-weight label { flex: 1; min-width: 0; }
   .ds-font-weight select { flex: none; max-width: 190px; height: 32px; padding: 0 var(--space-2); border: 1px solid var(--lines-default); border-radius: var(--radius-sm); background: var(--surface-raised); color: var(--text-primary); font: var(--text-body2); letter-spacing: 0.01071em; }
@@ -27,13 +27,13 @@
         <div class="rail"><span class="end">Earlier</span><span class="ds-range-wrap"><input id="sync" class="ds-range" type="range" min="-30" max="30" step="0.5" value="-4" style="--lo:43.33%;--hi:50%" aria-valuetext="4 seconds earlier"></span><span class="end">Later</span></div>
       </div>
       <p class="help" id="sync-help">Shifts chat on every recording, to match the delay between the stream and its chat.</p>
-      <label class="ds-badge-text"><i data-i="label"></i><input type="checkbox" checked aria-describedby="badge-text-help">Show badge text</label>
-      <p class="help" id="badge-text-help">Shows the MOD, SUB, VIP and other role text before each name.</p>
+      <label class="ds-badges"><i data-i="label"></i><input type="checkbox" checked aria-describedby="badges-help">Show badges</label>
+      <p class="help" id="badges-help">Shows the moderator, subscriber, VIP and other role badges before each name.</p>
       <div class="ds-sync" role="group" aria-labelledby="font-size-lbl" aria-describedby="font-size-help">
         <div class="top"><i data-i="format_size"></i><label class="lbl" id="font-size-lbl" for="font-size">Chat font size</label><span class="val" aria-hidden="true">100%</span></div>
         <div class="rail"><span class="end">Smaller</span><span class="ds-range-wrap"><input id="font-size" class="ds-range" type="range" min="85" max="145" step="5" value="100" style="--lo:0%;--hi:25%" aria-valuetext="100 percent"></span><span class="end">Larger</span></div>
       </div>
-      <p class="help" id="font-size-help">Scales chat replay text and emotes on every recording.</p>
+      <p class="help" id="font-size-help">Scales chat replay text, emotes and badges on every recording.</p>
       <div class="ds-font-weight">
         <i data-i="format_bold"></i>
         <label for="font-weight">Chat font weight</label>

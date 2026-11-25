@@ -33,6 +33,13 @@ internal sealed class Journey : IAsyncDisposable
     /// <summary>Mirrors <c>COLUMN_WAIT_MS</c> in <c>library-keys.js</c>.</summary>
     private const int FocusHandoffTimeoutMs = 5_000;
 
+    /// <summary>The reserved host the Mock badge catalog points its images at.</summary>
+    public const string MockBadgeImageHost = "https://badges.mock.invalid/";
+
+    // A 16x16 SVG served for every Mock badge image; it only needs to decode at the 18px slot.
+    public const string MockBadgeImage =
+        "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><rect width='16' height='16' fill='#9146ff'/></svg>";
+
     private readonly MockAppFixture _app;
     private readonly FailureCapture? _failure;
     private bool _disposed;

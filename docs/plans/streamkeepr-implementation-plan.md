@@ -1402,6 +1402,8 @@ The two processes stay separate CliWrap commands, bridged by a bounded `Pipe`, b
 
 ## Phase 5: Session storage, stitching and recovery
 
+> Superseded by [ADR-0014](../adr/0014-sqlite-durable-record-store.md): SQLite is now the durable record store and media alone stays on the filesystem.
+
 The filesystem is the source of truth. Each session folder carries its own manifest and part playlists, so after any crash the app rebuilds the library and resumes or finalizes recordings without a database.
 
 - **Writes are serialized per session.** Each channel's loop writes only its own sessions, and finalize, delete and retention take that session's lock from LockFor, so two writers never touch one folder.

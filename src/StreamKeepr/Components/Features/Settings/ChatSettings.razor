@@ -7,21 +7,18 @@
    for the change and refetches, so the sheet adjusts chat while playback runs behind it.
    A native range rather than MudSlider: MudSlider fills from its minimum, and this fill runs
    from the centre (0) to the thumb.
-   "Show badge text" is the viewer's one switch for the text chips that stand in for badges.
-   It is not the badge-image switch: images are a separate, later surface.
-   "Chat font size" scales the log's messages, names and emotes (85–145% of body2); badge chips
-   grow above 100%. "Chat font weight" sets message text weight (400/500/700) while names keep
-   700. Both apply to an open pane at once, without a refetch. *@
+   "Show badges" is the viewer's one switch for badges, whether catalog images or their text
+   fallback chips. It hides both. *@
 <SettingsSection HeadingId="sk-settings-chat"
                  Title="Chat"
                  Icon="@MudBlazor.Icons.Material.Rounded.Chat"
                  class="sk-chat-settings"
                  data-chat-settings>
-    <div class="sk-chat-setting-row" role="group" aria-labelledby="sk-chat-sync-label" aria-describedby="sk-chat-sync-help">
-        <div class="sk-chat-setting-head">
+    <div class="sk-chat-sync" role="group" aria-labelledby="sk-chat-sync-label" aria-describedby="sk-chat-sync-help">
+        <div class="sk-chat-sync-head">
             @IslandIcon.Svg("Tune")
-            <label class="sk-chat-setting-label" id="sk-chat-sync-label" for="sk-chat-sync-range">Chat sync</label>
-            <span class="sk-chat-setting-value"
+            <label class="sk-chat-sync-label" id="sk-chat-sync-label" for="sk-chat-sync-range">Chat sync</label>
+            <span class="sk-chat-sync-value"
                   data-chat-sync-value
                   data-zero="@(_shown == 0 ? "true" : "false")"
                   aria-hidden="true">@FormatOffset(_shown)</span>
@@ -34,22 +31,22 @@
                 @IslandIcon.Svg("RestartAlt")
             </button>
         </div>
-        <div class="sk-chat-setting-slider sk-chat-sync-slider">
+        <div class="sk-chat-sync-slider">
             <input @key="_sliderGeneration"
                    id="sk-chat-sync-range"
-                   class="sk-chat-range"
+                   class="sk-chat-sync-range"
                    type="range"
                    min="@SyncMin"
                    max="@SyncMax"
                    step="@SyncStep"
                    value="@Invariant(_sliderValue)"
-                   style="@SyncFillStyle(_shown)"
+                   style="@FillStyle(_shown)"
                    aria-valuetext="@ValueText(_shown)"
                    @oninput="OnInput"
                    @onchange="OnChangeAsync"
                    data-chat-sync-range />
         </div>
-        <div class="sk-chat-setting-ends" aria-hidden="true">
+        <div class="sk-chat-sync-ends" aria-hidden="true">
             <span>Earlier</span>
             <span>Later</span>
         </div>
@@ -57,34 +54,34 @@
     <p class="sk-chat-settings-help" id="sk-chat-sync-help">
         Shifts chat on every recording, to match the delay between the stream and its chat.
     </p>
-    @* The text chips that stand in for badges, not badge images. A native checkbox with the
-       section's meaning icon; the browser gives the control its keyboard and screen-reader
-       behaviour, and the label wraps the row so the whole 40px row is the hit target. *@
-    <label class="sk-chat-badge-text">
+    @* Badges, images or their text fallback. A native checkbox with the section's meaning
+       icon; the browser gives the control its keyboard and screen-reader behaviour, and the
+       label wraps the row so the whole 40px row is the hit target. *@
+    <label class="sk-chat-badges">
         @IslandIcon.Svg("Label")
         <input type="checkbox"
-               class="sk-chat-badge-text-input"
-               checked="@Preferences.ChatShowBadgeText"
-               aria-describedby="sk-chat-badge-text-help"
-               @onchange="OnBadgeTextChangedAsync"
-               data-chat-badge-text />
-        <span>Show badge text</span>
+               class="sk-chat-badges-input"
+               checked="@Preferences.ChatShowBadges"
+               aria-describedby="sk-chat-badges-help"
+               @onchange="OnBadgesChangedAsync"
+               data-chat-badges />
+        <span>Show badges</span>
     </label>
-    <p class="sk-chat-settings-help" id="sk-chat-badge-text-help" data-chat-badge-text-help>
-        Shows the MOD, SUB, VIP and other role text before each name.
+    <p class="sk-chat-settings-help" id="sk-chat-badges-help" data-chat-badges-help>
+        Shows the moderator, subscriber, VIP and other role badges before each name.
     </p>
-    <div class="sk-chat-setting-row sk-chat-font"
+    <div class="sk-chat-font"
          role="group"
          aria-labelledby="sk-chat-font-scale-label"
          aria-describedby="sk-chat-font-scale-help">
-        <div class="sk-chat-setting-head">
+        <div class="sk-chat-font-head">
             @IslandIcon.Svg("FormatSize")
-            <label class="sk-chat-setting-label" id="sk-chat-font-scale-label" for="sk-chat-font-scale">Chat font size</label>
-            <span class="sk-chat-setting-value" data-chat-font-value aria-hidden="true">@FormatScale(_shownScale)</span>
+            <label class="sk-chat-font-label" id="sk-chat-font-scale-label" for="sk-chat-font-scale">Chat font size</label>
+            <span class="sk-chat-font-value" data-chat-font-value aria-hidden="true">@FormatScale(_shownScale)</span>
         </div>
-        <div class="sk-chat-setting-slider">
+        <div class="sk-chat-font-slider">
             <input id="sk-chat-font-scale"
-                   class="sk-chat-range"
+                   class="sk-chat-sync-range"
                    type="range"
                    min="@FontScaleMin"
                    max="@FontScaleMax"
@@ -96,13 +93,13 @@
                    @onchange="OnFontScaleChangeAsync"
                    data-chat-font-scale />
         </div>
-        <div class="sk-chat-setting-ends" aria-hidden="true">
+        <div class="sk-chat-font-ends" aria-hidden="true">
             <span>Smaller</span>
             <span>Larger</span>
         </div>
     </div>
     <p class="sk-chat-settings-help" id="sk-chat-font-scale-help">
-        Scales chat replay text and emotes on every recording.
+        Scales chat replay text, emotes and badges on every recording.
     </p>
     <div class="sk-chat-font-weight">
         @IslandIcon.Svg("FormatBold")
@@ -183,12 +180,12 @@
         await Preferences.PersistAsync();
     }
 
-    private async Task OnBadgeTextChangedAsync(ChangeEventArgs args)
+    private async Task OnBadgesChangedAsync(ChangeEventArgs args)
     {
         if (args.Value is not bool show)
             return;
 
-        Preferences.SetChatShowBadgeText(show);
+        Preferences.SetChatShowBadges(show);
         await Preferences.PersistAsync();
     }
 
@@ -247,9 +244,10 @@
         return size == 0 ? $"0 {unit}" : $"{amount} {unit} {(value > 0 ? "later" : "earlier")}";
     }
 
-    // The sync fill runs from the centre to the thumb: --sk-range-lo and --sk-range-hi are 0–1
-    // along the track (components.css draws them). The font size fill runs from the left.
-    private static string SyncFillStyle(double value)
+    // The fill runs from the centre to the thumb: --sk-sync-lo and --sk-sync-hi are 0–1 along
+    // the track (components.css draws them). The font size fill runs from the left and shares
+    // those two variables.
+    private static string FillStyle(double value)
     {
         double max = ChatReader.MaxSyncOffsetSeconds;
         double at = (value + max) / (2 * max);
@@ -264,7 +262,7 @@
     }
 
     private static string RangeFill(double lo, double hi) =>
-        string.Create(CultureInfo.InvariantCulture, $"--sk-range-lo: {lo}; --sk-range-hi: {hi}");
+        string.Create(CultureInfo.InvariantCulture, $"--sk-sync-lo: {lo}; --sk-sync-hi: {hi}");
 
     private static string FormatScale(int value) => $"{value}%";
 
