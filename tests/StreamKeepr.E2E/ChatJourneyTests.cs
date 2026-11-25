@@ -229,7 +229,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
 
         // The seeded chat holds a moderator message and the streamer's broadcaster message.
-        await SeekToChatAsync();
+        await SeekToChatAsync(page);
         ILocator moderatorChip = page.Locator("[data-message-id='seed-1']")
             .GetByText("MOD", new() { Exact = true });
         ILocator streamerChip = page.Locator("[data-message-id='seed-streamer']")
@@ -238,7 +238,9 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await Assertions.Expect(streamerChip).ToBeVisibleAsync();
         await Assertions.Expect(pane).ToHaveAttributeAsync("data-badge-text", "true");
 
-        ILocator toggle = await OpenSettingsAsync();
+        ILocator toggle = await OpenSettingsAsync(page, page
+            .GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true })
+            .GetByRole(AriaRole.Checkbox, new() { Name = "Show badge text", Exact = true }));
         await Assertions.Expect(toggle).ToBeCheckedAsync(new() { Timeout = 20_000 });
 
         while (chatRequests.TryDequeue(out _)) { }
@@ -265,13 +267,15 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await session.ReloadAsync();
         await Assertions.Expect(page.Locator("[data-sk-chat]"))
             .ToHaveAttributeAsync("data-badge-text", "false", new() { Timeout = 20_000 });
-        await SeekToChatAsync();
+        await SeekToChatAsync(page);
         ILocator reloadedChip = page.Locator("[data-message-id='seed-1']")
             .GetByText("MOD", new() { Exact = true });
         // Attached first: ToBeHidden also passes for a node that is not there at all.
         await reloadedChip.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 20_000 });
         await Assertions.Expect(reloadedChip).ToBeHiddenAsync();
-        ILocator reloadedToggle = await OpenSettingsAsync();
+        ILocator reloadedToggle = await OpenSettingsAsync(page, page
+            .GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true })
+            .GetByRole(AriaRole.Checkbox, new() { Name = "Show badge text", Exact = true }));
         await Assertions.Expect(reloadedToggle).Not.ToBeCheckedAsync(new() { Timeout = 20_000 });
 
         // The reload left the setting off; turning it back on restores the chips.
@@ -282,31 +286,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
 
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "chat-badge-text");
 
-        async Task SeekToChatAsync()
-        {
-            await page.Locator("[data-sk='seek'][aria-disabled='false']")
-                .WaitForAsync(new() { Timeout = 20_000 });
-            ILocator seek = page.Locator("[data-sk='seek']");
-            await seek.FocusAsync();
-            await page.Keyboard.PressAsync("Home");
-            for (int i = 0; i < 4; i++)
-                await page.Keyboard.PressAsync("ArrowRight");
-        }
 
-        async Task<ILocator> OpenSettingsAsync()
-        {
-            ILocator toggleInSheet = page
-                .GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true })
-                .GetByRole(AriaRole.Checkbox, new() { Name = "Show badge text", Exact = true });
-            if (!await toggleInSheet.IsVisibleAsync())
-            {
-                await page.GetByRole(AriaRole.Banner)
-                    .GetByRole(AriaRole.Link, new() { Name = "Settings", Exact = true }).ClickAsync();
-            }
-
-            await Assertions.Expect(toggleInSheet).ToBeVisibleAsync(new() { Timeout = 20_000 });
-            return toggleInSheet;
-        }
     }
 
     [Fact]
@@ -327,7 +307,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         if (await pane.GetAttributeAsync("data-open") != "true")
             await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
 
-        await SeekToChatAsync();
+        await SeekToChatAsync(page);
         ILocator row = page.Locator("[data-message-id='seed-1']");
         await row.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 20_000 });
 
@@ -342,13 +322,11 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         double playhead = await video.EvaluateAsync<double>("v => v.currentTime");
 
         // Settings opens over the recording; the pane stays behind it.
-        await page.GetByRole(AriaRole.Banner)
-            .GetByRole(AriaRole.Link, new() { Name = "Settings", Exact = true }).ClickAsync();
         ILocator sheet = page.GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true });
         ILocator size = sheet.GetByRole(AriaRole.Slider, new() { Name = "Chat font size", Exact = true });
         ILocator readout = sheet.Locator("[data-chat-font-value]");
         ILocator weight = sheet.GetByRole(AriaRole.Combobox, new() { Name = "Chat font weight", Exact = true });
-        await Assertions.Expect(size).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        await OpenSettingsAsync(page, size);
         Assert.Equal("85", await size.GetAttributeAsync("min"));
         Assert.Equal("145", await size.GetAttributeAsync("max"));
         Assert.Equal("5", await size.GetAttributeAsync("step"));
@@ -364,17 +342,19 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await Assertions.Expect(readout).ToHaveTextAsync("105%");
         await Assertions.Expect(size).ToHaveAttributeAsync("aria-valuetext", "105 percent");
         await Assertions.Expect(pane).ToHaveAttributeAsync(
-            "style", new Regex("--sk-chat-font-scale: 105"), new() { Timeout = 10_000 });
-        // The open pane applies it without a chat refetch, and playback does not move.
+            "data-font-scale", "105", new() { Timeout = 10_000 });
+        // The open pane applies it without a chat refetch, and playback does not move. 300 ms
+        // is several times a keyed fetch's round trip against the local Mock app.
         await page.WaitForTimeoutAsync(300);
         Assert.Empty(chatRequests);
         Assert.Equal(playhead, await video.EvaluateAsync<double>("v => v.currentTime"));
 
         await weight.SelectOptionAsync(new SelectOptionValue { Label = "Bold (700)" });
         await Assertions.Expect(pane).ToHaveAttributeAsync(
-            "style", new Regex("--sk-chat-font-weight: 700"), new() { Timeout = 10_000 });
+            "data-font-weight", "700", new() { Timeout = 10_000 });
         // The row inherits the log's weight; names keep their own 700.
         Assert.Equal("700", await row.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+        // The same quiet period after the weight change.
         await page.WaitForTimeoutAsync(300);
         Assert.Empty(chatRequests);
         Assert.Equal(playhead, await video.EvaluateAsync<double>("v => v.currentTime"));
@@ -385,31 +365,38 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await session.ReloadAsync();
         ILocator reloadedPane = page.Locator("[data-sk-chat]");
         await Assertions.Expect(reloadedPane).ToHaveAttributeAsync(
-            "style", new Regex("--sk-chat-font-scale: 105"), new() { Timeout = 20_000 });
-        await Assertions.Expect(reloadedPane).ToHaveAttributeAsync(
-            "style", new Regex("--sk-chat-font-weight: 700"));
+            "data-font-scale", "105", new() { Timeout = 20_000 });
+        await Assertions.Expect(reloadedPane).ToHaveAttributeAsync("data-font-weight", "700");
 
         ILocator reloadedSize = sheet.GetByRole(AriaRole.Slider, new() { Name = "Chat font size", Exact = true });
-        if (!await reloadedSize.IsVisibleAsync())
-        {
-            await page.GetByRole(AriaRole.Banner)
-                .GetByRole(AriaRole.Link, new() { Name = "Settings", Exact = true }).ClickAsync();
-        }
-        await Assertions.Expect(reloadedSize).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        await OpenSettingsAsync(page, reloadedSize);
         Assert.Equal("105", await reloadedSize.InputValueAsync());
         Assert.Equal("700", await sheet.GetByRole(AriaRole.Combobox, new() { Name = "Chat font weight", Exact = true })
             .InputValueAsync());
 
-        async Task SeekToChatAsync()
+    }
+
+    private static async Task<ILocator> OpenSettingsAsync(IPage page, ILocator target)
+    {
+        if (!await target.IsVisibleAsync())
         {
-            await page.Locator("[data-sk='seek'][aria-disabled='false']")
-                .WaitForAsync(new() { Timeout = 20_000 });
-            ILocator seek = page.Locator("[data-sk='seek']");
-            await seek.FocusAsync();
-            await page.Keyboard.PressAsync("Home");
-            for (int i = 0; i < 4; i++)
-                await page.Keyboard.PressAsync("ArrowRight");
+            await page.GetByRole(AriaRole.Banner)
+                .GetByRole(AriaRole.Link, new() { Name = "Settings", Exact = true }).ClickAsync();
         }
+
+        await Assertions.Expect(target).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        return target;
+    }
+
+    private static async Task SeekToChatAsync(IPage page)
+    {
+        await page.Locator("[data-sk='seek'][aria-disabled='false']")
+            .WaitForAsync(new() { Timeout = 20_000 });
+        ILocator seek = page.Locator("[data-sk='seek']");
+        await seek.FocusAsync();
+        await page.Keyboard.PressAsync("Home");
+        for (int i = 0; i < 4; i++)
+            await page.Keyboard.PressAsync("ArrowRight");
     }
 
     private static async Task WaitForOffsetAsync(

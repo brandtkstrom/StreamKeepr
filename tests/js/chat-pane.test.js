@@ -1433,6 +1433,8 @@ describe("chat replay pane", () => {
 
     pane.setTypography(120, 700);
 
+    expect(root.dataset.fontScale).toBe("120");
+    expect(root.dataset.fontWeight).toBe("700");
     expect(root.style.getPropertyValue("--sk-chat-font-scale")).toBe("120");
     expect(root.style.getPropertyValue("--sk-chat-font-weight")).toBe("700");
     expect(fetch.mock.calls).toHaveLength(calls);
@@ -1448,6 +1450,8 @@ describe("chat replay pane", () => {
 
     await pane.load({ ...VIEW, fontScale: 120, fontWeight: 500 });
 
+    expect(root.dataset.fontScale).toBe("120");
+    expect(root.dataset.fontWeight).toBe("500");
     expect(root.style.getPropertyValue("--sk-chat-font-scale")).toBe("120");
     expect(root.style.getPropertyValue("--sk-chat-font-weight")).toBe("500");
 
@@ -1458,10 +1462,12 @@ describe("chat replay pane", () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
     root.style.setProperty("--sk-chat-font-scale", "110");
+    root.dataset.fontScale = "110";
     const pane = createChatPane(root, { fetch: fakeFetch() });
 
-    await pane.load({ ...VIEW });
+    await pane.load({ ...VIEW, fontScale: null, fontWeight: null });
 
+    expect(root.dataset.fontScale).toBe("110");
     expect(root.style.getPropertyValue("--sk-chat-font-scale")).toBe("110");
 
     pane.dispose();

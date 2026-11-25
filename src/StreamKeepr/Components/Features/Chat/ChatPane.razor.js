@@ -1179,13 +1179,21 @@ export function createChatPane(root, {
   }
 
   /**
-   * Writes the viewer's font size and weight (Settings › Chat) onto the pane root. C# owns the
-   * bounds; this only applies them, so the log reflows without a refetch or a row rebuild.
+   * Writes the viewer's font size and weight (Settings › Chat) onto the pane root, as the custom
+   * properties the CSS reads and the data attributes the tests read. C# owns the bounds; this
+   * only applies them, so the log reflows without a refetch or a row rebuild. A missing value is
+   * not a number, so an older payload cannot zero the painted state.
    */
   function applyTypography(scale, weight) {
     if (!root) return;
-    if (Number.isFinite(Number(scale))) root.style.setProperty("--sk-chat-font-scale", String(scale));
-    if (Number.isFinite(Number(weight))) root.style.setProperty("--sk-chat-font-weight", String(weight));
+    if (typeof scale === "number" && Number.isFinite(scale)) {
+      root.dataset.fontScale = String(scale);
+      root.style.setProperty("--sk-chat-font-scale", String(scale));
+    }
+    if (typeof weight === "number" && Number.isFinite(weight)) {
+      root.dataset.fontWeight = String(weight);
+      root.style.setProperty("--sk-chat-font-weight", String(weight));
+    }
   }
 
   /**

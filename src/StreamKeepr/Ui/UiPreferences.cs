@@ -29,8 +29,13 @@ public sealed class UiPreferences
     /// <summary>The chat message text weight (Settings › Chat); names keep 700.</summary>
     public const int ChatFontWeightDefault = 400;
 
-    /// <summary>The weights Settings › Chat offers, in the design system's three steps.</summary>
-    public static IReadOnlyList<int> ChatFontWeights { get; } = [400, 500, 700];
+    /// <summary>The weights Settings › Chat offers, with their labels, in the design system's three steps.</summary>
+    public static IReadOnlyList<(int Value, string Label)> ChatFontWeightOptions { get; } =
+        [(400, "Normal (400)"), (500, "Medium (500)"), (700, "Bold (700)")];
+
+    /// <summary>Whether <paramref name="weight"/> is one of <see cref="ChatFontWeightOptions"/>.</summary>
+    public static bool IsChatFontWeight(int weight) =>
+        ChatFontWeightOptions.Any(option => option.Value == weight);
 
     private const string PersistenceKey = "sk-ui";
 
@@ -98,7 +103,7 @@ public sealed class UiPreferences
     /// design). Always within the slider's bounds and a multiple of its step.</summary>
     public int ChatFontScale => _chatFontScale;
 
-    /// <summary>The chat message text weight, one of <see cref="ChatFontWeights"/>; names keep 700.</summary>
+    /// <summary>The chat message text weight, one of <see cref="ChatFontWeightOptions"/>; names keep 700.</summary>
     public int ChatFontWeight => _chatFontWeight;
 
     public event Action? Changed;
@@ -184,10 +189,10 @@ public sealed class UiPreferences
         OnChanged();
     }
 
-    /// <summary>Sets the chat message text weight; a value outside <see cref="ChatFontWeights"/> is ignored.</summary>
+    /// <summary>Sets the chat message text weight; a value outside <see cref="ChatFontWeightOptions"/> is ignored.</summary>
     public void SetChatFontWeight(int weight)
     {
-        if (!ChatFontWeights.Contains(weight) || weight == _chatFontWeight)
+        if (!IsChatFontWeight(weight) || weight == _chatFontWeight)
             return;
 
         _chatFontWeight = weight;
@@ -256,8 +261,14 @@ public sealed class UiPreferences
         return Math.Clamp(snapped, ChatFontScaleMin, ChatFontScaleMax);
     }
 
-    private static int NormalizeChatFontWeight(double weight) =>
-        weight is 400 or 500 or 700 ? (int)weight : ChatFontWeightDefault;
+    private static int NormalizeChatFontWeight(double weight)
+    {
+        if (!double.IsFinite(weight) || weight < int.MinValue || weight > int.MaxValue)
+            return ChatFontWeightDefault;
+
+        var rounded = (int)Math.Round(weight, MidpointRounding.AwayFromZero);
+        return IsChatFontWeight(rounded) ? rounded : ChatFontWeightDefault;
+    }
 
     private static double SnapChatSync(double seconds)
     {

@@ -336,9 +336,9 @@ public sealed class ChatPaneTests
             .Add(c => c.Recording, WithChat())
             .Add(c => c.Open, true));
 
-        string style = cut.Find("[data-sk-chat]").GetAttribute("style")!;
-        Assert.Contains("--sk-chat-font-scale: 120", style, StringComparison.Ordinal);
-        Assert.Contains("--sk-chat-font-weight: 700", style, StringComparison.Ordinal);
+        IElement pane = cut.Find("[data-sk-chat]");
+        Assert.Equal("120", pane.GetAttribute("data-font-scale"));
+        Assert.Equal("700", pane.GetAttribute("data-font-weight"));
 
         JSRuntimeInvocation init = Assert.Single(module.Invocations, call => call.Identifier == "init");
         JsonElement payload = JsonSerializer.SerializeToElement(

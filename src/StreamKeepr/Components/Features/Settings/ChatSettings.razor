@@ -1,5 +1,4 @@
 @using System.Globalization
-@using System.Linq
 @using StreamKeepr.Infrastructure.Storage
 @inject UiPreferences Preferences
 
@@ -113,9 +112,9 @@
                 aria-describedby="sk-chat-font-weight-help"
                 @onchange="OnFontWeightChangedAsync"
                 data-chat-font-weight>
-            @foreach (int weight in UiPreferences.ChatFontWeights)
+            @foreach (var option in UiPreferences.ChatFontWeightOptions)
             {
-                <option value="@weight" selected="@(weight == _weight)">@WeightLabel(weight)</option>
+                <option value="@option.Value" selected="@(option.Value == _weight)">@option.Label</option>
             }
         </select>
     </div>
@@ -215,7 +214,7 @@
 
     private async Task OnFontWeightChangedAsync(ChangeEventArgs args)
     {
-        if (!TryParseInt(args.Value, out int weight) || !UiPreferences.ChatFontWeights.Contains(weight))
+        if (!TryParseInt(args.Value, out int weight) || !UiPreferences.IsChatFontWeight(weight))
             return;
 
         Preferences.SetChatFontWeight(weight);
@@ -254,26 +253,20 @@
     {
         double max = ChatReader.MaxSyncOffsetSeconds;
         double at = (value + max) / (2 * max);
-        return string.Create(CultureInfo.InvariantCulture,
-            $"--sk-range-lo: {Math.Min(at, 0.5)}; --sk-range-hi: {Math.Max(at, 0.5)}");
+        return RangeFill(Math.Min(at, 0.5), Math.Max(at, 0.5));
     }
 
     private static string ScaleFillStyle(int value)
     {
         double at = (double)(value - UiPreferences.ChatFontScaleMin) /
             (UiPreferences.ChatFontScaleMax - UiPreferences.ChatFontScaleMin);
-        return string.Create(CultureInfo.InvariantCulture, $"--sk-range-lo: 0; --sk-range-hi: {at}");
+        return RangeFill(0, at);
     }
+
+    private static string RangeFill(double lo, double hi) =>
+        string.Create(CultureInfo.InvariantCulture, $"--sk-range-lo: {lo}; --sk-range-hi: {hi}");
 
     private static string FormatScale(int value) => $"{value}%";
 
     private static string ScaleValueText(int value) => $"{value} percent";
-
-    private static string WeightLabel(int weight) => weight switch
-    {
-        400 => "Normal (400)",
-        500 => "Medium (500)",
-        700 => "Bold (700)",
-        _ => weight.ToString(CultureInfo.InvariantCulture),
-    };
 }
