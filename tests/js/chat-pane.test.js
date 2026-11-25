@@ -1473,6 +1473,37 @@ describe("chat replay pane", () => {
     pane.dispose();
   });
 
+  it("keeps a following log at the end when the font changes, and leaves a scrolled-back log put", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, { fetch: fakeFetch() });
+    await pane.load({ ...VIEW });
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    let scrollTop = 1000;
+    Object.defineProperty(log, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(log, "clientHeight", { configurable: true, value: 300 });
+    Object.defineProperty(log, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value) => { scrollTop = value; },
+    });
+
+    // Following: the reflow lands on the newest row.
+    pane.setTypography(120, 400);
+    expect(log.scrollTop).toBe(1000);
+
+    // Scrolled back: the viewer keeps their place.
+    log.scrollTop = 0;
+    log.dispatchEvent(new Event("scroll"));
+    pane.setTypography(130, 400);
+    expect(log.scrollTop).toBe(0);
+
+    pane.dispose();
+  });
+
   it("starts with the badge text off when the payload says so", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");

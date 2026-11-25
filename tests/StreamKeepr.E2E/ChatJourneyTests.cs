@@ -311,6 +311,17 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         ILocator row = page.Locator("[data-message-id='seed-1']");
         await row.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 20_000 });
 
+        // The baseline: body2/400 messages, 700 names, and a caption/label badge chip.
+        ILocator log = pane.Locator("[data-sk='chat-log']");
+        ILocator name = row.Locator("[data-chat-name]");
+        ILocator chip = row.GetByText("MOD", new() { Exact = true });
+        Assert.InRange(await log.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 13.9, 14.1);
+        Assert.InRange(await name.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 13.9, 14.1);
+        Assert.Equal("400", await row.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+        Assert.Equal("700", await name.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+        Assert.InRange(await chip.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 11.9, 12.1);
+        Assert.Equal("500", await chip.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+
         // Pause so a leaked arrow key shows as a jump rather than normal playback.
         ILocator video = page.Locator("[data-sk='video']");
         if (!await video.EvaluateAsync<bool>("v => v.paused"))
@@ -343,6 +354,12 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await Assertions.Expect(size).ToHaveAttributeAsync("aria-valuetext", "105 percent");
         await Assertions.Expect(pane).ToHaveAttributeAsync(
             "data-font-scale", "105", new() { Timeout = 10_000 });
+        // Messages and names scale; metadata keeps its design size; following stays at the end.
+        Assert.InRange(await log.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 14.6, 14.8);
+        Assert.InRange(await name.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 14.6, 14.8);
+        Assert.InRange(await chip.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 11.9, 12.1);
+        Assert.True(await log.EvaluateAsync<bool>(
+            "el => el.scrollHeight - el.scrollTop - el.clientHeight < 24"));
         // The open pane applies it without a chat refetch, and playback does not move. 300 ms
         // is several times a keyed fetch's round trip against the local Mock app.
         await page.WaitForTimeoutAsync(300);
@@ -352,6 +369,8 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await weight.SelectOptionAsync(new SelectOptionValue { Label = "Bold (700)" });
         await Assertions.Expect(pane).ToHaveAttributeAsync(
             "data-font-weight", "700", new() { Timeout = 10_000 });
+        Assert.Equal("700", await name.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+        Assert.Equal("500", await chip.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
         // The row inherits the log's weight; names keep their own 700.
         Assert.Equal("700", await row.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
         // The same quiet period after the weight change.
