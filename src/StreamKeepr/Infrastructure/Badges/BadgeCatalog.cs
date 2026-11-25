@@ -16,6 +16,14 @@ internal interface IBadgeSource
     /// throw <see cref="BadgeCatalogException"/> on transport or payload failures.
     /// </summary>
     Task<IReadOnlyList<BadgeCatalogEntry>> GetGlobalAsync(CancellationToken ct);
+
+    /// <summary>
+    /// Fetches one channel's badge catalog. <paramref name="broadcasterId"/> must be a validated
+    /// numeric Twitch user ID; implementations may reject anything else with
+    /// <see cref="ArgumentException"/>. A channel with no custom badges returns an empty catalog.
+    /// Transport or payload failures throw <see cref="BadgeCatalogException"/>.
+    /// </summary>
+    Task<IReadOnlyList<BadgeCatalogEntry>> GetChannelAsync(string broadcasterId, CancellationToken ct);
 }
 
 /// <summary>Validation and size limits for an untrusted badge catalog payload.</summary>
@@ -87,7 +95,7 @@ internal sealed class BadgeCatalogException(
         new(status, $"The Twitch badge catalog request failed with HTTP {status}.");
 
     public static BadgeCatalogException InvalidPayload() =>
-        new(null, "Twitch returned an invalid global badge catalog.",
+        new(null, "Twitch returned an invalid badge catalog.",
             BadgeCatalogFailureKind.InvalidPayload);
 
     public static BadgeCatalogException ResponseTooLarge() =>

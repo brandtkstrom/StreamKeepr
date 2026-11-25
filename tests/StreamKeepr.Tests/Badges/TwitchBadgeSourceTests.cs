@@ -145,6 +145,42 @@ public sealed class TwitchBadgeSourceTests
     }
 
     [Fact]
+    public async Task Requests_the_channel_catalog_for_the_broadcaster()
+    {
+        var handler = Handler(_ => Task.FromResult(EmoteTestData.Json(CatalogJson)));
+        TwitchBadgeSource source = CreateSource(handler);
+
+        await source.GetChannelAsync("9100001", CancellationToken.None);
+
+        CapturedRequest badge = Assert.Single(
+            handler.Requests,
+            request => request.RequestUri?.Host == "api.twitch.tv");
+        Assert.Equal(
+            "https://api.twitch.tv/helix/chat/badges?broadcaster_id=9100001",
+            badge.RequestUri!.AbsoluteUri);
+        Assert.Contains(
+            badge.Headers,
+            header => header.Key == "Client-Id" && header.Value == "test-client-id");
+        Assert.Contains(
+            badge.Headers,
+            header => header.Key == "Authorization" && header.Value == "Bearer one");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-a-number")]
+    [InlineData("123456789012345678901")]
+    public async Task Rejects_non_numeric_broadcaster_ids(string broadcasterId)
+    {
+        var handler = Handler(_ => Task.FromResult(EmoteTestData.Json(CatalogJson)));
+        TwitchBadgeSource source = CreateSource(handler);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => source.GetChannelAsync(broadcasterId, CancellationToken.None));
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
     public async Task Normalizes_sets_and_versions_and_drops_untrusted_images()
     {
         var handler = Handler(_ => Task.FromResult(EmoteTestData.Json(CatalogJson)));

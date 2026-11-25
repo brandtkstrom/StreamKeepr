@@ -49,6 +49,19 @@ public sealed class MockChatSeeder(
                 null, null);
             Append(store, summary.Channel, baseAt, 27, "seed-3", "PogChamp nice clip",
                 null, null);
+            // These badges exercise channel precedence: the first seeded channel overrides
+            // subscriber/0 and adds subscriber/3 and bits/100, subscriber/12 uses the global
+            // catalog because the channel omits that version, and subscriber/99 keeps the chip.
+            Append(store, summary.Channel, baseAt, 18, "seed-channel-0",
+                "Channel subscriber badge", "subscriber", "0");
+            Append(store, summary.Channel, baseAt, 21, "seed-channel-3",
+                "Channel subscriber months", "subscriber", "3");
+            Append(store, summary.Channel, baseAt, 24, "seed-bits",
+                "Channel bits badge", "bits", "100");
+            Append(store, summary.Channel, baseAt, 28, "seed-global-12",
+                "Global subscriber version", "subscriber", "12");
+            Append(store, summary.Channel, baseAt, 31, "seed-unmatched",
+                "Unmatched badge version", "subscriber", "99");
             store.CloseSession(summary.Id, finalize: true);
             logger.LogInformation("Seeded chat for {Session}.", summary.Id);
         }

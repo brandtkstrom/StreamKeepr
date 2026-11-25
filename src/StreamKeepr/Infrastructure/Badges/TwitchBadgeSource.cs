@@ -3,15 +3,17 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
+using StreamKeepr.Infrastructure.Emotes;
 using StreamKeepr.Infrastructure.Http;
 using StreamKeepr.Infrastructure.Twitch;
 
 namespace StreamKeepr.Infrastructure.Badges;
 
 /// <summary>
-/// Fetches Twitch's global chat badge catalog through Helix with an app access token. The token
-/// and the response body stay server-side; the browser only ever receives normalized image URLs.
-/// A 401 invalidates the token once and retries, matching the other Helix readers.
+/// Fetches Twitch's global and per-channel chat badge catalogs through Helix with an app access
+/// token. The token and the response body stay server-side; the browser only ever receives
+/// normalized image URLs. A 401 invalidates the token once and retries, matching the other
+/// Helix readers.
 /// </summary>
 internal sealed class TwitchBadgeSource(
     IHttpClientFactory httpFactory,
@@ -20,7 +22,23 @@ internal sealed class TwitchBadgeSource(
 {
     public const string GlobalPath = "helix/chat/badges/global";
 
-    public async Task<IReadOnlyList<BadgeCatalogEntry>> GetGlobalAsync(CancellationToken ct)
+    public const string ChannelPath = "helix/chat/badges";
+
+    public Task<IReadOnlyList<BadgeCatalogEntry>> GetGlobalAsync(CancellationToken ct) =>
+        GetCatalogAsync(GlobalPath, ct);
+
+    public Task<IReadOnlyList<BadgeCatalogEntry>> GetChannelAsync(
+        string broadcasterId, CancellationToken ct)
+    {
+        if (!EmoteCatalogRules.IsValidChannelId(broadcasterId))
+            throw new ArgumentException("A numeric Twitch user ID is required.", nameof(broadcasterId));
+
+        return GetCatalogAsync(
+            $"{ChannelPath}?broadcaster_id={Uri.EscapeDataString(broadcasterId)}", ct);
+    }
+
+    private async Task<IReadOnlyList<BadgeCatalogEntry>> GetCatalogAsync(
+        string path, CancellationToken ct)
     {
         using HttpClient http = httpFactory.CreateClient(TwitchHttpClients.Helix);
 
@@ -28,7 +46,7 @@ internal sealed class TwitchBadgeSource(
         {
             string token = await tokens.GetAsync(ct);
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, GlobalPath);
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
             request.Headers.Add("Client-Id", options.Value.ClientId);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
@@ -60,11 +78,11 @@ internal sealed class TwitchBadgeSource(
     /// </summary>
     private static IReadOnlyList<BadgeCatalogEntry> Normalize(byte[] body)
     {
-        HelixGlobalBadgesResponse? payload;
+        HelixBadgesResponse? payload;
         try
         {
             payload = JsonSerializer.Deserialize(
-                body, TwitchJsonContext.Default.HelixGlobalBadgesResponse);
+                body, TwitchJsonContext.Default.HelixBadgesResponse);
         }
         catch (JsonException)
         {

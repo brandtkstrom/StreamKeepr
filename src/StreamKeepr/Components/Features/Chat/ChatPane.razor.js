@@ -157,13 +157,15 @@ export function buildEmoteCatalog(entries) {
 }
 
 /**
- * Builds the set/version lookup for a badge catalog response. The server already validates and
- * orders entries; first entry wins, and provider data is untrusted, so only absolute https
- * sources with a title enter the catalog.
+ * Builds the set/version lookup for both badge catalog scopes. A channel entry wins over a global
+ * entry with the same exact set and version; a different version is a different key, so a channel
+ * badge never stands in for a missing global version. The server already validates and orders
+ * each scope; first entry wins within a scope, and catalog data is untrusted, so only absolute
+ * https sources with a title enter the catalog.
  */
-export function buildBadgeCatalog(entries) {
+export function buildBadgeCatalog(global = [], channel = []) {
   const catalog = new Map();
-  for (const entry of entries || []) {
+  for (const entry of [...channel, ...global]) {
     if (!entry || typeof entry.set !== "string" || typeof entry.version !== "string") continue;
     if (typeof entry.title !== "string" || entry.title === "") continue;
     if (!isHttpsUrl(entry.src)) continue;
@@ -503,7 +505,10 @@ export function createChatPane(root, {
       if (!response.ok) throw new Error(`badges ${response.status}`);
       const data = await response.json();
       if (disposed || request.signal.aborted || view?.recordingId !== recordingId) return;
-      badgeCatalog = buildBadgeCatalog(data.available ? data.global : []);
+      badgeCatalog = buildBadgeCatalog(
+        data.available ? data.global : [],
+        data.available ? data.channel : [],
+      );
       badgeVersion++;
       render();
     } catch (error) {

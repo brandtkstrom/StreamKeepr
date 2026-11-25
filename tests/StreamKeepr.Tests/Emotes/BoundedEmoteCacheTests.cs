@@ -35,6 +35,24 @@ public sealed class BoundedEmoteCacheTests
     }
 
     [Fact]
+    public void Protected_in_flight_entries_are_not_pruned()
+    {
+        ConcurrentDictionary<string, SingleFlightSlot<Entry>> cache =
+            CreateCache(("done", Now), ("inflight", null));
+
+        BoundedEmoteCache.Trim(
+            cache,
+            limit: 0,
+            Now,
+            Ttl,
+            entry => entry.FetchedAt,
+            slot => slot.Value is not null);
+
+        Assert.True(cache.ContainsKey("inflight"));
+        Assert.False(cache.ContainsKey("done"));
+    }
+
+    [Fact]
     public void Fresh_entries_are_pruned_when_every_entry_is_fresh()
     {
         ConcurrentDictionary<string, SingleFlightSlot<Entry>> cache =
