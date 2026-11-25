@@ -164,7 +164,7 @@ public sealed class ChatSettingsTests
         string text = cut.Find("[data-chat-settings]").TextContent;
         Assert.Contains("Smaller", text, StringComparison.Ordinal);
         Assert.Contains("Larger", text, StringComparison.Ordinal);
-        Assert.Contains("Scales chat replay messages and names", text, StringComparison.Ordinal);
+        Assert.Contains("Scales chat replay text and emotes", text, StringComparison.Ordinal);
     }
 
     [Theory]

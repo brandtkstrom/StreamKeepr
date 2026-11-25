@@ -13,7 +13,7 @@ Settings › Chat: viewer preferences for the chat replay — one Chat sync offs
 - **Chat font size**: the log's font size as a percentage of the design's `body2`, from 85% to 145% in 5% steps, 100% by default, after Show badge text.
   - The top line: a `FormatSize` icon, "Chat font size" in `label` (the slider's `<label>`), and the current percentage right-aligned as a numeric readout ("100%").
   - Below, a native range with "Smaller" at the left and "Larger" at the right in `caption`, at most 420px wide, filled from the left in `primary`; `aria-valuetext` reads "100 percent". Keyboard is the browser's: ←/→ 5%, Home/End 85%/145%.
-  - Under it, one line of help in `caption`, `text-secondary`: "Scales chat replay messages and names on every recording."
+  - Under it, one line of help in `caption`, `text-secondary`: "Scales chat replay text and emotes on every recording."
   - Stored in `UiPreferences` (`chatFontScale`, 85–145, default 100). It scales message text and names; badge chips scale up above 100% (10px floor) and never shrink; replies and gaps keep `caption`; emote images are `2em` (28px at 100%). A change persists and applies to an open pane at once without a refetch or a log rebuild.
 - **Chat font weight**: a native select labelled "Chat font weight", led by the `FormatBold` icon, offering Normal (400), Medium (500) and Bold (700), 400 by default, with one line of help: "Sets message text weight; usernames stay bold."
   - Stored in `UiPreferences` (`chatFontWeight`, default 400). It sets message text only; usernames stay 700, and replies, gaps and badges keep their design weights. A change persists and applies to an open pane at once.

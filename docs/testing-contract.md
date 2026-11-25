@@ -15,7 +15,7 @@ This contract defines the test seams, projects, fake-Twitch harness, determinism
 | Unit | `tests/StreamKeepr.Tests` | Pure reducer, stitcher, parser, recovery, args, path/media rules, poll schedule, token cache, allowlist logic, IRC/Twitch chat parser, chat timeline, chat log and purge, third-party emote providers and cache (BetterTTV, 7TV) |
 | Integration | `tests/StreamKeepr.Tests` | `WebApplicationFactory`: media, health, auth, progress, export, channel, chat, and emote catalog endpoints; real DI with fake external services |
 | Component | `tests/StreamKeepr.Tests` | bUnit: primitives, library, player shell, stats, chat pane, details, auth, settings |
-| JS | `tests/js` | Vitest: timecode, preferences, tree navigation, shortcuts, sparkline, player pure logic, chat playhead/reveal/sync, third-party emote matching |
+| JS | `tests/js` | Vitest: timecode, preferences, tree navigation, shortcuts, sparkline, player pure logic, chat playhead/reveal/sync, chat typography, third-party emote matching |
 | Process | `tests/StreamKeepr.Tests` | The built app as a child process, only for behavior `WebApplicationFactory` cannot observe: fatal startup logging, log flush, and exit code. Temp roots, no network, killed on timeout |
 | E2E | `tests/StreamKeepr.E2E` | Playwright .NET against the Mock profile: journeys, chat replay, emote replay, axe, keyboard, screenshots |
 | Container | `tests/StreamKeepr.E2E` or CI | Docker build, non-root smoke, health, deep links, restart |
@@ -112,7 +112,7 @@ Rules:
 - After a click that may navigate, wait for the current URL (`Journey.WaitForUrlAsync`) rather than for a future navigation event: the click can finish before `WaitForURLAsync` starts, which was the sign-in race in #296.
 - Before an action, wait for `body[data-sk-reconnect]` to be absent or `hide`. `Journey.ActAsync` and the library helpers do this; a hard-loss state fails immediately with the URL, reconnect state, focused element and the last app log lines instead of waiting for Playwright's 30 s default.
 - The library keyboard handoff re-presses Right when focus stayed on a channel after the 5 s column wait. Do not raise the 5 s cap; it exists so focus is not pulled back after the viewer has moved on.
-- Chat-sync rapid input is not required to be lossless: each press must produce one rendered step, so the journey waits for each step before the next press.
+- Chat-sync and chat-font-size rapid input is not required to be lossless: each press must produce one rendered step, so the journey waits for each step before the next press.
 - Every journey owns a `Journey` session, which starts a Playwright trace. It writes the trace and a `<test>.failure.txt` (browser state plus the last 80 Mock app log lines) only when the test failed; a passing test discards the trace. xUnit v2 has no test context, so `[CaptureFailure]` records `FirstChanceException` for `XunitException`, `TimeoutException`, `InvalidOperationException` and `PlaywrightException` in an `AsyncLocal` marker.
 
 ## 7. Selectors

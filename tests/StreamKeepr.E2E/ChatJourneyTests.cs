@@ -351,6 +351,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         // shrinks but the badge keeps its 12px design size.
         await size.FocusAsync();
         await page.Keyboard.PressAsync("ArrowLeft");
+        await Assertions.Expect(readout).ToHaveTextAsync("95%");
         await page.Keyboard.PressAsync("ArrowLeft");
         await Assertions.Expect(readout).ToHaveTextAsync("90%");
         await Assertions.Expect(size).ToHaveAttributeAsync("aria-valuetext", "90 percent");
@@ -359,8 +360,11 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         Assert.InRange(await chip.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 11.9, 12.1);
 
         // Above 100% the badge scales up with the message text.
-        for (int i = 0; i < 3; i++)
-            await page.Keyboard.PressAsync("ArrowRight");
+        await page.Keyboard.PressAsync("ArrowRight");
+        await Assertions.Expect(readout).ToHaveTextAsync("95%");
+        await page.Keyboard.PressAsync("ArrowRight");
+        await Assertions.Expect(readout).ToHaveTextAsync("100%");
+        await page.Keyboard.PressAsync("ArrowRight");
         await Assertions.Expect(readout).ToHaveTextAsync("105%");
         await Assertions.Expect(size).ToHaveAttributeAsync("aria-valuetext", "105 percent");
         await Assertions.Expect(pane).ToHaveAttributeAsync(

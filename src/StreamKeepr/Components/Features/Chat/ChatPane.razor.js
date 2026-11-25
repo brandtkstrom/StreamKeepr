@@ -1003,6 +1003,7 @@ export function createChatPane(root, {
       const label = BADGE_LABELS[badge.set] || badge.set;
       const chip = document.createElement("span");
       chip.className = "sk-chat-badge";
+      chip.dataset.chatBadge = "";
       chip.textContent = label;
       chip.title = badge.info ? `${label} ${badge.info}` : label;
       row.append(chip);

@@ -1389,7 +1389,7 @@ describe("chat replay pane", () => {
     const log = root.querySelector("[data-sk='chat-log']");
     const row = log.querySelector("[data-message-id]");
     expect(root.dataset.badgeText).toBe("true");
-    expect([...log.querySelectorAll(".sk-chat-badge")].map((chip) => chip.textContent))
+    expect([...log.querySelectorAll("[data-chat-badge]")].map((chip) => chip.textContent))
       .toEqual(["MOD", "SUB", "glhf-pledge"]);
 
     const calls = fetch.mock.calls.length;
