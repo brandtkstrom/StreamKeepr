@@ -15,6 +15,7 @@ using StreamKeepr.Components;
 using StreamKeepr.Components.Features.Player;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
+using StreamKeepr.Infrastructure.Badges;
 using StreamKeepr.Infrastructure.Emotes;
 using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Runtime;
@@ -228,6 +229,7 @@ try
     builder.Services.AddSingleton<IEmoteChannelResolver>(
         services => services.GetRequiredService<EmoteChannelResolver>());
     builder.Services.AddSingleton<EmoteCatalogService>();
+    builder.Services.AddSingleton<BadgeCatalogService>();
     builder.Services.AddSingleton<IExportLeaseRegistry, ExportLeaseRegistry>();
     builder.Services.AddSingleton<IRecordingAdmin, RecordingAdmin>();
     builder.Services.AddSingleton<ExportService>();
@@ -256,6 +258,8 @@ try
 
         // The fixed fixture keeps the Mock profile off both BetterTTV endpoints.
         builder.Services.AddSingleton<IEmoteProvider, MockEmoteProvider>();
+        // Badges likewise use a fixed catalog and the reserved .invalid image host.
+        builder.Services.AddSingleton<IBadgeSource, MockBadgeSource>();
 
         // The mock volume makes the 1 % storage threshold observable in local/E2E runs.
         builder.Services.AddSingleton<MockDiskSpace>();
@@ -290,6 +294,7 @@ try
 
         builder.Services.AddSingleton<IEmoteProvider, BttvEmoteProvider>();
         builder.Services.AddSingleton<IEmoteProvider, SevenTvEmoteProvider>();
+        builder.Services.AddSingleton<IBadgeSource, TwitchBadgeSource>();
     }
 
     builder.Services.AddSingleton<DvrSupervisor>();
@@ -489,6 +494,7 @@ try
     app.MapGet(ChatEndpoint.Route, ChatEndpoint.Handle);
     app.MapGet(ViewersEndpoint.Route, ViewersEndpoint.HandleAsync);
     app.MapGet(EmoteEndpoint.Route, EmoteEndpoint.HandleAsync);
+    app.MapGet(BadgeEndpoint.Route, BadgeEndpoint.HandleAsync);
 
     // The cookie scheme answers an API challenge with 401; the default challenge is Twitch OAuth.
     app.MapGet(ExportDownloadEndpoint.Route, ExportDownloadEndpoint.Handle)

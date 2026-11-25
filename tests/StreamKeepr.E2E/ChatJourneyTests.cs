@@ -210,8 +210,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
     }
 
     [Fact]
-
-    public async Task Show_badge_text_hides_the_chips_live_and_persists()
+    public async Task Show_badges_hides_images_live_and_persists()
     {
         await using Journey session = await LibraryJourneyTests.OpenAsync(app);
         IPage page = session.Page;
@@ -222,6 +221,8 @@ public sealed class ChatJourneyTests(MockAppFixture app)
                 chatRequests.Enqueue(request.Url);
         };
 
+        const string ImageHost = Journey.MockBadgeImageHost;
+
         ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
         await session.OpenRecordingAsync(saved);
         ILocator pane = page.Locator("[data-sk-chat]");
@@ -230,57 +231,69 @@ public sealed class ChatJourneyTests(MockAppFixture app)
 
         // The seeded chat holds a moderator message and the streamer's broadcaster message.
         await SeekToChatAsync();
-        ILocator moderatorChip = page.Locator("[data-message-id='seed-1']")
-            .GetByText("MOD", new() { Exact = true });
-        ILocator streamerChip = page.Locator("[data-message-id='seed-streamer']")
-            .GetByText("BROADCASTER", new() { Exact = true });
-        await Assertions.Expect(moderatorChip).ToBeVisibleAsync(new() { Timeout = 20_000 });
-        await Assertions.Expect(streamerChip).ToBeVisibleAsync();
-        await Assertions.Expect(pane).ToHaveAttributeAsync("data-badge-text", "true");
+        ILocator moderatorBadge = page.Locator("[data-message-id='seed-1']")
+            .GetByRole(AriaRole.Img, new() { Name = "Moderator", Exact = true });
+        ILocator broadcasterBadge = page.Locator("[data-message-id='seed-streamer']")
+            .GetByRole(AriaRole.Img, new() { Name = "Broadcaster", Exact = true });
+        await Assertions.Expect(moderatorBadge).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        await Assertions.Expect(broadcasterBadge).ToBeVisibleAsync();
+        await WaitForDecodedAsync(moderatorBadge);
+        await WaitForDecodedAsync(broadcasterBadge);
+        Assert.Equal(
+            $"{ImageHost}badges/moderator/1/1",
+            await moderatorBadge.GetAttributeAsync("src"));
+        string srcset = (await moderatorBadge.GetAttributeAsync("srcset"))!;
+        Assert.Contains($"{ImageHost}badges/moderator/1/2 2x", srcset, StringComparison.Ordinal);
+        Assert.Contains($"{ImageHost}badges/moderator/1/3 4x", srcset, StringComparison.Ordinal);
+        Assert.Equal("lazy", await moderatorBadge.GetAttributeAsync("loading"));
+        Assert.Equal("async", await moderatorBadge.GetAttributeAsync("decoding"));
+        Assert.Equal("no-referrer", await moderatorBadge.GetAttributeAsync("referrerpolicy"));
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-badges", "true");
+
+        // A catalog badge replaces its text chip rather than joining it.
+        Assert.Equal(
+            0,
+            await page.Locator("[data-message-id='seed-1']")
+                .GetByText("MOD", new() { Exact = true }).CountAsync());
 
         ILocator toggle = await OpenSettingsAsync();
         await Assertions.Expect(toggle).ToBeCheckedAsync(new() { Timeout = 20_000 });
 
         while (chatRequests.TryDequeue(out _)) { }
         await toggle.UncheckAsync();
-        await Assertions.Expect(moderatorChip).ToBeHiddenAsync(new() { Timeout = 10_000 });
-        await Assertions.Expect(streamerChip).ToBeHiddenAsync();
-        await Assertions.Expect(pane).ToHaveAttributeAsync("data-badge-text", "false");
-        // Visibility only: the open pane keeps its loaded chat and does not refetch. 300 ms is
-        // several times a keyed fetch's round trip against the local Mock app.
-        await page.WaitForTimeoutAsync(300);
+        await page.WaitForFunctionAsync(
+            """
+            () => [...document.querySelectorAll("[data-message-id='seed-1'] img, [data-message-id='seed-streamer'] img")]
+              .every((image) => getComputedStyle(image).display === "none")
+            """);
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-badges", "false");
+        // Visibility only: the open pane keeps its loaded chat and does not refetch.
         Assert.Empty(chatRequests);
-
-        await toggle.CheckAsync();
-        await Assertions.Expect(moderatorChip).ToBeVisibleAsync(new() { Timeout = 10_000 });
-        await Assertions.Expect(streamerChip).ToBeVisibleAsync();
-        await Assertions.Expect(pane).ToHaveAttributeAsync("data-badge-text", "true");
-        await page.WaitForTimeoutAsync(300);
-        Assert.Empty(chatRequests);
-
-        await toggle.UncheckAsync();
-        await Assertions.Expect(moderatorChip).ToBeHiddenAsync(new() { Timeout = 10_000 });
 
         // The preference is the viewer's: a reload keeps it for the pane and for the sheet.
         await session.ReloadAsync();
         await Assertions.Expect(page.Locator("[data-sk-chat]"))
-            .ToHaveAttributeAsync("data-badge-text", "false", new() { Timeout = 20_000 });
+            .ToHaveAttributeAsync("data-badges", "false", new() { Timeout = 20_000 });
         await SeekToChatAsync();
-        ILocator reloadedChip = page.Locator("[data-message-id='seed-1']")
-            .GetByText("MOD", new() { Exact = true });
+        ILocator reloadedBadge = page.Locator("[data-message-id='seed-1']").Locator("img");
         // Attached first: ToBeHidden also passes for a node that is not there at all.
-        await reloadedChip.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 20_000 });
-        await Assertions.Expect(reloadedChip).ToBeHiddenAsync();
+        await reloadedBadge.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 20_000 });
+        await Assertions.Expect(reloadedBadge).ToBeHiddenAsync();
         ILocator reloadedToggle = await OpenSettingsAsync();
         await Assertions.Expect(reloadedToggle).Not.ToBeCheckedAsync(new() { Timeout = 20_000 });
 
-        // The reload left the setting off; turning it back on restores the chips.
+        // The reload left the setting off; turning it back on restores the images.
         await reloadedToggle.CheckAsync();
-        await Assertions.Expect(moderatorChip).ToBeVisibleAsync(new() { Timeout = 10_000 });
+        await Assertions.Expect(moderatorBadge).ToBeVisibleAsync(new() { Timeout = 10_000 });
         await Assertions.Expect(page.Locator("[data-sk-chat]"))
-            .ToHaveAttributeAsync("data-badge-text", "true");
+            .ToHaveAttributeAsync("data-badges", "true");
 
-        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "chat-badge-text");
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "chat-badges");
+
+        async Task WaitForDecodedAsync(ILocator image) =>
+            await page.WaitForFunctionAsync(
+                "img => img.complete && img.naturalWidth > 0",
+                await image.ElementHandleAsync());
 
         async Task SeekToChatAsync()
         {
@@ -297,7 +310,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         {
             ILocator toggleInSheet = page
                 .GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true })
-                .GetByRole(AriaRole.Checkbox, new() { Name = "Show badge text", Exact = true });
+                .GetByRole(AriaRole.Checkbox, new() { Name = "Show badges", Exact = true });
             if (!await toggleInSheet.IsVisibleAsync())
             {
                 await page.GetByRole(AriaRole.Banner)

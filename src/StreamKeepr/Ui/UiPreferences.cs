@@ -37,7 +37,7 @@ public sealed class UiPreferences
     private bool _viewersOpen = true;
     private bool _chatOpen;
     private double _chatSync;
-    private bool _chatShowBadgeText = true;
+    private bool _chatShowBadges = true;
 
     public UiPreferences(IClientStateStore store, IJSRuntime js, ILogger<UiPreferences> logger)
     {
@@ -76,9 +76,9 @@ public sealed class UiPreferences
     /// Positive shows chat later. Always within the chat endpoint's limit, in 0.5 s steps.</summary>
     public double ChatSyncOffset => _chatSync;
 
-    /// <summary>Whether chat rows show the text chips that stand in for badges;
-    /// on by default. These chips are not badge images, which are a separate surface.</summary>
-    public bool ChatShowBadgeText => _chatShowBadgeText;
+    /// <summary>Whether chat rows show badges, as catalog images or their text-chip fallback;
+    /// on by default.</summary>
+    public bool ChatShowBadges => _chatShowBadges;
 
     public event Action? Changed;
 
@@ -142,13 +142,13 @@ public sealed class UiPreferences
         OnChanged();
     }
 
-    /// <summary>Shows or hides the badge text chips in every chat pane.</summary>
-    public void SetChatShowBadgeText(bool show)
+    /// <summary>Shows or hides badges, images and text chips, in every chat pane.</summary>
+    public void SetChatShowBadges(bool show)
     {
-        if (show == _chatShowBadgeText)
+        if (show == _chatShowBadges)
             return;
 
-        _chatShowBadgeText = show;
+        _chatShowBadges = show;
         OnChanged();
     }
 
@@ -198,7 +198,7 @@ public sealed class UiPreferences
         _viewersOpen = state.Viewers ?? true;
         _chatOpen = state.Chat ?? false;
         _chatSync = state.ChatSync is { } sync && double.IsFinite(sync) ? SnapChatSync(sync) : 0;
-        _chatShowBadgeText = state.ChatShowBadgeText ?? true;
+        _chatShowBadges = state.ChatShowBadges ?? true;
     }
 
     private static double SnapChatSync(double seconds)
@@ -225,7 +225,7 @@ public sealed class UiPreferences
         _chatOpen,
         _chatSync,
         _viewersOpen,
-        _chatShowBadgeText);
+        _chatShowBadges);
 
     private string ToJson() => Serialize(CreateState());
 
@@ -248,7 +248,9 @@ public sealed class UiPreferences
 
         [JsonPropertyName("chatSync")] public double? ChatSync { get; set; }
 
-        [JsonPropertyName("chatShowBadgeText")] public bool? ChatShowBadgeText { get; set; }
+        // The wire name predates images and stays for cookie compatibility: the C# property
+        // was renamed when the switch grew from text chips to all badges.
+        [JsonPropertyName("chatShowBadgeText")] public bool? ChatShowBadges { get; set; }
     }
 }
 
@@ -261,4 +263,5 @@ public sealed record UiPreferencesState(
     [property: JsonPropertyName("chat")] bool Chat,
     [property: JsonPropertyName("chatSync")] double ChatSync,
     [property: JsonPropertyName("viewers")] bool Viewers = true,
-    [property: JsonPropertyName("chatShowBadgeText")] bool ChatShowBadgeText = true);
+    // The wire key stays `chatShowBadgeText` so version 1 cookies need no migration.
+    [property: JsonPropertyName("chatShowBadgeText")] bool ChatShowBadges = true);

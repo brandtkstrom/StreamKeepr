@@ -48,6 +48,7 @@ The Auth column is for an empty `Auth:AllowedTwitchLogins`. With a non-empty lis
 | Progress write | `PUT /api/recordings/{id}/progress` | Public (viewing is open) |
 | Chat read | `GET /api/recordings/{id}/chat` | Public (viewing is open) |
 | Emote catalog read | `GET /api/recordings/{id}/emotes` | Public (viewing is open) |
+| Badge catalog read | `GET /api/recordings/{id}/badges` | Public (viewing is open) |
 | Viewer samples read | `GET /api/recordings/{id}/viewers` | Public (viewing is open) |
 | Export download | `GET /api/exports/{exportId}/download` | Signed-in |
 | Sign-in page | `/signin` | Public (private mode only) |
@@ -59,6 +60,8 @@ The Auth column is for an empty `Auth:AllowedTwitchLogins`. With a non-empty lis
 | Static assets | hashed `wwwroot` | Public |
 
 The Blazor circuit actions (delete, export start, settings, stop/resume) enforce authorization in the scoped service layer as well as the UI; a disabled button is never the only guard.
+
+Global chat badge rendering adds one server dependency on `https://api.twitch.tv` (Helix `chat/badges/global` with an app access token, a 60-minute cache, and a 3-second bound) and one browser dependency on `https://static-cdn.jtvnw.net` for the badge images, loaded with `referrerpolicy="no-referrer"`. Twitch sees the viewer's IP and user agent for those image requests; no image proxy was added. Badge failures never affect media, chat, or health.
 
 Third-party emote rendering adds two runtime dependencies for each enabled provider. With BetterTTV enabled, the server fetches `https://api.betterttv.net` over HTTPS (unauthenticated, five-minute cache, three-second bound), and the browser loads images from `https://cdn.betterttv.net` with `referrerpolicy="no-referrer"`. With 7TV enabled, the server fetches `https://api.7tv.app` the same way (v3 emote-set and user routes, unauthenticated, same cache and bound) and the browser loads images from `https://cdn.7tv.app`. Those images are the static first frame by default, or the animated asset when `Chat:Emotes:Animated` is on. None of these changes the media allowlist; `chat/` remains unserved.
 

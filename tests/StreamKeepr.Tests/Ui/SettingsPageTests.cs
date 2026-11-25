@@ -31,9 +31,9 @@ public sealed class SettingsPageTests
             cut.Find("[data-settings-signed-out] a[data-twitch-connect]").GetAttribute("href"));
         Assert.Empty(cut.FindAll("[data-channel-list]"));
         Assert.Equal(0, channels.AllReads);
-        // Chat sync and the badge text row are the viewer's own preferences, so they need no sign-in.
+        // Chat sync and badges are the viewer's own preferences, so they need no sign-in.
         Assert.Single(cut.FindAll("[data-chat-settings]"));
-        Assert.Single(cut.FindAll("[data-chat-badge-text]"));
+        Assert.Single(cut.FindAll("[data-chat-badges]"));
     }
 
     [Fact]

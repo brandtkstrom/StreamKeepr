@@ -33,6 +33,13 @@ internal sealed class Journey : IAsyncDisposable
     /// <summary>Mirrors <c>COLUMN_WAIT_MS</c> in <c>library-keys.js</c>.</summary>
     private const int FocusHandoffTimeoutMs = 5_000;
 
+    /// <summary>The reserved host the Mock badge catalog points its images at.</summary>
+    public const string MockBadgeImageHost = "https://badges.mock.invalid/";
+
+    // A 16x16 SVG served for every Mock badge image; it only needs to decode at the 18px slot.
+    private const string MockBadgeImage =
+        "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><rect width='16' height='16' fill='#9146ff'/></svg>";
+
     private readonly MockAppFixture _app;
     private readonly FailureCapture? _failure;
     private bool _disposed;
@@ -84,6 +91,18 @@ internal sealed class Journey : IAsyncDisposable
                 Screenshots = true,
                 Snapshots = true,
                 Sources = true,
+            });
+
+            // The Mock badge source points at the reserved .invalid host. Fulfil it for every
+            // context so no test run depends on DNS and every badge image can decode.
+            await context.RouteAsync($"{MockBadgeImageHost}**", async route =>
+            {
+                await route.FulfillAsync(new RouteFulfillOptions
+                {
+                    Status = 200,
+                    ContentType = "image/svg+xml",
+                    Body = MockBadgeImage,
+                });
             });
 
             IPage page = await context.NewPageAsync();

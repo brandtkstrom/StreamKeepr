@@ -7,7 +7,9 @@ using Microsoft.Extensions.Options;
 using StreamKeepr.Components.Pages;
 using StreamKeepr.Configuration;
 using StreamKeepr.Components.Features.Chat;
+using StreamKeepr.Infrastructure.Badges;
 using StreamKeepr.Infrastructure.Emotes;
+using StreamKeepr.Tests.Badges;
 using StreamKeepr.Tests.Emotes;
 using StreamKeepr.Ui;
 
@@ -218,28 +220,48 @@ public sealed class ChatPaneTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task The_pane_reports_the_badge_text_preference(bool show)
+    public async Task The_pane_reports_the_badge_preferences(bool show)
     {
         await using BunitContext context = HomePlayerTests.CreateContext(
             out BunitJSModuleInterop module, out TestLibraryView _);
         module = context.JSInterop.SetupModule(Module);
         module.Mode = JSRuntimeMode.Loose;
-        context.Services.GetRequiredService<UiPreferences>().SetChatShowBadgeText(show);
+        context.Services.GetRequiredService<UiPreferences>().SetChatShowBadges(show);
 
         IRenderedComponent<ChatPane> cut = context.Render<ChatPane>(p => p
             .Add(c => c.Recording, WithChat())
             .Add(c => c.Open, true));
 
         Assert.Equal(show ? "true" : "false",
-            cut.Find("[data-sk-chat]").GetAttribute("data-badge-text"));
+            cut.Find("[data-sk-chat]").GetAttribute("data-badges"));
         JSRuntimeInvocation init = Assert.Single(module.Invocations, call => call.Identifier == "init");
         JsonElement payload = JsonSerializer.SerializeToElement(
             init.Arguments[2], new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        Assert.Equal(show, payload.GetProperty("showBadgeText").GetBoolean());
+        Assert.Equal(show, payload.GetProperty("showBadges").GetBoolean());
+        Assert.False(payload.GetProperty("badgesEnabled").GetBoolean());
     }
 
     [Fact]
-    public async Task A_badge_text_change_applies_without_touching_chat_sync()
+    public async Task A_registered_badge_source_enables_the_payload_flag()
+    {
+        await using BunitContext context = HomePlayerTests.CreateContext(
+            out BunitJSModuleInterop module, out TestLibraryView _);
+        module = context.JSInterop.SetupModule(Module);
+        module.Mode = JSRuntimeMode.Loose;
+        context.Services.AddSingleton<IBadgeSource>(new StubBadgeSource());
+
+        IRenderedComponent<ChatPane> cut = context.Render<ChatPane>(p => p
+            .Add(c => c.Recording, WithChat())
+            .Add(c => c.Open, true));
+
+        JSRuntimeInvocation init = Assert.Single(module.Invocations, call => call.Identifier == "init");
+        JsonElement payload = JsonSerializer.SerializeToElement(
+            init.Arguments[2], new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.True(payload.GetProperty("badgesEnabled").GetBoolean());
+    }
+
+    [Fact]
+    public async Task A_badge_change_applies_without_touching_chat_sync()
     {
         await using BunitContext context = HomePlayerTests.CreateContext(
             out BunitJSModuleInterop module, out TestLibraryView _);
@@ -250,21 +272,21 @@ public sealed class ChatPaneTests
             .Add(c => c.Recording, WithChat())
             .Add(c => c.Open, true));
 
-        await cut.InvokeAsync(() => preferences.SetChatShowBadgeText(false));
+        await cut.InvokeAsync(() => preferences.SetChatShowBadges(false));
 
         JSRuntimeInvocation apply = Assert.Single(module.Invocations,
-            call => call.Identifier == "setShowBadgeText");
+            call => call.Identifier == "setShowBadges");
         Assert.False((bool)apply.Arguments[1]!);
         Assert.DoesNotContain(module.Invocations, call => call.Identifier == "setSyncOffset");
 
         // The same value again sends nothing.
-        await cut.InvokeAsync(() => preferences.SetChatShowBadgeText(false));
-        Assert.Single(module.Invocations, call => call.Identifier == "setShowBadgeText");
+        await cut.InvokeAsync(() => preferences.SetChatShowBadges(false));
+        Assert.Single(module.Invocations, call => call.Identifier == "setShowBadges");
 
-        // Chat sync still applies, and leaves the badge text alone.
+        // Chat sync still applies, and leaves the badges alone.
         await cut.InvokeAsync(() => preferences.SetChatSyncOffset(-3));
         Assert.Single(module.Invocations, call => call.Identifier == "setSyncOffset");
-        Assert.Single(module.Invocations, call => call.Identifier == "setShowBadgeText");
+        Assert.Single(module.Invocations, call => call.Identifier == "setShowBadges");
     }
 
     [Fact]

@@ -118,6 +118,19 @@ function emoteFetch(entries, { available = true, chat = emoteMessage } = {}) {
     : chatFetch(url, init));
 }
 
+function badgeFetch(entries, { available = true, chat = message } = {}) {
+  const chatFetch = fakeFetch(chat);
+  return vi.fn((url, init) => url.pathname.endsWith("/badges")
+    ? Promise.resolve({
+      ok: true,
+      json: async () => ({
+        v: 1, available, stale: false, fetchedAt: "2026-11-25T09:00:00Z",
+        global: entries, channel: [],
+      }),
+    })
+    : chatFetch(url, init));
+}
+
 function playhead(time) {
   document.dispatchEvent(new CustomEvent("sk:playhead", {
     detail: { recordingId: "r1", time, duration: 60, paused: true },
@@ -1371,7 +1384,7 @@ describe("chat replay pane", () => {
     });
   });
 
-  it("toggles the badge text state without refetching or rebuilding the log", async () => {
+  it("toggles badges without refetching or rebuilding the log", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
     const badges = [
@@ -1388,49 +1401,49 @@ describe("chat replay pane", () => {
 
     const log = root.querySelector("[data-sk='chat-log']");
     const row = log.querySelector("[data-message-id]");
-    expect(root.dataset.badgeText).toBe("true");
+    expect(root.dataset.badges).toBe("true");
     expect([...log.querySelectorAll(".sk-chat-badge")].map((chip) => chip.textContent))
       .toEqual(["MOD", "SUB", "glhf-pledge"]);
 
     const calls = fetch.mock.calls.length;
 
-    pane.setShowBadgeText(false);
+    pane.setShowBadges(false);
 
     // The root carries the state the pane rule reads. No refetch, and the row nodes stay put,
     // so turning it back on needs no rebuild and the viewer keeps their place.
-    expect(root.dataset.badgeText).toBe("false");
+    expect(root.dataset.badges).toBe("false");
     expect(fetch.mock.calls).toHaveLength(calls);
     expect(log.querySelector("[data-message-id]")).toBe(row);
 
-    pane.setShowBadgeText(true);
+    pane.setShowBadges(true);
 
-    expect(root.dataset.badgeText).toBe("true");
+    expect(root.dataset.badges).toBe("true");
   });
 
-  it("keeps the painted badge text when an older payload omits it", async () => {
+  it("keeps the painted badge state when an older payload omits it", async () => {
     document.body.innerHTML = MARKUP.replace(
-      'data-open="true"', 'data-open="true" data-badge-text="false"');
+      'data-open="true"', 'data-open="true" data-badges="false"');
     const root = document.querySelector("[data-sk-chat]");
     const pane = createChatPane(root, { fetch: fakeFetch() });
 
     await pane.load({ ...VIEW });
 
-    expect(root.dataset.badgeText).toBe("false");
+    expect(root.dataset.badges).toBe("false");
   });
 
-  it("starts with the badge text off when the payload says so", async () => {
+  it("starts with badges off when the payload says so", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
     const pane = createChatPane(root, { fetch: fakeFetch() });
 
-    await pane.load({ ...VIEW, showBadgeText: false });
+    await pane.load({ ...VIEW, showBadges: false });
 
-    expect(root.dataset.badgeText).toBe("false");
+    expect(root.dataset.badges).toBe("false");
 
     // A recording reload carries the viewer's current value.
-    await pane.load({ ...VIEW, showBadgeText: true });
+    await pane.load({ ...VIEW, showBadges: true });
 
-    expect(root.dataset.badgeText).toBe("true");
+    expect(root.dataset.badges).toBe("true");
   });
 });
 
@@ -1773,6 +1786,134 @@ describe("third-party emotes in the pane", () => {
     expect(log.querySelector("img[alt='KEKW']")).toBeNull();
     expect(log.textContent).toContain("KEKW");
     expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r1/emotes"))
+      .toHaveLength(1);
+
+    pane.dispose();
+  });
+});
+
+describe("badges in the pane", () => {
+  const MOD_BADGE = {
+    set: "moderator",
+    version: "1",
+    title: "Moderator",
+    src: "https://static-cdn.jtvnw.net/badges/v1/moderator/1",
+    srcset: "https://static-cdn.jtvnw.net/badges/v1/moderator/1 1x, " +
+      "https://static-cdn.jtvnw.net/badges/v1/moderator/2 2x, " +
+      "https://static-cdn.jtvnw.net/badges/v1/moderator/3 4x",
+  };
+
+  it("renders the matching catalog image in place of the chip", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const badges = [
+      { set: "moderator", version: "1", info: "Lead" },
+      { set: "subscriber", version: "12", info: "12" },
+      { set: "glhf-pledge", version: "1", info: null },
+    ];
+    const fetch = badgeFetch([MOD_BADGE], { chat: { ...message, badges } });
+    const pane = createChatPane(root, { fetch });
+
+    await pane.load({ ...VIEW, badgesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    const image = log.querySelector("img.sk-chat-badge-img");
+    expect(image).not.toBeNull();
+    expect(image.getAttribute("src")).toBe(MOD_BADGE.src);
+    expect(image.getAttribute("srcset")).toBe(MOD_BADGE.srcset);
+    expect(image.getAttribute("alt")).toBe("Moderator");
+    expect(image.getAttribute("title")).toBe("Moderator Lead");
+    expect(image.getAttribute("loading")).toBe("lazy");
+    expect(image.getAttribute("decoding")).toBe("async");
+    expect(image.getAttribute("referrerpolicy")).toBe("no-referrer");
+
+    // Unknown versions and sets keep the existing chip, info included.
+    const chips = [...log.querySelectorAll(".sk-chat-badge")];
+    expect(chips.map((chip) => chip.textContent)).toEqual(["SUB", "glhf-pledge"]);
+    expect(chips[0].getAttribute("title")).toBe("SUB 12");
+    expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r1/badges"))
+      .toHaveLength(1);
+
+    pane.dispose();
+  });
+
+  it("falls back to the chip once when a badge image fails", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const badges = [{ set: "moderator", version: "1", info: null }];
+    const fetch = badgeFetch([MOD_BADGE], { chat: { ...message, badges } });
+    const pane = createChatPane(root, { fetch });
+
+    await pane.load({ ...VIEW, badgesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    const image = log.querySelector("img.sk-chat-badge-img");
+    expect(image).not.toBeNull();
+    image.dispatchEvent(new Event("error"));
+
+    expect(log.querySelector("img.sk-chat-badge-img")).toBeNull();
+    expect(log.querySelector(".sk-chat-badge").textContent).toBe("MOD");
+
+    // A rebuild from the same messages keeps the chip and never retries the image.
+    pane.setSyncOffset(1);
+    await flush();
+
+    expect(log.querySelector("img.sk-chat-badge-img")).toBeNull();
+    expect(log.querySelector(".sk-chat-badge").textContent).toBe("MOD");
+    expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r1/badges"))
+      .toHaveLength(1);
+
+    pane.dispose();
+  });
+
+  it("fetches once per recording open, not per message, reload or reopen", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = badgeFetch([MOD_BADGE]);
+    const pane = createChatPane(root, { fetch });
+
+    await pane.load({ ...VIEW, badgesEnabled: true });
+    await flush();
+    playhead(10);
+    await flush();
+    playhead(11);
+    await flush();
+    await pane.load({ ...VIEW, badgesEnabled: true });
+    await flush();
+
+    pane.setOpen(false);
+    pane.setOpen(true);
+    await flush();
+
+    expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r1/badges"))
+      .toHaveLength(1);
+
+    pane.dispose();
+  });
+
+  it("makes no badge request while disabled or closed", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = badgeFetch([MOD_BADGE]);
+    const pane = createChatPane(root, { fetch });
+
+    await pane.load({ ...VIEW, badgesEnabled: false });
+    await flush();
+    expect(fetch.mock.calls.some(([url]) => url.pathname.endsWith("/badges"))).toBe(false);
+
+    await pane.load({ ...VIEW, open: false, badgesEnabled: true });
+    await flush();
+    expect(fetch.mock.calls.some(([url]) => url.pathname.endsWith("/badges"))).toBe(false);
+
+    pane.setOpen(true);
+    await flush();
+    expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r1/badges"))
       .toHaveLength(1);
 
     pane.dispose();
