@@ -222,6 +222,15 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         };
 
         const string ImageHost = Journey.MockBadgeImageHost;
+        await page.RouteAsync($"{ImageHost}**", async route =>
+        {
+            await route.FulfillAsync(new RouteFulfillOptions
+            {
+                Status = 200,
+                ContentType = "image/svg+xml",
+                Body = Journey.MockBadgeImage,
+            });
+        });
 
         ILocator saved = await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow);
         await session.OpenRecordingAsync(saved);
