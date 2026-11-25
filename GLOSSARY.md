@@ -168,6 +168,22 @@ _Avoid_: Thumbnail
 A provider emote whose image occupies no advance width, so it stacks onto the emote beside it.
 _Avoid_: Zero-width modifier (unless modifier semantics are meant), overlay emote
 
+**Chat badge**:
+A Twitch role or status marker on a chat message's sender, identified by a badge set and a version within it.
+_Avoid_: Badge chip (for the badge itself), role tag
+
+**Badge catalog**:
+Twitch's published images and titles for chat badges, in a global scope and a per-channel scope. It is not an emote catalog: the bare terms **Global catalog** and **Channel catalog** mean emote catalogs.
+_Avoid_: Badge list, badge set (which names one set of versions)
+
+**Badge image**:
+The picture a badge catalog supplies for one badge set and version.
+_Avoid_: Badge icon
+
+**Badge text chip**:
+The text label standing in for a chat badge when no badge image resolves.
+_Avoid_: Badge label, badge pill
+
 **Chat log event**:
 A non-message record in the chat log: deletion, clear, room-state change, notice, gap, dropped events, truncation, end, or purge.
 _Avoid_: System message, moderation event (when the general record is meant)
