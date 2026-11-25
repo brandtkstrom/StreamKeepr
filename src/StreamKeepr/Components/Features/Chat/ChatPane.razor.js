@@ -116,6 +116,17 @@ function emotesUrl(recordingId) {
   );
 }
 
+function badgesUrl(recordingId) {
+  return new URL(
+    `/api/recordings/${encodeURIComponent(recordingId)}/badges`,
+    window.location.origin,
+  );
+}
+
+function badgeLookupKey(set, version) {
+  return `${set}/${version}`;
+}
+
 function isHttpsUrl(value) {
   if (typeof value !== "string") return false;
   try {
@@ -141,6 +152,23 @@ export function buildEmoteCatalog(entries) {
     claimed.add(entry.code);
     if (!isHttpsUrl(entry.src)) continue;
     catalog.set(entry.code, entry);
+  }
+  return catalog;
+}
+
+/**
+ * Builds the set/version lookup for a badge catalog response. The server already validates and
+ * orders entries; first entry wins, and provider data is untrusted, so only absolute https
+ * sources with a title enter the catalog.
+ */
+export function buildBadgeCatalog(entries) {
+  const catalog = new Map();
+  for (const entry of entries || []) {
+    if (!entry || typeof entry.set !== "string" || typeof entry.version !== "string") continue;
+    if (typeof entry.title !== "string" || entry.title === "") continue;
+    if (!isHttpsUrl(entry.src)) continue;
+    const key = badgeLookupKey(entry.set, entry.version);
+    if (!catalog.has(key)) catalog.set(key, entry);
   }
   return catalog;
 }
@@ -332,9 +360,9 @@ export function createChatPane(root, {
   let messages = new Map();
   let gaps = [];
   let syncOffset = 0;
-  // The viewer's "Show badge text" preference. The root attribute drives the pane rule that
-  // hides the chips, so a change costs no rebuild and keeps the viewer's place.
-  let showBadgeText = root?.dataset.badgeText !== "false";
+  // The viewer's "Show badges" preference. The root attribute drives the pane rule that hides
+  // images and chips, so a change costs no rebuild and keeps the viewer's place.
+  let showBadges = root?.dataset.badges !== "false";
   let following = true;
   let newCount = 0;
   let lastRenderKey = "";
@@ -364,6 +392,14 @@ export function createChatPane(root, {
   let emoteController = null;
   // A catalog that arrives after the log is visible must rebuild it exactly once.
   let emoteVersion = 0;
+  let badgeCatalog = new Map();
+  // Set/version pairs whose image failed stay chips for this recording, even when the log rebuilds.
+  let failedBadges = new Set();
+  // The badge catalog is requested once per recording load, in parallel with the emotes.
+  let badgeAttempted = false;
+  let badgeController = null;
+  // A badge catalog that arrives after the log is visible must rebuild it exactly once.
+  let badgeVersion = 0;
   // The pane's background, read once per render for the name-contrast check.
   let ground = null;
 
@@ -402,6 +438,7 @@ export function createChatPane(root, {
     if (open) {
       startPolling();
       maybeFetchEmotes();
+      maybeFetchBadges();
     } else {
       stopPolling();
     }
@@ -446,6 +483,36 @@ export function createChatPane(root, {
       }
     } finally {
       if (emoteController === request) emoteController = null;
+    }
+  }
+
+  function maybeFetchBadges() {
+    if (disposed || !open || !view?.badgesEnabled || badgeAttempted) return;
+    badgeAttempted = true;
+    void fetchBadges(view.recordingId);
+  }
+
+  // Separate state from the emote fetch on purpose: the two catalogs fail independently and
+  // each is attempted once per recording, so neither can keep the other from rendering.
+  async function fetchBadges(recordingId) {
+    if (typeof fetchImpl !== "function") return;
+    const request = new AbortController();
+    badgeController = request;
+    try {
+      const response = await fetchImpl(badgesUrl(recordingId), { signal: request.signal });
+      if (!response.ok) throw new Error(`badges ${response.status}`);
+      const data = await response.json();
+      if (disposed || request.signal.aborted || view?.recordingId !== recordingId) return;
+      badgeCatalog = buildBadgeCatalog(data.available ? data.global : []);
+      badgeVersion++;
+      render();
+    } catch (error) {
+      // A catalog failure is invisible by design; chat keeps its text chips.
+      if (error?.name !== "AbortError") {
+        console.debug("Stream Keepr: badge catalog fetch failed; chat keeps its text chips.", error);
+      }
+    } finally {
+      if (badgeController === request) badgeController = null;
     }
   }
 
@@ -546,7 +613,7 @@ export function createChatPane(root, {
     fixedOpen = Boolean(next.fixedOpen);
     // The payload is a boundary: a missing value must not overwrite the state the server
     // painted (an older payload would otherwise turn the chips back on).
-    if (typeof next.showBadgeText === "boolean") setShowBadgeText(next.showBadgeText);
+    if (typeof next.showBadges === "boolean") setShowBadges(next.showBadges);
     // A session's chat log can appear while the recording is live, but it never disappears.
     // Keep a true value when a stale summary payload says false, and keep status in step.
     if (!changed && hadChat) view = { ...next, hasChat: true };
@@ -560,6 +627,12 @@ export function createChatPane(root, {
       failedEmotes = new Set();
       emoteAttempted = false;
       emoteVersion++;
+      badgeController?.abort();
+      badgeController = null;
+      badgeCatalog = new Map();
+      failedBadges = new Set();
+      badgeAttempted = false;
+      badgeVersion++;
       syncOffset = validOffset(next.syncOffsetSec);
       status(next.hasChat ? "loading" : "empty");
       notice("");
@@ -896,13 +969,13 @@ export function createChatPane(root, {
     const key = visible.map((message) => message.id).join("|") + "|" +
       reached.map((gap) => `${gap.from}:${gap.to}`).join("|") + "|" +
       (view?.state ?? "") + "|" + (view?.hasChat === false ? "empty" : "") +
-      `|emotes:${emoteVersion}`;
+      `|emotes:${emoteVersion}|badges:${badgeVersion}`;
     if (key === lastRenderKey) return;
     lastRenderKey = key;
 
     ground = opaqueGround(root);
     const shell = [view?.state, view?.hasChat, view?.channelLogin, view?.channelColor,
-      emoteVersion, ground].join("|");
+      emoteVersion, badgeVersion, ground].join("|");
     const rebuild = freshLog || shell !== shellKey || rowNodes.size === 0;
     freshLog = false;
     shellKey = shell;
@@ -997,12 +1070,7 @@ export function createChatPane(root, {
     }
 
     for (const badge of message.badges || []) {
-      const label = BADGE_LABELS[badge.set] || badge.set;
-      const chip = document.createElement("span");
-      chip.className = "sk-chat-badge";
-      chip.textContent = label;
-      chip.title = badge.info ? `${label} ${badge.info}` : label;
-      row.append(chip);
+      row.append(badgeNode(badge));
     }
 
     const name = document.createElement("span");
@@ -1069,8 +1137,8 @@ export function createChatPane(root, {
     }
   }
 
-  /** The shared alt/title and lazy/async attributes for native and third-party emotes. */
-  function applyEmoteImageAttributes(image, { src, srcset, code }) {
+  /** The shared alt/title and lazy/async attributes for emotes and badges. */
+  function applyImageAttributes(image, { src, srcset, code }) {
     image.src = src;
     if (srcset) image.setAttribute("srcset", srcset);
     image.alt = code;
@@ -1085,7 +1153,7 @@ export function createChatPane(root, {
     }
     const image = document.createElement("img");
     const base = `https://static-cdn.jtvnw.net/emoticons/v2/${encodeURIComponent(id)}/default/dark`;
-    applyEmoteImageAttributes(image, {
+    applyImageAttributes(image, {
       src: `${base}/1.0`,
       srcset: `${base}/1.0 1x, ${base}/2.0 2x, ${base}/3.0 3x`,
       code: name,
@@ -1103,10 +1171,48 @@ export function createChatPane(root, {
     return candidates.join(", ");
   }
 
+  /** The set/version lookup key, or null when the stored badge is malformed. */
+  function badgeKey(badge) {
+    if (typeof badge?.set !== "string" || typeof badge?.version !== "string") return null;
+    return badgeLookupKey(badge.set, badge.version);
+  }
+
+  /** The existing text chip, used both for unknown badges and for failed images. */
+  function badgeChip(badge) {
+    const label = BADGE_LABELS[badge.set] || badge.set;
+    const chip = document.createElement("span");
+    chip.className = "sk-chat-badge";
+    chip.textContent = label;
+    chip.title = badge.info ? `${label} ${badge.info}` : label;
+    return chip;
+  }
+
+  /** A catalog image when set and version match, otherwise the text chip. */
+  function badgeNode(badge) {
+    const key = badgeKey(badge);
+    const entry = key ? badgeCatalog.get(key) : null;
+    if (!entry || failedBadges.has(key)) return badgeChip(badge);
+
+    const image = document.createElement("img");
+    image.className = "sk-chat-badge-img";
+    applyImageAttributes(image, {
+      src: entry.src,
+      srcset: safeSrcSet(entry.srcset),
+      code: entry.title,
+    });
+    image.title = badge.info ? `${entry.title} ${badge.info}` : entry.title;
+    image.setAttribute("referrerpolicy", "no-referrer");
+    // The error handler replaces this image with its chip; the row never retries it.
+    image.dataset.badgeKey = key;
+    image.dataset.badgeSet = badge.set;
+    image.dataset.badgeInfo = badge.info || "";
+    return image;
+  }
+
   function emoteImage(entry, code) {
     if (failedEmotes.has(code) || !isHttpsUrl(entry?.src)) return document.createTextNode(code);
     const image = document.createElement("img");
-    applyEmoteImageAttributes(image, {
+    applyImageAttributes(image, {
       src: entry.src,
       srcset: safeSrcSet(entry.srcset),
       code,
@@ -1117,12 +1223,22 @@ export function createChatPane(root, {
     return image;
   }
 
-  function onEmoteError(event) {
+  function onImageError(event) {
     const image = event.target;
     const code = image?.dataset?.emoteCode;
-    if (!code) return;
-    failedEmotes.add(code);
-    image.replaceWith(document.createTextNode(code));
+    if (code) {
+      failedEmotes.add(code);
+      image.replaceWith(document.createTextNode(code));
+      return;
+    }
+
+    const key = image?.dataset?.badgeKey;
+    if (!key) return;
+    failedBadges.add(key);
+    image.replaceWith(badgeChip({
+      set: image.dataset.badgeSet,
+      info: image.dataset.badgeInfo || null,
+    }));
   }
 
   function onPlayhead(event) {
@@ -1175,20 +1291,20 @@ export function createChatPane(root, {
     return Number.isFinite(number) ? clamp(number, -max, max) : 0;
   }
 
-  function applyBadgeText() {
-    if (root) root.dataset.badgeText = showBadgeText ? "true" : "false";
+  function applyBadges() {
+    if (root) root.dataset.badges = showBadges ? "true" : "false";
   }
 
   /**
-   * Applies "Show badge text" (Settings › Chat). The pane rule hides the chips, so this only
+   * Applies "Show badges" (Settings › Chat). The pane rule hides images and chips, so this only
    * flips the root attribute: no refetch, no rebuild, no scroll movement.
    */
-  function setShowBadgeText(value) {
+  function setShowBadges(value) {
     if (disposed) return;
     const next = value !== false;
-    if (next === showBadgeText) return;
-    showBadgeText = next;
-    applyBadgeText();
+    if (next === showBadges) return;
+    showBadges = next;
+    applyBadges();
   }
 
   /**
@@ -1209,8 +1325,8 @@ export function createChatPane(root, {
   for (const type of ["wheel", "touchmove", "pointerdown", "keydown"]) {
     on(el["chat-log"], type, onScrollIntent, { passive: true });
   }
-  // Image errors do not bubble, so capture them at the log.
-  on(el["chat-log"], "error", onEmoteError, { capture: true });
+  // Image errors do not bubble, so capture them at the log. Emotes and badges share the handler.
+  on(el["chat-log"], "error", onImageError, { capture: true });
   on(el["chat-jump"], "click", jumpToCurrent);
   on(document, "sk:playhead", onPlayhead);
   on(document, "sk:chat-toggle", toggleAndPersist);
@@ -1225,7 +1341,7 @@ export function createChatPane(root, {
     if (!document.hidden && open && !paused) resume();
   });
 
-  applyBadgeText();
+  applyBadges();
   applyOpen();
   updateFooter();
 
@@ -1233,12 +1349,13 @@ export function createChatPane(root, {
     load,
     setOpen,
     setSyncOffset,
-    setShowBadgeText,
+    setShowBadges,
     dispose() {
       if (disposed) return;
       disposed = true;
       controller?.abort();
       emoteController?.abort();
+      badgeController?.abort();
       stopBackfill();
       stopPolling();
       stopGlide();
@@ -1272,8 +1389,8 @@ export function setSyncOffset(root, offset) {
   panes.get(root)?.setSyncOffset(offset);
 }
 
-export function setShowBadgeText(root, value) {
-  panes.get(root)?.setShowBadgeText(value);
+export function setShowBadges(root, value) {
+  panes.get(root)?.setShowBadges(value);
 }
 
 export function dispose(root) {

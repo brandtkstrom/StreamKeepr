@@ -145,6 +145,20 @@ public interface IConnectionStatusView : IDisposable
 - The pane's load payload carries `emotesEnabled`, derived from the registered `IEmoteProvider` instances (true when any reports enabled). The pane fetches the catalog once per recording load only when open and enabled; a failed fetch leaves text rendering.
 - Third-party entries are optional decoration. Chat text and Twitch emotes never depend on them.
 
+## 3d. Badge catalogs
+
+- `GET /api/recordings/{id}/badges` is public and read-only. It returns Twitch's global chat badge catalog for the recording; `Cache-Control: no-store`. The recording is validated so an unknown id is 404, but badge data is global in v1; the channel scope (#277) extends the same envelope.
+- The response envelope is `v`, `available`, `stale`, `fetchedAt`, `global`, `channel`. Each entry is `{set, version, title, src, srcset}`. `channel` is present and always empty in v1.
+- `global` is ordered as Twitch publishes it. `src` is `image_url_1x` and `srcset` is the supplied 1x/2x/4x URLs with those descriptors (Twitch's 4x URL ends in `/3`). URLs are used verbatim after validation.
+- `available` is true when a catalog was fetched, including an empty one, or served from the last good cache. `stale` is true when the served catalog is older than the 60-minute TTL. `fetchedAt` is that catalog's fetch time, or `null` when `available` is false.
+- A fetch failure never returns a non-2xx status. It returns 200 with the stale catalog and `stale:true`, or, with no cache, `available:false` and empty lists. Badge failures never affect chat text, emotes, capture, recording, or `/health/*`.
+- The server fetches `GET https://api.twitch.tv/helix/chat/badges/global` through the Helix client with an app access token from `TwitchTokenProvider` and the configured `Client-Id`. A 401 invalidates that token once and retries; a token failure is an ordinary failed fetch. Neither the token nor the response body is logged or sent to the browser.
+- The body is capped at 4 MiB, the catalog at 500 sets and 100 versions per set. Set and version IDs are 1–64 characters of `[a-z0-9_-]`; titles are capped at 128 characters. Every version must publish valid absolute `https:` 1x/2x/4x URLs on `static-cdn.jtvnw.net`; otherwise it is dropped. `description`, `click_action`, and `click_url` are ignored.
+- The global catalog is cached for 60 minutes with a single-flight refresh, stale fallback, and a three-second bound shared by token acquisition and the request. The Mock profile registers a fixed source with `.invalid` image URLs and makes no network calls.
+- The pane's load payload carries `badgesEnabled` (true when a badge source is registered) and `showBadges`. The pane fetches the catalog once per recording load, on its first open, in parallel with the emote fetch; not per message, reload, or poll.
+- A stored badge whose set and version match renders an 18 px-high `<img>` in the chip's slot with `srcset`, `loading="lazy"`, `decoding="async"`, `referrerpolicy="no-referrer"`, and the catalog title as `alt` and `title` (with `info` appended to `title`). An unknown set or version keeps the existing text chip. An image error swaps that badge to its chip once and is not retried. A failed catalog fetch logs at `console.debug` and leaves the chips.
+- "Show badges" (Settings › Chat) hides both badge images and text chips live; it is not a refetch or log rebuild.
+
 ## 4. Progress store
 
 ```csharp

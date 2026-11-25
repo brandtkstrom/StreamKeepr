@@ -53,7 +53,7 @@ public sealed class UiPreferencesTests
 
         Assert.False(preferences.Theater);
         Assert.True(preferences.DetailsOpen);
-        Assert.True(preferences.ChatShowBadgeText);
+        Assert.True(preferences.ChatShowBadges);
     }
 
     [Fact]
@@ -141,40 +141,40 @@ public sealed class UiPreferencesTests
     }
 
     [Fact]
-    public void Badge_text_defaults_to_on_and_reads_the_cookie()
+    public void Badges_default_to_on_and_read_the_cookie()
     {
-        Assert.True(Create().ChatShowBadgeText);
-        Assert.False(Create("""{"v":1,"chatShowBadgeText":false}""").ChatShowBadgeText);
-        // An older cookie without the key keeps the text chips on.
-        Assert.True(Create("""{"v":1,"theater":true}""").ChatShowBadgeText);
+        Assert.True(Create().ChatShowBadges);
+        Assert.False(Create("""{"v":1,"chatShowBadgeText":false}""").ChatShowBadges);
+        // An older cookie without the key keeps badges on.
+        Assert.True(Create("""{"v":1,"theater":true}""").ChatShowBadges);
     }
 
     [Fact]
-    public void SetChatShowBadgeText_raises_changed_only_when_the_value_changes()
+    public void SetChatShowBadges_raises_changed_only_when_the_value_changes()
     {
         var preferences = Create();
         var changes = 0;
         preferences.Changed += () => changes++;
 
-        preferences.SetChatShowBadgeText(false);
-        preferences.SetChatShowBadgeText(false);
-        preferences.SetChatShowBadgeText(true);
+        preferences.SetChatShowBadges(false);
+        preferences.SetChatShowBadges(false);
+        preferences.SetChatShowBadges(true);
 
-        Assert.True(preferences.ChatShowBadgeText);
+        Assert.True(preferences.ChatShowBadges);
         Assert.Equal(2, changes);
     }
 
     [Fact]
-    public async Task Persist_writes_the_badge_text_preference()
+    public async Task Persist_writes_the_badge_preference()
     {
         var js = new RecordingJSRuntime();
         var preferences = Create(js: js);
-        preferences.SetChatShowBadgeText(false);
+        preferences.SetChatShowBadges(false);
 
         await preferences.PersistAsync();
 
         var state = Assert.IsType<UiPreferencesState>(Assert.Single(Assert.Single(js.Invocations).Arguments));
-        Assert.False(state.ChatShowBadgeText);
+        Assert.False(state.ChatShowBadges);
     }
 
     [Fact]
@@ -241,7 +241,7 @@ public sealed class UiPreferencesTests
         Assert.True(preferences.StatsOpen);
         Assert.False(preferences.DetailsOpen);
         Assert.False(preferences.ViewersOpen);
-        Assert.False(preferences.ChatShowBadgeText);
+        Assert.False(preferences.ChatShowBadges);
     }
 
     private static UiPreferences Create(

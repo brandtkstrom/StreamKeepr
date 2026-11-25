@@ -12,12 +12,12 @@ This contract defines the test seams, projects, fake-Twitch harness, determinism
 
 | Layer | Project | Scope |
 |---|---|---|
-| Unit | `tests/StreamKeepr.Tests` | Pure reducer, stitcher, parser, recovery, args, path/media rules, poll schedule, token cache, allowlist logic, IRC/Twitch chat parser, chat timeline, chat log and purge, third-party emote providers and cache (BetterTTV, 7TV) |
-| Integration | `tests/StreamKeepr.Tests` | `WebApplicationFactory`: media, health, auth, progress, export, channel, chat, and emote catalog endpoints; real DI with fake external services |
+| Unit | `tests/StreamKeepr.Tests` | Pure reducer, stitcher, parser, recovery, args, path/media rules, poll schedule, token cache, allowlist logic, IRC/Twitch chat parser, chat timeline, chat log and purge, third-party emote providers and cache (BetterTTV, 7TV), global badge source and cache |
+| Integration | `tests/StreamKeepr.Tests` | `WebApplicationFactory`: media, health, auth, progress, export, channel, chat, emote catalog, and badge catalog endpoints; real DI with fake external services |
 | Component | `tests/StreamKeepr.Tests` | bUnit: primitives, library, player shell, stats, chat pane, details, auth, settings |
-| JS | `tests/js` | Vitest: timecode, preferences, tree navigation, shortcuts, sparkline, player pure logic, chat playhead/reveal/sync, third-party emote matching |
+| JS | `tests/js` | Vitest: timecode, preferences, tree navigation, shortcuts, sparkline, player pure logic, chat playhead/reveal/sync, third-party emote matching, badge image/chip fallback |
 | Process | `tests/StreamKeepr.Tests` | The built app as a child process, only for behavior `WebApplicationFactory` cannot observe: fatal startup logging, log flush, and exit code. Temp roots, no network, killed on timeout |
-| E2E | `tests/StreamKeepr.E2E` | Playwright .NET against the Mock profile: journeys, chat replay, emote replay, axe, keyboard, screenshots |
+| E2E | `tests/StreamKeepr.E2E` | Playwright .NET against the Mock profile: journeys, chat replay, emote replay, badge replay, axe, keyboard, screenshots |
 | Container | `tests/StreamKeepr.E2E` or CI | Docker build, non-root smoke, health, deep links, restart |
 
 Use the highest seam that still exercises real behavior. Do not mock the reducer, stitcher, session store, or other internal domain objects.
@@ -42,7 +42,7 @@ tests/
 ```
 
 - `tests/StreamKeepr.Tests` references `src/StreamKeepr` directly. No separate test-only public API.
-- `src/StreamKeepr` grants `InternalsVisibleTo` to `StreamKeepr.Tests` so unit and integration tests can exercise internal seams (emote providers, catalog service, channel resolver) without widening the public surface. Do not add test-only public members to production types; cover new internals through that binding.
+- `src/StreamKeepr` grants `InternalsVisibleTo` to `StreamKeepr.Tests` so unit and integration tests can exercise internal seams (emote providers, catalog service, channel resolver, badge source and catalog service) without widening the public surface. Do not add test-only public members to production types; cover new internals through that binding.
 - `tests/StreamKeepr.E2E` starts the app with the `Mock` launch profile on a free loopback port, waits for `/health/ready`, then runs Playwright.
 - The E2E fixture runs one Debug publish per run: the folder named by `STREAMKEEPR_E2E_PUBLISH_DIR` when it is set (CI publishes once in a workflow step), otherwise its own `dotnet publish`. It starts `StreamKeepr.dll` with `ASPNETCORE_ENVIRONMENT=Mock` on a free loopback port, then runs Playwright. It keeps the source project as the content root for the Mock fixture path and points `ASPNETCORE_WEBROOT` at the publish output. The shared publish is a stable test artifact, not a workaround: the Mock host enables build-time static web assets outside Development, so `_framework/*.js` is also served from a normal build.
 - `tests/js` is dev-only; Node never enters the image.
@@ -168,6 +168,7 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 | Hosting | Media allowlist/traversal/content types/cache/Range; live vs final index; health push-aware/readiness; Data Protection persistence; preflight; endpoint auth; Serilog pipeline (Serilog factory, levels from the `Serilog` section, no duplicate providers, static logger untouched by test hosts); request logging (one completion event per request with `RequestId`, level policy for quiet paths/4xx/5xx, query string never logged, handled 500 logged as an error); shipped logging config and template, fatal startup log and non-zero exit; lifecycle breadcrumbs (one startup summary, one stopping line, no client secret or chat token) |
 | Frontend | bUnit primitives and feature components; Vitest helpers/player logic; Playwright journeys; axe/keyboard |
 | Emotes | Provider normalization and static URL assembly; cache TTL/stale/single-flight and bounds; channel-ID fallback and memoization; cold global with a slow resolver; endpoint shape/disabled/failure; matcher precedence and native-range protection; image attributes and text fallback; Mock/E2E fixture; no external network |
+| Badges | Helix request URL/Client-Id/bearer and 401 retry; payload normalization, URL/ID limits and caps; cache TTL/stale/single-flight/timeout; endpoint shape/404/no-store/unavailable; one fetch per recording open; image-vs-chip, image-error fallback and the Show badges toggle; Mock/E2E fixture; no external network |
 | Container | Build; non-root; health; deep links; volume; secrets; stop finalize; restart recovery |
 
 ## 11. Failure modes
