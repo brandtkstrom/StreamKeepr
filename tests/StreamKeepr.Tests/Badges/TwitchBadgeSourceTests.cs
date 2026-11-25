@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -7,6 +6,7 @@ using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Badges;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Emotes;
+using StreamKeepr.Tests.Twitch;
 
 namespace StreamKeepr.Tests.Badges;
 
@@ -29,6 +29,18 @@ public sealed class TwitchBadgeSourceTests
                   "title": "Moderator",
                   "description": "A moderator",
                   "click_action": "none"
+                }
+              ]
+            },
+            {
+              "set_id": "verified",
+              "versions": [
+                {
+                  "id": "1",
+                  "image_url_1x": "https://static-cdn.jtvnw.net:443/badges/v1/verified/1",
+                  "image_url_2x": "https://static-cdn.jtvnw.net:443/badges/v1/verified/2",
+                  "image_url_4x": "https://static-cdn.jtvnw.net:443/badges/v1/verified/3",
+                  "title": "Verified"
                 }
               ]
             },
@@ -140,7 +152,7 @@ public sealed class TwitchBadgeSourceTests
             await CreateSource(handler).GetGlobalAsync(CancellationToken.None);
 
         Assert.Equal(
-            ["moderator/1", "staff/1", "broadcaster/1"],
+            ["moderator/1", "verified/1", "staff/1", "broadcaster/1"],
             entries.Select(entry => $"{entry.Set}/{entry.Version}"));
         BadgeCatalogEntry moderator = entries[0];
         Assert.Equal("Moderator", moderator.Title);
@@ -154,7 +166,36 @@ public sealed class TwitchBadgeSourceTests
             moderator.SrcSet);
 
         // A missing title falls back to the set name; the description and click data are ignored.
-        Assert.Equal("staff", entries[1].Title);
+        Assert.Equal("Verified", entries[1].Title);
+        Assert.Equal("staff", entries[2].Title);
+    }
+
+    [Fact]
+    public async Task Invalid_sets_do_not_consume_the_set_cap()
+    {
+        string invalid = """{"set_id":"Bad Set","versions":[]}""";
+        string json = $$"""{"data":[{{string.Join(",", Enumerable.Repeat(invalid, 500))}},{{Set("moderator", 1)}}]}""";
+        var handler = Handler(_ => Task.FromResult(EmoteTestData.Json(json)));
+
+        IReadOnlyList<BadgeCatalogEntry> entries =
+            await CreateSource(handler).GetGlobalAsync(CancellationToken.None);
+
+        BadgeCatalogEntry entry = Assert.Single(entries);
+        Assert.Equal("moderator/v0", $"{entry.Set}/{entry.Version}");
+    }
+
+    [Fact]
+    public async Task Invalid_versions_do_not_consume_the_version_cap()
+    {
+        string invalid = """{"id":"BAD ID","image_url_1x":"https://static-cdn.jtvnw.net/badges/v1/bad/1","image_url_2x":"https://static-cdn.jtvnw.net/badges/v1/bad/2","image_url_4x":"https://static-cdn.jtvnw.net/badges/v1/bad/3","title":"Bad"}""";
+        string json = $$"""{"data":[{"set_id":"moderator","versions":[{{string.Join(",", Enumerable.Repeat(invalid, 100))}},{{Version(0)}}]}]}""";
+        var handler = Handler(_ => Task.FromResult(EmoteTestData.Json(json)));
+
+        IReadOnlyList<BadgeCatalogEntry> entries =
+            await CreateSource(handler).GetGlobalAsync(CancellationToken.None);
+
+        BadgeCatalogEntry entry = Assert.Single(entries);
+        Assert.Equal("v0", entry.Version);
     }
 
     [Fact]
@@ -263,7 +304,7 @@ public sealed class TwitchBadgeSourceTests
         var handler = new StubHttpMessageHandler((request, _) =>
         {
             if (request.RequestUri!.Host == "id.twitch.tv")
-                return Task.FromResult(Token(++tokens));
+                return Task.FromResult(BadgeTestData.Token(++tokens == 1 ? "one" : "two"));
 
             badgeCalls++;
             return Task.FromResult(badgeCalls == 1
@@ -293,7 +334,7 @@ public sealed class TwitchBadgeSourceTests
             ClientId = "test-client-id",
             ClientSecret = "test-client-secret",
         });
-        var factory = new BadgeHttpClientFactory(handler);
+        var factory = new StubHttpClientFactory(handler);
         var clock = new FakeTimeProvider(Now);
         var tokens = new TwitchTokenProvider(
             factory, options, clock, NullLogger<TwitchTokenProvider>.Instance);
@@ -304,17 +345,8 @@ public sealed class TwitchBadgeSourceTests
     private static StubHttpMessageHandler Handler(
         Func<HttpRequestMessage, Task<HttpResponseMessage>> badge) =>
         new((request, _) => request.RequestUri!.Host == "id.twitch.tv"
-            ? Task.FromResult(Token(1))
+            ? Task.FromResult(BadgeTestData.Token())
             : badge(request));
-
-    private static HttpResponseMessage Token(int number) =>
-        new(HttpStatusCode.OK)
-        {
-            Content = new StringContent(
-                $$"""{"access_token":"{{(number == 1 ? "one" : "two")}}","expires_in":3600}""",
-                Encoding.UTF8,
-                "application/json"),
-        };
 
     private static string Set(string set, int versions) =>
         $$"""
@@ -326,14 +358,4 @@ public sealed class TwitchBadgeSourceTests
         {"id":"v{{index}}","image_url_1x":"https://static-cdn.jtvnw.net/badges/v1/{{index}}/1","image_url_2x":"https://static-cdn.jtvnw.net/badges/v1/{{index}}/2","image_url_4x":"https://static-cdn.jtvnw.net/badges/v1/{{index}}/3","title":"v{{index}}"}
         """;
 
-    private sealed class BadgeHttpClientFactory(HttpMessageHandler handler) : IHttpClientFactory
-    {
-        public HttpClient CreateClient(string name) =>
-            new(handler, disposeHandler: false)
-            {
-                BaseAddress = new Uri(name == TwitchHttpClients.Auth
-                    ? "https://id.twitch.tv/"
-                    : "https://api.twitch.tv/"),
-            };
-    }
 }

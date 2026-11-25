@@ -123,6 +123,10 @@ function badgesUrl(recordingId) {
   );
 }
 
+function badgeLookupKey(set, version) {
+  return `${set}/${version}`;
+}
+
 function isHttpsUrl(value) {
   if (typeof value !== "string") return false;
   try {
@@ -163,7 +167,7 @@ export function buildBadgeCatalog(entries) {
     if (!entry || typeof entry.set !== "string" || typeof entry.version !== "string") continue;
     if (typeof entry.title !== "string" || entry.title === "") continue;
     if (!isHttpsUrl(entry.src)) continue;
-    const key = `${entry.set}/${entry.version}`;
+    const key = badgeLookupKey(entry.set, entry.version);
     if (!catalog.has(key)) catalog.set(key, entry);
   }
   return catalog;
@@ -1133,8 +1137,8 @@ export function createChatPane(root, {
     }
   }
 
-  /** The shared alt/title and lazy/async attributes for native and third-party emotes. */
-  function applyEmoteImageAttributes(image, { src, srcset, code }) {
+  /** The shared alt/title and lazy/async attributes for emotes and badges. */
+  function applyImageAttributes(image, { src, srcset, code }) {
     image.src = src;
     if (srcset) image.setAttribute("srcset", srcset);
     image.alt = code;
@@ -1149,7 +1153,7 @@ export function createChatPane(root, {
     }
     const image = document.createElement("img");
     const base = `https://static-cdn.jtvnw.net/emoticons/v2/${encodeURIComponent(id)}/default/dark`;
-    applyEmoteImageAttributes(image, {
+    applyImageAttributes(image, {
       src: `${base}/1.0`,
       srcset: `${base}/1.0 1x, ${base}/2.0 2x, ${base}/3.0 3x`,
       code: name,
@@ -1170,7 +1174,7 @@ export function createChatPane(root, {
   /** The set/version lookup key, or null when the stored badge is malformed. */
   function badgeKey(badge) {
     if (typeof badge?.set !== "string" || typeof badge?.version !== "string") return null;
-    return `${badge.set}/${badge.version}`;
+    return badgeLookupKey(badge.set, badge.version);
   }
 
   /** The existing text chip, used both for unknown badges and for failed images. */
@@ -1191,7 +1195,7 @@ export function createChatPane(root, {
 
     const image = document.createElement("img");
     image.className = "sk-chat-badge-img";
-    applyEmoteImageAttributes(image, {
+    applyImageAttributes(image, {
       src: entry.src,
       srcset: safeSrcSet(entry.srcset),
       code: entry.title,
@@ -1208,7 +1212,7 @@ export function createChatPane(root, {
   function emoteImage(entry, code) {
     if (failedEmotes.has(code) || !isHttpsUrl(entry?.src)) return document.createTextNode(code);
     const image = document.createElement("img");
-    applyEmoteImageAttributes(image, {
+    applyImageAttributes(image, {
       src: entry.src,
       srcset: safeSrcSet(entry.srcset),
       code,
@@ -1233,7 +1237,6 @@ export function createChatPane(root, {
     failedBadges.add(key);
     image.replaceWith(badgeChip({
       set: image.dataset.badgeSet,
-      version: "",
       info: image.dataset.badgeInfo || null,
     }));
   }

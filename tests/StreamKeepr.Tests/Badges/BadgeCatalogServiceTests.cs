@@ -23,7 +23,7 @@ public sealed class BadgeCatalogServiceTests
         var source = new StubBadgeSource
         {
             Global = _ => Task.FromResult<IReadOnlyList<BadgeCatalogEntry>>(
-                [StubBadgeSource.Entry()]),
+                [BadgeTestData.Entry()]),
         };
         BadgeCatalogService service = Create(source);
 
@@ -41,8 +41,8 @@ public sealed class BadgeCatalogServiceTests
     [Fact]
     public async Task The_catalog_refreshes_once_the_hour_has_elapsed()
     {
-        BadgeCatalogEntry firstEntry = StubBadgeSource.Entry(title: "First");
-        BadgeCatalogEntry secondEntry = StubBadgeSource.Entry(title: "Second");
+        BadgeCatalogEntry firstEntry = BadgeTestData.Entry(title: "First");
+        BadgeCatalogEntry secondEntry = BadgeTestData.Entry(title: "Second");
         int call = 0;
         var source = new StubBadgeSource
         {
@@ -89,7 +89,7 @@ public sealed class BadgeCatalogServiceTests
         var source = new StubBadgeSource
         {
             Global = _ => Task.FromResult<IReadOnlyList<BadgeCatalogEntry>>(
-                [StubBadgeSource.Entry()]),
+                [BadgeTestData.Entry()]),
         };
         BadgeCatalogService service = Create(source);
         BadgeCatalogResult first = await service.GetGlobalAsync(CancellationToken.None);
@@ -148,7 +148,7 @@ public sealed class BadgeCatalogServiceTests
         Task<BadgeCatalogResult> first = service.GetGlobalAsync(CancellationToken.None);
         await started.Task;
         Task<BadgeCatalogResult> second = service.GetGlobalAsync(CancellationToken.None);
-        release.SetResult([StubBadgeSource.Entry()]);
+        release.SetResult([BadgeTestData.Entry()]);
 
         BadgeCatalogResult[] results = await Task.WhenAll(first, second);
 
@@ -193,7 +193,7 @@ public sealed class BadgeCatalogServiceTests
                     await Task.Delay(Timeout.InfiniteTimeSpan, ct);
                 }
 
-                return [StubBadgeSource.Entry()];
+                return [BadgeTestData.Entry()];
             },
         };
         BadgeCatalogService service = Create(source);

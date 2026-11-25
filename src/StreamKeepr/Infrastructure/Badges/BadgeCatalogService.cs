@@ -16,7 +16,8 @@ internal sealed record BadgeCatalogResult(
 /// Caches Twitch's global badge catalog for an hour. One in-flight refresh serves every caller,
 /// a failed refresh serves the last good catalog, and a failure with no cache leaves the catalog
 /// unavailable. Badge failures never surface as errors and never affect chat, emotes, capture,
-/// recording, or health.
+/// recording, or health. The cache semantics deliberately mirror <c>EmoteCatalogService</c>
+/// without sharing its seam: badges are not emotes (ADR-0011).
 /// </summary>
 internal sealed class BadgeCatalogService(
     IBadgeSource source,
@@ -112,6 +113,8 @@ internal sealed class BadgeCatalogService(
             reason);
     }
 
+    // The reason vocabulary matches EmoteFailure.Describe so both catalogs log the same way.
+    // The switch stays local because the badge and emote exceptions are separate seams.
     private static (int? HttpStatus, string Reason) DescribeFailure(Exception exception) =>
         exception switch
         {

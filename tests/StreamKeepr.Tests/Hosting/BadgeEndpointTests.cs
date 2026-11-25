@@ -1,11 +1,11 @@
 using System.Net;
-using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
+using StreamKeepr.Tests.Badges;
 using StreamKeepr.Tests.Emotes;
 
 namespace StreamKeepr.Tests.Hosting;
@@ -140,6 +140,25 @@ public sealed class BadgeEndpointTests
     }
 
     [Fact]
+    public async Task An_invalid_payload_returns_an_unavailable_catalog()
+    {
+        var handler = Handler(() => EmoteTestData.Json("not json"));
+        using StreamKeeprAppFactory factory = CreateFactory(handler);
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response =
+            await client.GetAsync($"/api/recordings/{Summary.Id}/badges");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement root = json.RootElement;
+        Assert.False(root.GetProperty("available").GetBoolean());
+        Assert.False(root.GetProperty("stale").GetBoolean());
+        Assert.Empty(root.GetProperty("global").EnumerateArray());
+        Assert.Empty(root.GetProperty("channel").EnumerateArray());
+    }
+
+    [Fact]
     public async Task A_failed_refresh_serves_the_stale_catalog()
     {
         var fail = false;
@@ -211,15 +230,7 @@ public sealed class BadgeEndpointTests
     private static StubHttpMessageHandler Handler(Func<HttpResponseMessage> badge) =>
         new((request, _) => Task.FromResult(
             request.RequestUri!.Host == "id.twitch.tv"
-                ? Token()
+                ? BadgeTestData.Token()
                 : badge()));
 
-    private static HttpResponseMessage Token() =>
-        new(HttpStatusCode.OK)
-        {
-            Content = new StringContent(
-                """{"access_token":"one","expires_in":3600}""",
-                Encoding.UTF8,
-                "application/json"),
-        };
 }

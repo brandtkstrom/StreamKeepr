@@ -75,8 +75,12 @@ internal sealed class TwitchBadgeSource(
             throw BadgeCatalogException.InvalidPayload();
 
         var entries = new List<BadgeCatalogEntry>();
-        foreach (HelixBadgeSet? set in payload.Data.Take(BadgeCatalogRules.MaxSets))
+        int setCount = 0;
+        foreach (HelixBadgeSet? set in payload.Data)
         {
+            if (setCount == BadgeCatalogRules.MaxSets)
+                break;
+
             if (set is null ||
                 !BadgeCatalogRules.IsValidId(set.SetId) ||
                 set.Versions is null)
@@ -85,8 +89,13 @@ internal sealed class TwitchBadgeSource(
             }
 
             string setKey = set.SetId!;
-            foreach (HelixBadgeVersion? version in set.Versions.Take(BadgeCatalogRules.MaxVersionsPerSet))
+            int versionCount = 0;
+            int setEntries = entries.Count;
+            foreach (HelixBadgeVersion? version in set.Versions)
             {
+                if (versionCount == BadgeCatalogRules.MaxVersionsPerSet)
+                    break;
+
                 if (version is null || !BadgeCatalogRules.IsValidId(version.Id))
                     continue;
 
@@ -101,7 +110,12 @@ internal sealed class TwitchBadgeSource(
                     BadgeCatalogRules.NormalizeTitle(version.Title, setKey),
                     version.ImageUrl1X!,
                     srcSet));
+                versionCount++;
             }
+
+            // A set with no usable versions does not consume the set cap.
+            if (entries.Count > setEntries)
+                setCount++;
         }
 
         return entries;
