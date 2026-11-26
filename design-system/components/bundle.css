@@ -267,10 +267,16 @@ mark.ds-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .ds-kv dd { margin: 0; font: var(--text-stat-value); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ds-kv dd.prose { font: var(--text-body2); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; white-space: normal; }
 
-/* Chat island */
+/* Chat island, and the desktop dock it becomes on Md and up */
 .ds-chat { width: var(--chat-width); background: var(--surface); border: 1px solid var(--lines-default); border-radius: var(--radius-lg); display: flex; flex-direction: column; overflow: hidden; }
-.ds-chat-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--divider); }
+.ds-chat-head { display: flex; align-items: center; gap: var(--space-2); min-height: 64px; padding: 0 var(--space-3); border-bottom: 1px solid var(--divider); }
 .ds-chat-head .t { font: var(--text-subtitle1); }
+/* The desktop dock: fixed under the app bar, flush right and flat, one left divider, square
+   corners, no shadow. The base .ds-chat stays the outlined phone/tablet card. */
+.ds-chat.dock { position: absolute; top: 0; right: 0; bottom: 0; width: var(--chat-width); min-width: 0; min-height: 0; border: 0; border-left: 1px solid var(--divider); border-radius: 0; box-shadow: none; background: var(--drawer-background); }
+.ds-chat-state { margin-left: auto; display: inline-flex; align-items: center; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
+.ds-chat-state .ds-i { width: 20px; height: 20px; }
+.ds-chat-state.live { color: var(--primary); }
 .ds-chat-log { flex: 1; padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); font: var(--text-body2); overflow: hidden; }
 .ds-chat-log .n { font-weight: 700; }
 .ds-chat-log .ts { font: var(--text-timecode); font-size: 11px; color: var(--text-secondary); margin-right: var(--space-1); }

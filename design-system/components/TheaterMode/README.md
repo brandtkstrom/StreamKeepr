@@ -9,7 +9,7 @@ Theater mode (desktop only): the player spans the view edge to edge up to the op
 
 ## Rules
 
-- Chat never sits beside the player in theater mode. The player always gets the whole width up to the open drawer's divider; chat is the docked right drawer.
+- In theater mode chat is still the docked right drawer, never a column inside the content beside the player: the player always gets the whole width up to the open drawer's divider.
 - Theater mode never hides the app bar. Fullscreen does that.
 - Leaving theater mode restores the drawer state and the chat drawer. Disk usage hides with the drawer.
 - Below `Breakpoint.Md` the toggle hides: the player is already edge to edge there, and fullscreen takes over.
