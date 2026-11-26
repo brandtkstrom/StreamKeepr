@@ -590,6 +590,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
    the player's height and the log scrolls; without it every new message grows the pane and
    pushes the sync footer down the page. */
 .sk-chat {
+  --sk-chat-font-scale: 100; --sk-chat-font-weight: 400;
   width: 100%; flex: none; display: flex; flex-direction: column; min-height: 0; overflow: hidden; contain: size;
   background: var(--drawer-background); border: 1px solid var(--lines-default); border-radius: var(--radius-lg); color: var(--text-primary);
 }
@@ -624,6 +625,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; padding: var(--space-2) var(--space-3);
   display: flex; flex-direction: column; gap: var(--space-1);
   color: var(--text-primary); font: var(--text-body2); letter-spacing: var(--text-body2-letter-spacing);
+  font-size: calc(0.875rem * var(--sk-chat-font-scale, 100) / 100); font-weight: var(--sk-chat-font-weight, 400);
   overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--surface-raised) transparent;
 }
 /* Anchor short chat to the bottom so it grows upward. An auto margin, unlike
@@ -639,10 +641,15 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   display: inline-block; margin-right: var(--space-1); padding: 0 var(--space-1); border-radius: var(--radius-sm);
   background: var(--surface-raised); color: var(--text-secondary); vertical-align: 1px;
   font: var(--text-label); letter-spacing: var(--text-label-letter-spacing);
+  /* Badges grow with larger chat text but never shrink below the label size; 10px is the floor. */
+  font-size: max(10px, 0.75rem, calc(0.75rem * var(--sk-chat-font-scale, 100) / 100));
 }
-/* A catalog badge sits in the chip's slot on the first text line; 18px keeps it within the
-   line box, and auto width preserves Twitch's aspect ratio. */
-.sk-chat-badge-img { display: inline-block; height: 18px; width: auto; margin-right: var(--space-1); vertical-align: middle; }
+/* A catalog badge sits in the chip's slot on the first text line; auto width preserves Twitch's
+   aspect ratio. Like the text chip, it grows above 100% and never shrinks; 10px is the floor. */
+.sk-chat-badge-img {
+  display: inline-block; width: auto; margin-right: var(--space-1); vertical-align: middle;
+  height: max(10px, 18px, calc(18px * var(--sk-chat-font-scale, 100) / 100));
+}
 /* Settings › Chat "Show badges": the pane root carries the preference, and hidden badges
    leave the layout and the accessibility tree (display, not opacity). Both the image and its
    text-chip fallback are hidden. */
@@ -656,7 +663,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   margin: var(--space-2) 0; padding: var(--space-1) 0; border-top: 1px dashed var(--divider); text-align: center;
   color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
 }
-.sk-chat-text img { height: 28px; width: auto; vertical-align: middle; }
+.sk-chat-text img { height: 2em; width: auto; vertical-align: middle; }
 .sk-chat-text a, .sk-chat-reply a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
 .sk-chat-footer { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--divider); }
 /* Settings › Chat (design system: ChatSettings). Chat sync is a native range drawn like MudSlider
@@ -670,11 +677,11 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-chat-badges { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; max-width: 420px; margin-top: var(--space-4); color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); cursor: pointer; }
 .sk-chat-badges > svg[data-icon] { flex: none; width: 20px; height: 20px; color: var(--action-default); }
 .sk-chat-badges-input { flex: none; inline-size: 18px; block-size: 18px; margin: 0; accent-color: var(--primary); cursor: pointer; }
-.sk-chat-sync { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 420px; }
-.sk-chat-sync-head { display: flex; align-items: center; gap: var(--space-2); min-height: 28px; }
-.sk-chat-sync-head > svg[data-icon] { width: 20px; height: 20px; color: var(--action-default); }
-.sk-chat-sync-label { flex: 1; min-width: 0; color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
-.sk-chat-sync-value {
+.sk-chat-sync, .sk-chat-font { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 420px; }
+.sk-chat-sync-head, .sk-chat-font-head { display: flex; align-items: center; gap: var(--space-2); min-height: 28px; }
+.sk-chat-sync-head > svg[data-icon], .sk-chat-font-head > svg[data-icon] { width: 20px; height: 20px; color: var(--action-default); }
+.sk-chat-sync-label, .sk-chat-font-label { flex: 1; min-width: 0; color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
+.sk-chat-sync-value, .sk-chat-font-value {
   color: var(--text-primary); font: var(--text-timecode); letter-spacing: var(--text-timecode-letter-spacing);
   font-variant-numeric: var(--text-timecode-numeric); white-space: nowrap;
 }
@@ -686,7 +693,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-chat-sync-reset svg[data-icon] { width: 18px; height: 18px; }
 .sk-chat-sync-reset:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
 /* The zero tick sits behind the input, centred, so the thumb covers it at 0. */
-.sk-chat-sync-slider { position: relative; display: flex; align-items: center; height: 20px; }
+.sk-chat-sync-slider, .sk-chat-font-slider { position: relative; display: flex; align-items: center; height: 20px; }
 .sk-chat-sync-slider::before {
   content: ""; position: absolute; left: 50%; top: 4px; width: 2px; height: 12px; margin-left: -1px;
   border-radius: 1px; background: var(--text-secondary); pointer-events: none;
@@ -712,9 +719,22 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-chat-sync-range::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--primary); }
 .sk-chat-sync-range:hover::-webkit-slider-thumb { box-shadow: 0 0 0 8px color-mix(in srgb, var(--primary) calc(var(--hover-opacity) * 100%), transparent); }
 .sk-chat-sync-range:hover::-moz-range-thumb { box-shadow: 0 0 0 8px color-mix(in srgb, var(--primary) calc(var(--hover-opacity) * 100%), transparent); }
-.sk-chat-sync-ends {
+.sk-chat-sync-ends, .sk-chat-font-ends {
   display: flex; justify-content: space-between; color: var(--text-secondary);
   font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
+}
+.sk-chat-font { margin-top: var(--space-4); }
+.sk-chat-font-weight {
+  display: flex; align-items: center; gap: var(--space-2); min-height: 40px; max-width: 420px;
+  margin-top: var(--space-4); color: var(--text-primary);
+}
+.sk-chat-font-weight > svg[data-icon] { flex: none; width: 20px; height: 20px; color: var(--action-default); }
+.sk-chat-font-weight-label { flex: 1; min-width: 0; font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
+.sk-chat-font-select {
+  flex: none; max-width: 190px; height: 32px; padding: 0 var(--space-2);
+  border: 1px solid var(--lines-default); border-radius: var(--radius-sm);
+  background: var(--surface-raised); color: var(--text-primary);
+  font: var(--text-body2); letter-spacing: var(--text-body2-letter-spacing); cursor: pointer;
 }
 .sk-chat-jump {
   height: 24px; padding: 0 var(--space-3); border: 1px solid var(--primary); border-radius: var(--radius-full); background: transparent;

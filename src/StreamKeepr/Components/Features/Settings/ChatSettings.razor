@@ -70,6 +70,54 @@
     <p class="sk-chat-settings-help" id="sk-chat-badges-help" data-chat-badges-help>
         Shows the moderator, subscriber, VIP and other role badges before each name.
     </p>
+    <div class="sk-chat-font"
+         role="group"
+         aria-labelledby="sk-chat-font-scale-label"
+         aria-describedby="sk-chat-font-scale-help">
+        <div class="sk-chat-font-head">
+            @IslandIcon.Svg("FormatSize")
+            <label class="sk-chat-font-label" id="sk-chat-font-scale-label" for="sk-chat-font-scale">Chat font size</label>
+            <span class="sk-chat-font-value" data-chat-font-value aria-hidden="true">@FormatScale(_shownScale)</span>
+        </div>
+        <div class="sk-chat-font-slider">
+            <input id="sk-chat-font-scale"
+                   class="sk-chat-sync-range"
+                   type="range"
+                   min="@FontScaleMin"
+                   max="@FontScaleMax"
+                   step="@FontScaleStep"
+                   value="@Invariant(_sliderScale)"
+                   style="@ScaleFillStyle(_shownScale)"
+                   aria-valuetext="@ScaleValueText(_shownScale)"
+                   @oninput="OnFontScaleInput"
+                   @onchange="OnFontScaleChangeAsync"
+                   data-chat-font-scale />
+        </div>
+        <div class="sk-chat-font-ends" aria-hidden="true">
+            <span>Smaller</span>
+            <span>Larger</span>
+        </div>
+    </div>
+    <p class="sk-chat-settings-help" id="sk-chat-font-scale-help">
+        Scales chat replay text, emotes and badges on every recording.
+    </p>
+    <div class="sk-chat-font-weight">
+        @IslandIcon.Svg("FormatBold")
+        <label class="sk-chat-font-weight-label" for="sk-chat-font-weight">Chat font weight</label>
+        <select id="sk-chat-font-weight"
+                class="sk-chat-font-select"
+                aria-describedby="sk-chat-font-weight-help"
+                @onchange="OnFontWeightChangedAsync"
+                data-chat-font-weight>
+            @foreach (var option in UiPreferences.ChatFontWeightOptions)
+            {
+                <option value="@option.Value" selected="@(option.Value == _weight)">@option.Label</option>
+            }
+        </select>
+    </div>
+    <p class="sk-chat-settings-help" id="sk-chat-font-weight-help">
+        Sets message text weight; usernames stay bold.
+    </p>
 </SettingsSection>
 
 @code {
@@ -77,6 +125,9 @@
     private static readonly string SyncMax = Invariant(ChatReader.MaxSyncOffsetSeconds);
     private static readonly string SyncMin = Invariant(-ChatReader.MaxSyncOffsetSeconds);
     private static readonly string SyncStep = Invariant(UiPreferences.ChatSyncStepSeconds);
+    private static readonly string FontScaleMin = Invariant(UiPreferences.ChatFontScaleMin);
+    private static readonly string FontScaleMax = Invariant(UiPreferences.ChatFontScaleMax);
+    private static readonly string FontScaleStep = Invariant(UiPreferences.ChatFontScaleStep);
 
     // What the readout shows: the thumb while dragging, the saved offset otherwise.
     private double _shown;
@@ -88,7 +139,19 @@
     private double _sliderValue;
     private int _sliderGeneration;
 
-    protected override void OnInitialized() => _shown = _sliderValue = Preferences.ChatSyncOffset;
+    // The font size readout and the value the range was created with. The browser owns the
+    // thumb after the first render, for the same slow-round-trip reason as Chat sync.
+    private int _shownScale;
+    private int _sliderScale;
+
+    private int _weight;
+
+    protected override void OnInitialized()
+    {
+        _shown = _sliderValue = Preferences.ChatSyncOffset;
+        _shownScale = _sliderScale = Preferences.ChatFontScale;
+        _weight = Preferences.ChatFontWeight;
+    }
 
     // Dragging only redraws the readout; the offset is saved, and chat refetched, on change.
     private void OnInput(ChangeEventArgs args)
@@ -126,6 +189,39 @@
         await Preferences.PersistAsync();
     }
 
+    // Dragging only redraws the readout; the scale is saved, and applied to the pane, on change.
+    private void OnFontScaleInput(ChangeEventArgs args)
+    {
+        if (TryParseInt(args.Value, out int value))
+            _shownScale = value;
+    }
+
+    private async Task OnFontScaleChangeAsync(ChangeEventArgs args)
+    {
+        if (TryParseInt(args.Value, out int value))
+            await SaveFontScaleAsync(value);
+    }
+
+    private async Task SaveFontScaleAsync(int value)
+    {
+        Preferences.SetChatFontScale(value);
+        _shownScale = Preferences.ChatFontScale;
+        await Preferences.PersistAsync();
+    }
+
+    private async Task OnFontWeightChangedAsync(ChangeEventArgs args)
+    {
+        if (!TryParseInt(args.Value, out int weight) || !UiPreferences.IsChatFontWeight(weight))
+            return;
+
+        Preferences.SetChatFontWeight(weight);
+        _weight = Preferences.ChatFontWeight;
+        await Preferences.PersistAsync();
+    }
+
+    private static bool TryParseInt(object? value, out int result) =>
+        int.TryParse(value?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out result);
+
     private static bool TryParse(object? value, out double result) =>
         double.TryParse(value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out result) &&
         double.IsFinite(result);
@@ -149,12 +245,26 @@
     }
 
     // The fill runs from the centre to the thumb: --sk-sync-lo and --sk-sync-hi are 0–1 along
-    // the track (components.css draws them).
+    // the track (components.css draws them). The font size fill runs from the left and shares
+    // those two variables.
     private static string FillStyle(double value)
     {
         double max = ChatReader.MaxSyncOffsetSeconds;
         double at = (value + max) / (2 * max);
-        return string.Create(CultureInfo.InvariantCulture,
-            $"--sk-sync-lo: {Math.Min(at, 0.5)}; --sk-sync-hi: {Math.Max(at, 0.5)}");
+        return RangeFill(Math.Min(at, 0.5), Math.Max(at, 0.5));
     }
+
+    private static string ScaleFillStyle(int value)
+    {
+        double at = (double)(value - UiPreferences.ChatFontScaleMin) /
+            (UiPreferences.ChatFontScaleMax - UiPreferences.ChatFontScaleMin);
+        return RangeFill(0, at);
+    }
+
+    private static string RangeFill(double lo, double hi) =>
+        string.Create(CultureInfo.InvariantCulture, $"--sk-sync-lo: {lo}; --sk-sync-hi: {hi}");
+
+    private static string FormatScale(int value) => $"{value}%";
+
+    private static string ScaleValueText(int value) => $"{value} percent";
 }

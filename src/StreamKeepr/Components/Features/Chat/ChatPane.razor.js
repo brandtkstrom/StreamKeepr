@@ -1,6 +1,6 @@
 // Chat replay pane. Blazor renders the skeleton once; this module owns the log, polling,
-// auto-scroll, and the C shortcut, and applies the viewer's chat sync offset, which .NET sends
-// from Settings › Chat. The player owns the <video> element.
+// auto-scroll, and the C shortcut, and applies the viewer's chat sync offset, font size and
+// weight, which .NET sends from Settings › Chat. The player owns the <video> element.
 import { callDotNet } from "/js/circuit.js";
 import { setIcon } from "/js/island-icons.js";
 import { shortcutBlocked } from "/js/player-keys.js";
@@ -617,6 +617,9 @@ export function createChatPane(root, {
     // The payload is a boundary: a missing value must not overwrite the state the server
     // painted (an older payload would otherwise turn the chips back on).
     if (typeof next.showBadges === "boolean") setShowBadges(next.showBadges);
+    // The root already carries these for the first frame; applying the payload keeps a
+    // reinitialized pane in step without a scroll or a log rebuild.
+    applyTypography(next.fontScale, next.fontWeight);
     // A session's chat log can appear while the recording is live, but it never disappears.
     // Keep a true value when a stale summary payload says false, and keep status in step.
     if (!changed && hadChat) view = { ...next, hasChat: true };
@@ -1185,6 +1188,7 @@ export function createChatPane(root, {
     const label = BADGE_LABELS[badge.set] || badge.set;
     const chip = document.createElement("span");
     chip.className = "sk-chat-badge";
+    chip.dataset.chatBadge = "";
     chip.textContent = label;
     chip.title = badge.info ? `${label} ${badge.info}` : label;
     return chip;
@@ -1198,6 +1202,7 @@ export function createChatPane(root, {
 
     const image = document.createElement("img");
     image.className = "sk-chat-badge-img";
+    image.dataset.chatBadge = "";
     applyImageAttributes(image, {
       src: entry.src,
       srcset: safeSrcSet(entry.srcset),
@@ -1294,6 +1299,36 @@ export function createChatPane(root, {
     return Number.isFinite(number) ? clamp(number, -max, max) : 0;
   }
 
+  /**
+   * Writes the viewer's font size and weight (Settings › Chat) onto the pane root, as the custom
+   * properties the CSS reads and the data attributes the tests read. C# owns the bounds; this
+   * only applies them, so the log reflows without a refetch or a row rebuild. A missing value is
+   * not a number, so an older payload cannot zero the painted state.
+   */
+  function applyTypography(scale, weight) {
+    if (!root) return;
+    if (typeof scale === "number" && Number.isFinite(scale)) {
+      root.dataset.fontScale = String(scale);
+      root.style.setProperty("--sk-chat-font-scale", String(scale));
+    }
+    if (typeof weight === "number" && Number.isFinite(weight)) {
+      root.dataset.fontWeight = String(weight);
+      root.style.setProperty("--sk-chat-font-weight", String(weight));
+    }
+  }
+
+  /**
+   * Applies a Settings › Chat typography change to the open pane. A following log stays at its
+   * newest row after the reflow; a scrolled-back log keeps the viewer's place, which the
+   * browser's scroll anchoring holds. No refetch and no rebuild.
+   */
+  function setTypography(scale, weight) {
+    if (disposed) return;
+    const wasFollowing = following;
+    applyTypography(scale, weight);
+    if (wasFollowing) scrollToEnd("instant");
+  }
+
   function applyBadges() {
     if (root) root.dataset.badges = showBadges ? "true" : "false";
   }
@@ -1353,6 +1388,7 @@ export function createChatPane(root, {
     setOpen,
     setSyncOffset,
     setShowBadges,
+    setTypography,
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -1394,6 +1430,10 @@ export function setSyncOffset(root, offset) {
 
 export function setShowBadges(root, value) {
   panes.get(root)?.setShowBadges(value);
+}
+
+export function setTypography(root, scale, weight) {
+  panes.get(root)?.setTypography(scale, weight);
 }
 
 export function dispose(root) {

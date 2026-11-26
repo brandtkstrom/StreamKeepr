@@ -1,4 +1,4 @@
-Chat replay beside the player: messages synced to the playhead, shifted by the viewer's Chat sync offset from Settings, with a jump back to the current time. A JS-owned island.
+Chat replay beside the player: messages synced to the playhead, shifted by the viewer's Chat sync offset and set in their chat typography from Settings, with a jump back to the current time. A JS-owned island.
 
 ## Build it from
 
@@ -12,8 +12,9 @@ Keep `ChatPane.razor.js` owning the log, polling, auto-scroll and the open state
 ## Rules
 
 - The streamer's own messages take their channel colour (`channel-*`). Other chatters' names use their Twitch colour only where it reaches 4.5:1 on `surface`; otherwise `text-primary`.
-- Each row may open with badges. A stored badge looks for an exact set and version match in the recording channel's badge catalog first, then in the global badge catalog; a channel badge never stands in for a different version. A match renders as an 18px-high image in the chip's slot, with `srcset`, lazy/async loading, `referrerpolicy="no-referrer"`, and that catalog entry's title as `alt` and `title`. An unknown set or version, or an image that fails to load, keeps the text chip (MOD, SUB, VIP…), labelled from the badge set; a failed image is not retried.
+- Each row may open with badges. A stored badge looks for an exact set and version match in the recording channel's badge catalog first, then in the global badge catalog; a channel badge never stands in for a different version. A match renders as an 18px-high image at 100%, growing above 100% with a 10px floor, in the chip's slot, with `srcset`, lazy/async loading, `referrerpolicy="no-referrer"`, and that catalog entry's title as `alt` and `title`. An unknown set or version, or an image that fails to load, keeps the text chip (MOD, SUB, VIP…), labelled from the badge set; a failed image is not retried.
 - Settings › Chat's "Show badges" (`UiPreferences.ChatShowBadges`, cookie key `chatShowBadgeText`, on by default) hides badge images and chips in every pane through the root's `data-badges` and `display: none`, so they leave the layout and the accessibility tree.
+- Settings › Chat's font size (85–145% of `body2`, default 100%) and font weight (400/500/700, default 400) apply to every pane. The log's message text and names take the size; names stay 700; replies and gaps keep `caption`; badge images and chips scale up above 100% (10px floor; images 18px at 100%); emote images are `2em` (28px at 100%). The pane root carries `data-font-scale`/`data-font-weight` and `--sk-chat-font-scale`/`--sk-chat-font-weight`; a change applies live without a refetch or a log rebuild.
 - In theater mode it moves below the player and stays the right-hand column there, taking the height left down to the bottom of the viewport, at least 260px (see `TheaterMode`).
 - Below `Breakpoint.Md` it is the **Chat** tab under the player (`MudTabPanel Icon="@Icons.Material.Rounded.Chat"`), filling the rest of the screen without its own header; the tab owns the disclosure, so the pane is always open.
 - The channel colour comes from .NET (`ChannelColor`) in the pane's payload (`channelLogin`, `channelColor`), so chat and the drawer always agree (player contract §10a).

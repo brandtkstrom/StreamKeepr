@@ -1424,7 +1424,7 @@ describe("chat replay pane", () => {
     const log = root.querySelector("[data-sk='chat-log']");
     const row = log.querySelector("[data-message-id]");
     expect(root.dataset.badges).toBe("true");
-    expect([...log.querySelectorAll(".sk-chat-badge")].map((chip) => chip.textContent))
+    expect([...log.querySelectorAll("span[data-chat-badge]")].map((chip) => chip.textContent))
       .toEqual(["MOD", "SUB", "glhf-pledge"]);
 
     const calls = fetch.mock.calls.length;
@@ -1842,7 +1842,7 @@ describe("badges in the pane", () => {
     await flush();
 
     const log = document.querySelector("[data-sk='chat-log']");
-    const image = log.querySelector("img.sk-chat-badge-img");
+    const image = log.querySelector("img[data-chat-badge]");
     expect(image).not.toBeNull();
     expect(image.getAttribute("src")).toBe(MOD_BADGE.src);
     expect(image.getAttribute("srcset")).toBe(MOD_BADGE.srcset);
@@ -1853,7 +1853,7 @@ describe("badges in the pane", () => {
     expect(image.getAttribute("referrerpolicy")).toBe("no-referrer");
 
     // Unknown versions and sets keep the existing chip, info included.
-    const chips = [...log.querySelectorAll(".sk-chat-badge")];
+    const chips = [...log.querySelectorAll("span[data-chat-badge]")];
     expect(chips.map((chip) => chip.textContent)).toEqual(["SUB", "glhf-pledge"]);
     expect(chips[0].getAttribute("title")).toBe("SUB 12");
     expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r1/badges"))
@@ -1875,19 +1875,19 @@ describe("badges in the pane", () => {
     await flush();
 
     const log = document.querySelector("[data-sk='chat-log']");
-    const image = log.querySelector("img.sk-chat-badge-img");
+    const image = log.querySelector("img[data-chat-badge]");
     expect(image).not.toBeNull();
     image.dispatchEvent(new Event("error"));
 
-    expect(log.querySelector("img.sk-chat-badge-img")).toBeNull();
-    expect(log.querySelector(".sk-chat-badge").textContent).toBe("MOD");
+    expect(log.querySelector("img[data-chat-badge]")).toBeNull();
+    expect(log.querySelector("span[data-chat-badge]").textContent).toBe("MOD");
 
     // A rebuild from the same messages keeps the chip and never retries the image.
     pane.setSyncOffset(1);
     await flush();
 
-    expect(log.querySelector("img.sk-chat-badge-img")).toBeNull();
-    expect(log.querySelector(".sk-chat-badge").textContent).toBe("MOD");
+    expect(log.querySelector("img[data-chat-badge]")).toBeNull();
+    expect(log.querySelector("span[data-chat-badge]").textContent).toBe("MOD");
     expect(fetch.mock.calls.filter(([url]) => url.pathname === "/api/recordings/r1/badges"))
       .toHaveLength(1);
 
@@ -1961,7 +1961,7 @@ describe("badges in the pane", () => {
     await flush();
 
     const log = document.querySelector("[data-sk='chat-log']");
-    const images = [...log.querySelectorAll("img.sk-chat-badge-img")];
+    const images = [...log.querySelectorAll("img[data-chat-badge]")];
     expect(images.map((image) => image.getAttribute("src")))
       .toEqual([CHANNEL_SUBSCRIBER.src, CHANNEL_SUBSCRIBER_MONTHS.src]);
     expect(images[0].getAttribute("alt")).toBe("Nova Subscriber");
@@ -1969,7 +1969,7 @@ describe("badges in the pane", () => {
 
     // subscriber/12 exists in neither scope, so it keeps the chip; the global subscriber/0
     // never renders because the channel owns that exact version.
-    const chips = [...log.querySelectorAll(".sk-chat-badge")];
+    const chips = [...log.querySelectorAll("span[data-chat-badge]")];
     expect(chips.map((chip) => chip.textContent)).toEqual(["SUB"]);
     expect(chips[0].getAttribute("title")).toBe("SUB 12");
 
@@ -2379,6 +2379,94 @@ describe("chat links in the pane", () => {
     expect(link.getAttribute("href")).toBe("https://example.com/");
     expect(link.closest("[inert]")).toBeNull();
     expect(document.querySelector("[data-sk='chat-log']").closest("[inert]")).toBeNull();
+
+    pane.dispose();
+  });
+});
+
+describe("chat typography", () => {
+  it("applies the viewer's font settings as custom properties without a rebuild", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const fetch = fakeFetch();
+    const pane = createChatPane(root, { fetch });
+    await pane.load({ ...VIEW });
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    const row = log.querySelector("[data-message-id]");
+    const calls = fetch.mock.calls.length;
+
+    pane.setTypography(120, 700);
+
+    expect(root.dataset.fontScale).toBe("120");
+    expect(root.dataset.fontWeight).toBe("700");
+    expect(root.style.getPropertyValue("--sk-chat-font-scale")).toBe("120");
+    expect(root.style.getPropertyValue("--sk-chat-font-weight")).toBe("700");
+    expect(fetch.mock.calls).toHaveLength(calls);
+    expect(log.querySelector("[data-message-id]")).toBe(row);
+
+    pane.dispose();
+  });
+
+  it("applies the payload font settings on load", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, { fetch: fakeFetch() });
+
+    await pane.load({ ...VIEW, fontScale: 120, fontWeight: 500 });
+
+    expect(root.dataset.fontScale).toBe("120");
+    expect(root.dataset.fontWeight).toBe("500");
+    expect(root.style.getPropertyValue("--sk-chat-font-scale")).toBe("120");
+    expect(root.style.getPropertyValue("--sk-chat-font-weight")).toBe("500");
+
+    pane.dispose();
+  });
+
+  it("keeps the painted font settings when an older payload omits them", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    root.style.setProperty("--sk-chat-font-scale", "110");
+    root.dataset.fontScale = "110";
+    const pane = createChatPane(root, { fetch: fakeFetch() });
+
+    await pane.load({ ...VIEW, fontScale: null, fontWeight: null });
+
+    expect(root.dataset.fontScale).toBe("110");
+    expect(root.style.getPropertyValue("--sk-chat-font-scale")).toBe("110");
+
+    pane.dispose();
+  });
+
+  it("keeps a following log at the end when the font changes, and leaves a scrolled-back log put", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pane = createChatPane(root, { fetch: fakeFetch() });
+    await pane.load({ ...VIEW });
+    playhead(10);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    let scrollTop = 1000;
+    Object.defineProperty(log, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(log, "clientHeight", { configurable: true, value: 300 });
+    Object.defineProperty(log, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value) => { scrollTop = value; },
+    });
+
+    // Following: the reflow lands on the newest row.
+    pane.setTypography(120, 400);
+    expect(log.scrollTop).toBe(1000);
+
+    // Scrolled back: the viewer keeps their place.
+    log.scrollTop = 0;
+    log.dispatchEvent(new Event("scroll"));
+    pane.setTypography(130, 400);
+    expect(log.scrollTop).toBe(0);
 
     pane.dispose();
   });
