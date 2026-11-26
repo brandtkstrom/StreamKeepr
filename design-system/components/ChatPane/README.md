@@ -1,4 +1,4 @@
-Chat replay beside the player: messages synced to the playhead, shifted by the viewer's Chat sync offset and set in their chat typography from Settings, with a jump back to the current time. A JS-owned island.
+Chat replay: a 400px drawer docked to the player's right edge on desktop and the Chat tab on phones, with messages synced to the playhead, shifted by the viewer's Chat sync offset and set in their chat typography from Settings, with a jump back to the current time. A JS-owned island.
 
 ## Build it from
 
