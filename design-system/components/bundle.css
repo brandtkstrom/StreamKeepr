@@ -457,8 +457,8 @@ mark.ds-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .ds-logo.rec::after { content: ""; position: absolute; top: -2px; right: -3px; width: 9px; height: 9px; border-radius: var(--radius-full); background: var(--rec); box-shadow: 0 0 0 2px var(--appbar-background); animation: ds-pulse 1.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .ds-logo.rec::after { animation: none; } }
 
-/* Watch view, Md and up: two columns. The left one holds the player, the title block, Chapters
-   and Stats; the open chat is a full-height column on the right. */
+/* Watch view, Md and up: one content column. The open chat is a drawer docked to the right
+   edge, under the app bar, and the content reserves its width. */
 .ds-watchcols { display: flex; gap: var(--space-4); align-items: stretch; min-height: 0; }
 .ds-watchcols > .col { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--space-4); }
 .ds-watchcols > .ds-chat { flex: 0 1 400px; min-width: var(--chat-width); width: auto; align-self: stretch; }

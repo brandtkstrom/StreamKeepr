@@ -478,70 +478,69 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   .sk-player-spinner .sk-spin { animation-duration: 2400ms; }
 }
 
-/* ---------- watch layout (design system: AppShell, TheaterMode, PhoneLayout; #175) ----------
-   The watch page has no max width: the player is as wide as its column, and chat is a column
-   of its own beside everything else. The player's height cap keeps the title block's first
-   line above the fold; the video letterboxes inside the frame when the cap bites. */
+/* ---------- watch layout (design system: AppShell, TheaterMode, PhoneLayout; #175, #332) ----------
+   The watch page has no max width. Md and up the watch content is one column, and the open chat
+   is a 400px drawer docked under the app bar and flush to the right edge; the content reserves
+   its width while it is open. Closed, it leaves no width, strip or gap. The player's height cap
+   keeps the title block's first line above the fold; the video letterboxes inside the frame
+   when the cap bites. */
 .sk-main-inner:has(.sk-watch) { max-width: none; }
 .sk-watch { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
 .sk-watch-top { display: flex; align-items: stretch; gap: var(--space-3); min-width: 0; }
 .sk-watch-player { flex: 1 1 auto; min-width: 0; }
 .sk-watch-player > .sk-player { width: 100%; }
-/* Closed, chat is not shown: the player's Chat button and C reopen it. */
-.sk-watch-chat { display: flex; flex: 0 1 400px; min-width: var(--chat-width); min-height: 0; }
+/* Closed, the drawer is not shown and reserves nothing: the player's Chat button and C reopen it. */
 .sk-watch-chat:has(.sk-chat[data-open="false"]) { display: none; }
-.sk-watch-chat > .sk-chat { width: 100%; }
 
 @media (min-width: 960px) {
-  /* Two columns (design system: AppShell): the player, the title block, Chapters and stats on
-     the left; chat on the right, full height and sticky, so it stays put while the left
-     column scrolls. The top row dissolves so the player and chat are grid items; the last
-     row takes the height chat adds, so nothing on the left stretches. */
+  /* One content column (design system: AppShell): the player, the title block, Chapters and
+     stats. The top row dissolves so the player is a grid item; the chat is out of flow. */
   .sk-watch {
-    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto auto 1fr;
-    grid-template-areas: "player chat" "info chat" "stats chat" ". chat";
-    column-gap: var(--space-4); row-gap: var(--space-4); align-items: start;
+    display: grid; grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "player" "info" "stats";
+    row-gap: var(--space-4); align-items: start;
   }
-  .sk-watch:not(:has(.sk-watch-chat .sk-chat[data-open="true"])) { column-gap: 0; }
   .sk-watch-top { display: contents; }
   .sk-watch-player { grid-area: player; min-width: 0; }
   .sk-watch-info { grid-area: info; min-width: 0; display: flex; flex-direction: column; gap: var(--space-4); }
   .sk-watch-stats { grid-area: stats; min-width: 0; }
   .sk-watch-stats:empty { display: none; }
+  /* The open chat is a full-height drawer from the app bar's bottom to the viewport's bottom,
+     flat on the drawer background with one left divider: no card outline, radius, shadow or inset. */
   .sk-watch-chat {
-    grid-area: chat; grid-row: 1 / -1; position: sticky; top: 0; align-self: start;
-    width: clamp(var(--chat-width), 28vw, 400px); min-width: 0;
-    height: calc(100dvh - var(--appbar-height) - (2 * var(--space-6)));
+    display: flex; position: fixed; top: var(--appbar-height); right: 0; bottom: 0;
+    width: var(--chat-width); min-width: 0; min-height: 0; z-index: 1;
   }
+  .sk-watch-chat > .sk-chat[data-open] {
+    width: 100%; height: 100%; min-height: 0;
+    border: 0; border-left: 1px solid var(--divider); border-radius: 0; box-shadow: none;
+  }
+  /* Reserve the drawer's width, instantly: the rail's margin-left keeps MudBlazor's transition,
+     but the chat's margin-right must not animate. */
+  .sk-shell:has(.sk-watch) .sk-main-frame.mud-main-content { transition-property: margin-left; }
+  .sk-shell:has(.sk-watch-chat .sk-chat[data-open="true"]) .sk-main-frame { margin-right: var(--chat-width); }
   .sk-watch-player > .sk-player {
     max-height: calc(100dvh - var(--appbar-height) - (2 * var(--space-6)) - var(--player-peek));
   }
 
-  /* Theater mode (desktop only): no gutters, the player is the view's full width, and the two
-     columns follow below it with chat still sticky on the right. */
+  /* Theater mode (desktop only): no gutters, the player spans the view to the drawer's divider,
+     and the content below it keeps 16px side padding. The drawer uses the same geometry. */
   .sk-shell[data-theater-mode] .sk-main { background: var(--background-gray); padding: 0; }
-  .sk-shell[data-theater-mode] .sk-watch {
-    grid-template-rows: auto auto auto 1fr;
-    grid-template-areas: "player player" "info chat" "stats chat" ". chat";
-    padding-bottom: var(--space-4);
-  }
+  .sk-shell[data-theater-mode] .sk-watch { padding-bottom: var(--space-4); }
   .sk-shell[data-theater-mode] .sk-watch-player > .sk-player {
     max-height: calc(100dvh - var(--appbar-height)); border-radius: 0;
   }
   .sk-shell[data-theater-mode] .sk-watch-info,
-  .sk-shell[data-theater-mode] .sk-watch-stats { padding-left: var(--space-4); }
-  .sk-shell[data-theater-mode] .sk-watch:not(:has(.sk-watch-chat .sk-chat[data-open="true"])) .sk-watch-info,
-  .sk-shell[data-theater-mode] .sk-watch:not(:has(.sk-watch-chat .sk-chat[data-open="true"])) .sk-watch-stats { padding-right: var(--space-4); }
-  .sk-shell[data-theater-mode] .sk-watch-chat {
-    grid-row: 2 / -1; top: var(--space-4); margin-right: var(--space-4);
-    height: max(260px, calc(100dvh - var(--appbar-height) - (2 * var(--space-4))));
-  }
+  .sk-shell[data-theater-mode] .sk-watch-stats { padding: 0 var(--space-4); }
 }
 
 @media (max-width: 959.98px) {
   /* Edge to edge and square below Md. The top row keeps the player; the summary and tabs
      follow. The top row is the sticky box on phones, so its containing block is the whole
      watch column and the tabs scroll underneath it. */
+  /* The wide page is the server's default, so a persisted-open chat is in the first paint's
+     DOM; it must never paint as a dock here. The Chat tab owns it below Md. */
+  .sk-watch-chat { display: none; }
   .sk-watch-top {
     display: block; margin-inline: calc(var(--space-4) * -1); background: var(--player-background);
   }
@@ -594,8 +593,8 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   width: 100%; flex: none; display: flex; flex-direction: column; min-height: 0; overflow: hidden; contain: size;
   background: var(--drawer-background); border: 1px solid var(--lines-default); border-radius: var(--radius-lg); color: var(--text-primary);
 }
-/* Open, the pane fills its sidecar; the watch layout owns the 400px/320px basis. As tall as
-   the player, so a narrow desktop player keeps a few rows. */
+/* Open, the pane fills its container: the watch layout's 400px drawer on desktop, or the
+   phone's Chat tab. Its log scrolls inside instead of growing the pane. */
 .sk-chat[data-open="true"] { min-height: 240px; }
 .sk-chat svg[data-icon] { display: block; width: 24px; height: 24px; fill: currentColor; flex: none; }
 .sk-chat [hidden] { display: none !important; }

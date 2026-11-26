@@ -1,4 +1,4 @@
-<!-- @dsCard group="Layout" height=800 width=1280 subtitle="Desktop watch view: MudBlazor Layout 2 (app bar + clipped mini drawer); the player, title block, Chapters and Viewers on the left, chat full height on the right" -->
+<!-- @dsCard group="Layout" height=800 width=1280 subtitle="Desktop watch view: MudBlazor Layout 2 (app bar + clipped mini drawer); the player, title block, Chapters and Viewers with chat as a 400px drawer docked to the right edge from the app bar to the viewport bottom" -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -6,13 +6,14 @@
 <style>
   html, body { margin: 0; }
   .shell { display: flex; flex-direction: column; height: 800px; }
-  .body { flex: 1; display: flex; min-height: 0; }
+  .body { flex: 1; display: flex; min-height: 0; position: relative; }
   nav.rail { width: var(--drawer-mini-width); background: var(--drawer-background); border-right: 1px solid var(--divider); display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; flex: none; }
   nav.rail .sel { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
   nav.rail hr { width: 40px; border: 0; height: 1px; background: var(--divider); margin: 0; }
-  main { flex: 1; min-width: 0; overflow: hidden; padding: var(--space-4); display: flex; flex-direction: column; }
+  main { flex: 1; min-width: 0; overflow: hidden; padding: var(--space-4) calc(var(--chat-width) + var(--space-6)) var(--space-4) var(--space-4); display: flex; flex-direction: column; }
   .ds-watchcols { flex: 1; }
   .ds-watchcols > .col { overflow: hidden; }
+  .ds-watchcols > .ds-chat { position: absolute; top: 0; right: 0; bottom: 0; width: var(--chat-width); min-width: 0; border: 0; border-left: 1px solid var(--divider); border-radius: 0; box-shadow: none; }
   .ds-chat-log { justify-content: flex-end; }
   .c1 { color: var(--channel-4); } .c2 { color: var(--channel-2); } .c3 { color: var(--channel-1); } .c4 { color: var(--channel-3); }
   .title-line { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4) var(--space-2); flex-wrap: wrap; }
