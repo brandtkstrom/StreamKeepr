@@ -1,15 +1,15 @@
-<!-- @dsCard group="Layout" height=1100 width=1280 subtitle="Theater mode: the player spans the full width of the view; the title block, Chapters and Viewers move below it, with chat filling the height to their right" -->
+<!-- @dsCard group="Layout" height=1100 width=1280 subtitle="Theater mode: the player spans the view to the chat drawer's divider; the title block, Chapters and Viewers move below it with 16px side padding, and the chat is the same 400px docked right drawer" -->
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <style>
   html, body { margin: 0; }
-  .shell { display: flex; flex-direction: column; min-height: 1100px; }
-  main { flex: 1; background: var(--background-gray); }
+  .shell { display: flex; flex-direction: column; min-height: 1100px; position: relative; }
+  main { flex: 1; margin-right: var(--chat-width); background: var(--background-gray); }
   .theater .ds-player { width: 100%; border-radius: 0; }
   .below { padding: var(--space-4); }
-  .below .ds-chat { min-height: 260px; }
+  .below .ds-chat { position: absolute; top: var(--appbar-height); right: 0; bottom: 0; width: var(--chat-width); min-width: 0; min-height: 0; border: 0; border-left: 1px solid var(--divider); border-radius: 0; box-shadow: none; }
   .ds-chat-log { justify-content: flex-end; }
   .c1 { color: var(--channel-4); } .c2 { color: var(--channel-2); } .c3 { color: var(--channel-1); }
   .title-line { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4) var(--space-2); flex-wrap: wrap; }
