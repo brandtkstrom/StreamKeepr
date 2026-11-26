@@ -48,6 +48,11 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
         Assert.Equal(0, await page.GetByRole(AriaRole.Tab, new() { Name = "Details" }).CountAsync());
         await Assertions.Expect(statsTab).ToBeVisibleAsync();
         Assert.True(await page.Locator("[role='tabpanel'] [data-sk-chat]").IsVisibleAsync());
+        // The tab form has no header and no Close control; the tab owns the disclosure (#333).
+        Assert.Equal(0,
+            await page.Locator("[role='tabpanel'] [data-sk-chat] > header").CountAsync());
+        Assert.Equal(0,
+            await page.GetByRole(AriaRole.Button, new() { Name = "Close chat" }).CountAsync());
 
         // Selecting a tab shows its panel and hides the others.
         await ScrollTopAsync(page);

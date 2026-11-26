@@ -13,12 +13,13 @@
 @* Rendered once. ChatPane.razor.js owns the log, polling, and auto-scroll, and applies the viewer's
    chat sync offset from Settings › Chat (UiPreferences); the root's data-open, data-badges,
    font attributes and font custom properties are painted here for the first frame, and the
-   module owns them afterwards because Blazor never re-renders the pane once it is ready. The pane has
-   no toggle of its own: the player's Chat button and C open and close it (sk:chat-toggle), and
-   closed it is not shown at all.
+   module owns them afterwards because Blazor never re-renders the pane once it is ready.
+   The pane has no toggle of its own: the player's Chat button and C open and close it
+   (sk:chat-toggle), the header's Close control closes it (#333), and closed it is not shown
+   at all. There is no autofocus and no focus trap.
    No MudBlazor components: it is drawn like an outlined MudPaper with plain markup.
    HideHeader renders the phone Chat tab (#175): the tab owns the disclosure, so the pane is
-   always open and the header is left out. *@
+   always open, the header is left out, and it has no Close control. *@
 <aside class="sk-chat"
        data-sk-chat
        data-open="@(_open ? "true" : "false")"
@@ -41,6 +42,14 @@
                 @IslandIcon.Svg("HourglassEmpty")
                 <span class="sk-visually-hidden" data-sk="chat-state-label">Loading chat…</span>
             </span>
+            @* A close control, not a toggle (#333): the module closes the pane and persists the
+               closed state, then returns focus to the player's Chat button when focus was inside
+               the pane. Escape does the same; the phone tab renders no header. *@
+            <button type="button"
+                    class="sk-chat-close"
+                    data-sk="chat-close"
+                    aria-label="Close chat"
+                    aria-keyshortcuts="Escape">@IslandIcon.Svg("Close")</button>
         </header>
     }
 

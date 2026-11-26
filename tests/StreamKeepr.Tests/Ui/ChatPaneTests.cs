@@ -31,15 +31,19 @@ public sealed class ChatPaneTests
             .Add(component => component.Open, false));
 
         Assert.Equal("false", cut.Find("[data-sk-chat]").GetAttribute("data-open"));
-        // The player's Chat button and C open the pane; it has no toggle of its own.
+        // The player's Chat button and C open the pane, and its Close control closes it; the pane
+        // still has no toggle of its own.
         Assert.Empty(cut.FindAll("[data-sk='chat-toggle']"));
+        IElement close = cut.Find("[data-sk='chat-close']");
+        Assert.Equal("Close chat", close.GetAttribute("aria-label"));
+        Assert.False(close.HasAttribute("aria-pressed"));
         Assert.Equal("log", cut.Find("[data-sk='chat-log']").GetAttribute("role"));
         Assert.Equal("off", cut.Find("[data-sk='chat-log']").GetAttribute("aria-live"));
         Assert.True(cut.Find("[data-sk='chat-body']").HasAttribute("inert"));
     }
 
     [Fact]
-    public async Task Persists_a_toggle_through_the_scoped_preferences()
+    public async Task Persists_the_js_invoked_open_state_through_the_scoped_preferences()
     {
         await using BunitContext context = HomePlayerTests.CreateContext(
             out BunitJSModuleInterop module, out TestLibraryView _);
@@ -47,10 +51,15 @@ public sealed class ChatPaneTests
         IRenderedComponent<ChatPane> cut = context.Render<ChatPane>(parameters => parameters
             .Add(component => component.Recording, WithChat())
             .Add(component => component.Open, false));
+        UiPreferences preferences = context.Services.GetRequiredService<UiPreferences>();
 
+        // The module calls this for the player's Chat button, C, the Close control and Escape;
+        // it must persist the opened and the closed state.
         await cut.Instance.SetChatOpen(true);
+        Assert.True(preferences.ChatOpen);
 
-        Assert.True(context.Services.GetRequiredService<UiPreferences>().ChatOpen);
+        await cut.Instance.SetChatOpen(false);
+        Assert.False(preferences.ChatOpen);
     }
 
     [Theory]
@@ -147,7 +156,7 @@ public sealed class ChatPaneTests
     }
 
     [Fact]
-    public async Task The_header_is_a_plain_title_with_a_decorative_chat_glyph()
+    public async Task The_header_carries_the_title_state_and_a_close_control()
     {
         await using BunitContext context = HomePlayerTests.CreateContext(
             out BunitJSModuleInterop module, out TestLibraryView _);
@@ -158,7 +167,6 @@ public sealed class ChatPaneTests
             .Add(c => c.Open, true));
 
         IElement head = cut.Find("[data-sk-chat] > header");
-        Assert.Empty(head.QuerySelectorAll("button"));
         Assert.Equal("Chat", head.QuerySelector("svg")!.GetAttribute("data-icon"));
         Assert.Equal("true", head.QuerySelector("svg")!.GetAttribute("aria-hidden"));
         Assert.Equal("Chat replay", head.QuerySelector("[data-sk='chat-title']")!.TextContent.Trim());
@@ -173,6 +181,16 @@ public sealed class ChatPaneTests
         Assert.Equal("Loading chat…",
             state.QuerySelector("[data-sk='chat-state-label']")!.TextContent.Trim());
         Assert.Equal("HourglassEmpty", state.QuerySelector("svg")!.GetAttribute("data-icon"));
+
+        // A 40px Close control at the header's end, named and not a toggle.
+        IElement close = head.QuerySelector("button[data-sk='chat-close']")!;
+        Assert.Same(close, head.LastElementChild);
+        Assert.Equal("button", close.GetAttribute("type"));
+        Assert.Equal("Close chat", close.GetAttribute("aria-label"));
+        Assert.Equal("Escape", close.GetAttribute("aria-keyshortcuts"));
+        Assert.False(close.HasAttribute("aria-pressed"));
+        Assert.Equal("Close", close.QuerySelector("svg")!.GetAttribute("data-icon"));
+        Assert.Equal("true", close.QuerySelector("svg")!.GetAttribute("aria-hidden"));
     }
 
     [Fact]
@@ -330,6 +348,9 @@ public sealed class ChatPaneTests
 
         Assert.Empty(cut.FindAll("[data-sk='chat-toggle']"));
         Assert.Empty(cut.FindAll("[data-sk='chat-state']"));
+        // No header means no Close control either; the tab owns its own disclosure.
+        Assert.Empty(cut.FindAll("[data-sk-chat] > header"));
+        Assert.Empty(cut.FindAll("[data-sk='chat-close']"));
         Assert.Equal("true", cut.Find("[data-sk-chat]").GetAttribute("data-open"));
         Assert.False(cut.Find("[data-sk='chat-body']").HasAttribute("inert"));
         // The header is omitted here, so the notice row is the only error surface; it must

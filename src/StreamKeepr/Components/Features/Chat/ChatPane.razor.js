@@ -1,13 +1,15 @@
 // Chat replay pane. Blazor renders the skeleton once; this module owns the log, polling,
-// auto-scroll, and the C shortcut, and applies the viewer's chat sync offset, font size and
-// weight, which .NET sends from Settings › Chat. The player owns the <video> element.
+// auto-scroll, the C shortcut, the header's Close control and Escape (with focus return), and
+// applies the viewer's chat sync offset, font size and weight, which .NET sends from
+// Settings › Chat. The player owns the <video> element.
 import { callDotNet } from "/js/circuit.js";
 import { setIcon } from "/js/island-icons.js";
 import { shortcutBlocked } from "/js/player-keys.js";
 import { isLiveState } from "/js/recording-state.js";
+import { isEditable } from "/js/shortcuts.js";
 
 const HOOKS = [
-  "chat-state", "chat-body", "chat-log", "chat-jump", "chat-notice", "chat-footer",
+  "chat-state", "chat-close", "chat-body", "chat-log", "chat-jump", "chat-notice", "chat-footer",
 ];
 
 // The header's decorative icon and accessible wording per data-state. The wording is the old
@@ -63,6 +65,36 @@ const BADGE_LABELS = {
   turbo: "TURBO",
   vip: "VIP",
 };
+
+// Escape first yields to whatever else owns it: a field being typed in, the library, a dialog,
+// menu or popover, the settings sheet, or the browser's own fullscreen. The chat drawer is a
+// plain aside with no focus trap, so nothing else claims Escape for it. This overlaps the
+// overlay lists in SettingsSheet.razor.js and SettingsExit.razor.js; keep the three in step
+// until they share one module.
+const ESCAPE_OWNERS = [
+  "dialog[open]",
+  "[role='dialog']",
+  "[role='menu']:not([hidden])",
+  ".mud-overlay",
+  ".mud-popover-open:not(.mud-tooltip)",
+  "[data-settings-sheet]",
+].join(", ");
+// AppShell.razor owns the library's open state on the drawer it renders (AppShell.DrawerId).
+const LIBRARY_OPEN = "#sk-drawer[data-drawer='expanded']";
+// VideoPlayer.razor's Chat toggle; closing returns focus there when it came from inside the pane.
+const PLAYER_CHAT_BUTTON = "[data-sk-player] [data-sk='chat']";
+
+/** Whether something other than the chat drawer owns this Escape press. */
+function escapeOwned(event, doc) {
+  if (event.defaultPrevented || event.repeat || event.isComposing) return true;
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return true;
+  if (doc.fullscreenElement) return true;
+
+  const target = event.target;
+  if (isEditable(target)) return true;
+  if (target instanceof Element && target.closest(ESCAPE_OWNERS)) return true;
+  return doc.querySelector(ESCAPE_OWNERS) !== null || doc.querySelector(LIBRARY_OPEN) !== null;
+}
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
@@ -329,6 +361,7 @@ export function createChatPane(root, {
   fetch: fetchImpl = globalThis.fetch?.bind(globalThis),
 } = {}) {
   const el = Object.fromEntries(HOOKS.map((name) => [name, root.querySelector(`[data-sk="${name}"]`)]));
+  const ownerDoc = root?.ownerDocument ?? document;
   const listeners = new AbortController();
   const on = (target, type, handler, options = {}) =>
     target?.addEventListener(type, handler, { signal: listeners.signal, ...options });
@@ -454,6 +487,14 @@ export function createChatPane(root, {
     }));
   }
 
+  // Only a close the viewer asked for returns focus, and only when it was inside the pane: the
+  // Close button, Escape, or C from the log. The player's Chat button already has focus when it
+  // closes, so it is left alone.
+  function focusChatButton() {
+    const button = ownerDoc.querySelector(PLAYER_CHAT_BUTTON);
+    if (button instanceof HTMLElement && !button.hidden) button.focus();
+  }
+
   function isChannelOwn(message) {
     const channel = view?.channelLogin;
     return typeof channel === "string" && channel !== "" &&
@@ -553,8 +594,18 @@ export function createChatPane(root, {
 
   function toggleAndPersist() {
     if (fixedOpen) return;
-    setOpen(!open);
+    setOpen(!open, { returnFocus: true });
     persistOpen(open);
+  }
+
+  // The header's Close button and Escape close the same way C does, and persist the closed
+  // state. It is a close control, not a toggle: there is never an "open" variant in the pane.
+  // The Close button always returns focus to the player's Chat button: a click does not focus
+  // the button on every browser (Safari), so "focus was inside" cannot be required there.
+  function closeFromUi({ alwaysReturnFocus = false } = {}) {
+    if (fixedOpen || !open) return;
+    setOpen(false, { returnFocus: true, forceFocus: alwaysReturnFocus });
+    persistOpen(false);
   }
 
   async function persistOpen(value) {
@@ -567,7 +618,7 @@ export function createChatPane(root, {
     }
   }
 
-  function setOpen(next) {
+  function setOpen(next, { returnFocus = false, forceFocus = false } = {}) {
     if (fixedOpen) {
       if (!open) {
         open = true;
@@ -578,9 +629,17 @@ export function createChatPane(root, {
 
     const value = Boolean(next);
     if (open === value) return;
+    // Capture focus before the pane hides: a Blazor-driven close never moves it, and a close
+    // from outside the pane leaves it where the viewer had it. The Close button is the one path
+    // that forces the return, because a click does not focus a button in every browser.
+    const restore = returnFocus && !value &&
+      (forceFocus || root?.contains(ownerDoc.activeElement) === true);
     open = value;
     if (open) openAtPlayhead();
-    else applyOpen();
+    else {
+      applyOpen();
+      if (restore) focusChatButton();
+    }
   }
 
   /** Applies an already-set open state and returns the pane to the current chat. */
@@ -1366,8 +1425,16 @@ export function createChatPane(root, {
   // Image errors do not bubble, so capture them at the log. Emotes and badges share the handler.
   on(el["chat-log"], "error", onImageError, { capture: true });
   on(el["chat-jump"], "click", jumpToCurrent);
+  on(el["chat-close"], "click", () => closeFromUi({ alwaysReturnFocus: true }));
   on(document, "sk:playhead", onPlayhead);
   on(document, "sk:chat-toggle", toggleAndPersist);
+  on(document, "keydown", (event) => {
+    // Escape closes only when nothing else owns it (library, dialog, menu, popover, settings
+    // sheet, fullscreen, a field). The phone tab owns its own disclosure and never closes.
+    if (event.key !== "Escape" || fixedOpen || !open || escapeOwned(event, ownerDoc)) return;
+    event.preventDefault();
+    closeFromUi();
+  });
   on(document, "keydown", (event) => {
     // Holding C must not flap the pane.
     if (fixedOpen || event.repeat || event.key.toLowerCase() !== "c") return;
