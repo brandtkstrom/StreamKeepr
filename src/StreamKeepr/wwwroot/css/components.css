@@ -599,8 +599,16 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-chat svg[data-icon] { display: block; width: 24px; height: 24px; fill: currentColor; flex: none; }
 .sk-chat [hidden] { display: none !important; }
 .sk-chat :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-.sk-chat-head { display: flex; align-items: center; gap: var(--space-2); min-height: 48px; padding: 0 var(--space-3); border-bottom: 1px solid var(--divider); }
+.sk-chat-head { display: flex; align-items: center; gap: var(--space-2); min-height: 64px; padding: 0 var(--space-3); border-bottom: 1px solid var(--divider); }
 .sk-chat-head svg[data-icon] { color: var(--action-default); }
+/* The close control is a 40px icon button at the header's end; it closes, it does not toggle.
+   The phone Chat tab renders no header, so it never renders this button either. */
+.sk-chat-close {
+  flex: none; display: inline-grid; place-items: center; width: 40px; height: 40px; padding: 0;
+  border: 0; border-radius: var(--radius-full); background: transparent;
+  color: var(--action-default); cursor: pointer;
+}
+.sk-chat-close:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
 .sk-chat-title {
   flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing);

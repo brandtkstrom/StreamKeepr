@@ -47,5 +47,6 @@ The whole StreamKeepr screen, built on MudBlazor's Layout 2 wireframe (an app ba
 
 - Settings opens over the page (`SettingsSheet`), never by navigating, so the player is never unmounted while it plays.
 - Nothing sits above the player. In theater mode the player spans the view to the open chat drawer's divider, and the content below keeps 16px side padding; the chat drawer keeps its docked geometry (see `TheaterMode`).
+- Escape closes the library first. The chat drawer yields Escape to an open library, dialog, menu, popover or settings sheet, so the library closes and chat stays open; a second Escape then closes chat (see `ChatPane`, #333).
 - Below `Breakpoint.Md` the layout is `PhoneLayout`: dense top bar, bottom bar, edge-to-edge player and tabs.
 - Keep `MudThemeProvider`, `MudPopoverProvider`, `MudDialogProvider` and `MudSnackbarProvider` above the layout, rendered once.

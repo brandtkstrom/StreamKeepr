@@ -11,6 +11,10 @@ namespace StreamKeepr.E2E;
 [Trait("Category", "E2E")]
 public sealed class ChatJourneyTests(MockAppFixture app)
 {
+    // Design system: the chat drawer's header is 64px and its Close control a 40px button.
+    private const double HeaderHeight = 64;
+    private const double CloseSize = 40;
+
     [Fact]
     public async Task Opens_the_chat_pane_seeks_and_persists_the_open_state()
     {
@@ -107,6 +111,92 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         Assert.Equal(await TokenColourAsync(page, "--primary"), await RingAsync(page.Locator("[data-sk='chat-log']")));
 
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-chat");
+    }
+
+    [Fact]
+    public async Task The_drawer_header_closes_persists_and_returns_focus_to_the_player()
+    {
+        await using Journey session =
+            await LibraryJourneyTests.OpenAsync(app);
+        IPage page = session.Page;
+
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
+        await session.OpenRecordingAsync(saved);
+
+        ILocator pane = await OpenDrawerAsync(page);
+
+        // The header is 64px and ends with a 40px Close control named "Close chat".
+        ILocator head = page.Locator("[data-sk-chat] > header");
+        Assert.Equal(HeaderHeight, Math.Round((await head.BoundingBoxAsync())!.Height));
+        ILocator close = page.GetByRole(AriaRole.Button, new() { Name = "Close chat", Exact = true });
+        await close.WaitForAsync();
+        LocatorBoundingBoxResult closeBox = (await close.BoundingBoxAsync())!;
+        Assert.Equal(CloseSize, Math.Round(closeBox.Width));
+        Assert.Equal(CloseSize, Math.Round(closeBox.Height));
+
+        // Focus elsewhere first: the Close control must return focus to the Chat button.
+        await page.Locator("[data-sk='seek']").FocusAsync();
+        await close.ClickAsync();
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-open", "false");
+        Assert.True(await FocusedIsChatButtonAsync(page),
+            "closing from the header returns focus to the player's Chat button");
+
+        // The sk-ui cookie is written asynchronously; wait for the closed state before reloading.
+        await page.WaitForFunctionAsync(
+            """() => decodeURIComponent(document.cookie).includes('"chat":false')""");
+
+        await session.ReloadAsync();
+        await page.Locator("[data-sk='seek'][aria-disabled='false']")
+            .WaitForAsync(new() { Timeout = 20_000 });
+        Assert.Equal("false", await page.Locator("[data-sk-chat]").GetAttributeAsync("data-open"));
+    }
+
+    [Fact]
+    public async Task Escape_closes_the_drawer_only_when_nothing_else_owns_it()
+    {
+        await using Journey session =
+            await LibraryJourneyTests.OpenAsync(app);
+        IPage page = session.Page;
+
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
+        await session.OpenRecordingAsync(saved);
+
+        ILocator pane = await OpenDrawerAsync(page);
+
+        // With the library open, Escape closes the library and leaves chat open.
+        ILocator drawer = page.Locator(LibraryHooks.Drawer);
+        await page.Locator("[data-drawer-toggle]").ClickAsync();
+        await LibraryJourneyTests.Expect(
+            async () => await drawer.GetAttributeAsync("data-drawer") == "expanded" ? 1 : 0, 1);
+        await page.Locator("[data-sk='chat-log']").FocusAsync();
+        await page.Keyboard.PressAsync("Escape");
+        await LibraryJourneyTests.Expect(
+            async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-open", "true");
+
+        // With nothing else open, Escape closes the drawer and returns focus from inside it.
+        await page.Locator("[data-sk='chat-log']").FocusAsync();
+        await page.Keyboard.PressAsync("Escape");
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-open", "false");
+        Assert.True(await FocusedIsChatButtonAsync(page),
+            "Escape from inside the drawer returns focus to the player's Chat button");
+    }
+
+    private static Task<bool> FocusedIsChatButtonAsync(IPage page) =>
+        page.EvaluateAsync<bool>(
+            """() => document.activeElement === document.querySelector("[data-sk-player] [data-sk='chat']")""");
+
+    /// <summary>Opens the watch recording's chat drawer with the player's Chat button.</summary>
+    private static async Task<ILocator> OpenDrawerAsync(IPage page)
+    {
+        ILocator pane = page.Locator("[data-sk-chat]");
+        ILocator chat = page.Locator("[data-sk-player]")
+            .GetByRole(AriaRole.Button, new() { Name = "Chat", Exact = true });
+        await chat.WaitForAsync();
+        if (await pane.GetAttributeAsync("data-open") != "true")
+            await chat.ClickAsync();
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-open", "true");
+        return pane;
     }
 
     [Fact]
