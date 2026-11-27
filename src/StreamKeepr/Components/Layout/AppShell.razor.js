@@ -46,7 +46,10 @@ function setModalDrawer(open, modal = true) {
     // Opened from inside the drawer (→ on a rail avatar, which library-keys.js follows into
     // the channel's recordings), focus is already where the viewer asked for it. This call
     // lands a render later, so moving focus here would undo that move.
-    if (!drawer?.contains(active)) focusableElements()[0]?.focus();
+    if (!drawer?.contains(active)) {
+      const initial = drawer?.querySelector("[data-drawer-autofocus]");
+      (initial ?? focusableElements()[0])?.focus();
+    }
   } else {
     // Give focus back only if it is still in the drawer or was lost with it. A drawer action
     // that closes the drawer may already have moved focus on (Clear search focuses the search
@@ -129,11 +132,11 @@ function onClick(event) {
 }
 
 // Md and up the open library closes on a press outside it, the rest of the app bar included.
-// Not outside: the menu button, which toggles it itself; the app bar's search, which filters the
-// open library live; and MudBlazor's popovers and dialogs, which live outside the drawer but
+// Not outside: the library toggle, which closes it itself; the search and tally buttons, which
+// open or filter it; and MudBlazor's popovers and dialogs, which live outside the drawer but
 // belong to what is open.
 const INSIDE_LIBRARY =
-  ".sk-drawer-frame, [data-drawer-toggle], .sk-search, .sk-appbar-search, .mud-popover, .mud-dialog-container";
+  ".sk-drawer-frame, [data-drawer-toggle], [data-library-search], [data-recording-tally], .mud-popover, .mud-dialog-container";
 
 function onPointerDown(event) {
   if (!modalOpen || trapFocus || !dotNetRef) return;
@@ -155,6 +158,15 @@ function onReconnectState(event) {
 function onUpdatesPaused(event) {
   void callDotNet(dotNetRef, "SetUpdatesPaused", Boolean(event.detail))
     .catch(() => {});
+}
+
+// The app-bar search shortcut opens the drawer from Blazor; this puts the caret in its field
+// once the render that opened it has landed.
+function focusSearch() {
+  const input = drawer?.querySelector("[data-search-input]");
+  if (!(input instanceof HTMLElement)) return;
+  input.focus();
+  input.select?.();
 }
 
 export function init(reference) {
@@ -197,4 +209,4 @@ export function dispose() {
   drawer = null;
 }
 
-export { setModalDrawer };
+export { focusSearch, setModalDrawer };

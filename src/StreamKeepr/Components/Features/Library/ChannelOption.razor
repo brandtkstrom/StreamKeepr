@@ -10,6 +10,7 @@
         tabindex="@(TabStop ? "0" : "-1")"
         data-library-channel="@Streamer.Login"
         data-current="@(Current ? "true" : null)"
+        data-drawer-autofocus="@(TabStop ? "" : null)"
         @onclick="OnSelect">
     @if (Rail)
     {
@@ -31,9 +32,9 @@
                        Decorative="true" />
         <span class="who">
             <span class="name"><MudBlazor.MudHighlighter Text="@Streamer.DisplayName" HighlightedText="@Search" Class="sk-mark" /></span>
-            <span class="meta" data-channel-meta>@Meta</span>
+            <span class="meta @(Streamer.IsRecording ? "live" : null)" data-channel-meta>@Meta</span>
         </span>
-        <span class="count" data-channel-count>@Count</span>
+        <span class="count" data-channel-count aria-label="@(Count == 1 ? "1 recording" : $"{Count} recordings")">@Count</span>
         <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.ChevronRight" Class="chev" aria-hidden="true" />
     }
 </button>

@@ -17,7 +17,7 @@ public sealed class SearchFieldTests
         IRenderedComponent<SearchField> cut = context.Render<SearchField>();
 
         Assert.Equal("chef ann", cut.Find("input[data-search-input]").GetAttribute("value"));
-        Assert.Equal("Search recordings", cut.Find("input").GetAttribute("aria-label"));
+        Assert.Equal("Search library", cut.Find("input").GetAttribute("aria-label"));
     }
 
     [Fact]

@@ -59,7 +59,7 @@ public sealed class PrivateModeJourneyTests : IAsyncLifetime
         ILocator account = page.GetByRole(AriaRole.Button, new() { Name = "Twitch account: Mock Admin" });
         await account.WaitForAsync(new() { Timeout = 15_000 });
         // The menu opens through the circuit, so wait until the page is interactive.
-        await page.Locator("input[data-search-input][data-sk-ready]")
+        await page.Locator(LibraryHooks.ShellReady)
             .WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 15_000 });
 
         await account.ClickAsync();

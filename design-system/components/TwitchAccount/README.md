@@ -15,5 +15,5 @@ When `Auth:AllowedTwitchLogins` lists logins, the app is behind the `SignIn` pag
 ## Rules
 
 - `twitch` purple appears nowhere else. It is told apart from `primary` by its white label and the word Twitch.
-- When shipping, replace the `Link` icon with Twitch's official Glitch mark from their brand assets (the same asset as the app bar's Twitch link). Never redraw it.
+- When shipping, replace the `Link` icon with Twitch's official Glitch mark from their brand assets (the same asset as the Settings › About Twitch link). Never redraw it.
 - No name, login or chevron in the app bar: the avatar alone, at every width.

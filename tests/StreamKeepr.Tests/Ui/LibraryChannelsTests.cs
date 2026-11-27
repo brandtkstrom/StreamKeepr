@@ -148,7 +148,7 @@ public sealed class LibraryChannelsTests
 
         cut.Find("[data-library-channel='alpha']").Click();
         Assert.NotNull(cut.Find("[data-recordings-column='alpha'] button[aria-label='All channels']"));
-        Assert.Empty(cut.FindAll("button[aria-label^='Close']"));
+        Assert.Empty(cut.FindAll("[data-recordings-column] button[aria-label^='Close']"));
 
         navigation.NavigateTo("/r/b1");
 

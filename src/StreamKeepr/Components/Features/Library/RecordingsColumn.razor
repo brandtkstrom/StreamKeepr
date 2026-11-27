@@ -13,20 +13,20 @@
                                      aria-label="All channels"
                                      OnClick="OnClose"
                                      data-column-close />
+            <ChannelAvatar Login="@Streamer.Login"
+                           Name="@Streamer.DisplayName"
+                           ImageUrl="@Streamer.AvatarUrl"
+                           Live="@Streamer.IsRecording"
+                           Size="MudBlazor.Size.Medium"
+                           Decorative="true" />
         }
-        <ChannelAvatar Login="@Streamer.Login"
-                       Name="@Streamer.DisplayName"
-                       ImageUrl="@Streamer.AvatarUrl"
-                       Live="@Streamer.IsRecording"
-                       Size="MudBlazor.Size.Medium"
-                       Decorative="true" />
         <span class="who">
             <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h3" id="@HeadingId">@Streamer.DisplayName</MudBlazor.MudText>
             <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="meta" data-column-meta>@Meta</MudBlazor.MudText>
         </span>
         @if (!Compact)
         {
-            <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Close"
+            <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.ChevronLeft"
                                      aria-label="@($"Close {Streamer.DisplayName}'s recordings")"
                                      OnClick="OnClose"
                                      data-column-close />
