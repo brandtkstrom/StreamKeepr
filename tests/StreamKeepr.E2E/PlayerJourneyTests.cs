@@ -12,6 +12,11 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
 {
     private const string Ready = "[data-sk='seek'][aria-disabled='false']";
 
+    // A recovered low-buffer stall is non-fatal by contract (docs/player-contract.md §13):
+    // stats count it and playback continues without the overlay. Group 2 is the row's count.
+    private const string RecoveredErrorText =
+        @"^(None|⚠ (\d[\d,]*) errors? · mediaError · bufferStalledError)$";
+
     [Fact]
     public async Task Plays_a_finished_recording_with_basic_controls_and_seek()
     {
@@ -570,7 +575,12 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.NotEqual("—", buffer);
         Assert.Contains(" ms", lastSegment);
         Assert.NotEqual("—", segments);
-        Assert.Equal("None", (await page.Locator("[data-sk='kv-errors']").InnerTextAsync()).Trim());
+        // A loaded runner can record a non-fatal buffer stall that hls.js recovers from; the
+        // contract counts it for stats without failing playback (#338). The snapshot check
+        // below rejects a fatal error or any other kind.
+        Assert.Matches(
+            RecoveredErrorText,
+            (await page.Locator("[data-sk='kv-errors']").InnerTextAsync()).Trim());
 
         ILocator bufferSpark = page.Locator("[data-sk='spark-buffer']");
         ILocator line = bufferSpark.Locator("polyline");
@@ -615,7 +625,39 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.Equal(id, snapshot.RootElement.GetProperty("recordingId").GetString());
         Assert.Equal("live", snapshot.RootElement.GetProperty("mode").GetString());
         Assert.True(snapshot.RootElement.GetProperty("samples").GetArrayLength() >= 3);
-        Assert.Equal(JsonValueKind.Array, snapshot.RootElement.GetProperty("errors").ValueKind);
+        // The contract counts non-fatal player errors and keeps playing; a recovered buffer
+        // stall is the only one this journey may see (#338). A fatal error or another kind is a
+        // product failure, not a flake, so it fails here.
+        JsonElement errors = snapshot.RootElement.GetProperty("errors");
+        Assert.Equal(JsonValueKind.Array, errors.ValueKind);
+        foreach (JsonElement error in errors.EnumerateArray())
+        {
+            Assert.False(error.GetProperty("fatal").GetBoolean(),
+                $"The stats snapshot recorded a fatal player error: {error}");
+            Assert.Equal("mediaError", error.GetProperty("type").GetString());
+            Assert.Equal("bufferStalledError", error.GetProperty("details").GetString());
+        }
+
+        // The row updates on the panel's sample timer, so wait for it to catch up with the
+        // snapshot; it can hold later errors, never fewer.
+        if (errors.GetArrayLength() > 0)
+        {
+            await page.WaitForFunctionAsync(
+                """
+                ([pattern, count]) => {
+                  const text = (document.querySelector("[data-sk='kv-errors']")?.textContent ?? "").trim();
+                  const match = new RegExp(pattern).exec(text);
+                  return match !== null && match[2] !== undefined
+                    && Number(match[2].replaceAll(",", "")) >= count;
+                }
+                """,
+                new object[] { RecoveredErrorText, errors.GetArrayLength() },
+                new PageWaitForFunctionOptions { Timeout = 10_000 });
+        }
+
+        Assert.Matches(
+            RecoveredErrorText,
+            (await page.Locator("[data-sk='kv-errors']").InnerTextAsync()).Trim());
 
         // Its close button hides it, hands focus to the player's stats button, and stops the sampler.
         await close.FocusAsync();
