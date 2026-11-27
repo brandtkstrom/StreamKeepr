@@ -130,7 +130,7 @@ ExportJob? FindByRecording(string recordingId);
 ### Antiforgery and cookies
 
 - Logout is the only HTML form post; it includes an antiforgery token and is rejected without one. Login is a GET; the OAuth handler owns its state parameter. Export/delete/channel mutations are authenticated circuit calls, not form posts.
-- The `sk-auth` cookie remains HttpOnly, SameSite=Lax, 7-day sliding, secure under HTTPS; tokens never reach the browser. The UI displays only login/display name/avatar.
+- The `sk-auth` cookie remains HttpOnly, SameSite=Lax, 7-day sliding, secure under HTTPS; tokens never reach the browser. The UI displays only login/display name/avatar. The cookie is persistent (`IsPersistent`, `expires`/`max-age` set and re-emitted on renewal), so a new browser or app session is not re-authenticated while the cookie or token remains valid (`docs/twitch-auth-contract.md` §6).
 
 ## 8. Settings page
 

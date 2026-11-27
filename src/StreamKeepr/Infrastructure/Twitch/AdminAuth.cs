@@ -200,7 +200,15 @@ public static class AdminAuth
     /// </summary>
     public static IResult ChallengeLogin(string? returnUrl, bool forceVerify = false)
     {
-        var properties = new AuthenticationProperties { RedirectUri = ResolveReturnUrl(returnUrl) };
+        // Persistent cookie: a new browser or app session does not re-run Twitch OAuth while the
+        // signed ticket is still valid; only a 7-day-idle expired cookie or an unreadable ticket
+        // (lost key ring) forces sign-in again. Re-authentication on a still-valid session is
+        // never required by construction here.
+        var properties = new AuthenticationProperties
+        {
+            RedirectUri = ResolveReturnUrl(returnUrl),
+            IsPersistent = true,
+        };
         if (forceVerify)
             properties.Items[ForceVerifyItem] = "true";
 

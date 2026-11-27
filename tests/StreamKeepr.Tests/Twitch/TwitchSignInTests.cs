@@ -201,6 +201,59 @@ public sealed class TwitchSignInTests
     }
 
     [Fact]
+    public async Task Auth_cookie_is_persistent_across_browser_sessions_until_it_expires()
+    {
+        // Regression: the signed ticket was issued as a session cookie (no expires/max-age),
+        // forcing Twitch OAuth again in every new browser session. A persistent 7-day sliding
+        // cookie re-authenticates a client only when the cookie or its ticket has expired.
+        using var harness = new AdminAuthHarness(overrides: AdminAuthTestSettings.Allowlist("allowed_login"));
+
+        var result = await harness.SignInAsync();
+
+        Assert.NotNull(result.AuthCookieValue);
+        var attributes = GetCookieAttributes(result.AuthCookie!);
+        Assert.Contains(attributes, attribute => attribute.StartsWith("expires=", StringComparison.Ordinal));
+
+        var ticket = DecryptTicket(harness, result.AuthCookieValue!);
+        Assert.True(ticket.Properties.IsPersistent);
+        Assert.Equal(AdminAuthHarness.Start.AddDays(7), ticket.Properties.ExpiresUtc);
+
+        // A later request must not silently downgrade the renewed cookie to a session cookie.
+        harness.Clock.Advance(TimeSpan.FromDays(4));
+        using var home = await harness.GetAsync("/");
+        var renewedCookie = home.Headers.TryGetValues("Set-Cookie", out var values)
+            ? values.FirstOrDefault(
+                cookie => cookie.StartsWith($"{AdminAuth.CookieScheme}=", StringComparison.Ordinal))
+            : null;
+        Assert.NotNull(renewedCookie);
+        Assert.Contains(
+            GetCookieAttributes(renewedCookie),
+            attribute => attribute.StartsWith("expires=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Auth_cookie_from_a_new_session_authenticates_without_reauth()
+    {
+        // A fresh client (no correlation/antiforgery cookies, no cookie jar, no prior request in
+        // this session) that carries only the persistent sk-auth cookie is authenticated.
+        using var harness = new AdminAuthHarness(overrides: AdminAuthTestSettings.Allowlist("allowed_login"));
+        var result = await harness.SignInAsync();
+        Assert.NotNull(result.AuthCookieValue);
+
+        using var freshClient = harness.CreateRequestClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/");
+        request.Headers.TryAddWithoutValidation(
+            "Cookie", $"{AdminAuth.CookieScheme}={result.AuthCookieValue}");
+        using var response = await freshClient.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain(
+            response.Headers.TryGetValues("Set-Cookie", out var cookies) ? cookies : [],
+            cookie => cookie.StartsWith($"{AdminAuth.CookieScheme}=", StringComparison.Ordinal)
+                && cookie.Contains("expires=Thu, 01 Jan 1970", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task Auth_cookie_slides_after_half_its_lifetime()
     {
         using var harness = new AdminAuthHarness(overrides: AdminAuthTestSettings.Allowlist("allowed_login"));
