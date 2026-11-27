@@ -74,6 +74,97 @@ public sealed class EmoteEndpointTests
         }
         """;
 
+    private const string FfzGlobalJson = """
+        {
+          "default_sets": [3, 1539687],
+          "sets": {
+            "3": {
+              "title": "Global Emotes",
+              "emoticons": [
+                {
+                  "id": 381875,
+                  "name": "KEKW",
+                  "public": false,
+                  "hidden": false,
+                  "modifier": false,
+                  "urls": {
+                    "1": "https://cdn.frankerfacez.com/emote/381875/1",
+                    "2": "https://cdn.frankerfacez.com/emote/381875/2",
+                    "4": "https://cdn.frankerfacez.com/emote/381875/4"
+                  }
+                },
+                {
+                  "id": 6,
+                  "name": "YooHoo",
+                  "public": false,
+                  "hidden": false,
+                  "modifier": false,
+                  "urls": {
+                    "1": "https://cdn.frankerfacez.com/emote/6/1",
+                    "2": "https://cdn.frankerfacez.com/emote/6/2"
+                  }
+                },
+                {
+                  "id": 128054,
+                  "name": "OMEGALUL",
+                  "public": true,
+                  "hidden": false,
+                  "modifier": false,
+                  "urls": {
+                    "1": "https://cdn.frankerfacez.com/emote/128054/1",
+                    "2": "https://cdn.frankerfacez.com/emote/128054/2",
+                    "4": "https://cdn.frankerfacez.com/emote/128054/4"
+                  }
+                },
+                {
+                  "id": 9,
+                  "name": "ZrehplaR",
+                  "public": false,
+                  "hidden": true,
+                  "modifier": false,
+                  "urls": { "1": "https://cdn.frankerfacez.com/emote/9/1" }
+                }
+              ]
+            },
+            "1539687": {
+              "title": "Emote Effects",
+              "emoticons": [
+                { "id": 723890, "name": "ffzW", "modifier": true, "modifier_flags": 9 }
+              ]
+            }
+          }
+        }
+        """;
+
+    private const string FfzChannelJson = """
+        {
+          "room": {
+            "twitch_id": 71092938,
+            "id": "xqc",
+            "is_group": false
+          },
+          "sets": {
+            "166907": {
+              "title": "Channel: xQc",
+              "emoticons": [
+                {
+                  "id": 246878,
+                  "name": "WideHard",
+                  "public": true,
+                  "hidden": false,
+                  "modifier": false,
+                  "urls": {
+                    "1": "https://cdn.frankerfacez.com/emote/246878/1",
+                    "2": "https://cdn.frankerfacez.com/emote/246878/2",
+                    "4": "https://cdn.frankerfacez.com/emote/246878/4"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        """;
+
     [Fact]
     public async Task Enabled_endpoint_returns_the_global_catalog_envelope()
     {
@@ -495,18 +586,228 @@ public sealed class EmoteEndpointTests
         Assert.Equal(HttpStatusCode.OK, health.StatusCode);
     }
 
+    private const string SevenTvSharedGlobalJson = """
+        {
+          "id": "01HKQT8EWR000ESSWF3625XCS4",
+          "name": "Global Emotes",
+          "emotes": [
+            {
+              "id": "01GGD5PJA8000FH13S498E9D8X",
+              "name": "YooHoo",
+              "flags": 0,
+              "data": { "name": "YooHoo", "animated": false }
+            }
+          ]
+        }
+        """;
+
+    [Fact]
+    public async Task Ffz_entries_follow_seven_tv_with_their_own_image_urls()
+    {
+        var handler = new StubHttpMessageHandler((request, _) => Task.FromResult(
+            request.RequestUri!.Host switch
+            {
+                "api.7tv.app" => EmoteTestData.Json(SevenTvGlobalJson),
+                "api.frankerfacez.com" => EmoteTestData.Json(FfzGlobalJson),
+                _ => EmoteTestData.Json(GlobalJson),
+            }));
+        using StreamKeeprAppFactory factory = CreateFactory(
+            handler, enabled: true, sevenTv: true, ffz: true);
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response =
+            await client.GetAsync($"/api/recordings/{Summary.Id}/emotes");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement[] entries = json.RootElement.GetProperty("entries")
+            .EnumerateArray()
+            .ToArray();
+        Assert.Equal(
+            ["bttv", "7tv", "ffz", "ffz"],
+            entries.Select(entry => entry.GetProperty("provider").GetString()));
+        Assert.Equal(
+            ["KEKW", "ppL", "YooHoo", "OMEGALUL"],
+            entries.Select(entry => entry.GetProperty("code").GetString()));
+        Assert.Equal(
+            "https://cdn.frankerfacez.com/emote/6/1",
+            entries[2].GetProperty("src").GetString());
+        Assert.Equal(
+            "https://cdn.frankerfacez.com/emote/6/1 1x, " +
+            "https://cdn.frankerfacez.com/emote/6/2 2x",
+            entries[2].GetProperty("srcset").GetString());
+        Assert.Equal(
+            "https://cdn.frankerfacez.com/emote/128054/1 1x, " +
+            "https://cdn.frankerfacez.com/emote/128054/2 2x, " +
+            "https://cdn.frankerfacez.com/emote/128054/4 4x",
+            entries[3].GetProperty("srcset").GetString());
+        Assert.DoesNotContain(entries, entry => entry.GetProperty("code").GetString() == "ZrehplaR");
+        Assert.DoesNotContain(entries, entry => entry.GetProperty("code").GetString() == "ffzW");
+    }
+
+    [Fact]
+    public async Task A_duplicate_code_across_seven_tv_and_ffz_keeps_seven_tv()
+    {
+        var handler = new StubHttpMessageHandler((request, _) => Task.FromResult(
+            request.RequestUri!.Host switch
+            {
+                "api.7tv.app" => EmoteTestData.Json(SevenTvSharedGlobalJson),
+                "api.frankerfacez.com" => EmoteTestData.Json(FfzGlobalJson),
+                _ => EmoteTestData.Json(GlobalJson),
+            }));
+        using StreamKeeprAppFactory factory = CreateFactory(
+            handler, enabled: false, sevenTv: true, ffz: true);
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response =
+            await client.GetAsync($"/api/recordings/{Summary.Id}/emotes");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement[] entries = json.RootElement.GetProperty("entries").EnumerateArray().ToArray();
+        Assert.Equal(
+            ["7tv", "ffz", "ffz"],
+            entries.Select(entry => entry.GetProperty("provider").GetString()));
+        Assert.Equal(
+            ["YooHoo", "KEKW", "OMEGALUL"],
+            entries.Select(entry => entry.GetProperty("code").GetString()));
+        Assert.Equal(
+            "01GGD5PJA8000FH13S498E9D8X",
+            entries[0].GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task A_disabled_ffz_provider_makes_no_request()
+    {
+        var handler = new StubHttpMessageHandler(
+            (_, _) => Task.FromResult(EmoteTestData.Json(GlobalJson)));
+        using StreamKeeprAppFactory factory = CreateFactory(handler, enabled: true);
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response =
+            await client.GetAsync($"/api/recordings/{Summary.Id}/emotes");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain(
+            handler.Requests,
+            request => request.RequestUri?.Host == "api.frankerfacez.com");
+
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement entry = Assert.Single(json.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Equal("bttv", entry.GetProperty("provider").GetString());
+        Assert.Equal("KEKW", entry.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task An_ffz_channel_404_still_serves_its_global_catalog()
+    {
+        var handler = new StubHttpMessageHandler((request, _) => Task.FromResult(
+            request.RequestUri!.AbsolutePath.Contains("/v1/room/id/", StringComparison.Ordinal)
+                ? EmoteTestData.Json(HttpStatusCode.NotFound, """{"status":404,"error":"Not Found"}""")
+                : EmoteTestData.Json(FfzGlobalJson)));
+        using StreamKeeprAppFactory factory = CreateFactory(
+            handler, enabled: false, ffz: true, resolver: new FakeEmoteChannelResolver("71092938"));
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response =
+            await client.GetAsync($"/api/recordings/{Summary.Id}/emotes");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement root = json.RootElement;
+        Assert.True(root.GetProperty("available").GetBoolean());
+        JsonElement[] entries = root.GetProperty("entries").EnumerateArray().ToArray();
+        Assert.Equal(
+            ["KEKW", "YooHoo", "OMEGALUL"],
+            entries.Select(entry => entry.GetProperty("code").GetString()));
+        Assert.All(entries, entry => Assert.Equal("ffz", entry.GetProperty("provider").GetString()));
+        Assert.DoesNotContain(
+            handler.Requests,
+            request => request.RequestUri?.Host == "api.betterttv.net");
+    }
+
+    [Fact]
+    public async Task An_ffz_channel_entry_renders_through_the_envelope()
+    {
+        var handler = new StubHttpMessageHandler((request, _) => Task.FromResult(
+            request.RequestUri!.AbsolutePath.Contains("/v1/room/id/", StringComparison.Ordinal)
+                ? EmoteTestData.Json(FfzChannelJson)
+                : EmoteTestData.Json(FfzGlobalJson)));
+        using StreamKeeprAppFactory factory = CreateFactory(
+            handler, enabled: false, ffz: true, resolver: new FakeEmoteChannelResolver("71092938"));
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response =
+            await client.GetAsync($"/api/recordings/{Summary.Id}/emotes");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement[] entries = json.RootElement.GetProperty("entries").EnumerateArray().ToArray();
+        Assert.Equal(
+            ["WideHard", "KEKW", "YooHoo", "OMEGALUL"],
+            entries.Select(entry => entry.GetProperty("code").GetString()));
+        Assert.Equal(
+            "https://cdn.frankerfacez.com/emote/246878/1",
+            entries[0].GetProperty("src").GetString());
+    }
+
+    [Fact]
+    public async Task An_unresolved_channel_still_serves_the_global_ffz_catalog()
+    {
+        var handler = new StubHttpMessageHandler(
+            (_, _) => Task.FromResult(EmoteTestData.Json(FfzGlobalJson)));
+        using StreamKeeprAppFactory factory = CreateFactory(
+            handler, enabled: false, ffz: true, resolver: new FakeEmoteChannelResolver());
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response =
+            await client.GetAsync($"/api/recordings/{Summary.Id}/emotes");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(
+            3,
+            json.RootElement.GetProperty("entries").GetArrayLength());
+        Assert.DoesNotContain(
+            handler.Requests,
+            request => request.RequestUri!.AbsolutePath.Contains("/v1/room/id/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_ffz_failure_leaves_the_endpoint_and_health_healthy()
+    {
+        var handler = new StubHttpMessageHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)));
+        using StreamKeeprAppFactory factory = CreateFactory(
+            handler, enabled: false, ffz: true, resolver: new FakeEmoteChannelResolver("71092938"));
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response =
+            await client.GetAsync($"/api/recordings/{Summary.Id}/emotes");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.False(json.RootElement.GetProperty("available").GetBoolean());
+        Assert.Empty(json.RootElement.GetProperty("entries").EnumerateArray());
+
+        using HttpResponseMessage health = await client.GetAsync("/health/live");
+        Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+    }
+
     private static StreamKeeprAppFactory CreateFactory(
         HttpMessageHandler handler,
         bool enabled,
         TimeProvider? clock = null,
         FakeEmoteChannelResolver? resolver = null,
         ScriptedStreamPoller? poller = null,
-        bool sevenTv = false)
+        bool sevenTv = false,
+        bool ffz = false)
     {
         var overrides = new Dictionary<string, string?>
         {
             [$"{ChatOptions.SectionName}:Emotes:Bttv:Enabled"] = enabled ? "true" : "false",
             [$"{ChatOptions.SectionName}:Emotes:SevenTv:Enabled"] = sevenTv ? "true" : "false",
+            [$"{ChatOptions.SectionName}:Emotes:Ffz:Enabled"] = ffz ? "true" : "false",
         };
 
         var factory = new StreamKeeprAppFactory(
@@ -516,6 +817,8 @@ public sealed class EmoteEndpointTests
                 services.AddHttpClient(EmoteHttpClients.Bttv)
                     .ConfigurePrimaryHttpMessageHandler(() => handler);
                 services.AddHttpClient(EmoteHttpClients.SevenTv)
+                    .ConfigurePrimaryHttpMessageHandler(() => handler);
+                services.AddHttpClient(EmoteHttpClients.Ffz)
                     .ConfigurePrimaryHttpMessageHandler(() => handler);
                 if (poller is not null)
                 {

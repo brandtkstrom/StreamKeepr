@@ -26,7 +26,7 @@ internal interface IEmoteProvider
     /// </summary>
     Task<IReadOnlyList<EmoteCatalogEntry>> GetChannelAsync(string channelId, CancellationToken ct);
 
-    /// <summary>Builds the 1x/2x/3x image URLs for a validated entry.</summary>
+    /// <summary>Builds the image URLs for a validated entry.</summary>
     EmoteImageSet GetImageSet(EmoteCatalogEntry entry);
 }
 
@@ -41,7 +41,18 @@ internal interface IEmoteChannelResolver
     Task<string?> ResolveAsync(string login, CancellationToken ct);
 }
 
-internal sealed record EmoteCatalogEntry(string Id, string Code, bool Animated);
+/// <summary>
+/// One normalized emote. <c>ImageScales</c> and <c>AnimatedImageScales</c> are optional
+/// provider-specific image-size metadata: each list holds the URL segments FFZ advertised (for
+/// example, <c>1</c>, <c>2</c>, <c>4</c>), while BetterTTV and 7TV leave them null and build
+/// their own fixed sets. The <c>srcset</c> descriptor appends <c>x</c> to each segment.
+/// </summary>
+internal sealed record EmoteCatalogEntry(
+    string Id,
+    string Code,
+    bool Animated,
+    IReadOnlyList<string>? ImageScales = null,
+    IReadOnlyList<string>? AnimatedImageScales = null);
 
 internal sealed record EmoteImageSet(string Src, string SrcSet)
 {
