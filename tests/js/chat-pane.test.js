@@ -79,7 +79,7 @@ function fakeFetch(payload = message) {
       source: "mock",
       leadInSec: 12,
       fromSec: 0,
-      toSec: 120,
+      toSec: Number(url.searchParams.get("toSec") ?? 120),
       syncOffsetSec: Number(url.searchParams.get("syncOffsetSec")) || 0,
       messages: [payload],
       gaps: [],
@@ -91,11 +91,14 @@ function fakeFetch(payload = message) {
 
 /** A complete window holding `messages`, with no lead-in, offset or gaps. */
 function windowFetch(messages) {
-  return vi.fn(async () => ({
+  return vi.fn(async (url) => ({
     ok: true,
     json: async () => ({
       v: 1, recordingId: "r1", state: "complete", hasChat: true, source: "mock",
-      leadInSec: 0, fromSec: 0, toSec: 120, syncOffsetSec: 0, gaps: [],
+      leadInSec: 0,
+      fromSec: Number(url.searchParams.get("fromSec") ?? 0),
+      toSec: Number(url.searchParams.get("toSec") ?? 120),
+      syncOffsetSec: 0, gaps: [],
       hasMoreBefore: false, hasMoreAfter: false, messages,
     }),
   }));
@@ -172,6 +175,12 @@ function playing(time) {
 
 function flush() {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** The message ids of the rows currently in the chat log, in order. */
+function renderedIds() {
+  return [...document.querySelectorAll("[data-sk='chat-log'] .sk-chat-row")]
+    .map((node) => node.dataset.messageId);
 }
 
 /** The state element's observable state: data-state, swapped glyph, accessible label, tooltip. */
@@ -511,7 +520,7 @@ describe("chat replay pane", () => {
   });
 
   describe("chat sync", () => {
-    /** A loaded pane with the playhead at 10 s and its first window fetched. */
+    /** A loaded pane with the playhead at 10 s and its first tail fetched. */
     async function syncPane(view = VIEW, store = storage()) {
       document.body.innerHTML = MARKUP;
       const root = document.querySelector("[data-sk-chat]");
@@ -563,18 +572,39 @@ describe("chat replay pane", () => {
     });
   });
 
-  it("keeps one fetch in flight until the first window loads", async () => {
+  it("keeps one fetch in flight until the first tail loads", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
     const fetch = vi.fn(() => new Promise(() => {}));
     const pane = createChatPane(root, { fetch, storage: storage() });
 
     await pane.load({ ...VIEW });
-    for (let i = 0; i < 6; i++) playhead(10 + i * 0.25);
+    for (let i = 0; i < 6; i++) playhead(0.25 + i * 0.25);
     await flush();
 
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch.mock.calls[0][1].signal.aborted).toBe(false);
+
+    pane.dispose();
+  });
+
+  it("refetches a near seek that lands while the first tail is loading", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const pending = [];
+    const fetch = vi.fn((url, { signal }) => new Promise((resolve) => {
+      pending.push({ url, signal, resolve });
+    }));
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW });
+    playhead(100);
+    await flush();
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(pending[0].signal.aborted).toBe(true);
+    expect(pending[1].url.searchParams.get("tail")).toBe("true");
+    expect(pending[1].url.searchParams.get("toSec")).toBe("100.000");
 
     pane.dispose();
   });
@@ -588,21 +618,22 @@ describe("chat replay pane", () => {
 
     await pane.load({ ...VIEW });
     await vi.advanceTimersByTimeAsync(0);
-    playhead(10);
-    playhead(10.25);
+    playhead(0.25);
+    playhead(0.5);
     await vi.advanceTimersByTimeAsync(0);
     expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0].searchParams.get("tail")).toBe("true");
     expect(document.querySelector("[data-sk='chat-notice']").textContent)
       .toBe("Chat could not be loaded.");
 
     await vi.advanceTimersByTimeAsync(1000);
-    playhead(11);
+    playhead(1.0);
     await vi.advanceTimersByTimeAsync(0);
     expect(fetch).toHaveBeenCalledTimes(2);
 
     // The next wait doubles.
     await vi.advanceTimersByTimeAsync(1000);
-    playhead(12);
+    playhead(1.5);
     await vi.advanceTimersByTimeAsync(0);
     expect(fetch).toHaveBeenCalledTimes(2);
 
@@ -724,7 +755,9 @@ describe("chat replay pane", () => {
 
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(pending[0].signal.aborted).toBe(true);
-    expect(Number(pending[1].url.searchParams.get("fromSec"))).toBe(1770);
+    expect(pending[1].url.searchParams.get("tail")).toBe("true");
+    expect(pending[1].url.searchParams.get("toSec")).toBe("1800.000");
+    expect(pending[1].url.searchParams.get("fromSec")).toBeNull();
 
     pane.dispose();
   });
@@ -808,7 +841,7 @@ describe("chat replay pane", () => {
     pane.dispose();
   });
 
-  it("keeps a live poll inside the endpoint's 600 s window", async () => {
+  it("polls the live tail at the playhead", async () => {
     vi.useFakeTimers();
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
@@ -838,36 +871,46 @@ describe("chat replay pane", () => {
     await vi.advanceTimersByTimeAsync(600);
 
     const [url] = fetch.mock.calls.at(-1);
-    const width = Number(url.searchParams.get("toSec")) - Number(url.searchParams.get("fromSec"));
-    expect(width).toBeLessThanOrEqual(600);
+    expect(url.searchParams.get("tail")).toBe("true");
+    expect(url.searchParams.get("fromSec")).toBeNull();
+    expect(url.searchParams.get("toSec")).toBe("3000.000");
 
     pane.dispose();
   });
 
   describe("scrollback", () => {
-    // Behaves like ChatReader: one message every 1/rate s of media time, the window clamped to
-    // the duration, `limit` keeping the earliest rows, and the requested toSec echoed back.
+    // Behaves like ChatReader: one message every 1/rate s of media time, the range clamped to
+    // the duration, a window keeping its earliest rows and a tail its newest, and the requested
+    // toSec echoed back.
     // While live, a message exists only once the live edge has passed it. `earlier` reports
     // hasMoreBefore for any window after 0, as the server does when older chat exists.
     function chatServer({
       state, rate = 1, duration = 100_000, liveEdge = () => Infinity, earlier = false,
     }) {
       return vi.fn(async (url) => {
-        const from = Number(url.searchParams.get("fromSec"));
-        const to = Math.min(Number(url.searchParams.get("toSec")), duration);
+        const tail = url.searchParams.get("tail") === "true";
         const limit = Number(url.searchParams.get("limit"));
+        const to = Math.min(Number(url.searchParams.get("toSec")), duration);
         const newest = Math.min(to, liveEdge());
+        // A tail scans at most 30 minutes back; a window starts at its requested fromSec.
+        const from = tail
+          ? Math.max(0, newest - 1800)
+          : Number(url.searchParams.get("fromSec"));
         const messages = [];
         for (let i = Math.ceil(from * rate); i / rate <= newest; i++) {
           messages.push({ ...message, id: `m${i}`, mt: i / rate, text: `message ${i}`, emotes: [] });
         }
+        const returned = tail ? messages.slice(-limit) : messages.slice(0, limit);
         return {
           ok: true,
           json: async () => ({
             v: 1, recordingId: "r1", state, hasChat: true, source: "mock", leadInSec: 12,
-            fromSec: from, toSec: to, syncOffsetSec: 0,
-            messages: messages.slice(0, limit), gaps: [],
-            hasMoreBefore: earlier && from > 0, hasMoreAfter: messages.length > limit,
+            fromSec: tail ? (returned[0]?.mt ?? to) : from, toSec: to, syncOffsetSec: 0,
+            messages: returned, gaps: [],
+            hasMoreBefore: tail
+              ? returned.length > 0 && returned[0].mt > 0
+              : earlier && from > 0,
+            hasMoreAfter: tail ? false : messages.length > limit,
           }),
         };
       });
@@ -879,9 +922,17 @@ describe("chat replay pane", () => {
       }));
     }
 
-    function renderedIds() {
-      return [...document.querySelectorAll("[data-sk='chat-log'] .sk-chat-row")]
-        .map((row) => row.dataset.messageId);
+    /** Gives the log a full viewport so a fresh tail does not start an older backfill. */
+    function fullLog() {
+      const log = document.querySelector("[data-sk='chat-log']");
+      Object.defineProperty(log, "clientHeight", { configurable: true, get: () => 40 });
+      Object.defineProperty(log, "scrollHeight", {
+        configurable: true, get: () => log.children.length * 20,
+      });
+      Object.defineProperty(log, "scrollTop", {
+        configurable: true, get: () => 0, set: () => {},
+      });
+      return log;
     }
 
     // Rows render up to 0.5 s past the playhead, so at t the newest row is at t + 0.5.
@@ -895,6 +946,7 @@ describe("chat replay pane", () => {
     it("keeps live messages as polls follow the playhead", async () => {
       vi.useFakeTimers();
       document.body.innerHTML = MARKUP;
+      fullLog();
       let now = 600;
       const fetch = chatServer({ state: "recording", liveEdge: () => now + 2 });
       const pane = createChatPane(document.querySelector("[data-sk-chat]"),
@@ -906,15 +958,19 @@ describe("chat replay pane", () => {
         play(now);
         await vi.advanceTimersByTimeAsync(250);
       }
+      // One more poll at the last playhead, so the newest row is fetched.
+      await vi.advanceTimersByTimeAsync(500);
 
       const ids = renderedIds();
-      // The first window reached 30 s back; nothing since has been dropped.
-      expect(ids[0]).toBe("m570");
+      // The fresh tail held the newest 300 rows; later polls kept them and added the rest.
+      expect(ids[0]).toBe("m301");
       expect(ids.at(-1)).toBe("m720");
-      expect(ids).toHaveLength(151);
-      // No poll asks for a window that starts after the playhead.
-      for (const [url] of fetch.mock.calls) {
-        expect(Number(url.searchParams.get("fromSec"))).toBeLessThanOrEqual(720);
+      expect(ids).toHaveLength(420);
+      // Every poll is a tail at the playhead, not a window with a start.
+      for (const [url] of fetch.mock.calls.slice(1)) {
+        expect(url.searchParams.get("tail")).toBe("true");
+        expect(url.searchParams.get("fromSec")).toBeNull();
+        expect(Number(url.searchParams.get("toSec"))).toBeLessThanOrEqual(720);
       }
 
       pane.dispose();
@@ -939,6 +995,28 @@ describe("chat replay pane", () => {
       pane.dispose();
     });
 
+    it("fills a busy complete seek from the newest tail", async () => {
+      vi.useFakeTimers();
+      document.body.innerHTML = MARKUP;
+      fullLog();
+      const fetch = chatServer({ state: "complete", rate: 20, duration: 2000 });
+      const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+        { fetch, storage: storage() });
+
+      await pane.load({ ...VIEW });
+      await vi.advanceTimersByTimeAsync(0);
+      play(1000);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Twenty messages a second at 1000 s: the newest 300, not the oldest.
+      const ids = renderedIds();
+      expect(ids[0]).toBe("m19701");
+      expect(ids.at(-1)).toBe("m20000");
+      expect(ids).toHaveLength(300);
+
+      pane.dispose();
+    });
+
     it("continues past windows the server truncated at the limit", async () => {
       vi.useFakeTimers();
       document.body.innerHTML = MARKUP;
@@ -949,6 +1027,7 @@ describe("chat replay pane", () => {
         { fetch, storage: storage() });
 
       await pane.load({ ...VIEW, limit: 50 });
+      await vi.advanceTimersByTimeAsync(0);
       await playThrough(10, 40);
 
       const ids = renderedIds();
@@ -1001,7 +1080,7 @@ describe("chat replay pane", () => {
       pane.dispose();
     });
 
-    it("stops backfilling 30 minutes before the window it opened", async () => {
+    it("backfills 30 minutes before the tail's oldest row", async () => {
       vi.useFakeTimers();
       document.body.innerHTML = MARKUP;
       const fetch = chatServer({ state: "complete", rate: 0.05, duration: 10_000, earlier: true });
@@ -1013,9 +1092,10 @@ describe("chat replay pane", () => {
       play(5000);
       await vi.advanceTimersByTimeAsync(2000);
 
-      // The window opened at 4970 s; backfill reaches back to 3170 s, the first row at 3180 s.
+      // The tail at 5000 s scans back to 3200 s. Backfill starts there and reaches 30 minutes
+      // further back, to 1400 s; at rate 0.05 the first row is at 1420 s.
       const ids = renderedIds();
-      expect(ids[0]).toBe("m159");
+      expect(ids[0]).toBe("m70");
       expect(ids.at(-1)).toBe("m250");
 
       pane.dispose();
@@ -1035,10 +1115,10 @@ describe("chat replay pane", () => {
       play(1000);
       await vi.advanceTimersByTimeAsync(2000);
 
-      // Only the open window's 300 rows, with no older rows above a hole.
+      // Only the tail's newest 300 rows, with no older rows above a hole.
       const ids = renderedIds();
-      expect(ids[0]).toBe("m9700");
-      expect(ids.at(-1)).toBe("m9999");
+      expect(ids[0]).toBe("m9701");
+      expect(ids.at(-1)).toBe("m10000");
       expect(ids).toHaveLength(300);
 
       pane.dispose();
@@ -1047,10 +1127,11 @@ describe("chat replay pane", () => {
     it("drops a backfill chunk that lands after a seek", async () => {
       vi.useFakeTimers();
       document.body.innerHTML = MARKUP;
-      const server = chatServer({ state: "complete", rate: 0.05, duration: 10_000, earlier: true });
+      const server = chatServer({ state: "complete", rate: 1, duration: 10_000 });
       let release = null;
-      // Hold the first backfill chunk (850–970 s) until after the seek.
-      const fetch = vi.fn((url, init) => Number(url.searchParams.get("toSec")) === 970
+      // Hold the first backfill chunk (581–701 s) until after the seek.
+      const fetch = vi.fn((url, init) => Number(url.searchParams.get("toSec")) === 701
+        && url.searchParams.get("tail") !== "true"
         ? new Promise((resolve) => { release = () => resolve(server(url, init)); })
         : server(url, init));
       const pane = createChatPane(document.querySelector("[data-sk-chat]"),
@@ -1067,10 +1148,10 @@ describe("chat replay pane", () => {
       release();
       await vi.advanceTimersByTimeAsync(2000);
 
-      // Every row is from the new window and its own backfill, none from before 1000 s.
+      // Every row is from the new tail and its own backfill, none from before 1000 s.
       const ids = renderedIds();
-      expect(ids.every((id) => Number(id.slice(1)) * 20 > 1000)).toBe(true);
-      expect(ids.at(-1)).toBe("m150");
+      expect(ids.every((id) => Number(id.slice(1)) > 1000)).toBe(true);
+      expect(ids.at(-1)).toBe("m3000");
 
       pane.dispose();
     });
@@ -1497,11 +1578,12 @@ describe("chat replay pane", () => {
 
     it("lands at the end when backfill fills the log above a following view", async () => {
       vi.useFakeTimers();
-      // One message every 20 s; the fresh window at 1000 s shows two rows, then backfill
+      // One message every 20 s; the fresh tail at 1000 s shows two rows, then backfill
       // adds older rows above them.
       const fetch = vi.fn(async (url) => {
-        const from = Number(url.searchParams.get("fromSec"));
+        const tail = url.searchParams.get("tail") === "true";
         const to = Number(url.searchParams.get("toSec"));
+        const from = tail ? Math.max(0, to - 20) : Number(url.searchParams.get("fromSec"));
         const messages = [];
         for (let i = Math.ceil(from / 20); i * 20 <= to; i++) {
           messages.push({ ...message, id: `m${i}`, mt: i * 20, text: `message ${i}`, emotes: [] });
@@ -1510,7 +1592,8 @@ describe("chat replay pane", () => {
           ok: true,
           json: async () => ({
             v: 1, recordingId: "r1", state: "complete", hasChat: true, source: "mock",
-            leadInSec: 0, fromSec: from, toSec: to, syncOffsetSec: 0, gaps: [],
+            leadInSec: 0, fromSec: tail ? (messages[0]?.mt ?? to) : from, toSec: to,
+            syncOffsetSec: 0, gaps: [],
             hasMoreBefore: from > 0, hasMoreAfter: false, messages,
           }),
         };
@@ -2653,6 +2736,251 @@ describe("chat typography", () => {
     log.dispatchEvent(new Event("scroll"));
     pane.setTypography(130, 400);
     expect(log.scrollTop).toBe(0);
+
+    pane.dispose();
+  });
+});
+
+describe("bounded tail fill", () => {
+  function tailPayload({
+    messages = [], fromSec = 0, toSec = 0, hasMoreBefore = false, state = "recording",
+  } = {}) {
+    return {
+      v: 1, recordingId: "r1", state, hasChat: true, source: "mock", leadInSec: 0,
+      fromSec, toSec, syncOffsetSec: 0, gaps: [], messages,
+      hasMoreBefore, hasMoreAfter: false,
+    };
+  }
+
+  /** Returns each payload in turn, repeating the last one if a test makes more calls. */
+  function payloadFetch(payloads) {
+    let index = 0;
+    return vi.fn(async () => {
+      const payload = payloads[Math.min(index, payloads.length - 1)];
+      index++;
+      return { ok: true, json: async () => payload };
+    });
+  }
+
+  function row(id, mt) {
+    return { ...message, id, mt, text: id, emotes: [] };
+  }
+
+  it("fills a fresh pane from the newest tail at the playhead", async () => {
+    document.body.innerHTML = MARKUP;
+    const root = document.querySelector("[data-sk-chat]");
+    const older = { ...message, id: "m301", mt: 301, text: "older", emotes: [] };
+    const newest = { ...message, id: "m600", mt: 600, text: "newest", emotes: [] };
+    const fetch = payloadFetch([
+      tailPayload({ messages: [older, newest], fromSec: 301, toSec: 600 }),
+    ]);
+    const pane = createChatPane(root, { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, state: "recording" });
+    playhead(600);
+    await flush();
+
+    const [url] = fetch.mock.calls.at(-1);
+    expect(url.searchParams.get("tail")).toBe("true");
+    expect(url.searchParams.get("toSec")).toBe("600.000");
+    expect(url.searchParams.get("fromSec")).toBeNull();
+    expect(url.searchParams.get("limit")).toBe("300");
+    expect(url.searchParams.get("syncOffsetSec")).toBe("0.000");
+    expect(document.querySelector("[data-message-id='m600']")).not.toBeNull();
+    expect(document.querySelector("[data-message-id='m301']")).not.toBeNull();
+
+    pane.dispose();
+  });
+
+  it("removes a row the tail stops returning inside its range", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = MARKUP;
+    const fetch = payloadFetch([
+      tailPayload({ toSec: 0 }),
+      tailPayload({
+        fromSec: 5,
+        toSec: 600,
+        messages: [row("m0", 5), row("m1", 10), row("m2", 20), row("m3", 30)],
+      }),
+      tailPayload({ fromSec: 10, toSec: 600, messages: [row("m1", 10), row("m3", 30)] }),
+    ]);
+    const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+      { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, state: "recording" });
+    await vi.advanceTimersByTimeAsync(0);
+    playing(600);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(renderedIds()).toEqual(["m0", "m1", "m2", "m3"]);
+
+    // The next tail still covers m2's time, but no longer returns it: it was deleted.
+    await vi.advanceTimersByTimeAsync(500);
+    expect(renderedIds()).toEqual(["m0", "m1", "m3"]);
+
+    pane.dispose();
+  });
+
+  it("backfills older chat from the tail's oldest row", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = MARKUP;
+    const fetch = payloadFetch([
+      tailPayload({ toSec: 0 }),
+      tailPayload({
+        fromSec: 500,
+        toSec: 600,
+        messages: [row("m500", 500), row("m600", 600)],
+        hasMoreBefore: true,
+      }),
+      tailPayload({ fromSec: 0, toSec: 500 }),
+    ]);
+    const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+      { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, state: "recording" });
+    await vi.advanceTimersByTimeAsync(0);
+    playing(600);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const backfill = fetch.mock.calls.find(([url]) => url.searchParams.get("tail") === null);
+    expect(backfill).toBeDefined();
+    expect(backfill[0].searchParams.get("fromSec")).toBe("380.000");
+    expect(backfill[0].searchParams.get("toSec")).toBe("500.000");
+
+    pane.dispose();
+  });
+
+  it("stops backfilling 30 minutes before the tail's oldest row", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = MARKUP;
+    const reply = (payload) => ({ ok: true, json: async () => payload });
+    const fetch = vi.fn(async (url) => {
+      const tail = url.searchParams.get("tail") === "true";
+      const to = Number(url.searchParams.get("toSec"));
+      if (tail) {
+        return reply(to < 10
+          ? tailPayload({ state: "complete", toSec: 1 })
+          : tailPayload({
+            state: "complete",
+            fromSec: 4700,
+            toSec: 5000,
+            messages: [row("m4700", 4700), row("m5000", 5000)],
+            hasMoreBefore: true,
+          }));
+      }
+      return reply(tailPayload({
+        state: "complete",
+        fromSec: Math.max(0, to - 120),
+        toSec: to,
+        hasMoreBefore: to > 2900,
+      }));
+    });
+    const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+      { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW });
+    await vi.advanceTimersByTimeAsync(0);
+    playing(5000);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const chunks = fetch.mock.calls
+      .map(([url]) => url.searchParams)
+      .filter((params) => params.get("tail") === null);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((params) => Number(params.get("toSec")) >= 2900)).toBe(true);
+    expect(chunks.every((params) => Number(params.get("fromSec")) >= 2900)).toBe(true);
+    expect(chunks.some((params) => params.get("fromSec") === "2900.000")).toBe(true);
+
+    pane.dispose();
+  });
+
+  it("does not refetch on every tick before the first live message", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = MARKUP;
+    const fetch = payloadFetch([tailPayload({ fromSec: 1, toSec: 1 })]);
+    const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+      { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, state: "recording" });
+    await vi.advanceTimersByTimeAsync(0);
+    for (const time of [0.25, 0.5, 0.75]) {
+      playing(time);
+      await vi.advanceTimersByTimeAsync(0);
+    }
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    pane.dispose();
+  });
+
+  it("renders an empty tail at the recording end", async () => {
+    document.body.innerHTML = MARKUP;
+    const fetch = payloadFetch([
+      tailPayload({ state: "complete", fromSec: 60, toSec: 60 }),
+    ]);
+    const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+      { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW });
+    await flush();
+    playhead(60);
+    await flush();
+
+    const log = document.querySelector("[data-sk='chat-log']");
+    expect(log.textContent).toBe("No chat at this point.");
+    expect(document.querySelector("[data-sk='chat-notice']").hidden).toBe(true);
+
+    pane.dispose();
+  });
+
+  it("keeps loaded rows when a tail reports an unreadable state", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = MARKUP;
+    const fetch = payloadFetch([
+      tailPayload({ toSec: 0 }),
+      tailPayload({ fromSec: 5, toSec: 600, messages: [row("m1", 5)] }),
+      tailPayload({ state: "unavailable", fromSec: 0, toSec: 600 }),
+    ]);
+    const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+      { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW, state: "recording" });
+    await vi.advanceTimersByTimeAsync(0);
+    playing(600);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(renderedIds()).toEqual(["m1"]);
+
+    await vi.advanceTimersByTimeAsync(500);
+    expect(renderedIds()).toEqual(["m1"]);
+
+    pane.dispose();
+  });
+
+  it("keeps a complete recording's read-ahead as a window query", async () => {
+    document.body.innerHTML = MARKUP;
+    const fetch = payloadFetch([
+      tailPayload({ state: "complete", toSec: 1, messages: [row("m0", 0)] }),
+      tailPayload({
+        state: "complete",
+        fromSec: 0,
+        toSec: 130,
+        messages: [row("m0", 0), row("m10", 10)],
+      }),
+    ]);
+    const pane = createChatPane(document.querySelector("[data-sk-chat]"),
+      { fetch, storage: storage() });
+
+    await pane.load({ ...VIEW });
+    await flush();
+    playhead(10);
+    await flush();
+
+    const calls = fetch.mock.calls.map(([url]) => url.searchParams);
+    expect(calls[0].get("tail")).toBe("true");
+    // At the recording start the tail is at the playhead, not 120 s ahead of it.
+    expect(calls[0].get("toSec")).toBe("0.000");
+    expect(calls[1].get("tail")).toBeNull();
+    expect(calls[1].get("fromSec")).toBe("0.000");
+    expect(calls[1].get("toSec")).toBe("130.000");
 
     pane.dispose();
   });

@@ -31,7 +31,6 @@ const POLL_MS = 500;
 // After a failed fetch, wait before the next attempt; the wait doubles up to the cap.
 const RETRY_MIN_MS = 1000;
 const RETRY_MAX_MS = 30_000;
-const WINDOW_BEFORE_SEC = 30;
 const WINDOW_AFTER_SEC = 120;
 // Each continuation re-reads this much before what is loaded; ids dedupe the overlap.
 const OVERLAP_SEC = 5;
@@ -40,8 +39,9 @@ const LOOKAHEAD_SEC = 30;
 // Scrollback kept and rendered. Older rows drop off the top so a 12-hour live session does not
 // grow the DOM forever. Not the fetch limit; the server's limits arrive in the load payload.
 const MAX_ROWS = 1000;
-// A fresh window starts 30 s back, so after it loads the pane fetches earlier chat in chunks
-// until the log overflows, the chat starts, or it has reached this far back.
+// A fresh tail starts at the playhead, so after it loads the pane fetches older chat in chunks
+// until the log overflows, the chat starts, or it has reached this far back from the tail's
+// oldest row.
 const BACKFILL_CHUNK_SEC = 120;
 const BACKFILL_MAX_SEC = 1800;
 // A playhead move larger than this between events is a seek, not playback.
@@ -384,10 +384,12 @@ export function createChatPane(root, {
   let loadedToIsRow = false;
   // A complete recording's window reached the end of its chat; nothing more to fetch.
   let endReached = false;
-  // The fresh window last requested, raised as old rows are dropped. A playhead before
-  // windowFrom, or past windowTo while the first load is in flight, needs a fresh window.
+  // The loaded range last requested, raised as old rows are dropped. A playhead before
+  // windowFrom, or past windowTo while the first load is in flight, needs a fresh fetch.
   let windowFrom = 0;
   let windowTo = 0;
+  // The playhead the in-flight fresh fetch was for; a larger move while it loads is a seek.
+  let requestedPlayhead = 0;
   let loading = false;
   let retryAt = 0;
   let retryDelay = RETRY_MIN_MS;
@@ -406,7 +408,7 @@ export function createChatPane(root, {
   let rowNodes = new Map();
   // What every row's markup depends on (state, emote catalog, background); a change redraws.
   let shellKey = "";
-  // A fresh window replaces the log and lands at its end without animating.
+  // A fresh fetch replaces the log and lands at its end without animating.
   let freshLog = true;
   // The pane's own glide to the end, while one is under way. Scroll events it causes pass rows
   // short of the bottom; they must not read as the viewer scrolling away.
@@ -561,35 +563,42 @@ export function createChatPane(root, {
   }
 
   /**
-   * Fetches the window around the playhead. Single-flight and backed off after a failure,
+   * Fetches the newest tail at the playhead. Single-flight and backed off after a failure,
    * unless `replace` is set: a seek or sync change supersedes the request in flight.
    */
-  function loadCurrentWindow({ replace = false } = {}) {
+  function loadCurrentTail({ replace = false } = {}) {
     if (!open || !view) return;
     if (!replace && (loading || Date.now() < retryAt)) return;
-    void fetchWindow(Math.max(0, currentTime - WINDOW_BEFORE_SEC),
-      currentTime + WINDOW_AFTER_SEC, { fresh: true });
+    void fetchChat(currentTime, currentTime, { fresh: true, tail: true });
   }
 
   /**
-   * Fetches the messages after what is already loaded, keeping the scrollback. A playhead that
-   * has run too far past the loaded chat starts a fresh window instead, so a request never
-   * exceeds the endpoint's window cap.
+   * Keeps the chat current as the playhead moves. A live pane polls the newest tail at the
+   * playhead; a complete recording reads ahead with the window query, starting from what is
+   * already loaded. A playhead that has run too far past the loaded chat starts a fresh tail
+   * instead, so a request never exceeds the endpoint's window cap.
    */
-  function continueWindow() {
+  function continueChat() {
     if (!open || !view || !loaded || loading || Date.now() < retryAt) return;
     if (currentTime > loadedTo + WINDOW_AFTER_SEC) {
       resetWindow();
-      loadCurrentWindow({ replace: true });
+      loadCurrentTail({ replace: true });
       return;
     }
-    void fetchWindow(Math.max(0, loadedToIsRow ? loadedTo : loadedTo - OVERLAP_SEC),
+    if (liveState()) {
+      // A live poll fills the newest tail at the playhead; the tail is authoritative for it.
+      void fetchChat(currentTime, currentTime, { tail: true });
+      return;
+    }
+    // A complete recording keeps reading ahead with the window query: the tail wants the newest
+    // rows, but forward filling must start at what is already loaded, not at its newest row.
+    void fetchChat(Math.max(0, loadedToIsRow ? loadedTo : loadedTo - OVERLAP_SEC),
       Math.max(loadedTo, currentTime) + WINDOW_AFTER_SEC);
   }
 
   function resume() {
-    if (loaded) continueWindow();
-    else loadCurrentWindow();
+    if (loaded) continueChat();
+    else loadCurrentTail();
   }
 
   function toggleAndPersist() {
@@ -660,6 +669,7 @@ export function createChatPane(root, {
     endReached = false;
     windowFrom = 0;
     windowTo = 0;
+    requestedPlayhead = 0;
     lastRenderKey = "";
     freshLog = true;
     following = true;
@@ -708,7 +718,7 @@ export function createChatPane(root, {
     // The same recording reloaded with another offset: apply it like a Settings change.
     if (!changed) setSyncOffset(next.syncOffsetSec);
     if (view.state === "complete" || view.state === "unavailable") stopPolling();
-    if (open && (changed || !loaded)) loadCurrentWindow();
+    if (open && (changed || !loaded)) loadCurrentTail();
   }
 
   function startPolling() {
@@ -716,7 +726,7 @@ export function createChatPane(root, {
     pollTimer = window.setInterval(() => {
       if (!open || disposed || paused || document.hidden) return;
       if (!view || view.state === "complete" || view.state === "unavailable") return;
-      continueWindow();
+      continueChat();
     }, POLL_MS);
   }
 
@@ -726,23 +736,31 @@ export function createChatPane(root, {
     pollTimer = 0;
   }
 
-  async function fetchWindow(fromSec, toSec, { fresh = false } = {}) {
+  async function fetchChat(fromSec, toSec, { fresh = false, tail = false } = {}) {
     if (disposed || !view || !open || typeof fetchImpl !== "function") return;
     const from = Math.max(0, Number(fromSec) || 0);
-    const to = Math.max(from + 1, Number(toSec) || from + WINDOW_AFTER_SEC);
+    const requestedTo = Number(toSec);
+    const fallbackTo = from + WINDOW_AFTER_SEC;
+    // A tail is exactly at its requested point; only a window needs a minimum width.
+    const to = tail
+      ? (Number.isFinite(requestedTo) ? Math.max(0, requestedTo) : fallbackTo)
+      : Math.max(from + 1, Number.isFinite(requestedTo) ? requestedTo : fallbackTo);
+    const playheadAtRequest = currentTime;
     controller?.abort();
     controller = new AbortController();
     if (fresh) {
       windowFrom = from;
-      windowTo = to;
+      // A fresh tail only covers the playhead, but ticks keep arriving while it is in flight;
+      // keep the old window's forward tolerance so an ordinary tick does not abort it.
+      windowTo = to + WINDOW_AFTER_SEC;
+      requestedPlayhead = playheadAtRequest;
     }
-    const playheadAtRequest = currentTime;
     const request = controller;
     loading = true;
     el["chat-log"]?.setAttribute("aria-busy", "true");
 
     try {
-      const data = await requestChat(from, to, request.signal);
+      const data = await requestChat(from, to, request.signal, tail);
       if (disposed || request.signal.aborted) return;
 
       notice("");
@@ -756,10 +774,11 @@ export function createChatPane(root, {
 
       // A `starting` or `unavailable` timeline returns no messages, so it proves nothing loaded.
       const readable = data.state !== "starting" && data.state !== "unavailable";
+      if (tail && readable) reconcileTail(received, data);
       if (readable) {
-        // The server echoes the requested toSec, and a window hit by the limit ends at its
-        // last row; either way, nothing past that end is known yet.
-        const truncated = received.length >= view.limit;
+        // A tail response is the newest rows up to toSec, so toSec is the end of what is known.
+        // A window can be cut by the limit, and then its last row is the end instead.
+        const truncated = !tail && received.length >= view.limit;
         const lastRow = truncated ? Number(received.at(-1).mt) : NaN;
         let end = truncated ? lastRow : Number(data.toSec);
         // While live, messages ahead of the playhead may still be written; poll for them again.
@@ -770,6 +789,15 @@ export function createChatPane(root, {
         }
         // The server clamps toSec to the recording's duration, so a short window is the end.
         endReached = !liveState() && !truncated && Number(data.toSec) < to - 0.001;
+        if (tail) {
+          const fromRow = Number(data.fromSec);
+          if (Number.isFinite(fromRow)) {
+            // The tail's oldest row can be after the playhead (an empty tail at the start), but
+            // that must not look like a backward seek on every tick before the first message.
+            const anchor = Math.min(fromRow, playheadAtRequest);
+            windowFrom = fresh ? anchor : Math.min(windowFrom, anchor);
+          }
+        }
       }
 
       loaded = true;
@@ -779,14 +807,17 @@ export function createChatPane(root, {
       }
       updateStatus();
       render();
-      if (fresh && readable && data.hasMoreBefore && from > 0) void backfillBefore(from);
+      if (fresh && readable && data.hasMoreBefore) {
+        const start = Number(data.fromSec);
+        if (Number.isFinite(start) && start > 0) void backfillBefore(start);
+      }
     } catch (error) {
       if (error?.name !== "AbortError" && !request.signal.aborted) {
         retryAt = Date.now() + retryDelay;
         retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS);
         status("disconnected");
         notice("Chat could not be loaded.");
-        console.debug("Stream Keepr: chat window fetch failed; retrying later.", error);
+        console.debug("Stream Keepr: chat fetch failed; retrying later.", error);
       }
     } finally {
       if (controller === request) {
@@ -797,10 +828,15 @@ export function createChatPane(root, {
     }
   }
 
-  async function requestChat(from, to, signal) {
+  async function requestChat(from, to, signal, tail = false) {
     const url = apiUrl(view.recordingId);
-    url.searchParams.set("fromSec", from.toFixed(3));
-    url.searchParams.set("toSec", to.toFixed(3));
+    if (tail) {
+      url.searchParams.set("tail", "true");
+      url.searchParams.set("toSec", to.toFixed(3));
+    } else {
+      url.searchParams.set("fromSec", from.toFixed(3));
+      url.searchParams.set("toSec", to.toFixed(3));
+    }
     url.searchParams.set("limit", String(view.limit));
     url.searchParams.set("syncOffsetSec", syncOffset.toFixed(3));
     const response = await fetchImpl(url, { signal });
@@ -823,16 +859,31 @@ export function createChatPane(root, {
     return added;
   }
 
+  /**
+   * A tail response is authoritative for the rows in its returned range: a message the server
+   * omits there was deleted, cleared or redacted. Older scrollback outside the range stays.
+   */
+  function reconcileTail(received, data) {
+    const from = Number(data.fromSec);
+    const to = Number(data.toSec);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return;
+    const kept = new Set(received.map(messageKey));
+    for (const [key, existing] of messages) {
+      const mt = Number(existing.mt);
+      if (mt >= from && mt <= to && !kept.has(key)) messages.delete(key);
+    }
+  }
+
   function logFull() {
     const log = el["chat-log"];
     return Boolean(log) && log.scrollHeight > log.clientHeight;
   }
 
   /**
-   * Fills the log with chat from before a fresh window, newest chunk first. Stops once the log
-   * overflows, the chat or recording starts, it reaches BACKFILL_MAX_SEC back, or a chunk hits
-   * the limit: the limit keeps a chunk's earliest rows, so a busy chunk would leave a hole, and
-   * a busy chat already fills the log. A failure just ends the backfill.
+   * Fills the log with chat from before a fresh tail, newest chunk first. Stops once the log
+   * overflows, the chat or recording starts, it reaches BACKFILL_MAX_SEC back from the start,
+   * or a chunk hits the limit: the limit keeps a chunk's earliest rows, so a busy chunk would
+   * leave a hole, and a busy chat already fills the log. A failure just ends the backfill.
    */
   async function backfillBefore(start) {
     stopBackfill();
@@ -962,7 +1013,7 @@ export function createChatPane(root, {
   /**
    * Scrolls the log to its newest row. "smooth" glides unless the viewer prefers reduced
    * motion or the end is more than a screen away, where a glide would sweep through old chat
-   * (a burst, or a tab that was throttled); "instant" is for a fresh window or a seek.
+   * (a burst, or a tab that was throttled); "instant" is for a fresh fetch or a seek.
    */
   function scrollToEnd(behavior) {
     const log = el["chat-log"];
@@ -1021,7 +1072,7 @@ export function createChatPane(root, {
       .filter((message) => Number(message.mt) <= currentTime + 0.5)
       .sort((a, b) => a.mt - b.mt || String(a.id).localeCompare(String(b.id)));
     if (visible.length > MAX_ROWS) {
-      // Drop the oldest scrollback. A seek back before what is kept fetches a fresh window.
+      // Drop the oldest scrollback. A seek back before what is kept fetches a fresh tail.
       for (const message of visible.slice(0, visible.length - MAX_ROWS)) {
         messages.delete(messageKey(message));
       }
@@ -1322,12 +1373,13 @@ export function createChatPane(root, {
     if (resumed) jumpToCurrent();
 
     if (!loaded) {
-      if (currentTime < windowFrom || currentTime > windowTo) {
-        // A seek away from the window being loaded.
+      const moved = Math.abs(currentTime - requestedPlayhead) > SEEK_SEC;
+      if (moved || currentTime < windowFrom || currentTime > windowTo) {
+        // A seek away from the tail being loaded.
         resetWindow();
-        loadCurrentWindow({ replace: true });
+        loadCurrentTail({ replace: true });
       } else {
-        loadCurrentWindow();
+        loadCurrentTail();
       }
       return;
     }
@@ -1339,7 +1391,7 @@ export function createChatPane(root, {
     const farForward = currentTime > previous + WINDOW_AFTER_SEC;
     if (backward || farForward || currentTime < windowFrom) {
       resetWindow();
-      loadCurrentWindow({ replace: true });
+      loadCurrentTail({ replace: true });
       return;
     }
 
@@ -1348,7 +1400,7 @@ export function createChatPane(root, {
     render({ instant: forwardSeek });
     if (forwardSeek) jumpToCurrent();
     // A live pane polls on a timer; a complete one reads ahead as the playhead nears the end.
-    if (!liveState() && !endReached && currentTime + LOOKAHEAD_SEC > loadedTo) continueWindow();
+    if (!liveState() && !endReached && currentTime + LOOKAHEAD_SEC > loadedTo) continueChat();
   }
 
   /** An offset within the endpoint's limit; anything else is 0. */
@@ -1414,8 +1466,8 @@ export function createChatPane(root, {
     if (next === syncOffset) return;
     syncOffset = next;
     resetWindow();
-    // A closed pane fetches nothing now; opening it loads a fresh window with this offset.
-    loadCurrentWindow({ replace: true });
+    // A closed pane fetches nothing now; opening it loads a fresh tail with this offset.
+    loadCurrentTail({ replace: true });
   }
 
   on(el["chat-log"], "scroll", onScroll, { passive: true });
