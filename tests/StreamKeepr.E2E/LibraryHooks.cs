@@ -28,6 +28,14 @@ internal static class LibraryHooks
     public static string ChannelFor(string login) => $"{Drawer} [data-library-channel='{login}']";
 
     /// <summary>
+    /// The channel logins in the list's current order. A channel's identity is stable when the
+    /// list re-sorts on a recording-state change; its position is not.
+    /// </summary>
+    public static Task<string[]> ChannelLoginsAsync(IPage page) =>
+        page.Locator(Channel).EvaluateAllAsync<string[]>(
+            "channels => channels.map(c => c.dataset.libraryChannel)");
+
+    /// <summary>
     /// Opens the library when it is closed: Md and up the menu opens it over the page (it starts
     /// as the rail); below Md the bottom bar's Library opens the temporary drawer.
     /// </summary>
@@ -81,21 +89,25 @@ internal static class LibraryHooks
     }
 
     /// <summary>
-    /// Rows show only in the open channel's column, so this opens the channels in list order
-    /// until the <paramref name="index"/>-th row matching <paramref name="selector"/> (and
-    /// <paramref name="hasText"/>, when given) is there, and returns it, its column left open.
+    /// Rows show only in the open channel's column, so this opens the channels in the order the
+    /// list had when it started, until the <paramref name="index"/>-th row matching
+    /// <paramref name="selector"/> (and <paramref name="hasText"/>, when given) is there, and
+    /// returns it, its column left open.
     /// </summary>
     public static async Task<ILocator> RowAsync(
         IPage page, string selector = Row, string? hasText = null, int index = 0)
     {
         // Attached: on a phone the drawer starts closed.
         await page.Locator(Channel).First.WaitForAsync(new() { State = WaitForSelectorState.Attached });
-        int channels = await page.Locator(Channel).CountAsync();
+
+        // The list sorts recording channels first and re-sorts when a channel starts or stops
+        // recording, so a locator re-resolved by position after an awaited step can visit one
+        // channel twice and skip another (#338). Logins are stable across a re-sort.
+        string[] logins = await ChannelLoginsAsync(page);
+
         int seen = 0;
-        for (int i = 0; i < channels; i++)
+        foreach (string login in logins)
         {
-            ILocator channel = page.Locator(Channel).Nth(i);
-            string login = (await channel.GetAttributeAsync("data-library-channel"))!;
             await OpenChannelAsync(page, login);
             ILocator rows = page.Locator(selector, new() { HasTextString = hasText });
             int count = await rows.CountAsync();
@@ -104,6 +116,7 @@ internal static class LibraryHooks
             seen += count;
         }
 
-        throw new InvalidOperationException($"No library row #{index} matches {selector} {hasText}.");
+        throw new InvalidOperationException(
+            $"No library row #{index} matches {selector} {hasText} in {string.Join(", ", logins)}.");
     }
 }
