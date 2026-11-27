@@ -26,11 +26,33 @@ public static class ChatEndpoint
         if (library.Find(id) is not { } summary)
             return Results.NotFound();
 
-        if (!TryDouble(context, "fromSec", required: true, out double from) ||
-            from < 0 ||
-            !TryDouble(context, "toSec", required: false, out double to) ||
+        if (!TryBool(context, "tail", defaultValue: false, out bool tail) ||
             !TryInt(context, "limit", DefaultLimit, out int limit) ||
             !TryDouble(context, "syncOffsetSec", required: false, out double offset))
+        {
+            return Results.BadRequest();
+        }
+
+        if (limit is < 1 or > MaxLimit ||
+            Math.Abs(offset) > ChatReader.MaxSyncOffsetSeconds)
+        {
+            return Results.BadRequest();
+        }
+
+        if (tail)
+        {
+            if (!TryDouble(context, "toSec", required: true, out double playhead) ||
+                playhead < 0)
+            {
+                return Results.BadRequest();
+            }
+
+            return Results.Json(reader.QueryTail(summary, playhead, limit, offset));
+        }
+
+        if (!TryDouble(context, "fromSec", required: true, out double from) ||
+            from < 0 ||
+            !TryDouble(context, "toSec", required: false, out double to))
         {
             return Results.BadRequest();
         }
@@ -38,9 +60,6 @@ public static class ChatEndpoint
         double defaultTo = from + DefaultWindowSeconds;
         to = context.Request.Query.ContainsKey("toSec") ? to : defaultTo;
         if (!double.IsFinite(to) || to <= from || to - from > MaxWindowSeconds)
-            return Results.BadRequest();
-
-        if (limit is < 1 or > MaxLimit || Math.Abs(offset) > ChatReader.MaxSyncOffsetSeconds)
             return Results.BadRequest();
 
         ChatQueryResult result = reader.Query(summary, from, to, limit, offset);
@@ -57,6 +76,17 @@ public static class ChatEndpoint
         return double.TryParse(
             raw.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out value) &&
                double.IsFinite(value);
+    }
+
+
+    private static bool TryBool(
+        HttpContext context, string key, bool defaultValue, out bool value)
+    {
+        value = defaultValue;
+        if (!context.Request.Query.TryGetValue(key, out var raw))
+            return true;
+
+        return bool.TryParse(raw.ToString(), out value);
     }
 
     private static bool TryInt(
