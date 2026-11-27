@@ -1,15 +1,16 @@
-<!-- @dsCard group="Layout" height=1100 width=1280 subtitle="Theater mode: the player spans the full width of the view; the title block, Chapters and Viewers move below it, with chat filling the height to their right" -->
+<!-- @dsCard group="Layout" height=1100 width=1280 subtitle="Theater mode: the player spans the view to the chat drawer's divider; the title block, Chapters and Viewers move below it with 16px side padding, and the chat is the same 400px docked right drawer" -->
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <style>
   html, body { margin: 0; }
-  .shell { display: flex; flex-direction: column; min-height: 1100px; }
-  main { flex: 1; background: var(--background-gray); }
+  .shell { display: flex; flex-direction: column; min-height: 1100px; position: relative; }
+  main { flex: 1; margin-right: var(--chat-width); background: var(--background-gray); }
   .theater .ds-player { width: 100%; border-radius: 0; }
   .below { padding: var(--space-4); }
-  .below .ds-chat { min-height: 260px; }
+  /* The drawer is positioned from the shell's top, so it starts under the app bar. */
+  .below .ds-chat { top: var(--appbar-height); }
   .ds-chat-log { justify-content: flex-end; }
   .c1 { color: var(--channel-4); } .c2 { color: var(--channel-2); } .c3 { color: var(--channel-1); }
   .title-line { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4) var(--space-2); flex-wrap: wrap; }
@@ -71,8 +72,8 @@
         </section>
         <section class="ds-panel"><div class="ds-panel-head ds-ihead" aria-expanded="false" role="button"><i data-i="groups"></i><h2>Viewers</h2><span class="ds-cap">1,489 at 54:40 · peak 1,658</span><i data-i="expand" class="ds-chev"></i></div></section>
       </div>
-      <aside class="ds-chat" aria-label="Chat replay">
-        <header class="ds-chat-head ds-ihead"><i data-i="chat"></i><span class="t">Chat replay</span><span class="ds-cap" style="margin-left:auto;display:inline-flex;align-items:center;color:var(--primary)" role="status" title="Chat connected"><i data-i="wifi" class="sm" aria-hidden="true"></i><span class="ds-sr">Chat connected</span></span></header>
+      <aside class="ds-chat dock" aria-label="Chat replay">
+        <header class="ds-chat-head ds-ihead"><i data-i="chat"></i><span class="t">Chat replay</span><span class="ds-chat-state live" role="status" title="Chat connected"><i data-i="wifi" class="sm" aria-hidden="true"></i><span class="ds-sr">Chat connected</span></span><button class="ds-ibtn" aria-label="Close chat" aria-keyshortcuts="Escape"><i data-i="close"></i></button></header>
         <div class="ds-chat-log" role="log">
           <div><span class="ts">54:31</span><span class="n c1">sablefinch</span><span class="ds-muted">:</span> that reset was clean</div>
           <div><span class="ts">54:33</span><span class="n c2">mothlight</span><span class="ds-muted">:</span> any% or glitchless tonight?</div>

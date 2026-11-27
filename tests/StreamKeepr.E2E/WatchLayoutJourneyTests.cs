@@ -4,8 +4,9 @@ using static StreamKeepr.E2E.LibraryJourneyTests;
 namespace StreamKeepr.E2E;
 
 /// <summary>
-/// The watch layout (#175): the player-first desktop sizing, the full-width theater view, and
-/// the phone's sticky edge-to-edge player with Chat, Details and Stats tabs.
+/// The watch layout (#175, #332): the player-first desktop sizing, the docked chat drawer and
+/// its reserved width, the full-width theater view, and the phone's sticky edge-to-edge player
+/// with Chat, Details and Stats tabs.
 /// </summary>
 [Collection(MockAppCollection.Name)]
 [CaptureFailure]
@@ -47,6 +48,11 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
         Assert.Equal(0, await page.GetByRole(AriaRole.Tab, new() { Name = "Details" }).CountAsync());
         await Assertions.Expect(statsTab).ToBeVisibleAsync();
         Assert.True(await page.Locator("[role='tabpanel'] [data-sk-chat]").IsVisibleAsync());
+        // The tab form has no header and no Close control; the tab owns the disclosure (#333).
+        Assert.Equal(0,
+            await page.Locator("[role='tabpanel'] [data-sk-chat] > header").CountAsync());
+        Assert.Equal(0,
+            await page.GetByRole(AriaRole.Button, new() { Name = "Close chat" }).CountAsync());
 
         // Selecting a tab shows its panel and hides the others.
         await ScrollTopAsync(page);
@@ -135,7 +141,7 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
     }
 
     [Fact]
-    public async Task At_1280_theater_mode_gives_the_player_the_whole_view_width()
+    public async Task At_1280_theater_mode_keeps_the_open_chat_drawer_docked_at_the_player_divider()
     {
         await using Journey session = await OpenAsync(app, viewport: Desktop);
         IPage page = session.Page;
@@ -158,69 +164,132 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
         Assert.Equal("0px", await player.EvaluateAsync<string>(
             "el => getComputedStyle(el).borderTopLeftRadius"));
 
-        // Chat and the title block move below the player, never beside it.
-        ILocator details = page.Locator("[data-slot='details'] [data-recording-details]");
-        LocatorBoundingBoxResult detailsBox = (await details.BoundingBoxAsync())!;
-        Assert.True(detailsBox.Y >= full.Y + full.Height - 1, "details sit below the player");
-        // A closed pane is not shown, so open it with the player's Chat button to place it.
-        if (await page.Locator("[data-sk-chat]").GetAttributeAsync("data-open") != "true")
-        {
-            await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
-            await page.WaitForFunctionAsync(
-                "() => document.querySelector('[data-sk-chat]').dataset.open === 'true'");
-        }
-        ILocator chat = page.Locator("[data-watch-chat]");
-        LocatorBoundingBoxResult chatBox = (await chat.BoundingBoxAsync())!;
-        Assert.True(chatBox.Y >= full.Y + full.Height - 1, "chat sits below the player");
+        // Open the drawer: the same geometry as the normal watch view, and the player reaches its
+        // divider with no gutter.
+        await OpenChatAsync(page);
+        LocatorBoundingBoxResult drawerBox = await AssertDockedDrawerAsync(page);
+        ILocator drawer = page.Locator("[data-watch-chat]");
+        ILocator playerSlot = page.Locator("[data-slot='player']");
+        LocatorBoundingBoxResult atDivider = (await playerSlot.BoundingBoxAsync())!;
+        Assert.True(Math.Abs(atDivider.X + atDivider.Width - drawerBox.X) <= 1,
+            $"the player ends at {atDivider.X + atDivider.Width}px, the divider at {drawerBox.X}px");
 
+        // The content below keeps its 16px side padding instead of reaching the divider.
+        ILocator details = page.Locator("[data-slot='details']");
+        ILocator stats = page.Locator("[data-slot='viewers']");
+        Assert.Equal("16px", await details.EvaluateAsync<string>("el => getComputedStyle(el).paddingRight"));
+        Assert.Equal("16px", await stats.EvaluateAsync<string>("el => getComputedStyle(el).paddingRight"));
+        LocatorBoundingBoxResult playerBox = (await player.BoundingBoxAsync())!;
+        LocatorBoundingBoxResult detailsBox = (await details.BoundingBoxAsync())!;
+        Assert.True(detailsBox.Y >= playerBox.Y + playerBox.Height - 1, "details sit below the player");
+
+        // The open drawer is the page under test: no sideways scroll, and axe clean.
         await AssertNoSidewaysScrollAsync(page, "watch-theater");
         await page.ScreenshotAsync(new() { Path = Path.Combine(app.ArtifactsDirectory, "watch-theater.png") });
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "watch-theater");
+
+        // Closing removes it from layout again: the player takes the whole width.
+        await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
+        await page.WaitForFunctionAsync(
+            "() => document.querySelector('[data-sk-chat]').dataset.open === 'false'");
+        Assert.False(await drawer.IsVisibleAsync());
+        await page.WaitForFunctionAsync(
+            $"() => document.querySelector('[data-sk-player]').getBoundingClientRect().width >= {Desktop.Width - 1}");
     }
 
     [Fact]
-    public async Task On_desktop_open_chat_is_a_full_height_column_beside_everything_else()
+    public async Task At_1280_the_open_chat_is_a_docked_drawer_and_the_content_reserves_its_width()
     {
         await using Journey session = await OpenAsync(app, viewport: Desktop);
         IPage page = session.Page;
         await OpenFirstRecordingAsync(page);
         await SettleAsync(page, compact: false);
 
+        await OpenChatAsync(page);
         ILocator pane = page.Locator("[data-sk-chat]");
+        ILocator drawer = page.Locator("[data-watch-chat]");
         ILocator toggle = page.Locator("[data-sk-player] [data-sk='chat']");
-        if (await pane.GetAttributeAsync("data-open") != "true")
-        {
-            await toggle.ClickAsync();
-            await page.WaitForFunctionAsync(
-                "() => document.querySelector('[data-sk-chat]').dataset.open === 'true'");
-        }
+        double chatWidth = await page.EvaluateAsync<double>(
+            "() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--chat-width'))");
+        Assert.InRange(chatWidth, 399d, 401d);
+        LocatorBoundingBoxResult drawerBox = await AssertDockedDrawerAsync(page);
 
-        LocatorBoundingBoxResult sidecar = (await pane.BoundingBoxAsync())!;
-        Assert.InRange((double)sidecar.Width, 320d, 401d);
+        // Flat drawer surface: one left divider, square corners, no shadow or inset.
+        string[] surface = await pane.EvaluateAsync<string[]>(
+            """
+            el => {
+              const s = getComputedStyle(el);
+              return [s.borderTopWidth, s.borderRightWidth, s.borderBottomWidth, s.borderLeftWidth,
+                      s.borderLeftStyle, s.borderTopLeftRadius, s.boxShadow, s.margin];
+            }
+            """);
+        Assert.Equal(new[] { "0px", "0px", "0px", "1px", "solid", "0px", "none", "0px" }, surface);
 
-        LocatorBoundingBoxResult player = (await page.Locator("[data-sk-player]").BoundingBoxAsync())!;
-        Assert.True(sidecar.X >= player.X + player.Width - 1, "chat sits beside the player");
-        Assert.True(Math.Abs(sidecar.Y - player.Y) < 2, "the sidecar starts with the player");
-
-        // It runs from the top of the main column to the bottom of the view, and the title
-        // block and Chapters sit under the player, to its left.
+        // The player and title block stop 24px left of the drawer; the scroll container reserves it.
+        LocatorBoundingBoxResult player = (await page.Locator("[data-slot='player']").BoundingBoxAsync())!;
+        LocatorBoundingBoxResult details = (await page.Locator("[data-slot='details']").BoundingBoxAsync())!;
+        Assert.True(Math.Abs(player.X + player.Width - (drawerBox.X - 24)) <= 1,
+            $"the player ends at {player.X + player.Width}px, the drawer starts at {drawerBox.X}px");
+        Assert.True(Math.Abs(details.X + details.Width - (drawerBox.X - 24)) <= 1,
+            $"the title block ends at {details.X + details.Width}px, the drawer starts at {drawerBox.X}px");
         LocatorBoundingBoxResult main = (await page.Locator("main").BoundingBoxAsync())!;
-        double bottom = main.Y + main.Height;
-        Assert.True(sidecar.Y + sidecar.Height >= bottom - 40,
-            $"chat ends at {sidecar.Y + sidecar.Height}px, the view at {bottom}px");
-        ILocator details = page.Locator("[data-slot='details'] [data-recording-details]");
-        LocatorBoundingBoxResult detailsBox = (await details.BoundingBoxAsync())!;
-        Assert.True(detailsBox.Y >= player.Y + player.Height - 1, "the title block sits below the player");
-        Assert.True(detailsBox.X + detailsBox.Width <= sidecar.X + 1, "the title block stays left of chat");
+        Assert.True(Math.Abs(main.X + main.Width - drawerBox.X) <= 1,
+            $"the main column ends at {main.X + main.Width}px, the drawer starts at {drawerBox.X}px");
 
-        // Chat is sticky: scrolling the left column leaves it in place.
+        // It stays docked while the content scrolls.
         await page.Locator("main").EvaluateAsync("el => { el.scrollTop = el.scrollHeight; }");
-        LocatorBoundingBoxResult scrolled = (await pane.BoundingBoxAsync())!;
-        Assert.True(Math.Abs(scrolled.Y - sidecar.Y) < 2, $"chat moved from {sidecar.Y}px to {scrolled.Y}px");
+        LocatorBoundingBoxResult scrolled = (await drawer.BoundingBoxAsync())!;
+        Assert.True(Math.Abs(scrolled.Y - drawerBox.Y) <= 1, $"the drawer moved from {drawerBox.Y}px to {scrolled.Y}px");
         await page.Locator("main").EvaluateAsync("el => { el.scrollTop = 0; }");
 
+        // The open drawer is the page under test: no sideways scroll, and axe clean.
         await AssertNoSidewaysScrollAsync(page, "watch-desktop-chat");
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "watch-desktop-chat");
+
+        // Closed, it takes no width and the player expands to the full column.
+        await toggle.ClickAsync();
+        await page.WaitForFunctionAsync(
+            "() => document.querySelector('[data-sk-chat]').dataset.open === 'false'");
+        Assert.False(await drawer.IsVisibleAsync());
+        await page.WaitForFunctionAsync(
+            $"() => document.querySelector('main').getBoundingClientRect().right >= {Desktop.Width - 1}");
+        LocatorBoundingBoxResult closedMain = (await page.Locator("main").BoundingBoxAsync())!;
+        Assert.True(Math.Abs(closedMain.X + closedMain.Width - Desktop.Width) <= 1,
+            $"the closed drawer still reserves room: main ends at {closedMain.X + closedMain.Width}px");
+        await page.WaitForFunctionAsync(
+            $"() => document.querySelector('[data-slot=player]').getBoundingClientRect().right >= {Desktop.Width - 24 - 1}");
+        LocatorBoundingBoxResult expanded = (await page.Locator("[data-slot='player']").BoundingBoxAsync())!;
+        Assert.True(Math.Abs(expanded.X + expanded.Width - (Desktop.Width - 24)) <= 1,
+            $"the player ends at {expanded.X + expanded.Width}px, the view gutter at {Desktop.Width - 24}px");
+    }
+
+    [Fact]
+    public async Task On_a_phone_a_persisted_open_chat_never_paints_the_desktop_drawer()
+    {
+        await using Journey session = await OpenAsync(app, viewport: Desktop);
+        IPage page = session.Page;
+        await OpenFirstRecordingAsync(page);
+        await SettleAsync(page, compact: false);
+
+        // Persist the open state through the player's own toggle, then keep the server's wide
+        // prerender: without the circuit the phone's first paint still has the desktop pane in
+        // the DOM, and CSS must hide it.
+        await OpenChatAsync(page);
+        await page.WaitForFunctionAsync(
+            "() => decodeURIComponent(document.cookie).includes('\"chat\":true')");
+
+        await page.SetViewportSizeAsync(Phone.Width, Phone.Height);
+        await SettleAsync(page, compact: true);
+        // Journey.ReloadAsync waits for the shell's interactive marker; this reload deliberately
+        // has no circuit so the static first paint can be inspected (testing contract §6.1).
+        await page.RouteAsync("**/_framework/blazor.web*.js", route => route.AbortAsync());
+        await page.ReloadAsync(new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+
+        ILocator desktopDrawer = page.Locator("[data-watch-chat]");
+        await desktopDrawer.WaitForAsync(new() { State = WaitForSelectorState.Attached });
+        Assert.Equal("true", await page.Locator("[data-sk-chat]").GetAttributeAsync("data-open"));
+        Assert.False(await desktopDrawer.IsVisibleAsync(), "the desktop drawer must not paint on a phone");
+        Assert.False(await page.Locator("[data-sk-chat]").IsVisibleAsync());
     }
 
     [Fact]
@@ -237,6 +306,42 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
 
         Assert.True(await page.Locator("[data-sk='video']").EvaluateAsync<bool>("v => v.__skMarker === true"));
         await page.GetByRole(AriaRole.Tab, new() { Name = "Stats" }).WaitForAsync();
+    }
+
+    /// <summary>Opens the desktop chat drawer when it is closed.</summary>
+    private static async Task OpenChatAsync(IPage page)
+    {
+        if (await page.Locator("[data-sk-chat]").GetAttributeAsync("data-open") == "true")
+            return;
+
+        await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
+        await page.WaitForFunctionAsync(
+            "() => document.querySelector('[data-sk-chat]').dataset.open === 'true'");
+    }
+
+    /// <summary>
+    /// Asserts the docked drawer's geometry at 1280 and returns its box: flush right, from the
+    /// app bar's bottom to the viewport's bottom, and chat-width wide.
+    /// </summary>
+    private static async Task<LocatorBoundingBoxResult> AssertDockedDrawerAsync(IPage page)
+    {
+        await page.WaitForFunctionAsync(
+            "() => document.querySelector('[data-watch-chat]')?.getBoundingClientRect().width > 0");
+        LocatorBoundingBoxResult box = (await page.Locator("[data-watch-chat]").BoundingBoxAsync())!;
+        double chatWidth = await page.EvaluateAsync<double>(
+            "() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--chat-width'))");
+        double headerBottom = await page.EvaluateAsync<double>(
+            "() => document.querySelector('header').getBoundingClientRect().bottom");
+
+        Assert.True(Math.Abs(box.Width - chatWidth) <= 1,
+            $"the drawer is {box.Width}px wide, the token {chatWidth}px");
+        Assert.True(Math.Abs(box.X + box.Width - Desktop.Width) <= 1,
+            $"the drawer ends at {box.X + box.Width}px in a {Desktop.Width}px view");
+        Assert.True(Math.Abs(box.Y - headerBottom) <= 1,
+            $"the drawer starts at {box.Y}px, the app bar ends at {headerBottom}px");
+        Assert.True(Math.Abs(box.Y + box.Height - Desktop.Height) <= 1,
+            $"the drawer ends at {box.Y + box.Height}px, the view at {Desktop.Height}px");
+        return box;
     }
 
     private static async Task OpenRecordingAsync(IPage page, string title)

@@ -29,6 +29,9 @@ const MARKUP = `
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-icon="HourglassEmpty"></svg>
         <span class="sk-visually-hidden" data-sk="chat-state-label">Loading chat…</span>
       </span>
+      <button type="button" class="sk-chat-close" data-sk="chat-close" aria-label="Close chat">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-icon="Close"></svg>
+      </button>
     </header>
     <div data-sk="chat-body">
       <div data-sk="chat-log" role="log" aria-live="off" tabindex="0"></div>
@@ -37,7 +40,9 @@ const MARKUP = `
         <button data-sk="chat-jump" type="button">Jump to current time</button>
       </div>
     </div>
-  </aside>`;
+  </aside>
+  <div data-sk-player><button type="button" data-sk="chat">Chat</button></div>
+  <button type="button" id="outside">Elsewhere</button>`;
 
 const message = {
   id: "m1",
@@ -285,6 +290,183 @@ describe("chat replay pane", () => {
     pane.dispose();
   });
 
+  describe("closing the drawer", () => {
+    const chatButton = () => document.querySelector("[data-sk-player] [data-sk='chat']");
+    const closeButton = () => document.querySelector("[data-sk='chat-close']");
+    const log = () => document.querySelector("[data-sk='chat-log']");
+
+    function openPane() {
+      document.body.innerHTML = MARKUP;
+      const root = document.querySelector("[data-sk-chat]");
+      const invokeMethodAsync = vi.fn().mockResolvedValue(undefined);
+      const pane = createChatPane(root, {
+        fetch: fakeFetch(),
+        storage: storage(),
+        dotNet: { invokeMethodAsync },
+      });
+      pane.setOpen(true);
+      return { root, pane, invokeMethodAsync };
+    }
+
+    function pressEscape(target = document.body, init = {}) {
+      const event = new KeyboardEvent("keydown", {
+        key: "Escape", bubbles: true, cancelable: true, ...init,
+      });
+      target.dispatchEvent(event);
+      return event;
+    }
+
+    it("closes from the header's Close button and persists the closed state", () => {
+      const { root, pane, invokeMethodAsync } = openPane();
+
+      closeButton().click();
+
+      expect(root.dataset.open).toBe("false");
+      expect(document.querySelector("[data-sk='chat-body']").inert).toBe(true);
+      expect(invokeMethodAsync).toHaveBeenCalledWith("SetChatOpen", false);
+      pane.dispose();
+    });
+
+    it("returns focus to the player's Chat button after the Close button", () => {
+      const { root, pane } = openPane();
+      // A click does not focus the button on every browser, so the Close path must return focus
+      // without relying on the click having moved it.
+      document.getElementById("outside").focus();
+
+      closeButton().click();
+
+      expect(root.dataset.open).toBe("false");
+      expect(document.activeElement).toBe(chatButton());
+      pane.dispose();
+    });
+
+    it("leaves focus where it was when the player's Chat button closes the pane", () => {
+      const { root, pane } = openPane();
+      const outside = document.getElementById("outside");
+      outside.focus();
+
+      document.dispatchEvent(new CustomEvent("sk:chat-toggle"));
+
+      expect(root.dataset.open).toBe("false");
+      expect(document.activeElement).toBe(outside);
+      pane.dispose();
+    });
+
+    it("closes on Escape when no overlay owns it and returns focus from inside", () => {
+      const { root, pane, invokeMethodAsync } = openPane();
+      log().focus();
+
+      const event = pressEscape(log());
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(root.dataset.open).toBe("false");
+      expect(invokeMethodAsync).toHaveBeenCalledWith("SetChatOpen", false);
+      expect(document.activeElement).toBe(chatButton());
+      pane.dispose();
+    });
+
+    it("closes on Escape pressed outside the pane without moving focus", () => {
+      const { root, pane } = openPane();
+      const outside = document.getElementById("outside");
+      outside.focus();
+
+      pressEscape(outside);
+
+      expect(root.dataset.open).toBe("false");
+      expect(document.activeElement).toBe(outside);
+      pane.dispose();
+    });
+
+    it("yields Escape while a field outside the pane is being typed in", () => {
+      const { root, pane } = openPane();
+      const field = document.createElement("input");
+      document.body.append(field);
+      field.focus();
+
+      const event = pressEscape(field);
+
+      expect(root.dataset.open).toBe("true");
+      expect(event.defaultPrevented).toBe(false);
+      pane.dispose();
+    });
+
+    it("yields Escape to an open library, dialog, menu, popover, settings sheet or fullscreen", () => {
+      const owners = [
+        `<nav id="sk-drawer" data-drawer="expanded"></nav>`,
+        `<dialog open><button>OK</button></dialog>`,
+        `<div role="dialog"><button>OK</button></div>`,
+        `<div role="menu"><button>Speed</button></div>`,
+        `<div class="mud-popover-open"><div role="menu"></div></div>`,
+        `<div class="sk-settings-sheet-body" data-settings-sheet></div>`,
+      ];
+
+      for (const owner of owners) {
+        const { root, pane } = openPane();
+        document.body.insertAdjacentHTML("beforeend", owner);
+        log().focus();
+
+        const event = pressEscape(log());
+
+        expect(root.dataset.open, owner).toBe("true");
+        expect(event.defaultPrevented, owner).toBe(false);
+        pane.dispose();
+      }
+    });
+
+    it("yields Escape to fullscreen", () => {
+      const { root, pane } = openPane();
+      Object.defineProperty(document, "fullscreenElement", {
+        configurable: true,
+        get: () => document.body,
+      });
+      try {
+        log().focus();
+
+        const event = pressEscape(log());
+
+        expect(root.dataset.open).toBe("true");
+        expect(event.defaultPrevented).toBe(false);
+      } finally {
+        delete document.fullscreenElement;
+      }
+      pane.dispose();
+    });
+
+    it("does not close on an outside click, a held Escape or a modified Escape", () => {
+      const { root, pane } = openPane();
+
+      document.body.click();
+      expect(root.dataset.open).toBe("true");
+
+      const held = pressEscape(document.body, { repeat: true });
+      expect(held.defaultPrevented).toBe(false);
+      expect(root.dataset.open).toBe("true");
+
+      pressEscape(document.body, { ctrlKey: true });
+      expect(root.dataset.open).toBe("true");
+      pane.dispose();
+    });
+
+    it("keeps the phone tab open on Escape and on its Close control", async () => {
+      document.body.innerHTML = MARKUP;
+      const root = document.querySelector("[data-sk-chat]");
+      const invokeMethodAsync = vi.fn().mockResolvedValue(undefined);
+      const pane = createChatPane(root, {
+        fetch: fakeFetch(),
+        storage: storage(),
+        dotNet: { invokeMethodAsync },
+      });
+      await pane.load({ ...VIEW, open: false, fixedOpen: true });
+
+      pressEscape(log());
+      closeButton().click();
+
+      expect(root.dataset.open).toBe("true");
+      expect(invokeMethodAsync).not.toHaveBeenCalled();
+      pane.dispose();
+    });
+  });
+
   it("names the channel's own messages in its channel colour", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
@@ -505,15 +687,19 @@ describe("chat replay pane", () => {
     pane.dispose();
   });
 
-  it("toggles with C even while focus is inside the pane", async () => {
+  it("toggles with C even while focus is inside the pane and returns focus on close", async () => {
     document.body.innerHTML = MARKUP;
     const root = document.querySelector("[data-sk-chat]");
     const pane = createChatPane(root, { fetch: fakeFetch(), storage: storage() });
     pane.setOpen(true);
 
-    document.querySelector("[data-sk='chat-log']").dispatchEvent(
+    const log = document.querySelector("[data-sk='chat-log']");
+    log.focus();
+    log.dispatchEvent(
       new KeyboardEvent("keydown", { key: "c", bubbles: true, cancelable: true }));
     expect(root.dataset.open).toBe("false");
+    expect(document.activeElement).toBe(
+      document.querySelector("[data-sk-player] [data-sk='chat']"));
 
     document.body.dispatchEvent(
       new KeyboardEvent("keydown", { key: "c", repeat: true, bubbles: true, cancelable: true }));

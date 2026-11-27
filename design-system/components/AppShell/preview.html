@@ -1,4 +1,4 @@
-<!-- @dsCard group="Layout" height=800 width=1280 subtitle="Desktop watch view: MudBlazor Layout 2 (app bar + clipped mini drawer); the player, title block, Chapters and Viewers on the left, chat full height on the right" -->
+<!-- @dsCard group="Layout" height=800 width=1280 subtitle="Desktop watch view: MudBlazor Layout 2 (app bar + clipped mini drawer); the player, title block, Chapters and Viewers with chat as a 400px drawer docked to the right edge from the app bar to the viewport bottom" -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -6,11 +6,11 @@
 <style>
   html, body { margin: 0; }
   .shell { display: flex; flex-direction: column; height: 800px; }
-  .body { flex: 1; display: flex; min-height: 0; }
+  .body { flex: 1; display: flex; min-height: 0; position: relative; }
   nav.rail { width: var(--drawer-mini-width); background: var(--drawer-background); border-right: 1px solid var(--divider); display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; flex: none; }
   nav.rail .sel { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
   nav.rail hr { width: 40px; border: 0; height: 1px; background: var(--divider); margin: 0; }
-  main { flex: 1; min-width: 0; overflow: hidden; padding: var(--space-4); display: flex; flex-direction: column; }
+  main { flex: 1; min-width: 0; overflow: hidden; padding: var(--space-4) calc(var(--chat-width) + var(--space-6)) var(--space-4) var(--space-4); display: flex; flex-direction: column; }
   .ds-watchcols { flex: 1; }
   .ds-watchcols > .col { overflow: hidden; }
   .ds-chat-log { justify-content: flex-end; }
@@ -86,8 +86,8 @@
           </section>
           <section class="ds-panel"><div class="ds-panel-head ds-ihead" aria-expanded="false" role="button"><i data-i="groups"></i><h2>Viewers</h2><span class="ds-cap">1,489 at 54:40 · peak 1,658</span><i data-i="expand" class="ds-chev"></i></div></section>
         </div>
-        <aside class="ds-chat" aria-label="Chat replay">
-          <header class="ds-chat-head ds-ihead"><i data-i="chat"></i><span class="t">Chat replay</span><span class="ds-cap" style="margin-left:auto;display:inline-flex;align-items:center;color:var(--primary)" role="status" title="Chat connected"><i data-i="wifi" class="sm" aria-hidden="true"></i><span class="ds-sr">Chat connected</span></span></header>
+        <aside class="ds-chat dock" aria-label="Chat replay">
+          <header class="ds-chat-head ds-ihead"><i data-i="chat"></i><span class="t">Chat replay</span><span class="ds-chat-state live" role="status" title="Chat connected"><i data-i="wifi" class="sm" aria-hidden="true"></i><span class="ds-sr">Chat connected</span></span><button class="ds-ibtn" aria-label="Close chat" aria-keyshortcuts="Escape"><i data-i="close"></i></button></header>
           <div class="ds-chat-log" role="log">
             <div><span class="ts">54:31</span><span class="n c1">sablefinch</span><span class="ds-muted">:</span> that reset was clean</div>
             <div><span class="ts">54:33</span><span class="n c2">mothlight</span><span class="ds-muted">:</span> any% or glitchless tonight?</div>
