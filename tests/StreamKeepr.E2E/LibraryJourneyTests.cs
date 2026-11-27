@@ -404,10 +404,8 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     internal static async Task<IReadOnlyList<string>> RowStatesAsync(IPage page)
     {
         var states = new List<string>();
-        int channels = await page.Locator(LibraryHooks.Channel).CountAsync();
-        for (int i = 0; i < channels; i++)
+        foreach (string login in await LibraryHooks.ChannelLoginsAsync(page))
         {
-            string login = (await page.Locator(LibraryHooks.Channel).Nth(i).GetAttributeAsync("data-library-channel"))!;
             await LibraryHooks.OpenChannelAsync(page, login);
             foreach (string? state in await page.Locator(LibraryHooks.Row).EvaluateAllAsync<string?[]>("rows => rows.map(r => r.dataset.state)"))
                 states.Add(state ?? "");

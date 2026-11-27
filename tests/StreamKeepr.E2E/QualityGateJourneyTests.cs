@@ -186,9 +186,18 @@ public sealed class QualityGateJourneyTests(MockAppFixture app)
         await TabToAsync(page, "e => e.closest(\"[role='listbox']\") !== null", "the channels");
         await page.Keyboard.PressAsync("Home");
         const string saved = "e => e.dataset.state === 'saved'";
-        int channels = await page.Locator(LibraryHooks.Channel).CountAsync();
-        for (int channel = 0; channel < channels && !await FocusedMatchesAsync(page, saved); channel++)
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        while (!await FocusedMatchesAsync(page, saved))
         {
+            string login = await page.EvaluateAsync<string?>(
+                    "() => document.activeElement?.getAttribute('data-library-channel')")
+                ?? throw new InvalidOperationException("Arrow navigation left the channel list.");
+
+            // A re-sort can move focus back to a channel already swept; stop by identity rather
+            // than by a list length captured before the awaited steps (#338).
+            if (!visited.Add(login))
+                break;
+
             await session.OpenFocusedChannelAsync();
             int rows = await page.Locator(LibraryHooks.Row).CountAsync();
             for (int row = 1; row < rows && !await FocusedMatchesAsync(page, saved); row++)
