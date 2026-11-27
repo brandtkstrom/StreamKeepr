@@ -161,8 +161,9 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         await page.Keyboard.PressAsync("Escape");
         await LibraryJourneyTests.Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
 
-        // Picking a recording closes it, and the watch page is on the rail.
-        await session.OpenRecordingAsync(await LibraryHooks.RowAsync(page));
+        // Picking a saved recording closes it, and the watch page is on the rail. A live row can
+        // be ending while the mock feed rotates, and its player has no seek bar to wait for.
+        await session.OpenRecordingAsync(await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
         await LibraryJourneyTests.Expect(async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
         await LibraryJourneyTests.Expect(async () => await VisibleWidthAsync(drawer) <= 80 ? 1 : 0, 1);
     }
