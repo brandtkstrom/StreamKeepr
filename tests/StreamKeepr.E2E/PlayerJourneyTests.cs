@@ -871,11 +871,14 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await page.WaitForTimeoutAsync(3_500);
         Assert.False(await player.EvaluateAsync<bool>("p => p.hasAttribute('data-idle')"), "never idle while paused");
 
-        // Typing in search is never a shortcut.
+        // Typing in search is never a shortcut. The field lives in the library now.
+        await LibraryHooks.OpenLibraryAsync(page);
         await page.Locator("[data-search-input]").FillAsync("m");
         Assert.False(await Video(page, "v => v.muted"));
         await page.Locator("[data-search-input]").FillAsync("");
         await page.EvaluateAsync("() => document.activeElement?.blur()");
+        await page.Locator("[data-drawer-toggle]").ClickAsync();
+        await page.Locator("[data-shell]:not([data-library-open])").WaitForAsync();
 
         await page.Keyboard.PressAsync("m");
         Assert.True(await Video(page, "v => v.muted"));

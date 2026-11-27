@@ -24,9 +24,9 @@ public sealed class AppShellDocumentTests
         Assert.Matches(new Regex(@"css/fonts\.[a-z0-9]+\.css"), html);
         Assert.Matches(new Regex(@"css/components\.[a-z0-9]+\.css"), html);
         Assert.DoesNotContain("fonts.googleapis.com", html);
-        // Nothing loads from another origin. The app bar's GitHub and Twitch links are outbound
-        // anchors (#174), so only <a> tags may carry an absolute URL; any other attribute, srcset
-        // or inline url() pointing off-origin (absolute or protocol-relative) fails.
+        // Nothing loads from another origin. Outbound links (Settings › About) are anchors (#174),
+        // so only <a> tags may carry an absolute URL; any other attribute, srcset or inline url()
+        // pointing off-origin (absolute or protocol-relative) fails.
         string withoutAnchors = Regex.Replace(html, @"<a\b[^>]*>", "<a>", RegexOptions.IgnoreCase);
         Assert.DoesNotContain("https://", withoutAnchors, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotMatch(new Regex(@"=\s*""(?:[^""]*[\s,])?//", RegexOptions.IgnoreCase), withoutAnchors);
@@ -47,7 +47,6 @@ public sealed class AppShellDocumentTests
         Assert.True(bottomNav.Success, "the bottom bar is missing from the prerendered page");
         Assert.Contains(@"href=""/""", bottomNav.Groups["body"].Value);
         Assert.Contains(@"href=""/settings""", bottomNav.Groups["body"].Value);
-        Assert.Matches(new Regex(@"<a(?=[^>]*href=""https://github\.com/)(?=[^>]*target=""_blank"")"), html);
         Assert.Matches(new Regex(@"<a(?=[^>]*href=""/settings"")(?=[^>]*aria-label=""Settings"")"), html);
     }
 

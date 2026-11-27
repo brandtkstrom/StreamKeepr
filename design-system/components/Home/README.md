@@ -58,7 +58,7 @@ Where StreamKeepr differs from this card, `docs/library-contract.md` §10 and §
 
 - The headers are `h2` elements in `h6` type (as in the preview), under the page's hidden `h1`.
 - Only Recent recordings has chevrons, as in the preview. They never disable at the ends of the row.
-- "Show all" on wide screens also saves the drawer as expanded, as the menu does.
+- "Show all" opens the library over the page on the Saved filter, as the Library button does. The open library is temporary and is not saved.
 - With no recordings at all the rows render nothing; the "No recordings yet" state arrives with #185.
 
 ## Intentional additions

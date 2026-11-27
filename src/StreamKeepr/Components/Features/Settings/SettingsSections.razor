@@ -5,6 +5,7 @@
 @using StreamKeepr.Configuration
 @inject NavigationManager Navigation
 @inject IOptions<AuthOptions> Auth
+@inject IOptions<LinksOptions> Links
 @inject AdminSessionState Session
 @implements IDisposable
 
@@ -71,6 +72,36 @@
         <ChatSettings />
     </NotAuthorized>
 </AuthorizeView>
+
+@* The outbound links used to sit in the app bar beside the account. They are reference, not
+   navigation, so they live at the end of Settings where they stay available signed out too. *@
+<SettingsSection id="about"
+                 HeadingId="sk-settings-about"
+                 Title="About"
+                 Icon="@MudBlazor.Icons.Material.Rounded.Info">
+    <p class="sk-about-copy">
+        StreamKeepr is a personal DVR for Twitch. It records the channels you watch to disk and plays
+        them back in your browser.
+    </p>
+    <div class="sk-about-links">
+        <a class="sk-about-link"
+           href="@Links.Value.GitHub"
+           target="_blank"
+           rel="noopener"
+           aria-label="StreamKeepr on GitHub (opens in a new tab)">
+            <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Custom.Brands.GitHub" aria-hidden="true" />
+            <span>GitHub</span>
+        </a>
+        <a class="sk-about-link"
+           href="@Links.Value.Twitch"
+           target="_blank"
+           rel="noopener"
+           aria-label="Twitch (opens in a new tab)">
+            <span class="sk-twitch-mark"><img src="img/twitch-glitch.svg" alt="" data-twitch-mark /></span>
+            <span>Twitch</span>
+        </a>
+    </div>
+</SettingsSection>
 
 @code {
     // Plain HTTP outside localhost cannot complete Twitch sign-in (twitch-auth contract §6).

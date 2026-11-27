@@ -170,7 +170,7 @@ public sealed class HomeRowMoveJourneyTests : IAsyncLifetime
         IPage admin = await session.Context.NewPageAsync();
         await admin.GotoAsync($"{_app.BaseUrl}/r/{id}", new() { WaitUntil = WaitUntilState.DOMContentLoaded });
         // Click only once the circuit is interactive; a click on the prerendered button is lost.
-        await admin.Locator($"{Search}[data-sk-ready]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
+        await admin.Locator(LibraryHooks.ShellReady).WaitForAsync(new() { State = WaitForSelectorState.Attached });
         await (await TitleBlock.MenuItemAsync(admin, "data-stop-recording")).ClickAsync();
         await admin.Locator("[data-stop-confirm]").ClickAsync();
         await Feedback.Snackbar(admin, "Channel paused").WaitForAsync();

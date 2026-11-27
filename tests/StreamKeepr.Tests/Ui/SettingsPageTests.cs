@@ -438,9 +438,28 @@ public sealed class SettingsPageTests
         // The page and the settings sheet (F2) render the same shared sections.
         Assert.NotNull(cut.FindComponent<SettingsSections>());
         Assert.Equal(
-            ["Twitch account", "Channels", "Chat", "Connection status"],
+            ["Twitch account", "Channels", "Chat", "Connection status", "About"],
             cut.FindAll("section[aria-labelledby]")
                 .Select(section => cut.Find($"#{section.GetAttribute("aria-labelledby")}").TextContent.Trim()));
+    }
+
+    [Fact]
+    public async Task About_links_open_the_configured_project_and_twitch_in_a_new_tab()
+    {
+        await using BunitContext context = CreateContext(out _, signedIn: true);
+
+        IRenderedComponent<Settings> cut = context.Render<Settings>();
+
+        var github = cut.Find("#about a[aria-label='StreamKeepr on GitHub (opens in a new tab)']");
+        Assert.Equal("https://github.com/example/streamkeepr", github.GetAttribute("href"));
+        Assert.Equal("_blank", github.GetAttribute("target"));
+        Assert.Contains("noopener", github.GetAttribute("rel"));
+
+        var twitch = cut.Find("#about a[aria-label='Twitch (opens in a new tab)']");
+        Assert.Equal("https://twitch.example/", twitch.GetAttribute("href"));
+        Assert.Equal("_blank", twitch.GetAttribute("target"));
+        Assert.Contains("noopener", twitch.GetAttribute("rel"));
+        Assert.EndsWith("twitch-glitch.svg", twitch.QuerySelector("[data-twitch-mark]")!.GetAttribute("src"));
     }
 
     [Fact]
@@ -525,6 +544,12 @@ public sealed class SettingsPageTests
                 new StreamKeepr.Configuration.AuthOptions { AllowedTwitchLogins = ["mock_admin"] }));
         }
         context.Services.AddSingleton(new AdminSessionState());
+        context.Services.AddSingleton<Microsoft.Extensions.Options.IOptions<StreamKeepr.Configuration.LinksOptions>>(
+            Microsoft.Extensions.Options.Options.Create(new StreamKeepr.Configuration.LinksOptions
+            {
+                GitHub = "https://github.com/example/streamkeepr",
+                Twitch = "https://twitch.example/",
+            }));
         context.Services.AddSingleton<AntiforgeryStateProvider>(new FixedAntiforgery());
         channels = new TestChannelsView();
         context.Services.AddSingleton<IChannelsView>(channels);

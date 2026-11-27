@@ -3,8 +3,8 @@ using Microsoft.Extensions.Options;
 namespace StreamKeepr.Configuration;
 
 /// <summary>
-/// The app bar's outbound links (design system: TopAppBar). They live in configuration so a
-/// fork or a self-hosted install can point them elsewhere without a code change.
+/// The outbound links shown in Settings › About. They live in configuration so a fork or a
+/// self-hosted install can point them elsewhere without a code change.
 /// </summary>
 public sealed class LinksOptions
 {

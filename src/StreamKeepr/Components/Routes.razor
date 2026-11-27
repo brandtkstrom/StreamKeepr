@@ -1,8 +1,13 @@
 @* MudBlazor providers, rendered once inside the one interactive boundary. The app is dark only. *@
 <MudBlazor.MudThemeProvider Theme="StreamKeeprTheme.Theme" IsDarkMode="true" />
-<MudBlazor.MudPopoverProvider />
-<MudBlazor.MudDialogProvider />
-<MudBlazor.MudSnackbarProvider />
+@* MudBlazor renders its popovers and dialogs in top-level portals. The region gives that
+   portal content a landmark, so axe's region rule does not flag an open or closing menu as page
+   content outside every landmark. *@
+<div role="region" aria-label="Menus and notifications">
+    <MudBlazor.MudPopoverProvider />
+    <MudBlazor.MudDialogProvider />
+    <MudBlazor.MudSnackbarProvider />
+</div>
 
 <Router AppAssembly="typeof(Program).Assembly">
     <Found Context="routeData">

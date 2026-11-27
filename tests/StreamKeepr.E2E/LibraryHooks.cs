@@ -12,6 +12,9 @@ internal static class LibraryHooks
     /// <summary>The library navigation landmark.</summary>
     public const string Drawer = "nav[aria-label=Library]";
 
+    /// <summary>The shell's interactive marker: the circuit and its module are ready.</summary>
+    public const string ShellReady = "[data-shell][data-shell-ready]";
+
     /// <summary>Every channel option in the channels listbox.</summary>
     public const string Channel = Drawer + " [role=option][data-library-channel]";
 
@@ -49,17 +52,21 @@ internal static class LibraryHooks
             return;
 
         // The library opens through the circuit, and a click on the prerendered button is lost.
-        // The shell's search field marks itself ready once the circuit is interactive.
-        await page.Locator($"{LibraryJourneyTests.Search}[data-sk-ready]")
+        await page.Locator(ShellReady)
             .WaitForAsync(new() { State = WaitForSelectorState.Attached });
 
         ILocator library = page.GetByRole(AriaRole.Navigation, new() { Name = "Main" })
             .GetByRole(AriaRole.Button, new() { Name = "Library" });
+        ILocator toggle = page.Locator("[data-drawer-toggle]");
         await Journey.WaitForReconnectAsync(page);
         if (await library.IsVisibleAsync())
             await library.ClickAsync();
+        else if (await toggle.IsVisibleAsync())
+            await toggle.ClickAsync();
         else
-            await page.Locator("[data-drawer-toggle]").ClickAsync();
+            // A phone watch page has no bottom bar and hides the app bar toggle; the search
+            // shortcut is the library's remaining entry point.
+            await page.Locator("[data-library-search]").ClickAsync();
         await page.Locator("[data-shell][data-library-open]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
     }
 

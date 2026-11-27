@@ -23,14 +23,14 @@ StreamKeepr's hand-built primitives (`Components/Primitives/`) give way to MudBl
 
 | StreamKeepr component | Built from |
 |---|---|
-| `AppShell` | MudBlazor's Layout 2 wireframe: `MudLayout`, `MudAppBar` (`Dense` below Md), `MudDrawer` (`ClipMode.Always`; `Mini` on Md and up, `Temporary` below), `MudMainContent`, all inside `MudBreakpointProvider` |
+| `AppShell` | MudBlazor's Layout 2 wireframe: `MudLayout`, `MudAppBar` (`Dense` below Md; labeled library toggle, recording tally, search shortcut), `MudDrawer` (`ClipMode.Always`; `Mini` on Md and up, `Temporary` below), `MudMainContent`, all inside `MudBreakpointProvider` |
 | `BottomNav` (new) | `MudAppBar Bottom`, rendered until the breakpoint is known to be Md or wider and hidden by CSS at 960px and up (not `MudHidden`, which drops it from the prerender): Home, Library, Settings |
 | Watch tabs (new, below Md) | `MudTabs` + `MudTabPanel` with icons: Chat, Chapters (only with chapters), Stats |
-| `StorageMeter` | The library drawer's footer: `MudTooltip` + caption + full-width `MudProgressLinear` (`Size.Small`, `Color.Warning` under 10% free). It moves out of the app bar. |
-| `SearchField` | `MudTextField` `Variant.Outlined`, `Margin.Dense`, `Adornment.Start`, `Immediate`, `DebounceInterval="150"`; 360px max, 480px while focused |
+| `StorageMeter` | The library drawer's footer: `MudTooltip` + caption + full-width `MudProgressLinear` (`Size.Small`, `Color.Warning` under 10% free); in the rail, the icon plus a 24×3px gauge. |
+| `SearchField` | The library toolbar's input at every width: leading `Search` icon, `/` keycap on fine pointers, 250ms debounce, URL `q`. The app bar carries only a `Search` shortcut. |
 | `TwitchAccount` | `MudButton Href` (styled `twitch`) or a `MudMenu` with an avatar activator |
 | `SignIn` (new) | A `/signin` page with an empty layout: `MudPaper` card, `MudAlert Dense` for the reason, the `twitch` link button. Only used when `Auth:AllowedTwitchLogins` is set |
-| `LibraryDrawer`, `StreamerGroup`, `RecordingRow` | `MudDrawer` content: header, `MudChipSet`, a channels list (`role="listbox"`) and, beside it, the selected channel's recordings column of `RecordingRow`s |
+| `LibraryDrawer`, `StreamerGroup`, `RecordingRow` | `MudDrawer` content: toolbar (title, counts, search, sort-as-menu, close), `MudChipSet`, a channels list (`role="listbox"`) and, beside it, the selected channel's recordings column of `RecordingRow`s with sticky day headers |
 | `Home` (new; the default view) | Two `<section>`s with `MudText Typo.h6` headers, each a horizontal `<ul>` of `RecordingCard`s; `MudButton` "Show all"; `MudIconButton` chevrons; `MudSkeleton` while loading |
 | `RecordingCard` (new) | A real `<a>` with the thumbnail, `MudAvatar` on a channel colour (`channel-*`), `MudText` title and meta, and one `StatusChip` |
 | `RecordingDetails` | The title block under the player, no panel: `MudTooltip`, `MudText`, a vertical stack of `MudButton FullWidth` (a `MudMenu` below Md), `MudProgressLinear` for an export |
