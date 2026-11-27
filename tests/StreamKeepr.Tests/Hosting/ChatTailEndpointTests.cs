@@ -287,6 +287,34 @@ public sealed class ChatTailEndpointTests : IDisposable
         Assert.False(root.GetProperty("hasMoreBefore").GetBoolean());
     }
 
+
+    [Fact]
+    public async Task Tail_deduplicates_a_message_stored_in_two_buckets()
+    {
+        StoreSession(("m1", 3), ("m2", 9));
+
+        string chatDirectory = ChatLogLayout.ChatDirectory(_store.SessionDirectory(_summary));
+        string source = Assert.Single(
+            Directory.GetFiles(chatDirectory, "*.jsonl"),
+            path => !path.EndsWith("events.jsonl", StringComparison.Ordinal));
+        string duplicate = File.ReadLines(source)
+            .First(line => line.Contains("\"id\":\"m1\"", StringComparison.Ordinal));
+        string olderBucket = Path.Combine(
+            chatDirectory,
+            ChatLogLayout.BucketFileName(Now.AddMinutes(-20), 600));
+        File.WriteAllText(olderBucket, duplicate + Environment.NewLine);
+
+        (HttpStatusCode status, JsonDocument? json) =
+            await GetAsync("?tail=true&toSec=20");
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        using JsonDocument document = Assert.IsType<JsonDocument>(json);
+        Assert.Equal(
+            ["m1", "m2"],
+            document.RootElement.GetProperty("messages").EnumerateArray()
+                .Select(message => message.GetProperty("id").GetString()!).ToArray());
+    }
+
     [Fact]
     public async Task Tail_fills_across_a_part_gap()
     {
@@ -339,7 +367,11 @@ public sealed class ChatTailEndpointTests : IDisposable
     {
         SetSummary(2100);
         WritePlaylist(_store.SessionDirectory(_summary), part: 1, pdt: Now, segments: 70);
-        StoreSession(("too-old", 5), ("inside", 2000));
+        _store.OpenSession(_summary, ChatSources.Anonymous);
+        _store.Append("chan", Message("too-old", 5));
+        _store.Append("chan", Message("inside", 2000));
+        _store.Append("chan", new ChatSourceEvent.Delete("chan", At(2001), "too-old"));
+        _store.CloseSession(_summary.Id, finalize: true);
 
         (HttpStatusCode status, JsonDocument? json) =
             await GetAsync("?tail=true&toSec=2050");
@@ -350,7 +382,7 @@ public sealed class ChatTailEndpointTests : IDisposable
         JsonElement message = Assert.Single(root.GetProperty("messages").EnumerateArray());
         Assert.Equal("inside", message.GetProperty("id").GetString());
         Assert.Equal(2000, root.GetProperty("fromSec").GetDouble());
-        Assert.True(root.GetProperty("hasMoreBefore").GetBoolean());
+        Assert.False(root.GetProperty("hasMoreBefore").GetBoolean());
     }
 
     [Fact]

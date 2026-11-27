@@ -4,8 +4,8 @@ using StreamKeepr.Configuration;
 namespace StreamKeepr.Infrastructure.Storage;
 
 /// <summary>
-/// Reads a bounded media-time window from the per-session chat log and applies tombstones,
-/// deduplication, and the per-recording sync offset.
+/// Reads bounded media-time windows and newest-N tails from the per-session chat log and
+/// applies tombstones, deduplication, and the per-recording sync offset.
 /// </summary>
 public sealed class ChatReader(
     ChatLogStore store,
@@ -16,10 +16,10 @@ public sealed class ChatReader(
     public const double MaxSyncOffsetSeconds = 30;
 
     /// <summary>How far a tail query scans back from its playhead before giving up.</summary>
-    public const double TailScanSeconds = 30 * 60;
+    private const double TailScanSeconds = 30 * 60;
 
     /// <summary>The most bucket files a single tail query opens.</summary>
-    public const int MaxTailBuckets = 100;
+    private const int MaxTailBuckets = 100;
 
     public ChatQueryResult Query(
         RecordingSummary summary,
@@ -133,6 +133,15 @@ public sealed class ChatReader(
     private IReadOnlyList<string> BucketFiles(
         string directory, ChatTimeline timeline, double from, double to, int bucketSeconds)
     {
+        HashSet<string> names = BucketNames(timeline, from, to, bucketSeconds);
+        return ChatLogLayout.BucketFiles(directory, logger)
+            .Where(path => names.Contains(Path.GetFileName(path)))
+            .ToArray();
+    }
+
+    private static HashSet<string> BucketNames(
+        ChatTimeline timeline, double from, double to, int bucketSeconds)
+    {
         // One bucket of slack on each side covers messages near a boundary and the sync offset.
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach ((DateTimeOffset rangeFrom, DateTimeOffset rangeTo) in timeline.WallRanges(from, to))
@@ -148,9 +157,7 @@ public sealed class ChatReader(
             }
         }
 
-        return ChatLogLayout.BucketFiles(directory, logger)
-            .Where(path => names.Contains(Path.GetFileName(path)))
-            .ToArray();
+        return names;
     }
 
 
@@ -234,10 +241,12 @@ public sealed class ChatReader(
         // boundary are not lost, before selecting the bucket files.
         double rawFrom = Math.Max(0, scanFrom - offset);
         double rawTo = to - offset + 1;
-        (IReadOnlyList<string> buckets, bool capped, bool hasOlderFiles) =
-            TailBucketFiles(directory, timeline, rawFrom, rawTo, bucketSeconds);
+        (IReadOnlyList<string> buckets, bool capped) =
+            TailBuckets(directory, timeline, rawFrom, rawTo, bucketSeconds);
 
         var collected = new List<(StoredChatMessage Message, double Media)>();
+        // The writer emits identical rows for one id, so collapsing on the newest copy
+        // produces the same message set as the window query's oldest-first dedupe.
         var seen = new HashSet<string>(StringComparer.Ordinal);
         bool sawOlder = false;
         foreach (string bucketPath in buckets)
@@ -275,66 +284,34 @@ public sealed class ChatReader(
                 break;
         }
 
-        collected.Sort((left, right) =>
-        {
-            int byTime = Math.Round(left.Media, 3).CompareTo(Math.Round(right.Media, 3));
-            return byTime != 0
-                ? byTime
-                : string.CompareOrdinal(left.Message.Id, right.Message.Id);
-        });
-
-        bool hasMoreBefore = sawOlder || capped || hasOlderFiles;
-        if (collected.Count > limit)
-        {
-            collected.RemoveRange(0, collected.Count - limit);
-            hasMoreBefore = true;
-        }
-
         var messages = new List<ChatQueryMessage>(collected.Count);
         foreach ((StoredChatMessage message, double media) in collected)
             messages.Add(ToQueryMessage(message, media, tombstones, removedIds));
+        messages.Sort(CompareMessages);
+
+        bool hasMoreBefore = sawOlder || capped;
+        if (messages.Count > limit)
+        {
+            messages.RemoveRange(0, messages.Count - limit);
+            hasMoreBefore = true;
+        }
 
         return (messages, hasMoreBefore);
     }
 
-    private (IReadOnlyList<string> Files, bool Capped, bool HasOlderFiles) TailBucketFiles(
+    private (IReadOnlyList<string> Files, bool Capped) TailBuckets(
         string directory, ChatTimeline timeline, double from, double to, int bucketSeconds)
     {
-        // One bucket of slack on each side covers messages near a boundary and the
-        // rounding of the playhead into wall clock.
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        foreach ((DateTimeOffset rangeFrom, DateTimeOffset rangeTo) in timeline.WallRanges(from, to))
-        {
-            DateTimeOffset start = ChatLogLayout.BucketStart(rangeFrom, bucketSeconds)
-                .AddSeconds(-bucketSeconds);
-            DateTimeOffset end = ChatLogLayout.BucketStart(rangeTo, bucketSeconds)
-                .AddSeconds(bucketSeconds);
-            for (DateTimeOffset bucket = start; bucket <= end;
-                 bucket = bucket.AddSeconds(bucketSeconds))
-            {
-                names.Add(ChatLogLayout.BucketFileName(bucket, bucketSeconds));
-            }
-        }
-
+        HashSet<string> names = BucketNames(timeline, from, to, bucketSeconds);
         IReadOnlyList<string> allFiles = ChatLogLayout.BucketFiles(directory, logger);
         string[] files = allFiles
             .Where(path => names.Contains(Path.GetFileName(path)))
             .ToArray();
 
-        // Bucket names sort chronologically. A file below the oldest bucket in the
-        // scan holds older chat even though the bounded scan deliberately skips it.
-        string? oldestBucket = names.Count > 0
-            ? names.Min(StringComparer.Ordinal)
-            : null;
-        bool hasOlderFiles = oldestBucket is not null &&
-            allFiles.Any(path =>
-                string.CompareOrdinal(Path.GetFileName(path), oldestBucket) < 0);
-
         // Newest first so the scan can stop as soon as the tail is full.
         return (
             files.TakeLast(MaxTailBuckets).Reverse().ToArray(),
-            files.Length > MaxTailBuckets,
-            hasOlderFiles);
+            files.Length > MaxTailBuckets);
     }
 
     private static ChatQueryMessage ToQueryMessage(
