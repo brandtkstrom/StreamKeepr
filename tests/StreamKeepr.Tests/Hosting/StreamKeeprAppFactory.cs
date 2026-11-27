@@ -12,7 +12,8 @@ using StreamKeepr.Infrastructure.Storage;
 namespace StreamKeepr.Tests.Hosting;
 
 /// <summary>
-/// Hosts the real app with test-only configuration and a temp recordings root.
+/// Hosts the real app with test-only configuration, a temp recordings root, and a record store
+/// inside that root (<see cref="Records.TestRecordStore.DatabasePathIn"/>).
 /// </summary>
 internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
 {
@@ -68,6 +69,8 @@ internal sealed class StreamKeeprAppFactory : WebApplicationFactory<Program>
             [$"{TwitchOptions.SectionName}:ClientId"] = "test-client-id",
             [$"{TwitchOptions.SectionName}:ClientSecret"] = "test-client-secret",
             [$"{StorageOptions.SectionName}:RecordingsRoot"] = _testRoot,
+            // Inside the root so a test that restarts on the same root keeps its record store.
+            [$"{StorageOptions.SectionName}:DatabasePath"] = Records.TestRecordStore.DatabasePathIn(_testRoot),
             [$"{RecorderOptions.SectionName}:StreamlinkPath"] = streamlink,
         };
 

@@ -16,6 +16,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       TZ: ${TZ:-UTC}
       Storage__RecordingsRoot: /recordings
+      Storage__DatabasePath: /data/streamkeepr.db
       # Optional OpenTelemetry. Leave disabled unless a collector is reachable;
       # set both values together. An empty endpoint enables the SDK without export.
       Telemetry__Enabled: ${STREAMKEEP_TELEMETRY:-false}
@@ -34,6 +35,9 @@ services:
       # - Recorder__TwitchUserOAuthToken
     volumes:
       - recordings:/recordings
+      # The record store (channels and, as they move over, sessions and chat).
+      # Back up both volumes together.
+      - data:/data
     logging:
       driver: json-file
       options:
@@ -42,6 +46,7 @@ services:
 
 volumes:
   recordings:
+  data:
 
 secrets:
   # These are bind mounts on Linux. The container runs as UID 1654, so chown

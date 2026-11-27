@@ -56,6 +56,7 @@ tests/
 - Use an in-memory `IAdminTokenStore` for auth/EventSub tests; the encrypted implementation is tested separately with a temp directory.
 - Use `IIrcSocket`/`IIrcSocketFactory` with a scripted transcript for the IRC state machine and parser. The Mock profile uses `MockChatSource`; no test connects to Twitch IRC or an external IRC network.
 - Use a temp `StorageOptions.RecordingsRoot` and `WebApplicationFactory` settings per test class. Never write under the repo.
+- Use a real SQLite record store, never a fake or EF's in-memory provider. `TestRecordStore` wires the production registration in a temp directory; each `StartAsync` is one process start. `StreamKeeprAppFactory` keeps the database at `TestRecordStore.DatabasePathIn(root)`, so a restart on the same root keeps it.
 - `StreamKeeprAppFactory` returns its host only after startup recovery has loaded the library. Recovery runs after the server starts listening and replaces the library's contents, so seeding earlier races the scan. A test that expects recovery to fail and the host to stop passes `waitForStartupRecovery: false`.
 - Fake `IChannelControl`/`IRecordingActions` only at the UI seam; do not fake the supervisor when testing it.
 

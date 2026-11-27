@@ -87,6 +87,8 @@ public sealed class MockSeeder(
 
         if (!options.ResetOnStart && File.Exists(marker))
         {
+            // The Mock record store is per process, so the channel list starts empty every time.
+            await SeedChannelsAsync(cancellationToken);
             logger.LogInformation("Keeping the existing mock recordings at {Root}.", root);
             return;
         }

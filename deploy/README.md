@@ -69,6 +69,7 @@ The rest of the settings are commented out under `environment:` in `compose.yaml
 | `Auth__AllowedTwitchLogins__0` | Whenever other people can reach the app. Without it, any Twitch account that signs in is an admin, and startup logs a warning. Add `__1`, `__2` and so on for more logins. |
 | `Twitch__Channels__0` | To watch a first channel on a fresh deployment. After that, add and remove channels in **Settings**. |
 | `Storage__MinFreeGb` | To change when recording stops for low disk space (default 10 GB). |
+| `Storage__DatabaseMinFreeGb` | To change the free space the data volume needs for startup (default 1 GB). |
 | `Recorder__Quality` | To record something other than Streamlink's `best`. |
 | `Twitch__EventSubTransport` | To try `Conduit` push: it uses the app credentials, keeps working without an admin signed in, and covers far more than five channels. The default `WebSocket` needs a signed-in admin. Setting it back to `WebSocket` deletes the conduit on the next start. |
 | `Hosting__ForwardedHeaders__…` | When the app runs behind an HTTPS reverse proxy. See the next section. |
@@ -112,10 +113,11 @@ Compose stops the old container gracefully. Active recordings finalize, and the 
 ## Stopping and data
 
 - `docker compose stop` stops the service, and active recordings finalize within the 50 s grace period.
-- `docker compose down` removes the container but keeps the `recordings` volume, which holds the recordings, channel list and sign-in keys.
-- **`docker compose down --volumes` deletes every recording.** Only use it to start over.
+- `docker compose down` removes the container but keeps both volumes: `recordings` holds the recordings and sign-in keys, and `data` holds the record store (the channel list, and more as it moves over).
+- **`docker compose down --volumes` deletes every recording and the record store.** Only use it to start over.
+- Before an upgrade changes the record store, the app writes a backup to `/data/backups` and keeps the three newest. A damaged or newer-than-the-app database stops startup with an error naming the file; the app never resets it.
 
-To back up, copy the volume's contents. `docker volume inspect stream-keepr_recordings` shows where the volume lives on the host. To keep recordings in an ordinary folder instead, use the bind mount described in `compose.yaml`.
+To back up, copy both volumes' contents while the app is stopped; one without the other is incomplete. `docker volume inspect stream-keepr_recordings` (or `stream-keepr_data`) shows where a volume lives on the host. To keep recordings in an ordinary folder instead, use the bind mount described in `compose.yaml`.
 
 ## Log levels
 

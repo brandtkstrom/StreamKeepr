@@ -42,12 +42,21 @@ services:
       # time zone regardless of this setting.
       TZ: ${TZ:-UTC}
 
-      # Recordings, the channel list, and sign-in keys live here (the volume below).
+      # Recordings and sign-in keys live here (the recordings volume below).
       Storage__RecordingsRoot: /recordings
+
+      # The record store: one SQLite database for the channel list and other app
+      # records (the data volume below). It is never reset automatically; before
+      # an upgrade migrates it, a backup is written to /data/backups (three kept).
+      Storage__DatabasePath: /data/streamkeepr.db
 
       # Recording stops when free space on /recordings falls below this many GB
       # (1-1000, default 10). /health/ready reports degraded below twice this.
       # Storage__MinFreeGb: "10"
+
+      # Startup fails when free space on /data is below this many GB (1-1000,
+      # default 1).
+      # Storage__DatabaseMinFreeGb: "1"
 
       # First channel to watch on a fresh deployment. Used only when the channel
       # list is first created; afterwards, manage channels in Settings.
@@ -100,6 +109,9 @@ services:
       # folder instead, replace this with "./recordings:/recordings" and run
       # "sudo chown -R 1654:1654 ./recordings" first.
       - recordings:/recordings
+      # The record store. Same ownership rule: "./data:/data" needs
+      # "sudo chown -R 1654:1654 ./data". Back up both volumes together.
+      - data:/data
 
     logging:
       driver: json-file
@@ -111,6 +123,7 @@ services:
 
 volumes:
   recordings:
+  data:
 
 secrets:
   # On Linux these are bind mounts read by UID 1654 inside the container:

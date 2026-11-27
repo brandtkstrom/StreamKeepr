@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Builds and exercises the Compose deployment against the hosting contract.
 #
-# Production phase: contract, health, non-root UID, volume, secrets, logging,
-# clean stop, and restart. Mock phase: a real growing recording through the
-# committed fake Streamlink, stop-mid-recording finalization, cookie continuity,
-# and a seeded deep link.
+# Production phase: contract, health, non-root UID, the recordings and data
+# volumes, the record store, secrets, logging, clean stop, and restart. Mock
+# phase: a real growing recording through the committed fake Streamlink,
+# stop-mid-recording finalization, cookie continuity, a seeded deep link, and a
+# per-process record store that a clean stop deletes.
 #
 # Everything is isolated: a temporary secrets directory, a unique project,
 # container and image name, and a disposable volume. It never touches an
@@ -99,6 +100,7 @@ check("healthcheck" not in service, "Compose must inherit the image healthcheck"
 environment = service.get("environment", {})
 check(environment.get("ASPNETCORE_ENVIRONMENT") == "Production", "ASPNETCORE_ENVIRONMENT must be Production")
 check(environment.get("Storage__RecordingsRoot") == "/recordings", "Storage__RecordingsRoot must be /recordings")
+check(environment.get("Storage__DatabasePath") == "/data/streamkeepr.db", "Storage__DatabasePath must be /data/streamkeepr.db")
 check("TZ" in environment, "TZ must be set")
 
 service_secrets = {entry.get("source") for entry in service.get("secrets", [])}
@@ -115,6 +117,16 @@ check(
     ),
     "recordings volume must mount at /recordings",
 )
+check(
+    any(
+        entry.get("type") == "volume"
+        and entry.get("source") == "data"
+        and entry.get("target") == "/data"
+        for entry in volumes
+    ),
+    "data volume must mount at /data",
+)
+check({"recordings", "data"} <= set(config.get("volumes", {})), "recordings and data must be named volumes")
 
 logging = service.get("logging", {})
 check(logging.get("driver") == "json-file", "logging must use json-file")
@@ -199,7 +211,9 @@ uid="$(docker exec "$container" id -u)"
 [ "$uid" = "1654" ] || fail "container runs as UID $uid, expected 1654"
 recordings_uid="$(docker exec "$container" stat -c '%u' /recordings)"
 [ "$recordings_uid" = "1654" ] || fail "/recordings is owned by UID $recordings_uid, expected 1654"
-echo "Container UID: $uid; /recordings UID: $recordings_uid"
+data_uid="$(docker exec "$container" stat -c '%u' /data)"
+[ "$data_uid" = "1654" ] || fail "/data is owned by UID $data_uid, expected 1654"
+echo "Container UID: $uid; /recordings UID: $recordings_uid; /data UID: $data_uid"
 
 # Startup options require Twitch:ClientId and Twitch:ClientSecret, and neither
 # is present as an environment variable or in appsettings.json. A healthy host
@@ -231,6 +245,18 @@ echo "Image healthcheck and json-file log rotation are inherited"
 
 volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/recordings"}}{{.Name}}{{end}}{{end}}' "$container")"
 [ -n "$volume" ] || fail "could not resolve the recordings volume"
+data_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$container")"
+[ -n "$data_volume" ] || fail "could not resolve the data volume"
+[ "$data_volume" != "$volume" ] || fail "/data and /recordings must be separate volumes"
+
+# The record store is created and migrated on the data volume, never on the
+# recordings volume.
+docker exec "$container" test -s /data/streamkeepr.db \
+    || fail "the record store was not created at /data/streamkeepr.db"
+docker exec "$container" sh -c 'test -z "$(find /recordings -name "*.db" -print -quit)"' \
+    || fail "a database file was written to the recordings volume"
+database_inode="$(docker exec "$container" stat -c '%i' /data/streamkeepr.db)"
+echo "Record store created on the data volume"
 
 keys_before="$(docker run --rm --user 1654:1654 --volume "$volume:/recordings" \
     --entrypoint sh "$image" -c 'cd /recordings/.streamkeepr/keys && ls -1 | sort')"
@@ -256,7 +282,11 @@ assert_status "http://127.0.0.1:$port/" 200
 keys_after="$(docker run --rm --user 1654:1654 --volume "$volume:/recordings" \
     --entrypoint sh "$image" -c 'cd /recordings/.streamkeepr/keys && ls -1 | sort')"
 [ "$keys_before" = "$keys_after" ] || fail "Data Protection keys changed across restart"
-echo "Production phase passed; keys survived the restart"
+[ "$(docker exec "$container" stat -c '%i' /data/streamkeepr.db)" = "$database_inode" ] \
+    || fail "the record store was replaced across restart"
+docker exec "$container" test ! -e /data/backups \
+    || fail "a restart of a current record store must not write a backup"
+echo "Production phase passed; keys and the record store survived the restart"
 
 "${compose[@]}" down --volumes --remove-orphans
 
@@ -334,6 +364,12 @@ PY
 echo "Restarting the same Mock container"
 "${compose[@]}" start
 wait_for_url "http://127.0.0.1:$port/health/ready" "Mock /health/ready after restart" 120
+
+# The Mock record store is per process and deleted on a clean shutdown, so only
+# the restarted process's database exists.
+mock_stores="$(docker exec "$container" sh -c 'ls -1d /tmp/streamkeepr-mock/records-* 2>/dev/null | wc -l')"
+[ "$mock_stores" = "1" ] || fail "expected one Mock record store after restart, found $mock_stores"
+echo "The stopped Mock process deleted its record store"
 
 headers_after="$temp_dir/mock-headers-after.txt"
 assert_status "http://127.0.0.1:$port/" 200

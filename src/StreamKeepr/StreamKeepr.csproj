@@ -24,6 +24,12 @@
   <ItemGroup>
     <PackageReference Include="AspNet.Security.OAuth.Twitch" Version="11.0.0" />
     <PackageReference Include="CliWrap" Version="3.10.5" />
+    <!-- The record store (ADR-0014). Design is for `dotnet ef` at build time and never flows on. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="11.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="11.0.0" />
     <PackageReference Include="MudBlazor" Version="[9.12.0]" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.21.0" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.21.0" />

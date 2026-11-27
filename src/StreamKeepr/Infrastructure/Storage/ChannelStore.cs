@@ -1,7 +1,7 @@
-using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
-using StreamKeepr.Hosting;
+using StreamKeepr.Infrastructure.Records;
 
 namespace StreamKeepr.Infrastructure.Storage;
 
@@ -14,19 +14,18 @@ public sealed record ChannelEntry(
     string? AvatarUrl = null);
 
 /// <summary>
-/// The persisted watched-channel list in <c>.streamkeepr/channels.json</c>. Writes are
-/// serialized and atomic; a missing file seeds from <c>Twitch:Channels</c>, while a corrupt
-/// file fails startup rather than silently resetting the list.
+/// The watched-channel list, held in the record store's <c>Channels</c> table (ADR-0014). Writes
+/// are serialized and each is one transaction. <c>Twitch:Channels</c> seeds the list once: the
+/// seed is recorded in the same transaction as its rows, so a list the user emptied stays empty.
 /// </summary>
 public sealed class ChannelStore(
     IOptions<TwitchOptions> twitch,
-    IOptions<StorageOptions> storage,
+    IDbContextFactory<RecordStoreDbContext> records,
+    RecordStoreState recordStore,
     ILogger<ChannelStore> logger)
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true,
-    };
+    /// <summary>The <see cref="AppliedSeedRow"/> name for the <c>Twitch:Channels</c> seed.</summary>
+    public const string SeedName = "channels";
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private volatile IReadOnlyList<ChannelEntry> _snapshot = Array.Empty<ChannelEntry>();
@@ -39,20 +38,21 @@ public sealed class ChannelStore(
 
     public IReadOnlyList<ChannelEntry> Snapshot => _snapshot;
 
-    private string FilePath => AppDataPaths.ChannelsFile(storage.Value.RecordingsRoot);
-
     /// <summary>
-    /// Reads the persisted list, or seeds it from configuration on first start. The seed is
-    /// normalized and de-duplicated; a corrupt file throws and is left untouched.
+    /// Reads the stored list, first applying the configuration seed if it has never been applied.
+    /// The seed is normalized and de-duplicated; an invalid seed or stored row throws.
     /// </summary>
     public async Task LoadAsync(CancellationToken ct)
     {
+        recordStore.EnsurePrepared();
+
         await _gate.WaitAsync(ct);
         try
         {
-            if (File.Exists(FilePath))
+            IReadOnlyList<ChannelEntry> stored = await ReadAsync(ct);
+            if (await IsSeededAsync(ct))
             {
-                _snapshot = await ReadAsync(ct);
+                _snapshot = stored;
                 _loaded = true;
                 return;
             }
@@ -69,17 +69,21 @@ public sealed class ChannelStore(
                     $"an invalid Twitch login '{invalidSeed}'.");
             }
 
-            ChannelEntry[] seeded = seeds
-                .Distinct(StringComparer.Ordinal)
-                .Select(login => new ChannelEntry(login))
-                .ToArray();
+            ChannelEntry[] seeded =
+            [
+                .. stored,
+                .. seeds
+                    .Distinct(StringComparer.Ordinal)
+                    .Where(login => stored.All(entry => entry.Login != login))
+                    .Select(login => new ChannelEntry(login)),
+            ];
 
-            await SaveAsync(seeded, ct);
+            await SaveAsync(seeded, ct, markSeeded: true);
             _loaded = true;
             logger.LogInformation(
-                "Seeded the channel list with {Count} channels at {Path}.",
-                seeded.Length,
-                FilePath);
+                "Seeded the channel list with {Count} channels from {Section}.",
+                seeded.Length - stored.Count,
+                $"{TwitchOptions.SectionName}:{nameof(TwitchOptions.Channels)}");
         }
         finally
         {
@@ -178,7 +182,7 @@ public sealed class ChannelStore(
                 return before;
 
             subscriptionsChanged = !SubscriptionKeys(before).SetEquals(SubscriptionKeys(after));
-            await SaveAsync(after, ct);
+            await SaveAsync(after, ct, markSeeded: false);
             next = _snapshot;
         }
         finally
@@ -195,75 +199,70 @@ public sealed class ChannelStore(
 
     private async Task<IReadOnlyList<ChannelEntry>> ReadAsync(CancellationToken ct)
     {
-        string text;
-        try
-        {
-            text = await File.ReadAllTextAsync(FilePath, ct);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-            or NotSupportedException)
-        {
-            throw new InvalidDataException(
-                $"Could not read the channel list at {FilePath}.", ex);
-        }
+        await using RecordStoreDbContext db = await records.CreateDbContextAsync(ct);
+        List<ChannelRow> rows = await db.Channels
+            .AsNoTracking()
+            .OrderBy(row => row.Position)
+            .ToListAsync(ct);
 
-        List<ChannelEntry>? entries;
-        try
+        var entries = new ChannelEntry[rows.Count];
+        for (int i = 0; i < rows.Count; i++)
         {
-            entries = JsonSerializer.Deserialize<List<ChannelEntry>>(text, Json);
-        }
-        catch (JsonException ex)
-        {
-            throw new InvalidDataException(
-                $"The channel list at {FilePath} is not valid JSON.", ex);
-        }
+            ChannelRow row = rows[i];
 
-        if (entries is null)
-            throw new InvalidDataException($"The channel list at {FilePath} is null.");
-
-        var normalized = new List<ChannelEntry>(entries.Count);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-
-        foreach (ChannelEntry? entry in entries)
-        {
-            if (entry is null)
-                throw new InvalidDataException(
-                    $"The channel list at {FilePath} contains a null entry.");
-
-            if (!IsValidUserId(entry.UserId))
+            // Only this store writes the table, so a bad row means the file was edited or damaged.
+            if (!IsValid(row.Login) || row.Login != Normalize(row.Login) || !IsValidUserId(row.UserId))
             {
                 throw new InvalidDataException(
-                    $"The channel list at {FilePath} contains an invalid user id.");
+                    $"The record store's channel list contains an invalid row for login '{row.Login}'.");
             }
 
-            string login = Normalize(entry.Login);
-            if (!IsValid(login))
-            {
-                throw new InvalidDataException(
-                    $"The channel list at {FilePath} contains an invalid login '{entry.Login}'.");
-            }
-
-            if (!seen.Add(login))
-            {
-                throw new InvalidDataException(
-                    $"The channel list at {FilePath} contains duplicate login '{login}'.");
-            }
-
-            normalized.Add(entry.Login == login ? entry : entry with { Login = login });
+            entries[i] = new ChannelEntry(row.Login, row.Paused, row.UserId, row.DisplayName, row.AvatarUrl);
         }
 
-        return Array.AsReadOnly(normalized.ToArray());
+        return Array.AsReadOnly(entries);
     }
 
-    private async Task SaveAsync(IReadOnlyList<ChannelEntry> list, CancellationToken ct)
+    private async Task<bool> IsSeededAsync(CancellationToken ct)
     {
-        string directory = Path.GetDirectoryName(FilePath)!;
-        Directory.CreateDirectory(directory);
+        await using RecordStoreDbContext db = await records.CreateDbContextAsync(ct);
+        return await db.AppliedSeeds.AnyAsync(seed => seed.Name == SeedName, ct);
+    }
 
-        string temp = FilePath + ".tmp";
-        await File.WriteAllTextAsync(temp, JsonSerializer.Serialize(list, Json), ct);
-        File.Move(temp, FilePath, overwrite: true);
+    /// <summary>
+    /// Writes the whole list in one transaction: rows not in it are deleted, the rest are
+    /// inserted or updated, and each row's position is its index so the order round-trips.
+    /// <paramref name="markSeeded"/> records the seed in that same transaction.
+    /// </summary>
+    private async Task SaveAsync(IReadOnlyList<ChannelEntry> list, CancellationToken ct, bool markSeeded)
+    {
+        await using RecordStoreDbContext db = await records.CreateDbContextAsync(ct);
+        if (markSeeded)
+            db.AppliedSeeds.Add(new AppliedSeedRow { Name = SeedName });
 
+        Dictionary<string, ChannelRow> rows = await db.Channels
+            .ToDictionaryAsync(row => row.Login, StringComparer.Ordinal, ct);
+
+        var kept = new HashSet<string>(list.Select(entry => entry.Login), StringComparer.Ordinal);
+        db.Channels.RemoveRange(rows.Values.Where(row => !kept.Contains(row.Login)));
+
+        for (int position = 0; position < list.Count; position++)
+        {
+            ChannelEntry entry = list[position];
+            if (!rows.TryGetValue(entry.Login, out ChannelRow? row))
+            {
+                row = new ChannelRow { Login = entry.Login };
+                db.Channels.Add(row);
+            }
+
+            row.Position = position;
+            row.Paused = entry.Paused;
+            row.UserId = entry.UserId;
+            row.DisplayName = entry.DisplayName;
+            row.AvatarUrl = entry.AvatarUrl;
+        }
+
+        await db.SaveChangesAsync(ct);
         _snapshot = Array.AsReadOnly(list.ToArray());
     }
 

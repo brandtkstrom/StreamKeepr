@@ -5,6 +5,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
+using StreamKeepr.Infrastructure.Records;
+using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Tests.Storage;
 
 namespace StreamKeepr.Tests.Hosting;
 
@@ -129,6 +132,65 @@ public sealed class ToolPreflightTests
     }
 
     [Fact]
+    public async Task Preflight_probes_the_database_directory()
+    {
+        using var temp = new TempDirectory();
+        string blocked = Path.Combine(temp.Path, "data");
+        File.WriteAllText(blocked, "not a directory");
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => NewPreflight(temp, databasePath: Path.Combine(blocked, "streamkeepr.db"))
+                .StartAsync(CancellationToken.None));
+
+        Assert.Contains("database directory", error.Message, StringComparison.Ordinal);
+        Assert.Contains(blocked, error.Message, StringComparison.Ordinal);
+        Assert.Contains("1654", error.Message, StringComparison.Ordinal);
+        Assert.Contains("chown", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Preflight_fails_when_the_database_volume_is_below_its_free_space_minimum()
+    {
+        using var temp = new TempDirectory();
+        var disk = new FakeDiskSpace(freeBytes: 2 * DiskGuard.BytesPerGib, totalBytes: 100 * DiskGuard.BytesPerGib);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => NewPreflight(temp, disk: disk, databaseMinFreeGb: 3).StartAsync(CancellationToken.None));
+
+        Assert.Contains("Storage:DatabaseMinFreeGb", error.Message, StringComparison.Ordinal);
+        Assert.Contains(Path.Combine(temp.Path, "data"), error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Preflight_passes_with_exactly_the_database_free_space_minimum()
+    {
+        using var temp = new TempDirectory();
+        var disk = new FakeDiskSpace(freeBytes: 3 * DiskGuard.BytesPerGib, totalBytes: 100 * DiskGuard.BytesPerGib);
+
+        await NewPreflight(temp, disk: disk, databaseMinFreeGb: 3).StartAsync(CancellationToken.None);
+
+        Assert.True(Directory.Exists(Path.Combine(temp.Path, "data")));
+    }
+
+    [Fact]
+    public void Unwritable_database_directory_fails_startup_naming_it()
+    {
+        using var temp = new TempDirectory();
+        string blocked = Path.Combine(temp.Path, "data");
+        File.WriteAllText(blocked, "not a directory");
+        using var factory = new StreamKeeprAppFactory(new Dictionary<string, string?>
+        {
+            [$"{StorageOptions.SectionName}:{nameof(StorageOptions.DatabasePath)}"] =
+                Path.Combine(blocked, "streamkeepr.db"),
+        });
+
+        var error = AssertStartupFails(factory);
+
+        Assert.Contains("database directory", error.Message, StringComparison.Ordinal);
+        Assert.Contains(blocked, error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Unwritable_recordings_root_fails_startup_with_ownership_guidance()
     {
         using var temp = new TempDirectory();
@@ -182,6 +244,17 @@ public sealed class ToolPreflightTests
     }
 
     [Fact]
+    public void Record_store_startup_runs_right_after_preflight_so_it_migrates_before_any_store_loads()
+    {
+        using var factory = new StreamKeeprAppFactory();
+
+        var hosted = factory.Services.GetServices<IHostedService>().ToList();
+
+        int preflight = hosted.FindIndex(service => service is ToolPreflight);
+        Assert.IsType<RecordStoreStartup>(hosted[preflight + 1]);
+    }
+
+    [Fact]
     public void Services_after_preflight_do_not_start_when_it_fails()
     {
         using var temp = new TempDirectory();
@@ -199,7 +272,12 @@ public sealed class ToolPreflightTests
         Assert.False(tracker.Started, "a later hosted service started after preflight failed");
     }
 
-    private static ToolPreflight NewPreflight(TempDirectory temp, string recordingsRoot)
+    private static ToolPreflight NewPreflight(
+        TempDirectory temp,
+        string? recordingsRoot = null,
+        string? databasePath = null,
+        IDiskSpace? disk = null,
+        int databaseMinFreeGb = 1)
     {
         string streamlink = CreateScript(
             temp,
@@ -215,7 +293,13 @@ public sealed class ToolPreflightTests
 
         return new ToolPreflight(
             Options.Create(new RecorderOptions { StreamlinkPath = streamlink }),
-            Options.Create(new StorageOptions { RecordingsRoot = recordingsRoot }),
+            Options.Create(new StorageOptions
+            {
+                RecordingsRoot = recordingsRoot ?? Path.Combine(temp.Path, "recordings"),
+                DatabasePath = databasePath ?? Path.Combine(temp.Path, "data", "streamkeepr.db"),
+                DatabaseMinFreeGb = databaseMinFreeGb,
+            }),
+            disk ?? new FakeDiskSpace(100 * DiskGuard.BytesPerGib, 200 * DiskGuard.BytesPerGib),
             NullLogger<ToolPreflight>.Instance);
     }
 

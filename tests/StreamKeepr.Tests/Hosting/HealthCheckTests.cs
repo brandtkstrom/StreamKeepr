@@ -7,6 +7,7 @@ using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Hosting;
+using StreamKeepr.Tests.Records;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
@@ -234,6 +235,63 @@ public sealed class HealthCheckTests : IDisposable
         library.MarkLoaded();
         Assert.Equal(HealthStatus.Healthy, (await check.CheckHealthAsync(
             new HealthCheckContext())).Status);
+    }
+
+    [Fact]
+    public async Task Record_store_check_is_unhealthy_without_a_database_and_healthy_once_migrated()
+    {
+        using var records = new TestRecordStore();
+        var check = new RecordStoreHealthCheck(records.Contexts);
+
+        Assert.Equal(HealthStatus.Unhealthy, (await check.CheckHealthAsync(
+            new HealthCheckContext())).Status);
+        Assert.False(File.Exists(records.DatabasePath), "the check must never create the database");
+
+        await records.StartAsync();
+
+        Assert.Equal(HealthStatus.Healthy, (await check.CheckHealthAsync(
+            new HealthCheckContext())).Status);
+    }
+
+    [Fact]
+    public async Task Record_store_check_is_unhealthy_with_pending_migrations()
+    {
+        using var records = new TestRecordStore();
+        await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+                         $"Data Source={records.DatabasePath};Pooling=False"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "CREATE TABLE Unmigrated (Id INTEGER);";
+            await command.ExecuteNonQueryAsync();
+        }
+
+        HealthCheckResult result = await new RecordStoreHealthCheck(records.Contexts)
+            .CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Contains("pending", result.Description, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Readiness_fails_when_the_record_store_is_gone_but_liveness_does_not()
+    {
+        using var factory = new StreamKeeprAppFactory(
+            configureTestServices: services => services.AddSingleton<IDiskSpace>(
+                new FixedDiskSpace(10 * DiskGuard.BytesPerGib, 20 * DiskGuard.BytesPerGib)));
+        using var client = factory.CreateClient();
+        string database = TestRecordStore.DatabasePathIn(factory.RecordingsRoot);
+        using (HttpResponseMessage before = await client.GetAsync("/health/ready"))
+            Assert.Equal(HttpStatusCode.OK, before.StatusCode);
+
+        foreach (string file in new[] { database, database + "-wal", database + "-shm" })
+            File.Delete(file);
+
+        using HttpResponseMessage live = await client.GetAsync("/health/live");
+        using HttpResponseMessage ready = await client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.OK, live.StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, ready.StatusCode);
     }
 
     [Fact]

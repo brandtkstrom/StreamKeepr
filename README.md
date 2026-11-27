@@ -183,12 +183,13 @@ Requirements:
 - `ffmpeg` and `ffprobe` on `PATH`;
 - [Streamlink](https://streamlink.github.io/) on `PATH` (the container image pins 8.6.3).
 
-The app validates its configuration at startup, so it needs Twitch app credentials and a writable recordings root. For local development, keep them in user secrets:
+The app validates its configuration at startup, so it needs Twitch app credentials, a writable recordings root, and a writable folder for the record store (the SQLite database; it defaults to `/data/streamkeepr.db`). For local development, keep them in user secrets:
 
 ```bash
 dotnet user-secrets --project src/StreamKeepr set "Twitch:ClientId" "<client-id>"
 dotnet user-secrets --project src/StreamKeepr set "Twitch:ClientSecret" "<client-secret>"
 dotnet user-secrets --project src/StreamKeepr set "Storage:RecordingsRoot" "$PWD/recordings"
+dotnet user-secrets --project src/StreamKeepr set "Storage:DatabasePath" "$PWD/data/streamkeepr.db"
 ```
 
 ```bash
@@ -246,7 +247,7 @@ Open <http://localhost:5187>. The profile starts four fake channels and eight re
 
 `MockPoller` supplies deterministic observations, `MockEventSubClient` accepts test-controlled pushes, and the fake cookie auth signs in as `mock_admin` by default. None of these touch Twitch or construct the real HTTP or EventSub clients. The startup tool preflight still runs, so `ffmpeg` and `ffprobe` must be on `PATH`; Streamlink is always the committed fake fixture. On Windows that fixture runs through bash, so `bash.exe` (Git for Windows) must be on `PATH` or under `%ProgramFiles%\Git`.
 
-Mock data lives under the system temp directory (`.../streamkeepr-mock/recordings`), is reset on each start, and is never read from user secrets. `Mock:RecordingsRoot` must be a directory below the system temp directory; the host rejects any other path. A non-empty custom root without the mock-seeded marker is refused rather than deleted. To keep the previous run:
+Mock data lives under the system temp directory (`.../streamkeepr-mock/recordings`), is reset on each start, and is never read from user secrets. Each Mock process also gets its own record store under `.../streamkeepr-mock/records-<id>/`, deleted on a clean shutdown; its channels are re-seeded every start. `Mock:RecordingsRoot` must be a directory below the system temp directory; the host rejects any other path. A non-empty custom root without the mock-seeded marker is refused rather than deleted. To keep the previous run:
 
 ```bash
 Mock__Seed__ResetOnStart=false dotnet run --project src/StreamKeepr --launch-profile Mock
@@ -313,7 +314,7 @@ docker compose up --build --detach
 docker compose logs --follow stream-keepr
 ```
 
-Open <http://localhost:8080>. The image runs as UID 1654 and reads recordings from `/recordings`.
+Open <http://localhost:8080>. The image runs as UID 1654, reads recordings from `/recordings`, and keeps the record store (channels and other app records) in `/data/streamkeepr.db`.
 
 The service reads secret files from `/run/secrets`; `AddKeyPerFile` maps `__` in a file name to `:` in the configuration key, so `Twitch__ClientId` becomes `Twitch:ClientId`. The secrets are not environment variables and are never baked into the image. To use a subscriber-only Streamlink token, create `secrets/recorder_twitch_user_oauth_token.txt`, apply the same ownership and mode, and uncomment both `Recorder__TwitchUserOAuthToken` entries in `compose.yaml`.
 
@@ -321,13 +322,13 @@ To seed the first channel on a fresh deployment, uncomment `Twitch__Channels__0`
 
 ### Volume ownership
 
-A named volume inherits the image's ownership of `/recordings`. To use a host folder instead, replace the volume with `- ./recordings:/recordings` and run:
+Named volumes inherit the image's ownership of `/recordings` and `/data`. To use host folders instead, replace the volumes with `- ./recordings:/recordings` and `- ./data:/data` and run:
 
 ```bash
-sudo chown -R 1654:1654 ./recordings
+sudo chown -R 1654:1654 ./recordings ./data
 ```
 
-The startup preflight fails with this instruction when the root is not writable.
+The startup preflight fails with this instruction when either folder is not writable, and when the data volume has less than `Storage:DatabaseMinFreeGb` (default 1 GB) free.
 
 ### HTTPS reverse proxy
 
@@ -346,13 +347,13 @@ Both lists default to empty, which ignores every `X-Forwarded-*` header. An app 
 
 ### Stop, restart, and logs
 
-`docker compose stop` sends SIGTERM through `init` to the app. Active recordings finalize within the host's 40 s shutdown budget, below Compose's 50 s grace period. `docker compose restart` (or `start`) recovers unfinished sessions on the next launch. Data Protection keys live under `/recordings/.streamkeepr/keys`, so sign-in cookies survive a restart. `docker compose down` keeps the recordings volume; `docker compose down --volumes` deletes recordings and keys.
+`docker compose stop` sends SIGTERM through `init` to the app. Active recordings finalize within the host's 40 s shutdown budget, below Compose's 50 s grace period. `docker compose restart` (or `start`) recovers unfinished sessions on the next launch. Data Protection keys live under `/recordings/.streamkeepr/keys`, so sign-in cookies survive a restart. `docker compose down` keeps both volumes; `docker compose down --volumes` deletes recordings, keys, and the record store. Back up both volumes together. Before an upgrade migrates the record store, the app writes a backup to `/data/backups` (the three newest are kept); a damaged database, or one from a newer version, stops startup with an error naming the file and is never reset.
 
 Docker log rotation is capped at 10 MB per file with five files. The app also writes the same events as compact JSON to `<recordings>/.streamkeepr/logs/`: daily files, 50 MB each, seven kept, so they can take up to roughly 350 MB of the recordings volume. Set `Serilog__File__Enabled=false` to turn them off. Production logs at `Information` unless you change it.
 
 ### Compose smoke test
 
-The smoke test builds an isolated image and first checks the production contract: health, non-root UID, volume ownership, secret availability as UID 1654, log rotation, clean stop, and restart. It then starts the test-only Mock override with `./tests/fixtures` mounted read-only, records the growing Mock capture through the fake Streamlink, stops the service, and verifies every part playlist has exactly one `ENDLIST`. It restarts the same container to prove the `sk-auth` cookie and Data Protection keys survive and a seeded deep link still renders.
+The smoke test builds an isolated image and first checks the production contract: health, non-root UID, ownership of the separate `/recordings` and `/data` volumes, the record store on `/data`, secret availability as UID 1654, log rotation, clean stop, and restart. It then starts the test-only Mock override with `./tests/fixtures` mounted read-only, records the growing Mock capture through the fake Streamlink, stops the service, and verifies every part playlist has exactly one `ENDLIST`. It restarts the same container to prove the `sk-auth` cookie and Data Protection keys survive, a seeded deep link still renders, and the stopped process deleted its Mock record store.
 
 ```bash
 ./scripts/compose-smoke.sh
@@ -368,6 +369,7 @@ The image can also be run directly. A named volume inherits the image's ownershi
 docker build -t streamkeepr .
 docker run --rm -p 8080:8080 \
   -v streamkeepr-recordings:/recordings \
+  -v streamkeepr-data:/data \
   --mount type=bind,source="$PWD/secrets/twitch_client_id.txt",target=/run/secrets/Twitch__ClientId,readonly \
   --mount type=bind,source="$PWD/secrets/twitch_client_secret.txt",target=/run/secrets/Twitch__ClientSecret,readonly \
   streamkeepr

@@ -1,14 +1,13 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
-using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Ui;
+using StreamKeepr.Tests.Records;
 
 namespace StreamKeepr.Tests.Ui;
 
@@ -161,11 +160,7 @@ public sealed class ChannelsViewTests : IDisposable
 
     private async Task<ChannelsView> CreateAsync(bool signedIn)
     {
-        _channels = new ChannelStore(
-            Options.Create(new TwitchOptions()),
-            Options.Create(new StorageOptions { RecordingsRoot = _root }),
-            NullLogger<ChannelStore>.Instance);
-        await _channels.LoadAsync(default);
+        _channels = await TestRecordStore.LoadChannelStoreInAsync(_root);
         _auth.Set(signedIn);
         return new ChannelsView(
             _channels, _status, _library, _control, _schedule, _auth, _clock);
