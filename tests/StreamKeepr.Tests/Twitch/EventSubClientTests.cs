@@ -17,6 +17,7 @@ using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Telemetry;
 using StreamKeepr.Tests.Hosting;
 using static StreamKeepr.Tests.Twitch.EventSubMessages;
+using StreamKeepr.Tests.Records;
 
 namespace StreamKeepr.Tests.Twitch;
 
@@ -39,11 +40,7 @@ public sealed class EventSubClientTests : IDisposable
     {
         Directory.CreateDirectory(_root);
         _schedule = new PollSchedule(_clock);
-        _channels = new ChannelStore(
-            Options.Create(new TwitchOptions()),
-            Options.Create(new StorageOptions { RecordingsRoot = _root }),
-            NullLogger<ChannelStore>.Instance);
-        _channels.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
+        _channels = TestRecordStore.LoadChannelStoreInAsync(_root).GetAwaiter().GetResult();
         _channels.AddAsync(
             new ChannelEntry("streamer", UserId: "123", DisplayName: "Streamer"),
             CancellationToken.None).GetAwaiter().GetResult();

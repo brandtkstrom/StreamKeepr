@@ -34,11 +34,13 @@ RUN apt-get update \
 COPY --from=mwader/static-ffmpeg:9.0.2-1 /ffmpeg /ffprobe /usr/local/bin/
 
 ENV PATH="/opt/streamlink/bin:${PATH}" \
-    Storage__RecordingsRoot=/recordings
+    Storage__RecordingsRoot=/recordings \
+    Storage__DatabasePath=/data/streamkeepr.db
 
-# APP_UID (1654) is defined by the .NET base image. A fresh named volume
-# inherits this ownership; a bind mount must be chowned to 1654:1654.
-RUN mkdir -p /recordings && chown "$APP_UID:$APP_UID" /recordings
+# Two volumes: media under /recordings, the record store (SQLite, ADR-0014)
+# under /data. APP_UID (1654) is defined by the .NET base image. A fresh named
+# volume inherits this ownership; a bind mount must be chowned to 1654:1654.
+RUN mkdir -p /recordings /data && chown "$APP_UID:$APP_UID" /recordings /data
 
 WORKDIR /app
 COPY --from=build /app/publish .

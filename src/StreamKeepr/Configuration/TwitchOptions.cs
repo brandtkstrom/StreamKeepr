@@ -10,7 +10,7 @@ public sealed class TwitchOptions
 
     [Required] public string ClientSecret { get; set => field = value?.Trim() ?? ""; } = "";
 
-    // Seed list only: copied into channels.json on first start; after that the Settings page owns the list.
+    // Seed list only: copied into the record store when it is created; after that the Settings page owns the list.
     public List<string> Channels
     {
         get;

@@ -183,21 +183,25 @@ jobs:
           image="streamkeepr:ci"
           container="streamkeepr-ci-${GITHUB_RUN_ID:-local}"
           volume="${container}-recordings"
+          data_volume="${container}-data"
 
           cleanup() {
             docker rm --force "$container" >/dev/null 2>&1 || true
-            docker volume rm --force "$volume" >/dev/null 2>&1 || true
+            docker volume rm --force "$volume" "$data_volume" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
 
           docker volume create "$volume" >/dev/null
+          docker volume create "$data_volume" >/dev/null
           docker run --detach --name "$container" \
             --publish 18080:8080 \
             --env ASPNETCORE_ENVIRONMENT=Production \
             --env Storage__RecordingsRoot=/recordings \
+            --env Storage__DatabasePath=/data/streamkeepr.db \
             --env Twitch__ClientId=dummy-client-id \
             --env Twitch__ClientSecret=dummy-client-secret \
             --mount "type=volume,source=$volume,target=/recordings" \
+            --mount "type=volume,source=$data_volume,target=/data" \
             "$image"
 
           healthy=0
@@ -236,6 +240,23 @@ jobs:
             exit 1
           fi
 
+          data_uid=$(docker exec "$container" stat -c '%u' /data)
+          if [ "$data_uid" -ne 1654 ]; then
+            echo "::error::/data is owned by UID $data_uid, expected 1654"
+            exit 1
+          fi
+
+          # The record store (ADR-0014) is created on /data, never on /recordings.
+          if ! docker exec "$container" test -s /data/streamkeepr.db; then
+            echo "::error::the record store was not created at /data/streamkeepr.db"
+            docker logs "$container"
+            exit 1
+          fi
+          if [ -n "$(docker exec "$container" find /recordings -name '*.db' -print -quit)" ]; then
+            echo "::error::a database file was written to the recordings volume"
+            exit 1
+          fi
+
           docker exec "$container" curl --fail --silent --show-error \
             http://localhost:8080/health/live >/dev/null
 
@@ -264,7 +285,7 @@ jobs:
             exit 1
           fi
 
-          echo "Container UID: $uid; /recordings UID: $recordings_uid"
+          echo "Container UID: $uid; /recordings UID: $recordings_uid; /data UID: $data_uid"
 
           docker stop --time 50 "$container" >/dev/null
           exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$container")

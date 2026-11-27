@@ -1,14 +1,14 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
-using StreamKeepr.Hosting;
+using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
+using StreamKeepr.Tests.Records;
 using StreamKeepr.Tests.Storage;
 
 namespace StreamKeepr.Tests.Runtime;
@@ -102,19 +102,24 @@ public sealed class StartupRecoveryHostTests
     }
 
     [Fact]
-    public void Corrupt_channel_list_stops_host_startup()
+    public void Corrupt_record_store_stops_host_startup_naming_the_path_and_leaves_the_file_unchanged()
     {
         string root = Path.Combine(
             Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
+        string database = TestRecordStore.DatabasePathIn(root);
+        Directory.CreateDirectory(Path.GetDirectoryName(database)!);
 
         try
         {
-            Directory.CreateDirectory(AppDataPaths.AppDataDirectory(root));
-            File.WriteAllText(AppDataPaths.ChannelsFile(root), "not json");
+            File.WriteAllText(database, "not a database");
 
-            using var factory = new StreamKeeprAppFactory(recordingsRoot: root);
-            Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+            using var factory = new StreamKeeprAppFactory(recordingsRoot: root, waitForStartupRecovery: false);
+            Exception error = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+
+            RecordStoreException cause = Assert.IsType<RecordStoreException>(
+                error as RecordStoreException ?? error.InnerException);
+            Assert.Contains(database, cause.Message, StringComparison.Ordinal);
+            Assert.Equal("not a database", File.ReadAllText(database));
         }
         finally
         {
@@ -132,11 +137,7 @@ public sealed class StartupRecoveryHostTests
 
         try
         {
-            var store = new ChannelStore(
-                Options.Create(new TwitchOptions()),
-                Options.Create(new StorageOptions { RecordingsRoot = root }),
-                NullLogger<ChannelStore>.Instance);
-            await store.LoadAsync(CancellationToken.None);
+            ChannelStore store = await TestRecordStore.LoadChannelStoreInAsync(root);
             await store.AddAsync("stored", CancellationToken.None);
             await store.AddAsync("paused", CancellationToken.None);
             await store.SetPausedAsync("paused", paused: true, CancellationToken.None);

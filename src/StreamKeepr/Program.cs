@@ -18,6 +18,7 @@ using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Badges;
 using StreamKeepr.Infrastructure.Emotes;
 using StreamKeepr.Infrastructure.Media;
+using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Telemetry;
@@ -206,6 +207,10 @@ try
 
     builder.Services.AddSingleton(TimeProvider.System);
 
+    // The record store (ADR-0014): one SQLite database at Storage:DatabasePath, migrated by
+    // RecordStoreStartup before any store loads.
+    builder.Services.AddStreamKeeprRecordStore();
+
     // The session store owns session.json, index.m3u8, and the per-session locks.
     builder.Services.AddSingleton<RecordingLibrary>();
     builder.Services.AddSingleton<IDiskSpace, DriveInfoDiskSpace>();
@@ -304,6 +309,8 @@ try
     // Hosted services start in registration order, so preflight runs before Data
     // Protection, the supervisor, and any channel or recording service.
     builder.Services.AddHostedService<ToolPreflight>();
+    // Opens, checks, backs up and migrates the record store; every store loads after it.
+    builder.Services.AddHostedService<RecordStoreStartup>();
 
     if (mock)
     {
@@ -344,7 +351,8 @@ try
     builder.Services.AddHealthChecks()
            .AddCheck<DvrHealthCheck>(DvrHealthCheck.Name, tags: ["live", "ready"])
            .AddCheck<DiskSpaceHealthCheck>("disk", tags: ["ready"])
-           .AddCheck<LibraryLoadedHealthCheck>("library", tags: ["ready"]);
+           .AddCheck<LibraryLoadedHealthCheck>("library", tags: ["ready"])
+           .AddCheck<RecordStoreHealthCheck>(RecordStoreHealthCheck.Name, tags: ["ready"]);
 
     builder.Services.AddHttpClient(TwitchHttpClients.Auth, client =>
                                        client.BaseAddress = new Uri("https://id.twitch.tv/"));
@@ -399,12 +407,17 @@ try
 
     var app = builder.Build();
 
+    if (mock)
+        MockEnvironment.DeleteRecordStoreOnCleanShutdown(app);
+
     app.Lifetime.ApplicationStarted.Register(() =>
     {
         if (mock)
         {
-            app.Logger.LogWarning("Running the Mock profile: dummy Twitch credentials, fake poller/EventSub/auth, " + "and a disposable recordings root at {Root}. Never use it for production data.",
-                                  app.Services.GetRequiredService<IOptions<StorageOptions>>().Value.RecordingsRoot);
+            StorageOptions storage = app.Services.GetRequiredService<IOptions<StorageOptions>>().Value;
+            app.Logger.LogWarning("Running the Mock profile: dummy Twitch credentials, fake poller/EventSub/auth, " + "a disposable recordings root at {Root}, and a per-process record store at {Database}. Never use it for production data.",
+                                  storage.RecordingsRoot,
+                                  storage.DatabasePath);
         }
         else if (app.Services.GetRequiredService<IOptions<AuthOptions>>().Value.AllowedTwitchLogins.Count == 0)
         {

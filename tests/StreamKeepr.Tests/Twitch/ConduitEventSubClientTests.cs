@@ -13,6 +13,7 @@ using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
 using StreamKeepr.Tests.Telemetry;
 using static StreamKeepr.Tests.Twitch.EventSubMessages;
+using StreamKeepr.Tests.Records;
 
 namespace StreamKeepr.Tests.Twitch;
 
@@ -46,9 +47,7 @@ public sealed class ConduitEventSubClientTests : IDisposable
         Directory.CreateDirectory(_root);
         _schedule = new PollSchedule(_clock);
         var storage = Options.Create(new StorageOptions { RecordingsRoot = _root });
-        _channels = new ChannelStore(
-            Options.Create(new TwitchOptions()), storage, NullLogger<ChannelStore>.Instance);
-        _channels.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
+        _channels = TestRecordStore.LoadChannelStoreInAsync(_root).GetAwaiter().GetResult();
         AddChannel("streamer", "123");
         _state = new ConduitStateStore(storage, NullLogger<ConduitStateStore>.Instance);
         _tokens = new TwitchTokenProvider(

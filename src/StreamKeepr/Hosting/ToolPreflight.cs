@@ -2,17 +2,19 @@ using CliWrap;
 using CliWrap.Buffered;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
+using StreamKeepr.Infrastructure.Storage;
 
 namespace StreamKeepr.Hosting;
 
 /// <summary>
 /// Fails startup before any channel or recording service runs when a required
-/// external tool or the recordings volume is unusable. This must be the first
-/// hosted service registered by the host.
+/// external tool, the recordings volume, or the record store's volume is unusable. This must be
+/// the first hosted service registered by the host.
 /// </summary>
 public sealed class ToolPreflight(
     IOptions<RecorderOptions> recorderOptions,
     IOptions<StorageOptions> storageOptions,
+    IDiskSpace disk,
     ILogger<ToolPreflight> logger) : IHostedService
 {
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -41,9 +43,39 @@ public sealed class ToolPreflight(
         string recordingsRoot = storageOptions.Value.RecordingsRoot;
         OwnerOnlyFileSystem.EnsureWritableRecordingsRoot(recordingsRoot);
         OwnerOnlyFileSystem.EnsureWritableKeyDirectory(AppDataPaths.KeysDirectory(recordingsRoot));
+        EnsureDatabaseVolume(storageOptions.Value);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    /// <summary>The record store's directory must be writable and keep its own free-space floor.</summary>
+    private void EnsureDatabaseVolume(StorageOptions storage)
+    {
+        string directory = Path.GetDirectoryName(Path.GetFullPath(storage.DatabasePath))!;
+        try
+        {
+            OwnerOnlyFileSystem.EnsureWritableDirectory(directory);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            throw new InvalidOperationException(
+                $"Startup preflight failed: the database directory '{directory}' " +
+                $"({StorageOptions.SectionName}:{nameof(StorageOptions.DatabasePath)}) is not writable. " +
+                "Ensure the data volume is owned by the app user (UID 1654 in the container; " +
+                "chown -R 1654:1654 <data>) or use a Docker named volume.",
+                ex);
+        }
+
+        long freeBytes = disk.AvailableFreeSpace(directory);
+        if (!DiskGuard.HasRoom(freeBytes, storage.DatabaseMinFreeGb))
+        {
+            throw new InvalidOperationException(
+                $"Startup preflight failed: the database directory '{directory}' has " +
+                $"{freeBytes / (double)DiskGuard.BytesPerGib:0.##} GB free, below " +
+                $"{StorageOptions.SectionName}:{nameof(StorageOptions.DatabaseMinFreeGb)} " +
+                $"({storage.DatabaseMinFreeGb} GB). Free space on the data volume or lower the setting.");
+        }
+    }
 
     private async Task LogVersionAsync(
         string tool,

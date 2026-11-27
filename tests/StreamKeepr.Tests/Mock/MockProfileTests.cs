@@ -1,3 +1,6 @@
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
@@ -6,6 +9,7 @@ using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Mock;
+using StreamKeepr.Tests.Records;
 
 namespace StreamKeepr.Tests.Mock;
 
@@ -47,6 +51,61 @@ public sealed class MockEnvironmentTests
     {
         Assert.Throws<InvalidOperationException>(() =>
             MockEnvironment.ResolveRecordingsRoot(Path.GetTempPath(), Path.GetTempPath()));
+    }
+
+    [Fact]
+    public void Each_process_start_gets_its_own_record_store_beside_the_recordings_root()
+    {
+        string temp = Path.GetTempPath();
+
+        string first = MockEnvironment.NewRecordStorePath(temp);
+        string second = MockEnvironment.NewRecordStorePath(temp);
+
+        Assert.NotEqual(first, second);
+        string parent = Path.GetFullPath(Path.Combine(temp, MockEnvironment.DataDirectoryName));
+        Assert.Equal(parent, Path.GetDirectoryName(Path.GetDirectoryName(first)));
+        Assert.False(
+            first.StartsWith(MockEnvironment.ResolveRecordingsRoot(null, temp), StringComparison.Ordinal),
+            "the seeder may reset the recordings root, so the database must live outside it");
+    }
+
+    [Fact]
+    public async Task The_record_store_is_gone_after_a_clean_shutdown()
+    {
+        string database = MockEnvironment.NewRecordStorePath(Path.GetTempPath());
+        string directory = Path.GetDirectoryName(database)!;
+        Directory.CreateDirectory(Path.Combine(directory, "backups"));
+        await File.WriteAllTextAsync(database, "db");
+        await File.WriteAllTextAsync(database + "-wal", "wal");
+
+        await using WebApplication app = BuildApp(database);
+        MockEnvironment.DeleteRecordStoreOnCleanShutdown(app);
+        await app.StartAsync();
+        Assert.True(File.Exists(database));
+
+        await app.StopAsync();
+
+        Assert.False(Directory.Exists(directory));
+    }
+
+    [Fact]
+    public async Task Refuses_to_delete_a_database_it_did_not_create()
+    {
+        using var temp = new TempDirectory();
+        string database = Path.Combine(temp.Path, "streamkeepr.db");
+        await File.WriteAllTextAsync(database, "db");
+        await using WebApplication app = BuildApp(database);
+
+        Assert.Throws<InvalidOperationException>(() => MockEnvironment.DeleteRecordStoreOnCleanShutdown(app));
+        Assert.True(File.Exists(database));
+    }
+
+    private static WebApplication BuildApp(string databasePath)
+    {
+        WebApplicationBuilder builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services.Configure<StorageOptions>(options => options.DatabasePath = databasePath);
+        return builder.Build();
     }
 
     [Fact]
@@ -165,15 +224,8 @@ public sealed class MockEventSubClientTests
         var twitch = new MockTwitch();
         var clock = new FakeTimeProvider(MockCatalog.T0);
         var schedule = new PollSchedule(clock);
-        var channels = new ChannelStore(
-            Options.Create(new TwitchOptions()),
-            Options.Create(new StorageOptions
-            {
-                RecordingsRoot = Path.Combine(
-                    Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N")),
-            }),
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<ChannelStore>.Instance);
-        await channels.LoadAsync(CancellationToken.None);
+        using var records = new TestRecordStore();
+        ChannelStore channels = await records.LoadChannelStoreAsync();
         var client = new MockEventSubClient(
             twitch,
             schedule,
@@ -516,6 +568,9 @@ public sealed class MockSeederTests : IDisposable
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
 
+    // Each seeder gets its own record store outside the root, like the per-process Mock database.
+    private readonly List<TestRecordStore> _records = [];
+
     [Fact]
     public async Task Seeds_four_channels_and_eight_recordings_including_a_growing_capture()
     {
@@ -613,6 +668,21 @@ public sealed class MockSeederTests : IDisposable
     }
 
     [Fact]
+    public async Task Keeping_existing_recordings_still_seeds_the_fresh_channel_list()
+    {
+        (MockSeeder first, _, _) = CreateSeeder();
+        await first.StartAsync(CancellationToken.None);
+
+        (MockSeeder restarted, ChannelStore channels, _) =
+            CreateSeeder(new MockSeedOptions { ResetOnStart = false });
+        await restarted.StartAsync(CancellationToken.None);
+
+        Assert.Equal(
+            MockCatalog.Streamers.Select(streamer => streamer.Login),
+            channels.Snapshot.Select(entry => entry.Login));
+    }
+
+    [Fact]
     public async Task Refuses_to_reset_a_root_with_unrelated_data()
     {
         Directory.CreateDirectory(_root);
@@ -659,9 +729,10 @@ public sealed class MockSeederTests : IDisposable
             HealthyPartSeconds = 5,
         });
         var twitch = Options.Create(new TwitchOptions());
-        var channels = new ChannelStore(
-            twitch, storage,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<ChannelStore>.Instance);
+        var records = new TestRecordStore();
+        _records.Add(records);
+        ChannelStore channels = records.CreateChannelStore(
+            records.StartAsync().GetAwaiter().GetResult());
         var library = new RecordingLibrary(
             new FakeTimeProvider(MockCatalog.T0),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<RecordingLibrary>.Instance);
@@ -683,6 +754,9 @@ public sealed class MockSeederTests : IDisposable
 
     public void Dispose()
     {
+        foreach (TestRecordStore records in _records)
+            records.Dispose();
+
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
     }

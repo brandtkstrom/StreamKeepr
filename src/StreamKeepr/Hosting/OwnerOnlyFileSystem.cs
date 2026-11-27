@@ -90,6 +90,28 @@ internal static class OwnerOnlyFileSystem
     /// Writes a private file through a sibling temp file and renames it into
     /// place, so readers never observe a partial payload.
     /// </summary>
+    /// <summary>Creates an empty file readable and writable only by its owner; fails if it exists.</summary>
+    public static void CreateOwnerOnlyFile(string filePath)
+    {
+        var options = new FileStreamOptions
+        {
+            Mode = FileMode.CreateNew,
+            Access = FileAccess.Write,
+            Share = FileShare.None,
+        };
+        if (!OperatingSystem.IsWindows())
+            options.UnixCreateMode = OwnerOnlyFileMode;
+
+        using var stream = new FileStream(filePath, options);
+    }
+
+    /// <summary>Restricts an existing file to its owner (a no-op on Windows).</summary>
+    public static void SetOwnerOnlyFile(string filePath)
+    {
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(filePath, OwnerOnlyFileMode);
+    }
+
     public static void WriteAtomically(string filePath, ReadOnlySpan<byte> contents)
     {
         var directory = Path.GetDirectoryName(filePath)
