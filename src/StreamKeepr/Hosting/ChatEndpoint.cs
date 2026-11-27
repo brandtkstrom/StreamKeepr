@@ -26,24 +26,49 @@ public static class ChatEndpoint
         if (library.Find(id) is not { } summary)
             return Results.NotFound();
 
+        if (!TryBool(context, "tail", defaultValue: false, out bool tail))
+            return Results.BadRequest();
+
+        if (tail)
+        {
+            if (!TryDouble(context, "toSec", required: true, out double to) ||
+                !TryInt(context, "limit", DefaultLimit, out int limit) ||
+                !TryDouble(context, "syncOffsetSec", required: false, out double offset))
+            {
+                return Results.BadRequest();
+            }
+
+            if (to < 0 ||
+                limit is < 1 or > MaxLimit ||
+                Math.Abs(offset) > ChatReader.MaxSyncOffsetSeconds)
+            {
+                return Results.BadRequest();
+            }
+
+            return Results.Json(reader.QueryTail(summary, to, limit, offset));
+        }
+
         if (!TryDouble(context, "fromSec", required: true, out double from) ||
             from < 0 ||
-            !TryDouble(context, "toSec", required: false, out double to) ||
-            !TryInt(context, "limit", DefaultLimit, out int limit) ||
-            !TryDouble(context, "syncOffsetSec", required: false, out double offset))
+            !TryDouble(context, "toSec", required: false, out double windowTo) ||
+            !TryInt(context, "limit", DefaultLimit, out int windowLimit) ||
+            !TryDouble(context, "syncOffsetSec", required: false, out double windowOffset))
         {
             return Results.BadRequest();
         }
 
         double defaultTo = from + DefaultWindowSeconds;
-        to = context.Request.Query.ContainsKey("toSec") ? to : defaultTo;
-        if (!double.IsFinite(to) || to <= from || to - from > MaxWindowSeconds)
+        windowTo = context.Request.Query.ContainsKey("toSec") ? windowTo : defaultTo;
+        if (!double.IsFinite(windowTo) || windowTo <= from || windowTo - from > MaxWindowSeconds)
             return Results.BadRequest();
 
-        if (limit is < 1 or > MaxLimit || Math.Abs(offset) > ChatReader.MaxSyncOffsetSeconds)
+        if (windowLimit is < 1 or > MaxLimit ||
+            Math.Abs(windowOffset) > ChatReader.MaxSyncOffsetSeconds)
+        {
             return Results.BadRequest();
+        }
 
-        ChatQueryResult result = reader.Query(summary, from, to, limit, offset);
+        ChatQueryResult result = reader.Query(summary, from, windowTo, windowLimit, windowOffset);
         return Results.Json(result);
     }
 
@@ -57,6 +82,17 @@ public static class ChatEndpoint
         return double.TryParse(
             raw.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out value) &&
                double.IsFinite(value);
+    }
+
+
+    private static bool TryBool(
+        HttpContext context, string key, bool defaultValue, out bool value)
+    {
+        value = defaultValue;
+        if (!context.Request.Query.TryGetValue(key, out var raw))
+            return true;
+
+        return bool.TryParse(raw.ToString(), out value);
     }
 
     private static bool TryInt(
