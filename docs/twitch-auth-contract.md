@@ -133,6 +133,7 @@ public sealed class TwitchTokenProvider(
 
 - Cookie scheme `sk-auth`; `HttpOnly`; `SameSite=Lax`; `SecurePolicy=SameAsRequest` (secure under HTTPS, works on `localhost` HTTP).
 - 7-day sliding expiration.
+- Persistent cookie (`AuthenticationProperties.IsPersistent`, `expires`/`max-age` emitted, re-emitted on sliding renewal): a client is not re-authenticated in a new browser or app session while the signed ticket and the persisted Data Protection key ring remain valid; re-authentication is required only when the cookie or token is expired (7-day idle), rejected, or unreadable.
 - `LoginPath = "/api/auth/twitch/login"`, `LogoutPath = "/api/auth/logout"`.
 - Blazor components read `AuthenticationState`; `ChannelsView`, export, delete, and download endpoints enforce authorization server-side.
 - Tokens never go into the cookie or the browser.
