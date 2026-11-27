@@ -17,6 +17,9 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     private const string RecoveredErrorText =
         @"^(None|⚠ (\d[\d,]*) errors? · mediaError · bufferStalledError)$";
 
+    // The copied snapshot keeps the last 10 errors (docs/player-contract.md §10).
+    private const int SnapshotErrorLimit = 10;
+
     [Fact]
     public async Task Plays_a_finished_recording_with_basic_controls_and_seek()
     {
@@ -577,10 +580,10 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.NotEqual("—", segments);
         // A loaded runner can record a non-fatal buffer stall that hls.js recovers from; the
         // contract counts it for stats without failing playback (#338). The snapshot check
-        // below rejects a fatal error or any other kind.
-        Assert.Matches(
-            RecoveredErrorText,
-            (await page.Locator("[data-sk='kv-errors']").InnerTextAsync()).Trim());
+        // below rejects a fatal error or any other kind and bounds this count.
+        string errorText = (await page.Locator("[data-sk='kv-errors']").InnerTextAsync()).Trim();
+        Assert.Matches(RecoveredErrorText, errorText);
+        int shownErrors = ErrorRowCount(errorText);
 
         ILocator bufferSpark = page.Locator("[data-sk='spark-buffer']");
         ILocator line = bufferSpark.Locator("polyline");
@@ -638,26 +641,15 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             Assert.Equal("bufferStalledError", error.GetProperty("details").GetString());
         }
 
-        // The row updates on the panel's sample timer, so wait for it to catch up with the
-        // snapshot; it can hold later errors, never fewer.
-        if (errors.GetArrayLength() > 0)
+        // The row was sampled before this snapshot and the probe only accumulates errors, so a
+        // non-full ring must still hold at least what the row showed. At 10 the snapshot caps,
+        // so it can no longer bound a larger count (docs/player-contract.md §10).
+        if (errors.GetArrayLength() < SnapshotErrorLimit)
         {
-            await page.WaitForFunctionAsync(
-                """
-                ([pattern, count]) => {
-                  const text = (document.querySelector("[data-sk='kv-errors']")?.textContent ?? "").trim();
-                  const match = new RegExp(pattern).exec(text);
-                  return match !== null && match[2] !== undefined
-                    && Number(match[2].replaceAll(",", "")) >= count;
-                }
-                """,
-                new object[] { RecoveredErrorText, errors.GetArrayLength() },
-                new PageWaitForFunctionOptions { Timeout = 10_000 });
+            Assert.True(shownErrors <= errors.GetArrayLength(),
+                $"The row showed {shownErrors} error(s), but the snapshot recorded " +
+                $"{errors.GetArrayLength()}.");
         }
-
-        Assert.Matches(
-            RecoveredErrorText,
-            (await page.Locator("[data-sk='kv-errors']").InnerTextAsync()).Trim());
 
         // Its close button hides it, hands focus to the player's stats button, and stops the sampler.
         await close.FocusAsync();
@@ -955,4 +947,16 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         page.WaitForFunctionAsync(
             "([t, tol]) => Math.abs(document.querySelector('[data-sk=video]').currentTime - t) <= tol",
             new object[] { seconds, tolerance });
+
+    /// <summary>The error count the stats row shows; "None" is zero.</summary>
+    private static int ErrorRowCount(string text)
+    {
+        Match match = Regex.Match(text, RecoveredErrorText);
+        Assert.True(match.Success, $"The stats error row does not match the contract: {text}");
+        return match.Groups[2].Success
+            ? int.Parse(match.Groups[2].Value,
+                System.Globalization.NumberStyles.AllowThousands,
+                System.Globalization.CultureInfo.InvariantCulture)
+            : 0;
+    }
 }
