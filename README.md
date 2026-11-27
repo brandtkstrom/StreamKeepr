@@ -69,7 +69,7 @@ It runs as one container on a home server or NAS: no cloud services and no exter
 **Chat**
 
 - Optional chat capture over Twitch IRC (anonymous read-only by default), replayed in sync with the video.
-- Twitch emotes, global and channel chat badges, and optional BetterTTV and 7TV emotes.
+- Twitch emotes, global and channel chat badges, and optional BetterTTV, 7TV, and FrankerFaceZ emotes.
 - Gaps from disconnects or dropped events are shown honestly, and deleted messages can be purged when a recording finalizes.
 
 **Operations**
@@ -208,7 +208,7 @@ dotnet user-secrets --project src/StreamKeepr set "Chat:TwitchUserOAuthToken" "<
 dotnet user-secrets --project src/StreamKeepr set "Chat:TwitchLogin" "<twitch-login>"
 ```
 
-Chat is a best-effort live tap, not a complete history: disconnects, dropped events, and a full log appear as gaps. `Chat:PurgeDeletedText=OnFinalize` opts in to physically removing deleted text when a recording finalizes; it is off by default. Third-party emotes are off by default too; enable them with `Chat:Emotes:Bttv:Enabled=true` and `Chat:Emotes:SevenTv:Enabled=true`. Chat failures never stop recording. The other `Chat:` settings are listed in [`docs/runtime-contract.md`](docs/runtime-contract.md).
+Chat is a best-effort live tap, not a complete history: disconnects, dropped events, and a full log appear as gaps. `Chat:PurgeDeletedText=OnFinalize` opts in to physically removing deleted text when a recording finalizes; it is off by default. Third-party emotes are off by default too; enable them with `Chat:Emotes:Bttv:Enabled=true`, `Chat:Emotes:SevenTv:Enabled=true`, and `Chat:Emotes:Ffz:Enabled=true`. Chat failures never stop recording. The other `Chat:` settings are listed in [`docs/runtime-contract.md`](docs/runtime-contract.md).
 
 ### Telemetry
 

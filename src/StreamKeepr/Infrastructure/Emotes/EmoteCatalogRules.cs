@@ -36,12 +36,33 @@ internal static class EmoteCatalogRules
     public static bool IsValidSevenTvId(string? id) =>
         id is { Length: 26 } && id.All(c => char.IsAsciiDigit(c) || char.IsAsciiLetterUpper(c));
 
+    /// <summary>
+    /// FrankerFaceZ emote IDs are positive decimal integers. The bound keeps the ID a single
+    /// path segment of a fixed URL template; current IDs are small integers, not fixed-width.
+    /// </summary>
+    public static bool IsValidFfzEmoteId(string? id) =>
+        IsBoundedNumeric(id, maxLength: 20) && id!.Any(c => c != '0');
+
     public static bool IsValidCode(string? code) =>
         !string.IsNullOrEmpty(code) && code.Length <= MaxCodeLength;
 
     /// <summary>Twitch user IDs are numeric and at most 20 digits.</summary>
     public static bool IsValidChannelId(string? channelId) =>
-        channelId is { Length: >= 1 and <= 20 } && channelId.All(char.IsAsciiDigit);
+        IsBoundedNumeric(channelId, maxLength: 20);
+
+    private static bool IsBoundedNumeric(string? value, int maxLength)
+    {
+        if (value is not { Length: >= 1 } || value.Length > maxLength)
+            return false;
+
+        foreach (char c in value)
+        {
+            if (!char.IsAsciiDigit(c))
+                return false;
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// Invalid identifiers never leave a provider; the service enforces it again. Every known
@@ -49,6 +70,6 @@ internal static class EmoteCatalogRules
     /// of its entries are dropped as unusable.
     /// </summary>
     public static bool IsUsable(EmoteCatalogEntry entry) =>
-        (IsValidBttvEmoteId(entry.Id) || IsValidSevenTvId(entry.Id)) &&
+        (IsValidBttvEmoteId(entry.Id) || IsValidSevenTvId(entry.Id) || IsValidFfzEmoteId(entry.Id)) &&
         IsValidCode(entry.Code);
 }

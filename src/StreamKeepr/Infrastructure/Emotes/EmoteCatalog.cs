@@ -26,7 +26,7 @@ internal interface IEmoteProvider
     /// </summary>
     Task<IReadOnlyList<EmoteCatalogEntry>> GetChannelAsync(string channelId, CancellationToken ct);
 
-    /// <summary>Builds the 1x/2x/3x image URLs for a validated entry.</summary>
+    /// <summary>Builds the image URLs for a validated entry.</summary>
     EmoteImageSet GetImageSet(EmoteCatalogEntry entry);
 }
 
@@ -41,7 +41,13 @@ internal interface IEmoteChannelResolver
     Task<string?> ResolveAsync(string login, CancellationToken ct);
 }
 
-internal sealed record EmoteCatalogEntry(string Id, string Code, bool Animated);
+/// <summary>
+/// One normalized emote. <c>ImageScales</c> is optional provider-specific image-density
+/// metadata: FFZ advertises which of its 1x/2x/4x keys exist, while BetterTTV and 7TV leave it
+/// null and build their own fixed sets.
+/// </summary>
+internal sealed record EmoteCatalogEntry(
+    string Id, string Code, bool Animated, IReadOnlyList<string>? ImageScales = null);
 
 internal sealed record EmoteImageSet(string Src, string SrcSet)
 {

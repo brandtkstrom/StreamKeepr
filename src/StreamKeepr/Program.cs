@@ -294,6 +294,7 @@ try
 
         builder.Services.AddSingleton<IEmoteProvider, BttvEmoteProvider>();
         builder.Services.AddSingleton<IEmoteProvider, SevenTvEmoteProvider>();
+        builder.Services.AddSingleton<IEmoteProvider, FfzEmoteProvider>();
         builder.Services.AddSingleton<IBadgeSource, TwitchBadgeSource>();
     }
 
@@ -356,6 +357,9 @@ try
 
     builder.Services.AddHttpClient(EmoteHttpClients.SevenTv, client =>
                                        client.BaseAddress = new Uri(EmoteHttpClients.SevenTvBaseAddress));
+
+    builder.Services.AddHttpClient(EmoteHttpClients.Ffz, client =>
+                                       client.BaseAddress = new Uri(EmoteHttpClients.FfzBaseAddress));
 
     builder.Services.AddSingleton<IAdminTokenStore, AdminTokenStore>();
 

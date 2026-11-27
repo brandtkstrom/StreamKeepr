@@ -35,6 +35,7 @@ Chat capture is isolated from the DVR path: a source or store failure is logged 
 | `Enabled` | `false` | Turns capture on. While off, live recordings show no chat pane; recordings with captured chat still replay it. |
 | `Emotes:Bttv:Enabled` | `false` | Renders BetterTTV global and channel emotes in chat replay. Off makes no catalog request. Capture and chat text are unaffected. |
 | `Emotes:SevenTv:Enabled` | `false` | Renders 7TV global and channel emotes in chat replay. Off makes no 7TV request. BetterTTV wins a shared code because it is registered first. Capture and chat text are unaffected. |
+| `Emotes:Ffz:Enabled` | `false` | Renders FrankerFaceZ global and channel emotes in chat replay. Off makes no FFZ request. BetterTTV and 7TV win a shared code because they are registered first. Capture and chat text are unaffected. |
 | `Emotes:Animated` | `false` | Loads each enabled provider's animated asset instead of its static first frame. Off keeps the static rendering that ADR 0011 chose; BetterTTV animated assets are far larger than its static ones. |
 | `TwitchUserOAuthToken`, `TwitchLogin` | unset | Optional dedicated `chat:read` identity (`docs/twitch-auth-contract.md`); a rejected token falls back to anonymous. |
 | `LeadInSeconds` | `12` | How much earlier the content at a part start aired than its first PDT. |
