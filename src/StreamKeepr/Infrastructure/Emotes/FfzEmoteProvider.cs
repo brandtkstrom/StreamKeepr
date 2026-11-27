@@ -94,15 +94,15 @@ internal sealed class FfzEmoteProvider(
         if (catalog.DefaultSets is not { Length: > 0 } || catalog.Sets is null)
             return [];
 
-        var entries = new List<EmoteCatalogEntry>();
+        var sets = new List<FfzSet>();
         foreach (long setId in catalog.DefaultSets)
         {
-            // A default set can be absent from the sets map; that set is skipped, not a failure.
-            if (catalog.Sets.TryGetValue(setId, out FfzSet? set))
-                entries.AddRange(Normalize(set.Emoticons));
+            // A default set can be absent from the sets map or null; that set is skipped.
+            if (catalog.Sets.TryGetValue(setId, out FfzSet? set) && set is not null)
+                sets.Add(set);
         }
 
-        return [.. entries];
+        return NormalizeSets(sets);
     }
 
     private static EmoteCatalogEntry[] NormalizeRoom(FfzRoomCatalog catalog)
@@ -110,9 +110,24 @@ internal sealed class FfzEmoteProvider(
         if (catalog.Sets is null)
             return [];
 
+        // Set order is not part of the payload contract; order by ID so exact-code duplicates
+        // resolve deterministically.
+        return NormalizeSets(catalog.Sets
+            .OrderBy(entry => entry.Key)
+            .Select(entry => entry.Value));
+    }
+
+    private static EmoteCatalogEntry[] NormalizeSets(IEnumerable<FfzSet?>? sets)
+    {
+        if (sets is null)
+            return [];
+
         var entries = new List<EmoteCatalogEntry>();
-        foreach (FfzSet set in catalog.Sets.Values)
-            entries.AddRange(Normalize(set.Emoticons));
+        foreach (FfzSet? set in sets)
+        {
+            if (set is not null)
+                entries.AddRange(Normalize(set.Emoticons));
+        }
 
         return [.. entries];
     }
@@ -130,16 +145,18 @@ internal sealed class FfzEmoteProvider(
                 emote.Hidden ||
                 !TryGetEmoteId(emote.Id, out string? id) ||
                 !EmoteCatalogRules.IsValidCode(emote.Name) ||
-                !TryGetScales(emote.Urls, emote.Animated, out string[] scales))
+                !TryGetScales(emote.Urls, out string[] scales))
             {
                 continue;
             }
 
+            bool animated = IsAnimated(emote.Animated);
             entries.Add(new EmoteCatalogEntry(
                 id!,
                 emote.Name!,
-                IsAnimated(emote.Animated),
-                scales));
+                animated,
+                scales,
+                animated ? AvailableScales(emote.Animated) : null));
         }
 
         return [.. entries];
@@ -160,31 +177,20 @@ internal sealed class FfzEmoteProvider(
         return EmoteCatalogRules.IsValidFfzEmoteId(id);
     }
 
-    private static bool TryGetScales(
-        Dictionary<string, string>? urls,
-        Dictionary<string, string>? animated,
-        out string[] scales)
+    private static bool TryGetScales(Dictionary<string, string>? urls, out string[] scales)
     {
-        if (urls is null)
-        {
-            scales = [];
-            return false;
-        }
-
-        bool HasAsset(Dictionary<string, string> map, string scale) =>
-            map.TryGetValue(scale, out string? url) && !string.IsNullOrEmpty(url);
-
         // The 1x asset is mandatory; a payload that omits it cannot render the emote.
-        scales = [.. KnownScales.Where(scale => HasAsset(urls, scale))];
-        if (scales.Length == 0 || scales[0] != "1")
-            return false;
-
-        // The animated asset has its own map. Keep only sizes both maps advertise so enabling
-        // Chat:Emotes:Animated cannot point at a missing file.
-        if (animated is not null && IsAnimated(animated))
-            scales = [.. scales.Where(scale => HasAsset(animated, scale))];
-
+        scales = AvailableScales(urls);
         return scales.Length > 0 && scales[0] == "1";
+    }
+
+    private static string[] AvailableScales(Dictionary<string, string>? map)
+    {
+        if (map is null)
+            return [];
+
+        return [.. KnownScales.Where(scale =>
+            map.TryGetValue(scale, out string? url) && !string.IsNullOrEmpty(url))];
     }
 
     private static bool IsAnimated(Dictionary<string, string>? animated) =>
@@ -194,15 +200,17 @@ internal sealed class FfzEmoteProvider(
 
     public EmoteImageSet GetImageSet(EmoteCatalogEntry entry)
     {
-        // FFZ publishes 1x/2x/4x; only the keys the payload advertised are emitted, so an old
-        // emote without a 4x asset cannot produce a candidate that fails to load.
-        string[] scales = entry.ImageScales is { Count: > 0 } available
+        // FFZ publishes 1x/2x/4x; the active static or animated map supplies the advertised
+        // keys, so an emote without a size cannot produce a candidate that fails to load.
+        bool serveAnimated = entry.Animated && options.Value.Emotes.Animated;
+        IReadOnlyList<string>? advertised = serveAnimated
+            ? entry.AnimatedImageScales
+            : entry.ImageScales;
+        string[] scales = advertised is { Count: > 0 } available
             ? [.. KnownScales.Where(available.Contains)]
             : KnownScales;
-        if (scales.Length == 0)
-            scales = KnownScales;
 
-        string folder = entry.Animated && options.Value.Emotes.Animated ? "animated/" : "";
+        string folder = serveAnimated ? "animated/" : "";
 
         string Url(string scale) => $"{ImageHost}/emote/{entry.Id}/{folder}{scale}";
 

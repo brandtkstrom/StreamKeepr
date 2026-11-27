@@ -367,6 +367,7 @@ public sealed class EmoteCatalogServiceTests
     [Theory]
     [InlineData("0")]
     [InlineData("000")]
+    [InlineData("0001")]
     [InlineData("12a")]
     [InlineData("123456789012345678901")]
     public async Task Invalid_ffz_numeric_ids_are_dropped_by_the_shared_usability_check(string id)

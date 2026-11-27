@@ -10,10 +10,11 @@ namespace StreamKeepr.Tests.Emotes;
 public sealed class FfzEmoteProviderTests
 {
     // KEKW is public:false but renderable; YooHoo advertises only 1x/2x; JamsBunny is animated;
-    // ZrehplaR is a hidden easter egg; the 1539687 set is modifier-only.
+    // ZrehplaR is a hidden easter egg; the 1539687 set is modifier-only; 42 is null and 43 is a
+    // valid non-default set, so reading every set would add NONDEFAULT.
     private const string GlobalJson = """
         {
-          "default_sets": [3, 1539687],
+          "default_sets": [3, 1539687, 42],
           "sets": {
             "3": {
               "id": 3,
@@ -69,6 +70,21 @@ public sealed class FfzEmoteProviderTests
                 }
               ]
             },
+            "42": null,
+            "43": {
+              "id": 43,
+              "title": "Valid Non-default",
+              "emoticons": [
+                {
+                  "id": 999001,
+                  "name": "NONDEFAULT",
+                  "public": true,
+                  "hidden": false,
+                  "modifier": false,
+                  "urls": { "1": "https://cdn.frankerfacez.com/emote/999001/1" }
+                }
+              ]
+            },
             "1532818": {
               "id": 1532818,
               "title": "Subwoofer Emote Effects",
@@ -118,8 +134,8 @@ public sealed class FfzEmoteProviderTests
     }
 
     [Theory]
-    [InlineData("""{"default_sets":[],"sets":{}}""")]
-    [InlineData("""{"sets":{}}""")]
+    [InlineData("""{"default_sets":[],"sets":{"3":{"emoticons":[{"id":381875,"name":"KEKW","urls":{"1":"https://cdn.frankerfacez.com/emote/381875/1"}}]}}}""")]
+    [InlineData("""{"sets":{"3":{"emoticons":[{"id":381875,"name":"KEKW","urls":{"1":"https://cdn.frankerfacez.com/emote/381875/1"}}]}}}""")]
     public async Task An_empty_or_missing_default_set_list_is_an_empty_catalog(string json)
     {
         var handler = new StubHttpMessageHandler(
@@ -142,6 +158,11 @@ public sealed class FfzEmoteProviderTests
                 "3": {
                   "emoticons": [
                     { "id": 381875, "name": "KEKW", "urls": { "1": "https://cdn.frankerfacez.com/emote/381875/1" } }
+                  ]
+                },
+                "43": {
+                  "emoticons": [
+                    { "id": 999001, "name": "NONDEFAULT", "urls": { "1": "https://cdn.frankerfacez.com/emote/999001/1" } }
                   ]
                 }
               }
@@ -185,7 +206,7 @@ public sealed class FfzEmoteProviderTests
     }
 
     [Fact]
-    public async Task An_animated_entry_emits_only_sizes_both_maps_advertise()
+    public async Task An_animated_entry_uses_each_maps_advertised_sizes()
     {
         const string json = """
             {
@@ -206,18 +227,27 @@ public sealed class FfzEmoteProviderTests
             """;
         var handler = new StubHttpMessageHandler(
             (_, _) => Task.FromResult(EmoteTestData.Json(json)));
-        FfzEmoteProvider provider = CreateProvider(handler, animated: true);
-
+        FfzEmoteProvider staticProvider = CreateProvider(handler);
         IReadOnlyList<EmoteCatalogEntry> entries =
-            await provider.GetGlobalAsync(CancellationToken.None);
+            await staticProvider.GetGlobalAsync(CancellationToken.None);
+        EmoteCatalogEntry entry = Assert.Single(entries);
 
-        EmoteImageSet image = provider.GetImageSet(Assert.Single(entries));
-        Assert.Equal("https://cdn.frankerfacez.com/emote/780274/animated/1", image.Src);
+        EmoteImageSet still = staticProvider.GetImageSet(entry);
+        Assert.Equal("https://cdn.frankerfacez.com/emote/780274/1", still.Src);
+        Assert.Equal(
+            "https://cdn.frankerfacez.com/emote/780274/1 1x, " +
+            "https://cdn.frankerfacez.com/emote/780274/2 2x, " +
+            "https://cdn.frankerfacez.com/emote/780274/4 4x",
+            still.SrcSet);
+
+        FfzEmoteProvider animatedProvider = CreateProvider(handler, animated: true);
+        EmoteImageSet animated = animatedProvider.GetImageSet(entry);
+        Assert.Equal("https://cdn.frankerfacez.com/emote/780274/animated/1", animated.Src);
         Assert.Equal(
             "https://cdn.frankerfacez.com/emote/780274/animated/1 1x, " +
             "https://cdn.frankerfacez.com/emote/780274/animated/2 2x",
-            image.SrcSet);
-        Assert.DoesNotContain("4x", image.SrcSet, StringComparison.Ordinal);
+            animated.SrcSet);
+        Assert.DoesNotContain("4x", animated.SrcSet, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -419,7 +449,8 @@ public sealed class FfzEmoteProviderTests
                 },
                 { "id": 723890, "name": "ffzW", "modifier": true }
               ]
-            }
+            },
+            "166909": null
           }
         }
         """;

@@ -42,12 +42,17 @@ internal interface IEmoteChannelResolver
 }
 
 /// <summary>
-/// One normalized emote. <c>ImageScales</c> is optional provider-specific image-density
-/// metadata: FFZ advertises which of its 1x/2x/4x keys exist, while BetterTTV and 7TV leave it
-/// null and build their own fixed sets.
+/// One normalized emote. <c>ImageScales</c> and <c>AnimatedImageScales</c> are optional
+/// provider-specific image-size metadata: each list holds the URL segments FFZ advertised (for
+/// example, <c>1</c>, <c>2</c>, <c>4</c>), while BetterTTV and 7TV leave them null and build
+/// their own fixed sets. The <c>srcset</c> descriptor appends <c>x</c> to each segment.
 /// </summary>
 internal sealed record EmoteCatalogEntry(
-    string Id, string Code, bool Animated, IReadOnlyList<string>? ImageScales = null);
+    string Id,
+    string Code,
+    bool Animated,
+    IReadOnlyList<string>? ImageScales = null,
+    IReadOnlyList<string>? AnimatedImageScales = null);
 
 internal sealed record EmoteImageSet(string Src, string SrcSet)
 {

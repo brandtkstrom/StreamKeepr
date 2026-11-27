@@ -2,7 +2,7 @@
 
 Status: research memo, 2026-11-26; probes 2026-11-27 UTC (2026-11-26 local).
 Issue: #345, child of #344. Research only; no production code, configuration, contracts, ADRs, tests, or dependencies changed.
-Binding: no. ADR 0011 wins and excludes FFZ, so adoption needs an addendum.
+Binding: no. ADR 0011 excluded FFZ when this memo was written; the 2026-11-27 addendum reverses that exclusion and records the adoption decision.
 
 **Method.** Credential-free `curl` probes to the FFZ API, CDN, and website; v1 Swagger; client v4.83.2 at `be6c12d`; Terms and Privacy Policy. No token, cookie, or authenticated call. Samples: Global catalog, xQc `71092938`, 30 popular logins (28 returned data); Rubius (99 emotes) is the large channel. Repository facts are from `origin/main` at `2368ece`.
 

@@ -41,7 +41,7 @@ internal static class EmoteCatalogRules
     /// path segment of a fixed URL template; current IDs are small integers, not fixed-width.
     /// </summary>
     public static bool IsValidFfzEmoteId(string? id) =>
-        IsBoundedNumeric(id, maxLength: 20) && id!.Any(c => c != '0');
+        IsBoundedNumeric(id, maxLength: 20) && id![0] != '0';
 
     public static bool IsValidCode(string? code) =>
         !string.IsNullOrEmpty(code) && code.Length <= MaxCodeLength;
