@@ -35,7 +35,7 @@ public sealed class LibrarySearchTests
 
     [Theory]
     [InlineData("newest", "Newest first")]
-    [InlineData("az", "A–Z by streamer")]
+    [InlineData("az", "A–Z by channel")]
     [InlineData("bogus", "Newest first")]
     public async Task The_header_label_follows_the_sort(string sort, string label)
     {
@@ -78,7 +78,7 @@ public sealed class LibrarySearchTests
             "./Components/Features/Library/LibraryDrawer.razor.js");
         IRenderedComponent<MudBlazor.MudPopoverProvider> popovers = context.Render<MudBlazor.MudPopoverProvider>();
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
-        cut.Find("button[aria-label='Library options']").Click();
+        cut.Find("[data-sort]").Click();
         popovers.WaitForAssertion(() => Assert.NotEmpty(popovers.FindAll("[role='menuitem']")));
 
         // Opening puts focus on the current choice, so one Escape closes the menu.
@@ -92,7 +92,7 @@ public sealed class LibrarySearchTests
         popovers.FindAll("[role='menuitem']").Single(item => item.TextContent.Contains("A–Z")).Click();
 
         Assert.EndsWith("/?sort=az", navigation.Uri);
-        cut.WaitForAssertion(() => Assert.Contains("A–Z by streamer", cut.Find("[data-sort]").TextContent));
+        cut.WaitForAssertion(() => Assert.Contains("A–Z by channel", cut.Find("[data-sort]").TextContent));
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public sealed class LibrarySearchTests
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
         Assert.Equal("No recordings match “speed”", cut.Find("[data-library-empty]").TextContent);
-        Assert.Contains("Try another title, streamer or category.", cut.Find("[data-library-no-match]").TextContent);
+        Assert.Contains("Try another title, channel or category.", cut.Find("[data-library-no-match]").TextContent);
         Assert.False(cut.Find("[data-drawer-list]").HasNamed("button", "Show all recordings"));
         Button(cut, "Clear search").Click();
 

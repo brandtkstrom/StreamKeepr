@@ -67,7 +67,7 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
         for (int i = 0; i < WarmLoads; i++)
         {
             await session.ReloadAsync();
-            await page.Locator($"{Search}[data-sk-ready]").WaitForAsync();
+            await page.Locator(LibraryHooks.ShellReady).WaitForAsync();
             // The counts are in the open library (Md and up it starts as the rail).
             await LibraryHooks.OpenLibraryAsync(page);
             await WaitForRowsAsync(page, totalRows);
@@ -118,7 +118,7 @@ public sealed class LibraryScaleJourneyTests : IAsyncLifetime
             page,
             async () =>
             {
-                await page.GetByRole(AriaRole.Button, new() { Name = "Library options" }).ClickAsync();
+                await page.Locator("[data-sort]").ClickAsync();
                 await page.GetByRole(AriaRole.Menuitem, new() { Name = "Oldest first" }).ClickAsync();
             },
             $"id => document.querySelector('{RowSelector}')?.dataset.recordingId !== id",

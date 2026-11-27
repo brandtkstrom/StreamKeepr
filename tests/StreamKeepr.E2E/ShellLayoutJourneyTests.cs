@@ -102,46 +102,31 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         await bar.WaitForAsync();
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task On_a_phone_clear_search_leaves_focus_on_a_visible_control(bool closeSearchRowFirst)
+    [Fact]
+    public async Task On_a_phone_clear_search_keeps_the_drawer_open_with_focus_in_the_field()
     {
         await using Journey session = await OpenAsync(app, viewport: Phone, hasTouch: true);
         IPage page = session.Page;
+        await LibraryHooks.OpenLibraryAsync(page);
+        await page.Locator("[data-shell][data-drawer-modal-open]").WaitForAsync();
         ILocator search = page.Locator("input[data-search-input]");
-        await page.GetByRole(AriaRole.Button, new() { Name = "Search", Exact = true }).TapAsync();
         await search.FillAsync("zzzz-no-such-stream");
         await Journey.WaitForUrlAsync(page, url => url.Contains("q=", StringComparison.Ordinal));
-        if (closeSearchRowFirst)
-        {
-            // The query stays in the URL; only the row is put away.
-            await page.GetByRole(AriaRole.Button, new() { Name = "Search", Exact = true }).TapAsync();
-            await search.WaitForAsync(new() { State = WaitForSelectorState.Hidden });
-        }
 
-        ILocator bar = page.GetByRole(AriaRole.Navigation, new() { Name = "Main" });
-        await bar.GetByRole(AriaRole.Button, new() { Name = "Library" }).TapAsync();
-        await page.Locator("[data-shell][data-drawer-modal-open]").WaitForAsync();
         ILocator noMatch = page.Locator("[data-library-no-match]");
         await noMatch.WaitForAsync();
-
         await noMatch.GetByRole(AriaRole.Button, new() { Name = "Clear search" }).TapAsync();
         await Journey.WaitForUrlAsync(page, url => !url.Contains("q=", StringComparison.Ordinal));
-        await page.Locator("[data-shell]:not([data-drawer-modal-open])").WaitForAsync();
 
-        // Clearing navigates, which closes the temporary drawer. With the search row open, focus
-        // goes to the search field; with the row put away, the drawer hands it back to Library.
-        ILocator expected = closeSearchRowFirst
-            ? bar.GetByRole(AriaRole.Button, new() { Name = "Library" })
-            : search;
+        // Clearing is a query change, not a page change: the temporary drawer stays open and
+        // focus stays where the viewer was typing.
+        await page.Locator("[data-shell][data-drawer-modal-open]").WaitForAsync();
         await LibraryJourneyTests.Expect(
-            async () => await expected.EvaluateAsync<bool>("e => e === document.activeElement") ? 1 : 0,
+            async () => await search.EvaluateAsync<bool>("e => e === document.activeElement") ? 1 : 0,
             1);
-        Assert.True(await expected.IsVisibleAsync());
-        // And it stays there: nothing moves it once the drawer has closed.
+        Assert.True(await search.IsVisibleAsync());
         await Task.Delay(500);
-        Assert.True(await expected.EvaluateAsync<bool>("e => e === document.activeElement"));
+        Assert.True(await search.EvaluateAsync<bool>("e => e === document.activeElement"));
     }
 
     [Fact]
@@ -257,14 +242,9 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         await page.GotoAsync(app.BaseUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded });
 
         ILocator banner = page.GetByRole(AriaRole.Banner);
-        ILocator github = banner.GetByRole(AriaRole.Link, new() { Name = "StreamKeepr on GitHub (opens in a new tab)" });
-        ILocator twitch = banner.GetByRole(AriaRole.Link, new() { Name = "Twitch (opens in a new tab)" });
-        foreach (ILocator link in new[] { github, twitch })
-        {
-            Assert.StartsWith("https://", await link.GetAttributeAsync("href"));
-            Assert.Equal("_blank", await link.GetAttributeAsync("target"));
-            Assert.Contains("noopener", await link.GetAttributeAsync("rel"));
-        }
+        // Outbound links are reference, not shell destinations: they live in Settings › About.
+        Assert.Equal(0, await banner.GetByRole(AriaRole.Link, new() { Name = "StreamKeepr on GitHub (opens in a new tab)" }).CountAsync());
+        Assert.Equal(0, await banner.GetByRole(AriaRole.Link, new() { Name = "Twitch (opens in a new tab)" }).CountAsync());
 
         Assert.Equal("/", await banner.GetByRole(AriaRole.Link, new() { Name = "StreamKeepr home" }).GetAttributeAsync("href"));
         Assert.Equal(
@@ -278,6 +258,14 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         await settings.ClickAsync();
         await Journey.WaitForUrlAsync(page, url => new Uri(url).AbsolutePath == "/settings");
         await page.Locator("main h1").WaitForAsync(new() { State = WaitForSelectorState.Attached });
+        foreach (var name in new[] { "StreamKeepr on GitHub (opens in a new tab)", "Twitch (opens in a new tab)" })
+        {
+            ILocator link = page.GetByRole(AriaRole.Link, new() { Name = name });
+            await link.WaitForAsync();
+            Assert.StartsWith("https://", await link.GetAttributeAsync("href"));
+            Assert.Equal("_blank", await link.GetAttributeAsync("target"));
+            Assert.Contains("noopener", await link.GetAttributeAsync("rel"));
+        }
     }
 
     [Theory]
@@ -301,7 +289,6 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         IPage page = session.Page;
         if (blockCircuit)
             await page.RouteAsync("**/_framework/blazor.web*.js", route => route.AbortAsync());
-        // ?q= opens the phone's search row, so its position is measured too.
         if (blockCircuit)
             await page.GotoAsync($"{app.BaseUrl}/?q=a", new() { WaitUntil = WaitUntilState.DOMContentLoaded });
         else
@@ -313,9 +300,7 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
             () => {
               const bar = document.querySelector('header').getBoundingClientRect();
               const frame = getComputedStyle(document.querySelector('main').parentElement);
-              const search = document.querySelector('[data-search-open]');
-              return `bar ${bar.height}px, main frame ${frame.paddingTop} top ${frame.paddingBottom} bottom, ` +
-                `search row ${search ? search.getBoundingClientRect().top + 'px' : 'closed'}`;
+              return `bar ${bar.height}px, main frame ${frame.paddingTop} top ${frame.paddingBottom} bottom`;
             }
             """);
     }

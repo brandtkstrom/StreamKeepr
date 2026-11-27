@@ -164,7 +164,7 @@ internal sealed class Journey : IAsyncDisposable
         await page.WaitForFunctionAsync(
             """
             () => {
-              if (document.querySelector("input[data-search-input][data-sk-ready]")) return true;
+              if (document.querySelector("[data-shell][data-shell-ready]")) return true;
               if (document.querySelector("[data-signin]")) return true;
               const reconnect = document.body?.dataset.skReconnect;
               return reconnect === "failed" || reconnect === "paused" || reconnect === "resume-failed";
@@ -374,7 +374,7 @@ internal sealed class Journey : IAsyncDisposable
                 () => JSON.stringify({
                   url: location.href,
                   reconnect: document.body?.dataset.skReconnect ?? null,
-                  ready: !!document.querySelector("input[data-search-input][data-sk-ready]"),
+                  ready: !!document.querySelector("[data-shell][data-shell-ready]"),
                   active: document.activeElement ? {
                     tag: document.activeElement.tagName,
                     id: document.activeElement.id || null,
