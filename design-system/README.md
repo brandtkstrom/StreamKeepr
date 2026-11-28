@@ -19,7 +19,7 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 
 ### The player
 
-- On watch pages the player is **as wide as its column** (no max-width, and only the `space-4` gutter on desktop) and keeps 16:9. Its height is capped at the viewport height minus the app bar, the gutter and `player-peek` (88px), so the recording's title always shows below it without scrolling. When the cap applies, the video letterboxes inside the black frame.
+- On watch pages the player is **as wide as its column** (no max-width, and only the `space-4` gutter on desktop) and keeps 16:9. Its height is capped at the viewport height minus the app bar, the top and bottom gutters and `player-peek` (88px), so the recording's title always shows below it without scrolling. When the cap applies, the video letterboxes inside the black frame.
 - Opening a recording on desktop collapses the drawer to the rail. Home opens it fully again. Both choices are remembered per viewer.
 - **Theater mode** (desktop only) makes the player span the view to the open chat drawer's divider: no drawer, no gutters, no gap before the drawer. Its height is capped at the viewport minus the app bar. The title block, Chapters and stats below it keep 16px side padding, and the chat drawer keeps its docked geometry. Fullscreen takes over theater mode's job on phones.
 - Nothing ever sits above the player, and nothing sits to the right of the open chat: it is a 400px drawer docked to the right edge under the app bar, from its bottom to the viewport's bottom. Closed, it leaves no width, strip or gap.
@@ -34,7 +34,7 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 - **The recording tally is the app bar's one loud element.** On Md and up it names the channels being captured and opens the library filtered to Recording. Below Md the bottom bar's Library dot carries the same state.
 - The library drawer's footer shows disk usage.
 - Maximise viewing area by collapsing things, not by scrolling. Remember each collapse per viewer.
-- Touch targets are at least 40px, 48px in the bottom bar and tabs. Nothing scrolls sideways except the Home rows, which scroll inside themselves.
+- Touch targets are at least 40px, 48px in the bottom bar and tabs. The player's seek slider is the one continuous-scrub exception: a 28px band above the 48px control bar, spanning the column minus its `space-4` side margins. Nothing scrolls sideways except the Home rows, which scroll inside themselves.
 - Empty, no-match and not-found states get an icon, one headline, one sentence and at most one action. See `EmptyStates`.
 
 ## Library ordering
@@ -101,7 +101,7 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 ## Iconography
 
 - In the app, use MudBlazor's built-in **Material Rounded** SVG set (`Icons.Material.Rounded.*`). It adds no font file and no network request, and the icons inherit `currentColor`. This replaces the Material Symbols webfont.
-- Sizes: `Size.Medium` (24px) in the app bar, drawer and player; `Size.Small` (20px) in chips, menus and inside buttons (`StartIcon`). Fill shows an "on" state only (play, REC).
+- Sizes: `Size.Medium` (24px) in the app bar, drawer and player; `Size.Small` (20px) in chips, menus and inside buttons (`StartIcon`). The player's title-strip chapter marker is a 14px inline `Toc` exception because it sits in `caption` metadata, not a control. Fill shows an "on" state only (play, REC).
 - **Use icons to carry meaning, not decoration.** Every navigation destination, section header, toggle and meta field gets one, always beside its text label or with an `aria-label`. Use the same icon for the same idea everywhere:
 
 | Meaning | Icon (`Icons.Material.Rounded.*`) |

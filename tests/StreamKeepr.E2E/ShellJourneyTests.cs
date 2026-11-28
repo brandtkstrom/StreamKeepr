@@ -43,7 +43,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
         // only on /r/{id} (#175).
         Assert.Equal(0, await main.Locator("[data-slot]").CountAsync());
         Assert.Equal(
-            "24px",
+            "16px",
             await page.EvaluateAsync<string>(
                 "getComputedStyle(document.querySelector('main')).paddingTop"));
 

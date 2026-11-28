@@ -16,7 +16,7 @@ public sealed class VideoPlayerTests
     // Keep in step with HOOKS in VideoPlayer.razor.js; the Vitest fixture mirrors these.
     private static readonly string[] Hooks =
     [
-        "video", "title", "streamer", "chip", "center", "spinner", "overlay", "overlay-message",
+        "video", "title", "streamer", "chapter", "chapter-title", "chip", "center", "spinner", "overlay", "overlay-message",
         "retry", "seek", "buffered", "played", "ticks", "knob", "hover-time", "play", "back",
         "forward", "mute", "volume", "volume-level", "current", "duration", "speed", "speed-menu",
         "stats", "chat", "edge", "live", "waiting", "pip", "theater", "fullscreen",
@@ -45,6 +45,19 @@ public sealed class VideoPlayerTests
         Assert.Equal("0", seek.GetAttribute("tabindex"));
         Assert.Equal("true", seek.GetAttribute("aria-disabled"));
         Assert.Equal("0:00 of 1:00:00", seek.GetAttribute("aria-valuetext"));
+
+        // The title strip's chapter line starts hidden; the module names the chapter it finds.
+        var chapter = cut.Find("[data-sk='chapter']");
+        Assert.True(chapter.HasAttribute("hidden"));
+        Assert.Equal("streamer", chapter.PreviousElementSibling?.GetAttribute("data-sk"));
+
+        // The live control is the way back from a review position. It starts hidden, names the
+        // action, and carries the short phone label as well as the full one.
+        var live = cut.Find("[data-sk='live']");
+        Assert.True(live.HasAttribute("hidden"));
+        Assert.Equal("Jump to live edge", live.GetAttribute("aria-label"));
+        Assert.Contains("Jump to live", live.TextContent);
+        Assert.Contains("Live", live.TextContent);
 
         Assert.Equal(
             ["0.5", "1", "1.5", "2"],
@@ -287,20 +300,6 @@ public sealed class VideoPlayerTests
         await cut.InvokeAsync(() => preferences.SetTheater(false));
         cut.WaitForAssertion(() => Assert.Contains(module.Invocations,
             call => call.Identifier == "setTheater" && Equals(call.Arguments[1], false)));
-    }
-
-    [Fact]
-    public void The_quality_control_is_static_source_text()
-    {
-        using BunitContext context = CreateContext(out _);
-
-        IRenderedComponent<VideoPlayer> cut = context.Render<VideoPlayer>(
-            p => p.Add(c => c.Recording, Recording("r1", "First")));
-
-        var quality = cut.Find("[data-quality]");
-        Assert.Equal("SPAN", quality.TagName);
-        Assert.Equal("Source", quality.TextContent);
-        Assert.Empty(cut.FindAll("[data-menu='m-quality']"));
     }
 
     [Fact]

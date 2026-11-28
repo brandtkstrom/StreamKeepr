@@ -44,10 +44,10 @@ Mark each item **Pass**, **Fail**, **Skipped** or **Accepted** (a known limitati
 
 ### Live recordings
 
-- **L1.** Open a recording marked **Rec**. It opens near the live edge, ignores any saved position, and shows the red live tick and the **Live edge** button.
-- **L2.** Pause, wait about 15 s, then play. The player does not jump forward on its own. **Live edge** seeks back to near live and keeps following.
+- **L1.** Open a recording marked **Rec**. It opens near the live edge, ignores any saved position, and shows the red live tick and the **Jump to live** button.
+- **L2.** Pause, wait about 15 s, then play. The player does not jump forward on its own. **Jump to live** seeks back to near live and keeps following.
 - **L3.** Before the 30 s mark, open Echo Lane's "Chill art stream". It becomes live without a manual reload.
-- **L4.** Keep it playing past about 60 s, when it ends. The live tick and **Live edge** disappear, the duration becomes finite, the position is kept, and the status chip updates. There is no reload or error.
+- **L4.** Keep it playing past about 60 s, when it ends. The live tick and **Jump to live** disappear, the duration becomes finite, the position is kept, and the status chip updates. There is no reload or error.
 
 ### Deleted recording
 
@@ -57,7 +57,7 @@ Mark each item **Pass**, **Fail**, **Skipped** or **Accepted** (a known limitati
 
 - **F1.** Tap fullscreen. iPhone Safari has no element fullscreen, so the player hands the video to Safari's own fullscreen with native controls; mark that **Accepted** (player contract §14). Leaving fullscreen returns to the page, and playback carries on.
 - **F2.** The picture-in-picture button shows only when Safari supports it. Enter picture-in-picture, switch to another app, then come back. Video keeps playing, and the button's icon matches the current state.
-- **F3.** In portrait (player ≤ 520 px wide), skip, picture-in-picture, speed, theater, volume, the quality pill and the live-edge label are hidden. Play, the seek bar and fullscreen remain, and the page does not scroll sideways.
+- **F3.** In portrait (player ≤ 520 px wide), skip, picture-in-picture, speed, theater, and volume are hidden. Play, the seek bar, the **Live** short label, and fullscreen remain, and the page does not scroll sideways. There is no quality control anywhere.
 - **F4.** In landscape, the hidden controls come back as the width allows, and nothing overlaps.
 
 ### Interruptions

@@ -27,7 +27,15 @@
     <div class="sk-player-top">
         <div class="t">
             <b data-sk="title">@Recording.Title</b>
-            <span data-sk="streamer">@Recording.StreamerLogin</span>
+            <span class="meta">
+                <span data-sk="streamer">@Recording.StreamerLogin</span>
+                @* The module names the chapter under the playhead; hidden until it has one. *@
+                <span class="chapter" data-sk="chapter" hidden>
+                    @IslandIcon.Svg("Toc")
+                    <span class="sk-visually-hidden">Chapter </span>
+                    <span data-sk="chapter-title"></span>
+                </span>
+            </span>
         </div>
         <span data-sk="chip"></span>
     </div>
@@ -96,7 +104,9 @@
                 <span class="dim">/ <span data-sk="duration">@Format.Timecode(Recording.DurationSec)</span></span>
             </span>
             <button type="button" class="sk-golive" data-sk="live" aria-label="Jump to live edge" hidden>
-                <span class="dot" aria-hidden="true"></span><span class="lbl-long">Live edge</span>
+                <span class="dot" aria-hidden="true"></span>
+                <span class="lbl-long">Jump to live</span>
+                <span class="lbl-short">Live</span>
             </button>
             <span class="grow"></span>
             <div class="sk-player-menu-anchor">
@@ -122,8 +132,6 @@
                     }
                 </div>
             </div>
-            @* One captured quality, so the quality control is static text (E-20). *@
-            <span class="sk-pill sk-quality" data-quality title="Quality: source">Source</span>
             <button type="button"
                     class="sk-player-btn"
                     data-sk="stats"

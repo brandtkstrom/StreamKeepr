@@ -721,7 +721,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     }
 
     [Fact]
-    public async Task A_position_left_behind_the_live_edge_resumes_after_reload_until_Live_edge_forgets_it()
+    public async Task A_position_left_behind_the_live_edge_resumes_after_reload_until_Jump_to_live_forgets_it()
     {
         await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
@@ -758,8 +758,8 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.True(await Video(page, "v => v.paused"), "resume never autoplays");
         Assert.Null(await live.GetAttributeAsync("data-at-edge"));
 
-        // Live edge forgets the position: the row returns to the full live bar and the next
-        // open starts at the live edge again.
+        // Jump to live forgets the position: the row returns to the full live bar and the
+        // next open starts at the live edge again.
         await live.ClickAsync();
         Assert.NotNull(await live.GetAttributeAsync("data-at-edge"));
         await LibraryHooks.OpenChannelAsync(page, channel);
@@ -897,7 +897,10 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.True(await page.Locator("[data-sk='fullscreen']").IsVisibleAsync());
         bool pipEnabled = await page.EvaluateAsync<bool>("() => document.pictureInPictureEnabled === true");
         Assert.Equal(pipEnabled, await page.Locator("[data-sk='pip']").IsVisibleAsync());
-        Assert.Equal("Source", (await page.Locator("[data-quality]").InnerTextAsync()).Trim());
+        Assert.False(
+            await page.Locator("[data-sk='live']").IsVisibleAsync(),
+            "a finished recording has no live control");
+        Assert.Equal(0, await page.Locator("[data-quality]").CountAsync());
 
         await session.ReloadAsync();
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 20_000 });
