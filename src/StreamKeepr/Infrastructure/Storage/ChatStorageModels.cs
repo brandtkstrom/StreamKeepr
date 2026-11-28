@@ -75,8 +75,13 @@ internal static class ChatEventKinds
     public const string End = "end";
     public const string Purged = "purged";
 
-    /// <summary>Kinds that carry removed text; the purge drops them once applied.</summary>
-    public static bool IsTombstone(string kind) => kind is Delete or ClearUser or ClearAll;
+    /// <summary>
+    /// Kinds that carry removed text; the purge drops them once applied. An array so database
+    /// queries can use it too (<c>Contains</c> translates to <c>IN</c>).
+    /// </summary>
+    public static readonly string[] TombstoneKinds = [Delete, ClearUser, ClearAll];
+
+    public static bool IsTombstone(string kind) => Array.IndexOf(TombstoneKinds, kind) >= 0;
 }
 
 public sealed record ChatQueryMessage(

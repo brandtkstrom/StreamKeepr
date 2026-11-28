@@ -147,10 +147,7 @@ internal sealed class ChatRecords(IDbContextFactory<RecordStoreDbContext> contex
         }
 
         db.ChatEvents
-            .Where(row => row.SessionId == sessionId &&
-                          (row.Kind == ChatEventKinds.Delete ||
-                           row.Kind == ChatEventKinds.ClearUser ||
-                           row.Kind == ChatEventKinds.ClearAll))
+            .Where(row => row.SessionId == sessionId && ChatEventKinds.TombstoneKinds.Contains(row.Kind))
             .ExecuteDelete();
 
         int removed = removedRows.Count;

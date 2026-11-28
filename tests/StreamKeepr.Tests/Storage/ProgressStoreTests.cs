@@ -333,6 +333,38 @@ public sealed class ProgressStoreTests : IDisposable
         _records.Dispose();
     }
 
+    [Fact]
+    public async Task A_write_that_fails_for_a_non_store_reason_faults_only_its_caller()
+    {
+        Add(Finished("r1", durationSeconds: 600));
+        RecordStoreState state = await _records.StartAsync();
+        var contexts = new BuggyContexts(_contexts);
+        using var store = new ProgressStore(
+            _library, contexts, state, _clock, _loggers.CreateLogger<ProgressStore>());
+        await store.LoadAsync(Ct);
+
+        contexts.Broken = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.SetAsync("r1", 20, Ct));
+        contexts.Broken = false;
+
+        // The fault is logged where it happened, later writes still run, and flushing
+        // (as shutdown does) does not rethrow it.
+        await store.SetAsync("r1", 40, Ct);
+        await store.FlushAsync(Ct);
+        Assert.Equal(new Dictionary<string, double> { ["r1"] = 40 }, await StoredAsync());
+        Assert.Single(_logs.Entries, entry => entry.Level == LogLevel.Error);
+    }
+
+    /// <summary>Simulates a programming error in the write path, which is not a store failure.</summary>
+    private sealed class BuggyContexts(IDbContextFactory<RecordStoreDbContext> inner)
+        : IDbContextFactory<RecordStoreDbContext>
+    {
+        public bool Broken { get; set; }
+
+        public RecordStoreDbContext CreateDbContext() =>
+            Broken ? throw new InvalidOperationException("bug (simulated)") : inner.CreateDbContext();
+    }
+
     /// <summary>A process (re)start: the record store's startup step, then a loaded progress store.</summary>
     private async Task<ProgressStore> CreateAsync()
     {

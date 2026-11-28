@@ -41,7 +41,10 @@ public sealed class ProgressStore : IProgressStore, IHostedService, IDisposable
     private readonly object _gate = new();
     private readonly Dictionary<string, double> _positions = new(StringComparer.Ordinal);
 
-    /// <summary>The last queued write; it never faults. Guarded by <see cref="_gate"/>.</summary>
+    /// <summary>
+    /// The last queued write. A store failure never faults it; any other failure faults only that
+    /// write's own task, after it is logged. Guarded by <see cref="_gate"/>.
+    /// </summary>
     private Task _writes = Task.CompletedTask;
 
     public ProgressStore(
@@ -130,13 +133,17 @@ public sealed class ProgressStore : IProgressStore, IHostedService, IDisposable
         OnLibraryChanged();
     }
 
-    /// <summary>Completes once every write queued so far has finished.</summary>
-    public Task FlushAsync(CancellationToken ct)
+    /// <summary>
+    /// Completes once every write queued so far has finished. A write that faulted already
+    /// faulted its caller and was logged, so flushing (and shutdown) does not rethrow it.
+    /// </summary>
+    public async Task FlushAsync(CancellationToken ct)
     {
         Task writes;
         lock (_gate)
             writes = _writes;
-        return writes.WaitAsync(ct);
+        await writes.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        ct.ThrowIfCancellationRequested();
     }
 
     Task IHostedService.StartAsync(CancellationToken cancellationToken) => LoadAsync(cancellationToken);
@@ -188,7 +195,17 @@ public sealed class ProgressStore : IProgressStore, IHostedService, IDisposable
         // A write that failed for any other reason already faulted its own caller; it must not
         // stop the writes queued behind it.
         await previous.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        await WriteAsync(recordingId, position, at).ConfigureAwait(false);
+        try
+        {
+            await WriteAsync(recordingId, position, at).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Not a store failure (WriteAsync handles those), so a bug: log it here, where it
+            // happened, because a write queued by a library change has no caller to observe it.
+            _logger.LogError(ex, "Writing the resume position for {RecordingId} failed unexpectedly.", recordingId);
+            throw;
+        }
     }
 
     /// <summary>

@@ -295,6 +295,10 @@ internal sealed class ChatSessionWriter(
             logger.LogWarning(ex,
                 "Chat for {SessionId} could not be stored; {MessageCount} messages and {EventCount} events were skipped.",
                 summary.Id, batch.Messages.Count, batch.Events.Count);
+
+            // Count only what reached the store, for the byte cap and the close log.
+            _messageCount -= batch.Messages.Count;
+            _approxBytes -= batch.Bytes;
             _pendingEvents.Add(LostBatchGap(batch));
         }
     }

@@ -113,9 +113,8 @@ public sealed class RecoveryService(
 
         await library.LoadAsync(root, store, ct);
 
-        // Recovery skipped these (unsafe name, missing folder or media, unreadable or unrepairable
-        // media);
-        // never expose them even if LoadAsync could project their records.
+        // Recovery skipped these (unsafe name, missing folder or media, unreadable or
+        // unrepairable media); never expose them even if LoadAsync could project their records.
         foreach (string skippedId in skipped)
             library.Remove(skippedId);
 

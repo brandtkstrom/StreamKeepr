@@ -309,6 +309,7 @@ public sealed class RecoveryServiceTests : IDisposable
         Assert.Null(recovered[Channel].Finished);
         Assert.Null(_context.Library.Find(session.Id));
         Assert.True(_context.Library.IsLoaded);
+        Assert.NotNull(await _context.Store.TryLoadAsync(session.Directory, CancellationToken.None));
     }
 
     [Fact]
@@ -424,6 +425,29 @@ public sealed class RecoveryServiceTests : IDisposable
         Assert.Equal(newer.Id, channel.Unfinished!.Session.Id);
         Assert.Null(channel.Finished);
         Assert.False(Directory.Exists(older.Directory));
+    }
+
+    [Fact]
+    public async Task Newest_empty_session_stays_resumable_from_its_first_part()
+    {
+        // The newest unfinished session of a watched channel resumes even with no media yet
+        // (it opened, then the process died before the first segment); only older ones go.
+        Session older = CreateSession("995", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(older, "995");
+        Session newest = CreateSession("996", SessionStoreTestContext.StartedAt.AddHours(1));
+        await _context.Store.OpenAsync(
+            newest, new LiveStream("996", "Title 996", "Just Chatting", newest.StartedAt, null),
+            CancellationToken.None);
+
+        IReadOnlyDictionary<string, RecoveredChannel> recovered =
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        RecoveredChannel channel = recovered[Channel];
+        Assert.Equal(newest.Id, channel.Unfinished!.Session.Id);
+        Assert.Equal(1, channel.Unfinished.NextPart);
+        Assert.Equal(older.Id, channel.Finished!.Session.Id);
+        Assert.True(Directory.Exists(newest.Directory));
+        Assert.NotNull(await _context.Store.TryLoadAsync(newest.Directory, CancellationToken.None));
     }
 
     [Fact]

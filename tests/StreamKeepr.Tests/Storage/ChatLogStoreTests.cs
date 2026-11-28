@@ -565,6 +565,30 @@ public sealed class ChatLogStoreTests : IDisposable
     }
 
     [Fact]
+    public void Messages_lost_with_a_failed_batch_do_not_count_as_stored()
+    {
+        using var logs = new ListLoggerProvider();
+        using ILoggerFactory loggers = TestLogging.Factory(logs);
+        var contexts = new FailableRecordContexts(_records.Contexts, _records.DatabasePath) { Failing = true };
+        ChatLogStore store = _records.CreateStore(
+            new ChatOptions(), _clock, loggers.CreateLogger<ChatLogStore>(), contexts);
+
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, "lost"));
+        store.Append("chan", Message("b", 5, "lost too"));
+        store.Flush();
+        contexts.Failing = false;
+        store.Append("chan", Message("c", 8, "kept"));
+        store.CloseSession(_summary.Id, finalize: true);
+
+        // The close log and the byte cap count only what reached the store.
+        var closed = Assert.Single(logs.Entries, entry =>
+            entry.Message.Contains("closed with", StringComparison.Ordinal));
+        Assert.Equal(1, closed.Properties["MessageCount"]);
+        Assert.Equal(1, _records.ChatSession(_summary.Id)!.MessageCount);
+    }
+
+    [Fact]
     public void A_batch_written_after_its_session_record_is_gone_is_logged_and_skipped()
     {
         using var logs = new ListLoggerProvider();
