@@ -233,6 +233,7 @@ The pane's tail fill, read-ahead window, polling, backfill, and emotes are descr
 
 ## 13. Loading, waiting, and errors
 
+- Each load names its recording on the root's `data-sk-recording`, in the same task that resets the seek bar to disabled, so a reader that sees the new id never sees the previous recording's enabled seek bar.
 - On load the poster shows; `aria-busy` is set until metadata and the first buffered range exist. A spinner appears after 500 ms of loading, with a visually hidden “Loading video”.
 - **First load** (no live playlist with segments has loaded yet): while Recording/Reconnecting and the playlist is missing, empty, or fails to load, parse, or time out, show “Waiting for the first segment…” with the spinner and retry the manifest every 3 s. This is not an error and has no timeout. It becomes an error only if the session is Complete before any segment arrives.
 - hls.js allows 30 s to first byte and 30 s total per live playlist request (raised from its 10 s/20 s defaults). It still retries at the defaults: two timeout retries at 0 ms and two error retries at 1 s/8 s. The 60 s forward buffer keeps playback running while a slow playlist is fetched; the fatal-error retries below are separate.
