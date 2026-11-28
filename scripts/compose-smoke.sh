@@ -258,13 +258,13 @@ docker exec "$container" sh -c 'test -z "$(find /recordings -name "*.db" -print 
 database_inode="$(docker exec "$container" stat -c '%i' /data/streamkeepr.db)"
 echo "Record store created on the data volume"
 
-keys_before="$(docker run --rm --user 1654:1654 --volume "$volume:/recordings" \
-    --entrypoint sh "$image" -c 'cd /recordings/.streamkeepr/keys && ls -1 | sort')"
-[ -n "$keys_before" ] || fail "Data Protection keys were not created on the recordings volume"
-docker run --rm --user 1654:1654 --volume "$volume:/recordings" \
-    --entrypoint sh "$image" -c 'test "$(stat -c %a /recordings/.streamkeepr/keys)" = 700' \
+keys_before="$(docker exec "$container" sh -c 'cd /data/keys && ls -1 | sort')"
+[ -n "$keys_before" ] || fail "Data Protection keys were not created on the data volume"
+docker exec "$container" sh -c 'test "$(stat -c %a /data/keys)" = 700' \
     || fail "Data Protection key directory is not mode 0700"
-echo "Data Protection keys exist on the recordings volume"
+docker exec "$container" test ! -e /recordings/.streamkeepr/keys \
+    || fail "Data Protection keys were written to the recordings volume"
+echo "Data Protection keys exist on the data volume"
 
 echo "Stopping the production service"
 started_at="$(date +%s)"
@@ -279,8 +279,7 @@ echo "Restarting the production service"
 "${compose[@]}" start
 wait_for_url "http://127.0.0.1:$port/health/live" "/health/live after restart"
 assert_status "http://127.0.0.1:$port/" 200
-keys_after="$(docker run --rm --user 1654:1654 --volume "$volume:/recordings" \
-    --entrypoint sh "$image" -c 'cd /recordings/.streamkeepr/keys && ls -1 | sort')"
+keys_after="$(docker exec "$container" sh -c 'cd /data/keys && ls -1 | sort')"
 [ "$keys_before" = "$keys_after" ] || fail "Data Protection keys changed across restart"
 [ "$(docker exec "$container" stat -c '%i' /data/streamkeepr.db)" = "$database_inode" ] \
     || fail "the record store was replaced across restart"

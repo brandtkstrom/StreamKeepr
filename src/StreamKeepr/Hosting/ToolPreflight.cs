@@ -42,8 +42,11 @@ public sealed class ToolPreflight(
 
         string recordingsRoot = storageOptions.Value.RecordingsRoot;
         OwnerOnlyFileSystem.EnsureWritableRecordingsRoot(recordingsRoot);
-        OwnerOnlyFileSystem.EnsureWritableKeyDirectory(AppDataPaths.KeysDirectory(recordingsRoot));
         EnsureDatabaseVolume(storageOptions.Value);
+
+        // The key ring lives in the database directory, so it is probed once that is writable.
+        OwnerOnlyFileSystem.EnsureWritableKeyDirectory(
+            AppDataPaths.DataProtectionKeysDirectory(storageOptions.Value.DatabasePath));
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

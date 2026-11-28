@@ -1,10 +1,12 @@
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
+using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Twitch;
 
 namespace StreamKeepr.Tests.Twitch;
@@ -86,7 +88,7 @@ internal sealed class RecordingHttpMessageHandler(
 internal static class AdminTokenStoreTestData
 {
     public static AdminTokenStore CreateStore(
-        string recordingsRoot,
+        IDbContextFactory<RecordStoreDbContext> records,
         IDataProtectionProvider dataProtection,
         HttpMessageHandler handler,
         TimeProvider clock,
@@ -94,7 +96,7 @@ internal static class AdminTokenStoreTestData
         new(
             dataProtection,
             new StubHttpClientFactory(handler),
-            Options.Create(new StorageOptions { RecordingsRoot = recordingsRoot }),
+            records,
             Options.Create(new TwitchOptions
             {
                 ClientId = "test-client-id",

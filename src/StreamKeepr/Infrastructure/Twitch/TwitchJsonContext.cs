@@ -12,7 +12,6 @@ namespace StreamKeepr.Infrastructure.Twitch;
 [JsonSerializable(typeof(HelixUsersResponse))]
 [JsonSerializable(typeof(HelixBadgesResponse))]
 [JsonSerializable(typeof(EventSubSubscriptionRequest))]
-[JsonSerializable(typeof(ConduitState))]
 [JsonSerializable(typeof(HelixEventSubSubscriptionsResponse))]
 [JsonSerializable(typeof(HelixConduitsResponse))]
 [JsonSerializable(typeof(CreateConduitRequest))]

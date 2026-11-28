@@ -9,8 +9,9 @@ using StreamKeepr.Configuration;
 namespace StreamKeepr.Hosting;
 
 /// <summary>
-/// Registers Data Protection with a key ring persisted on the recordings volume,
-/// alongside the admin token store and outside the media surface. The repository
+/// Registers Data Protection with a key ring persisted beside the record store
+/// (<see cref="AppDataPaths.DataProtectionKeysDirectory"/>), on the same volume as the
+/// admin token ciphertext and outside the media surface. The repository
 /// is configured through <see cref="KeyManagementOptions"/> rather than
 /// PersistKeysToFileSystem so its path comes from validated storage options and
 /// key files can be restricted to the owner.
@@ -27,10 +28,10 @@ public static class DataProtectionKeyRing
         services.AddSingleton<IConfigureOptions<KeyManagementOptions>>(serviceProvider =>
         {
             // StorageOptions is bound and validated by the host before this options
-            // instance is resolved, so a missing root still reports the option error.
-            var recordingsRoot = serviceProvider.GetRequiredService<IOptions<StorageOptions>>()
-                .Value.RecordingsRoot;
-            var keyDirectory = AppDataPaths.KeysDirectory(recordingsRoot);
+            // instance is resolved, so a missing path still reports the option error.
+            var databasePath = serviceProvider.GetRequiredService<IOptions<StorageOptions>>()
+                .Value.DatabasePath;
+            var keyDirectory = AppDataPaths.DataProtectionKeysDirectory(databasePath);
             var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
 
             // Data Protection is resolved while the request pipeline is built, which

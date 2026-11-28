@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Hosting;
+using StreamKeepr.Tests.Records;
 
 namespace StreamKeepr.Tests.Hosting;
 
@@ -34,17 +35,19 @@ public sealed class DataProtectionKeyRingTests
     }
 
     [Fact]
-    public void Key_ring_uses_the_private_app_data_folder_with_owner_only_permissions()
+    public void Key_ring_lives_in_the_database_directory_with_owner_only_permissions()
     {
         using var root = new TempRecordingsRoot();
         using var factory = new StreamKeeprAppFactory(recordingsRoot: root.Path);
         using var client = factory.CreateClient();
 
-        var keyDirectory = AppDataPaths.KeysDirectory(factory.RecordingsRoot);
+        var keyDirectory = KeysDirectory(factory.RecordingsRoot);
         Assert.Equal(
-            Path.Combine(factory.RecordingsRoot, ".streamkeepr", "keys"),
+            Path.Combine(TestRecordStore.DataDirectoryIn(factory.RecordingsRoot), "keys"),
             keyDirectory);
         Assert.True(Directory.Exists(keyDirectory));
+        Assert.False(Directory.Exists(
+            Path.Combine(AppDataPaths.AppDataDirectory(factory.RecordingsRoot), AppDataPaths.KeysDirectoryName)));
 
         var dataProtection = factory.Services.GetRequiredService<IOptions<DataProtectionOptions>>().Value;
         Assert.Equal(DataProtectionKeyRing.ApplicationName, dataProtection.ApplicationDiscriminator);
@@ -79,7 +82,7 @@ public sealed class DataProtectionKeyRingTests
             payload = CreateProtector(first).Protect("old cookie");
         }
 
-        Directory.Delete(AppDataPaths.KeysDirectory(root.Path), recursive: true);
+        Directory.Delete(KeysDirectory(root.Path), recursive: true);
 
         using (var second = new StreamKeeprAppFactory(recordingsRoot: root.Path))
         {
@@ -106,7 +109,7 @@ public sealed class DataProtectionKeyRingTests
             payload = CreateProtector(first).Protect("old cookie");
         }
 
-        var keyFile = Assert.Single(Directory.GetFiles(AppDataPaths.KeysDirectory(root.Path), "*.xml"));
+        var keyFile = Assert.Single(Directory.GetFiles(KeysDirectory(root.Path), "*.xml"));
         await File.WriteAllTextAsync(keyFile, "not xml <<<");
 
         using (var second = new StreamKeeprAppFactory(recordingsRoot: root.Path))
@@ -128,7 +131,7 @@ public sealed class DataProtectionKeyRingTests
     {
         using var root = new TempRecordingsRoot();
         Directory.CreateDirectory(root.Path);
-        var keyDirectory = AppDataPaths.KeysDirectory(root.Path);
+        var keyDirectory = KeysDirectory(root.Path);
         Directory.CreateDirectory(Path.GetDirectoryName(keyDirectory)!);
         File.WriteAllText(keyDirectory, "blocks the key directory");
 
@@ -140,19 +143,19 @@ public sealed class DataProtectionKeyRingTests
     }
 
     [Fact]
-    public void Key_ring_is_not_on_a_media_path()
+    public void Key_ring_is_beside_the_database_and_not_on_the_media_volume()
     {
-        // /media only exposes recordings and uses an extension allowlist; the
-        // private app-data folder is separate. The HTTP 404 assertion arrives
-        // with the media surface in #31.
-        var keyDirectory = AppDataPaths.KeysDirectory("/recordings");
+        // The container default: the record store and its key ring share the /data volume,
+        // and /media only ever exposes the recordings volume.
+        var keyDirectory = AppDataPaths.DataProtectionKeysDirectory("/data/streamkeepr.db");
 
-        Assert.Equal(Path.Combine("/recordings", ".streamkeepr", "keys"), keyDirectory);
-        Assert.StartsWith(
-            Path.Combine("/recordings", ".streamkeepr") + Path.DirectorySeparatorChar,
-            keyDirectory,
-            StringComparison.Ordinal);
+        Assert.Equal(Path.GetFullPath(Path.Combine("/data", "keys")), keyDirectory);
+        Assert.DoesNotContain("recordings", keyDirectory, StringComparison.Ordinal);
     }
+
+    /// <summary>Where a host built by <see cref="StreamKeeprAppFactory"/> keeps its key ring.</summary>
+    private static string KeysDirectory(string recordingsRoot) =>
+        AppDataPaths.DataProtectionKeysDirectory(TestRecordStore.DatabasePathIn(recordingsRoot));
 
     private static IDataProtector CreateProtector(StreamKeeprAppFactory factory) =>
         factory.Services.GetRequiredService<IDataProtectionProvider>().CreateProtector(Purpose);

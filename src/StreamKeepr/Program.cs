@@ -326,7 +326,7 @@ try
     // One FFmpeg export at a time, independent of any circuit.
     builder.Services.AddHostedService(services => services.GetRequiredService<ExportService>());
 
-    // Keys live on the recordings volume and are ready before auth or token storage runs.
+    // Keys live beside the record store and are ready before auth or token storage runs.
     builder.Services.AddStreamKeeprDataProtection();
 
     // The supervisor starts only after preflight and the key-ring check have succeeded.

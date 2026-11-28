@@ -46,7 +46,7 @@ public sealed class ConduitRetirementService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Polling and the WebSocket transport do not depend on this; keep the state file so
+            // Polling and the WebSocket transport do not depend on this; keep the saved state so
             // the next start retries. An unreachable conduit expires on Twitch's side.
             logger.LogWarning(
                 ex,

@@ -116,9 +116,9 @@ Docker healthcheck: `/health/live`, interval 30 s, timeout 5 s, start period 60 
 
 ## 6. Data Protection
 
-- `AddDataProtection().PersistKeysToFileSystem(<recordings>/.streamkeepr/keys).SetApplicationName("StreamKeepr")`.
-- Directory `0700`, files `0600`; create before auth or token use.
-- Keys live on the recordings volume, survive restarts, and are never served (the media allowlist blocks `.streamkeepr`).
+- Keys persist to a `keys` directory beside the record store (`<directory of Storage:DatabasePath>/keys`, `/data/keys` in the container) with `SetApplicationName("StreamKeepr")`.
+- Directory `0700`, files `0600`; create before auth or token use. The database directory itself is operator-owned and keeps its permissions.
+- Keys live on the data volume with the admin token ciphertext they protect, survive restarts, and are never on the media volume. Moving them there (#319) invalidated earlier cookies and tokens by design; the admin signs in again.
 - Losing the key ring invalidates cookies, antiforgery tokens, and the encrypted admin token; log it and require re-authentication.
 - An unwritable key directory fails startup with a clear message.
 - No keys are baked into the image or committed.
@@ -133,7 +133,8 @@ long-lived routes out of HTTP metrics.
 
 - `ffmpeg -version`, `ffprobe -version`, `streamlink --version`; log the first line of each. Missing tools throw a clear `InvalidOperationException` naming the tool.
 - Recordings root: create it, write and delete `.write-probe`, and fail with the UID 1654 / named-volume-or-chown message on `UnauthorizedAccessException` or `IOException`.
-- Data Protection key directory: create and probe; fail with the same ownership guidance.
+- Database directory (`Storage:DatabasePath`): create and probe, and check `Storage:DatabaseMinFreeGb`.
+- Data Protection key directory (inside the database directory): create `0700` and probe; fail with the same ownership guidance for the data volume.
 - Any failure stops startup; no partial channel start.
 
 ## 8. Container

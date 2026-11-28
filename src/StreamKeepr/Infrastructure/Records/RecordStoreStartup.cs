@@ -31,7 +31,12 @@ public sealed class RecordStoreStartup(
     /// Sidecars the record store replaces. They are never read or imported; startup only says
     /// that they were found. Later tickets add theirs as they move onto the store.
     /// </summary>
-    private static readonly string[] LegacyFileNames = [AppDataPaths.ChannelsFileName];
+    private static readonly string[] LegacyFileNames =
+    [
+        AppDataPaths.ChannelsFileName,
+        AppDataPaths.AdminTokensFileName,
+        AppDataPaths.EventSubConduitFileName,
+    ];
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {

@@ -1,9 +1,13 @@
 using System.Net;
 using System.Text;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using StreamKeepr.Hosting;
+using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
+using StreamKeepr.Tests.Records;
 
 namespace StreamKeepr.Tests.Twitch;
 
@@ -12,32 +16,20 @@ public sealed class AdminTokenStoreTests
     private static readonly DateTimeOffset T0 = new(2026, 11, 10, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task Save_writes_an_encrypted_owner_only_file_and_get_round_trips()
+    public async Task Save_writes_one_ciphertext_row_and_get_round_trips()
     {
         using var harness = new Harness(_ => throw UnexpectedRequest());
         var token = AdminTokenStoreTestData.Token(T0.AddHours(2));
 
         await harness.Store.SaveAsync(token, CancellationToken.None);
 
-        Assert.True(File.Exists(harness.TokenPath));
-        var ciphertext = await File.ReadAllBytesAsync(harness.TokenPath);
-        var text = Encoding.UTF8.GetString(ciphertext);
-        Assert.DoesNotContain(token.AccessToken, text, StringComparison.Ordinal);
-        Assert.DoesNotContain(token.RefreshToken, text, StringComparison.Ordinal);
-        Assert.DoesNotContain(token.Login, text, StringComparison.Ordinal);
-
-        if (!OperatingSystem.IsWindows())
-        {
-            Assert.Equal(
-                UnixFileMode.UserRead | UnixFileMode.UserWrite,
-                File.GetUnixFileMode(harness.TokenPath));
-            Assert.Equal(
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute,
-                File.GetUnixFileMode(Path.GetDirectoryName(harness.TokenPath)!));
-        }
-
-        var appData = Path.GetDirectoryName(harness.TokenPath)!;
-        Assert.Empty(Directory.GetFiles(appData, "*.tmp"));
+        AdminTokenRow row = Assert.Single(await harness.ReadRowsAsync());
+        Assert.Equal(AdminTokenRow.SingletonId, row.Id);
+        Assert.Equal(T0, row.UpdatedAt);
+        Assert.DoesNotContain(token.AccessToken, row.Ciphertext, StringComparison.Ordinal);
+        Assert.DoesNotContain(token.RefreshToken, row.Ciphertext, StringComparison.Ordinal);
+        Assert.DoesNotContain(token.Login, row.Ciphertext, StringComparison.Ordinal);
+        await harness.AssertDatabaseHasNoPlaintextAsync(token.AccessToken, token.RefreshToken);
 
         Assert.Equal(token.AccessToken, await harness.Store.GetAsync(CancellationToken.None));
 
@@ -46,12 +38,46 @@ public sealed class AdminTokenStoreTests
     }
 
     [Fact]
+    public async Task A_signed_in_token_survives_a_restart()
+    {
+        using var harness = new Harness(_ => throw UnexpectedRequest());
+        await harness.Store.SaveAsync(AdminTokenStoreTestData.Token(T0.AddHours(2)), CancellationToken.None);
+
+        await harness.Records.StartAsync();
+        using var restarted = harness.CreateSecondStore();
+
+        Assert.Equal("access-1", await restarted.GetAsync(CancellationToken.None));
+        await restarted.WaitForTokenAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public async Task Get_returns_null_when_no_token_exists()
     {
         using var harness = new Harness(_ => throw UnexpectedRequest());
 
         Assert.Null(await harness.Store.GetAsync(CancellationToken.None));
-        Assert.False(File.Exists(harness.TokenPath));
+        Assert.Empty(await harness.ReadRowsAsync());
+    }
+
+    [Fact]
+    public async Task A_legacy_token_file_is_neither_read_nor_written()
+    {
+        using var harness = new Harness(_ => throw UnexpectedRequest());
+        string appData = AppDataPaths.AppDataDirectory(harness.Records.RecordingsRoot);
+        string legacy = Path.Combine(appData, AppDataPaths.AdminTokensFileName);
+        Directory.CreateDirectory(appData);
+        byte[] legacyPayload = harness.DataProtection.Provider
+            .CreateProtector("StreamKeepr.AdminTokens")
+            .Protect(Encoding.UTF8.GetBytes(
+                "{\"Login\":\"streamer\",\"AccessToken\":\"legacy-access\",\"RefreshToken\":\"legacy-refresh\"," +
+                "\"ExpiresAt\":\"2026-11-10T14:00:00+00:00\"}"));
+        await File.WriteAllBytesAsync(legacy, legacyPayload);
+
+        Assert.Null(await harness.Store.GetAsync(CancellationToken.None));
+        await harness.Store.SaveAsync(AdminTokenStoreTestData.Token(T0.AddHours(1)), CancellationToken.None);
+        await harness.Store.ClearAsync(CancellationToken.None);
+
+        Assert.Equal(legacyPayload, await File.ReadAllBytesAsync(legacy));
     }
 
     [Fact]
@@ -71,15 +97,12 @@ public sealed class AdminTokenStoreTests
         Assert.Equal(2, changes);
         Assert.Equal("access-2", await harness.Store.GetAsync(CancellationToken.None));
 
-        var text = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(harness.TokenPath));
-        Assert.DoesNotContain("access-1", text, StringComparison.Ordinal);
-        Assert.DoesNotContain("refresh-1", text, StringComparison.Ordinal);
-        Assert.DoesNotContain("access-2", text, StringComparison.Ordinal);
-        Assert.DoesNotContain("refresh-2", text, StringComparison.Ordinal);
+        Assert.Single(await harness.ReadRowsAsync());
+        await harness.AssertDatabaseHasNoPlaintextAsync("access-1", "refresh-1", "access-2", "refresh-2");
     }
 
     [Fact]
-    public async Task Clear_deletes_the_file_raises_changed_and_returns_null()
+    public async Task Clear_deletes_the_row_raises_changed_and_returns_null()
     {
         using var harness = new Harness(_ => throw UnexpectedRequest());
         await harness.Store.SaveAsync(
@@ -91,7 +114,7 @@ public sealed class AdminTokenStoreTests
 
         await harness.Store.ClearAsync(CancellationToken.None);
 
-        Assert.False(File.Exists(harness.TokenPath));
+        Assert.Empty(await harness.ReadRowsAsync());
         Assert.Equal(1, changes);
         Assert.Null(await harness.Store.GetAsync(CancellationToken.None));
 
@@ -149,11 +172,25 @@ public sealed class AdminTokenStoreTests
         Assert.Equal("access-3", await second.GetAsync(CancellationToken.None));
         Assert.Equal(2, harness.Handler.Requests.Count);
 
-        var text = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(harness.TokenPath));
-        Assert.DoesNotContain("access-2", text, StringComparison.Ordinal);
-        Assert.DoesNotContain("refresh-2", text, StringComparison.Ordinal);
-        Assert.DoesNotContain("access-3", text, StringComparison.Ordinal);
-        Assert.DoesNotContain("refresh-3", text, StringComparison.Ordinal);
+        Assert.Single(await harness.ReadRowsAsync());
+        await harness.AssertDatabaseHasNoPlaintextAsync("access-2", "refresh-2", "access-3", "refresh-3");
+    }
+
+    [Fact]
+    public async Task A_refreshed_token_is_used_after_a_restart()
+    {
+        using var harness = new Harness(
+            _ => AdminTokenStoreTestData.TokenResponse("access-2", "refresh-2"));
+        await harness.Store.SaveAsync(
+            AdminTokenStoreTestData.Token(T0.AddMinutes(4), "access-1", "refresh-1"),
+            CancellationToken.None);
+        Assert.Equal("access-2", await harness.Store.GetAsync(CancellationToken.None));
+
+        await harness.Records.StartAsync();
+        using var restarted = harness.CreateSecondStore();
+
+        Assert.Equal("access-2", await restarted.GetAsync(CancellationToken.None));
+        Assert.Single(harness.Handler.Requests);
     }
 
     [Theory]
@@ -172,7 +209,7 @@ public sealed class AdminTokenStoreTests
         Assert.Null(await harness.Store.GetAsync(CancellationToken.None));
 
         Assert.Equal(2, changes);
-        Assert.False(File.Exists(harness.TokenPath));
+        Assert.Empty(await harness.ReadRowsAsync());
         Assert.Null(await harness.Store.GetAsync(CancellationToken.None));
         Assert.Single(harness.Handler.Requests);
         Assert.DoesNotContain(
@@ -191,7 +228,7 @@ public sealed class AdminTokenStoreTests
             CancellationToken.None);
 
         Assert.Null(await harness.Store.GetAsync(CancellationToken.None));
-        Assert.False(File.Exists(harness.TokenPath));
+        Assert.Empty(await harness.ReadRowsAsync());
         Assert.Contains(
             harness.Logs.Messages,
             message => message.Contains("admin token refresh failed", StringComparison.Ordinal));
@@ -250,7 +287,7 @@ public sealed class AdminTokenStoreTests
         Assert.Null(await harness.Store.RefreshAsync(CancellationToken.None));
 
         Assert.Equal(1, changes);
-        Assert.False(File.Exists(harness.TokenPath));
+        Assert.Empty(await harness.ReadRowsAsync());
         Assert.Null(await harness.Store.GetAsync(CancellationToken.None));
         Assert.Single(harness.Handler.Requests);
     }
@@ -272,36 +309,92 @@ public sealed class AdminTokenStoreTests
     }
 
     [Fact]
-    public async Task Corrupt_token_file_is_logged_cleared_and_returns_null()
+    public async Task Corrupt_ciphertext_is_logged_cleared_and_returns_null()
     {
         using var harness = new Harness(_ => throw UnexpectedRequest());
-        Directory.CreateDirectory(Path.GetDirectoryName(harness.TokenPath)!);
-        await File.WriteAllTextAsync(harness.TokenPath, "not a protected payload");
+        await harness.InsertCiphertextAsync("not a protected payload");
+        var changes = 0;
+        harness.Store.Changed += () => changes++;
 
         Assert.Null(await harness.Store.GetAsync(CancellationToken.None));
 
-        Assert.False(File.Exists(harness.TokenPath));
+        Assert.Empty(await harness.ReadRowsAsync());
+        Assert.Equal(1, changes);
         Assert.Contains(
             harness.Logs.Messages,
             message => message.Contains("could not be read", StringComparison.Ordinal)
                 && message.Contains("Sign in again", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("null")]
+    [InlineData("not json")]
+    [InlineData("{\"Login\":\"streamer\",\"AccessToken\":\"\",\"RefreshToken\":\"r\",\"ExpiresAt\":\"2026-11-10T14:00:00+00:00\"}")]
+    public async Task Decryptable_but_invalid_payload_is_cleared_and_returns_null(string plaintext)
+    {
+        using var harness = new Harness(_ => throw UnexpectedRequest());
+        await harness.InsertCiphertextAsync(
+            harness.DataProtection.Provider.CreateProtector("StreamKeepr.AdminTokens").Protect(plaintext));
+
+        Assert.Null(await harness.Store.GetAsync(CancellationToken.None));
+
+        Assert.Empty(await harness.ReadRowsAsync());
+        Assert.Contains(
+            harness.Logs.Messages,
+            message => message.Contains("Sign in again", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_failing_record_store_propagates_and_keeps_the_token()
+    {
+        using var harness = new Harness(_ => throw UnexpectedRequest());
+        await harness.Store.SaveAsync(AdminTokenStoreTestData.Token(T0.AddHours(2)), CancellationToken.None);
+        var failing = new FailableRecordContexts(harness.Records.Contexts, harness.Records.DatabasePath)
+        {
+            Failing = true,
+        };
+        using var store = harness.CreateStore(failing);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => store.GetAsync(CancellationToken.None).AsTask());
+
+        failing.Failing = false;
+        Assert.Equal("access-1", await store.GetAsync(CancellationToken.None));
+        Assert.Single(await harness.ReadRowsAsync());
+    }
+
+    [Fact]
+    public async Task A_failed_save_keeps_no_token_and_does_not_release_waiters()
+    {
+        using var harness = new Harness(_ => throw UnexpectedRequest());
+        var failing = new FailableRecordContexts(harness.Records.Contexts, harness.Records.DatabasePath);
+        using var store = harness.CreateStore(failing);
+        var waiter = store.WaitForTokenAsync(CancellationToken.None);
+
+        failing.WritesFailing = true;
+        await Assert.ThrowsAnyAsync<Exception>(
+            () => store.SaveAsync(AdminTokenStoreTestData.Token(T0.AddHours(1)), CancellationToken.None));
+
+        Assert.False(waiter.IsCompleted);
+        Assert.Null(await store.GetAsync(CancellationToken.None));
+        Assert.Empty(await harness.ReadRowsAsync());
+    }
+
     [Fact]
     public async Task Lost_key_ring_is_logged_cleared_and_returns_null()
     {
-        using var root = new TempRecordingsRoot();
+        using var records = new TestRecordStore();
+        await records.StartAsync();
         using var logs = new ListLoggerProvider();
         using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(logs));
         using var handler = new RecordingHttpMessageHandler(_ => throw UnexpectedRequest());
         var clock = new ManualTimeProvider(T0);
-        var keyDirectory = AppDataPaths.KeysDirectory(root.Path);
-        var tokenPath = AppDataPaths.AdminTokensFile(root.Path);
+        var keyDirectory = AppDataPaths.DataProtectionKeysDirectory(records.DatabasePath);
 
         using (var originalProtection = new TestDataProtection(keyDirectory))
         {
             using var original = AdminTokenStoreTestData.CreateStore(
-                root.Path,
+                records.Contexts,
                 originalProtection.Provider,
                 handler,
                 clock,
@@ -315,14 +408,15 @@ public sealed class AdminTokenStoreTests
 
         using var replacementProtection = new TestDataProtection(keyDirectory);
         using var replacement = AdminTokenStoreTestData.CreateStore(
-            root.Path,
+            records.Contexts,
             replacementProtection.Provider,
             handler,
             clock,
             loggerFactory.CreateLogger<AdminTokenStore>());
 
         Assert.Null(await replacement.GetAsync(CancellationToken.None));
-        Assert.False(File.Exists(tokenPath));
+        await using (RecordStoreDbContext db = await records.Contexts.CreateDbContextAsync())
+            Assert.Empty(await db.AdminTokens.ToListAsync());
         Assert.Contains(
             logs.Messages,
             message => message.Contains("could not be read", StringComparison.Ordinal)
@@ -407,16 +501,18 @@ public sealed class AdminTokenStoreTests
 
         public Harness(Func<HttpRequestMessage, HttpResponseMessage> respond)
         {
-            Root = new TempRecordingsRoot();
+            Records = new TestRecordStore();
+            Records.StartAsync().GetAwaiter().GetResult();
             Logs = new ListLoggerProvider();
             _loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(Logs));
-            DataProtection = new TestDataProtection(AppDataPaths.KeysDirectory(Root.Path));
+            DataProtection = new TestDataProtection(
+                AppDataPaths.DataProtectionKeysDirectory(Records.DatabasePath));
             Clock = new ManualTimeProvider(T0);
             Handler = new RecordingHttpMessageHandler(respond);
             Store = CreateStore();
         }
 
-        public TempRecordingsRoot Root { get; }
+        public TestRecordStore Records { get; }
 
         public ListLoggerProvider Logs { get; }
 
@@ -428,9 +524,50 @@ public sealed class AdminTokenStoreTests
 
         public AdminTokenStore Store { get; }
 
-        public string TokenPath => AppDataPaths.AdminTokensFile(Root.Path);
-
         public AdminTokenStore CreateSecondStore() => CreateStore();
+
+        public async Task<List<AdminTokenRow>> ReadRowsAsync()
+        {
+            await using RecordStoreDbContext db = await Records.Contexts.CreateDbContextAsync();
+            return await db.AdminTokens.AsNoTracking().ToListAsync();
+        }
+
+        public async Task InsertCiphertextAsync(string ciphertext)
+        {
+            await using RecordStoreDbContext db = await Records.Contexts.CreateDbContextAsync();
+            db.AdminTokens.Add(new AdminTokenRow { Ciphertext = ciphertext, UpdatedAt = T0 });
+            await db.SaveChangesAsync();
+        }
+
+        /// <summary>Checks the database file and its WAL, not just the row, for leaked plaintext.</summary>
+        public async Task AssertDatabaseHasNoPlaintextAsync(params string[] secrets)
+        {
+            foreach (string path in new[] { Records.DatabasePath, Records.DatabasePath + "-wal" })
+            {
+                if (!File.Exists(path))
+                    continue;
+
+                byte[] bytes;
+                await using (var stream = new FileStream(
+                    path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                {
+                    bytes = new byte[stream.Length];
+                    await stream.ReadExactlyAsync(bytes);
+                }
+
+                string text = Encoding.UTF8.GetString(bytes);
+                foreach (string secret in secrets)
+                    Assert.DoesNotContain(secret, text, StringComparison.Ordinal);
+            }
+        }
+
+        public AdminTokenStore CreateStore(IDbContextFactory<RecordStoreDbContext> records) =>
+            AdminTokenStoreTestData.CreateStore(
+                records,
+                DataProtection.Provider,
+                Handler,
+                Clock,
+                _loggerFactory.CreateLogger<AdminTokenStore>());
 
         public void Dispose()
         {
@@ -439,15 +576,9 @@ public sealed class AdminTokenStoreTests
             DataProtection.Dispose();
             _loggerFactory.Dispose();
             Logs.Dispose();
-            Root.Dispose();
+            Records.Dispose();
         }
 
-        private AdminTokenStore CreateStore() =>
-            AdminTokenStoreTestData.CreateStore(
-                Root.Path,
-                DataProtection.Provider,
-                Handler,
-                Clock,
-                _loggerFactory.CreateLogger<AdminTokenStore>());
+        private AdminTokenStore CreateStore() => CreateStore(Records.Contexts);
     }
 }

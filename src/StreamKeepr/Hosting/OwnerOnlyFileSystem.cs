@@ -35,24 +35,25 @@ internal static class OwnerOnlyFileSystem
     }
 
     /// <summary>
-    /// Creates the key directory (and its parent app-data directory), proves it is
-    /// writable, and gives the owner exclusive access. Throws an actionable error
-    /// when the recordings volume is not writable by the app user.
+    /// Creates the key directory, proves it is writable, and gives the owner exclusive
+    /// access to it and its key files. Its parent is the database directory, which the
+    /// operator owns (like <see cref="EnsureWritableDirectory"/>), so the parent's
+    /// permissions are left alone. Throws an actionable error when the data volume is
+    /// not writable by the app user.
     /// </summary>
     public static void EnsureWritableKeyDirectory(string keyDirectory)
     {
         try
         {
             EnsureWritablePrivateDirectory(keyDirectory);
-            SetOwnerOnlyDirectory(Path.GetDirectoryName(keyDirectory)!);
             EnforceOwnerOnlyKeyFiles(keyDirectory);
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
             throw new InvalidOperationException(
                 $"The Data Protection key directory '{keyDirectory}' is not writable. " +
-                "Ensure the recordings volume is owned by the app user (UID 1654 in the container; " +
-                "chown -R 1654:1654 <recordings>) or use a Docker named volume.",
+                "Ensure the data volume is owned by the app user (UID 1654 in the container; " +
+                "chown -R 1654:1654 <data>) or use a Docker named volume.",
                 ex);
         }
     }

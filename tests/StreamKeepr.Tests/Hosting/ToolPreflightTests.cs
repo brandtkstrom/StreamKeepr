@@ -7,6 +7,7 @@ using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Tests.Records;
 using StreamKeepr.Tests.Storage;
 
 namespace StreamKeepr.Tests.Hosting;
@@ -116,19 +117,46 @@ public sealed class ToolPreflightTests
     }
 
     [Fact]
-    public async Task Preflight_probes_the_key_directory()
+    public async Task Preflight_probes_the_key_directory_in_the_database_directory()
     {
         using var temp = new TempDirectory();
-        string root = Path.Combine(temp.Path, "recordings");
-        Directory.CreateDirectory(Path.GetDirectoryName(AppDataPaths.KeysDirectory(root))!);
-        File.WriteAllText(AppDataPaths.KeysDirectory(root), "not a directory");
+        string databasePath = Path.Combine(temp.Path, "data", "streamkeepr.db");
+        string keys = AppDataPaths.DataProtectionKeysDirectory(databasePath);
+        Assert.Equal(Path.Combine(temp.Path, "data", "keys"), keys);
+        Directory.CreateDirectory(Path.GetDirectoryName(keys)!);
+        File.WriteAllText(keys, "not a directory");
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => NewPreflight(temp, root).StartAsync(CancellationToken.None));
+            () => NewPreflight(temp, databasePath: databasePath).StartAsync(CancellationToken.None));
 
         Assert.Contains("Data Protection key directory", error.Message, StringComparison.Ordinal);
+        Assert.Contains(keys, error.Message, StringComparison.Ordinal);
+        Assert.Contains("data volume", error.Message, StringComparison.Ordinal);
         Assert.Contains("1654", error.Message, StringComparison.Ordinal);
         Assert.Contains("chown", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Preflight_creates_an_owner_only_key_directory_and_leaves_the_database_directory_alone()
+    {
+        using var temp = new TempDirectory();
+        string data = Path.Combine(temp.Path, "data");
+        Directory.CreateDirectory(data);
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(data, (UnixFileMode)Convert.ToInt32("755", 8));
+
+        await NewPreflight(temp).StartAsync(CancellationToken.None);
+
+        string keys = Path.Combine(data, AppDataPaths.KeysDirectoryName);
+        Assert.True(Directory.Exists(keys));
+        Assert.False(Directory.Exists(AppDataPaths.AppDataDirectory(Path.Combine(temp.Path, "recordings"))));
+        if (OperatingSystem.IsWindows())
+            return;
+
+        Assert.Equal(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute,
+            File.GetUnixFileMode(keys));
+        Assert.Equal((UnixFileMode)Convert.ToInt32("755", 8), File.GetUnixFileMode(data));
     }
 
     [Fact]
@@ -211,8 +239,9 @@ public sealed class ToolPreflightTests
     {
         using var temp = new TempDirectory();
         string root = Path.Combine(temp.Path, "recordings");
-        Directory.CreateDirectory(Path.GetDirectoryName(AppDataPaths.KeysDirectory(root))!);
-        File.WriteAllText(AppDataPaths.KeysDirectory(root), "not a directory");
+        string keys = AppDataPaths.DataProtectionKeysDirectory(TestRecordStore.DatabasePathIn(root));
+        Directory.CreateDirectory(Path.GetDirectoryName(keys)!);
+        File.WriteAllText(keys, "not a directory");
         using var factory = new StreamKeeprAppFactory(recordingsRoot: root);
 
         var error = AssertStartupFails(factory);
