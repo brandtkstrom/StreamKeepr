@@ -2,11 +2,11 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Tests.Storage;
 
 namespace StreamKeepr.Tests.Hosting;
 
@@ -26,13 +26,9 @@ public sealed class ChatEndpointTests : IDisposable
     public ChatEndpointTests()
     {
         Directory.CreateDirectory(_root);
-        var chat = Options.Create(new ChatOptions());
-        _store = new ChatLogStore(
-            Options.Create(new StorageOptions { RecordingsRoot = _root }),
-            chat,
-            _clock,
-            NullLogger<ChatLogStore>.Instance);
-        _reader = new ChatReader(_store, chat, NullLogger<ChatReader>.Instance);
+        var records = new ChatTestRecords(_root);
+        _store = records.CreateStore(new ChatOptions(), _clock);
+        _reader = ChatTestRecords.CreateReader(_store, new ChatOptions());
         _summary = new RecordingSummary(
             "20261110T163000Z_1",
             "chan",
@@ -49,6 +45,7 @@ public sealed class ChatEndpointTests : IDisposable
             Chapters: [],
             HasChat: true);
         _library.Upsert(_summary);
+        records.AddSession(_summary);
 
         string directory = _store.SessionDirectory(_summary);
         Directory.CreateDirectory(directory);
@@ -85,7 +82,7 @@ public sealed class ChatEndpointTests : IDisposable
         context.Request.QueryString = new QueryString("?fromSec=0&toSec=60");
         context.Response.Body = new MemoryStream();
 
-        IResult result = ChatEndpoint.Handle(_summary.Id, context, _library, _reader);
+        IResult result = await ChatEndpoint.Handle(_summary.Id, context, _library, _reader);
         await result.ExecuteAsync(context);
 
         Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
@@ -101,14 +98,37 @@ public sealed class ChatEndpointTests : IDisposable
     {
         var bad = NewContext();
         bad.Request.QueryString = new QueryString("?fromSec=abc");
-        await ChatEndpoint.Handle(_summary.Id, bad, _library, _reader)
+        await (await ChatEndpoint.Handle(_summary.Id, bad, _library, _reader))
             .ExecuteAsync(bad);
         Assert.Equal(StatusCodes.Status400BadRequest, bad.Response.StatusCode);
 
         var unknown = NewContext();
         unknown.Request.QueryString = new QueryString("?fromSec=0");
-        await ChatEndpoint.Handle("missing", unknown, _library, _reader)
+        await (await ChatEndpoint.Handle("missing", unknown, _library, _reader))
             .ExecuteAsync(unknown);
         Assert.Equal(StatusCodes.Status404NotFound, unknown.Response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("?toSec=10")]
+    [InlineData("?fromSec=-1&toSec=10")]
+    [InlineData("?fromSec=10&toSec=10")]
+    [InlineData("?fromSec=10&toSec=5")]
+    [InlineData("?fromSec=0&toSec=601")]
+    [InlineData("?fromSec=0&toSec=NaN")]
+    [InlineData("?fromSec=Infinity&toSec=10")]
+    [InlineData("?fromSec=0&toSec=10&limit=0")]
+    [InlineData("?fromSec=0&toSec=10&limit=1001")]
+    [InlineData("?fromSec=0&toSec=10&limit=ten")]
+    [InlineData("?fromSec=0&toSec=10&syncOffsetSec=-31")]
+    public async Task Rejects_malformed_window_bounds(string query)
+    {
+        var context = NewContext();
+        context.Request.QueryString = new QueryString(query);
+
+        await (await ChatEndpoint.Handle(_summary.Id, context, _library, _reader)).ExecuteAsync(context);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, context.Response.StatusCode);
     }
 }

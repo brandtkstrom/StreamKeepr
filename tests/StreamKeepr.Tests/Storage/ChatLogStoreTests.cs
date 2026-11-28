@@ -1,11 +1,12 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Media;
+using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Tests.Hosting;
+using StreamKeepr.Tests.Records;
 
 namespace StreamKeepr.Tests.Storage;
 
@@ -18,8 +19,28 @@ public sealed class ChatLogStoreTests : IDisposable
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
     private readonly FakeTimeProvider _clock = new(Now);
+    private readonly ChatTestRecords _records;
+    private readonly RecordingSummary _summary = new(
+        "20261110T163000Z_1",
+        "chan",
+        "Title",
+        "Game",
+        Now,
+        Now.AddMinutes(1),
+        IsRecording: false,
+        DurationSeconds: 60,
+        SizeBytes: 1,
+        PartCount: 1,
+        SegmentCount: 2,
+        HasThumbnail: false,
+        Chapters: []);
 
-    public ChatLogStoreTests() => Directory.CreateDirectory(_root);
+    public ChatLogStoreTests()
+    {
+        Directory.CreateDirectory(_root);
+        _records = new ChatTestRecords(_root);
+        _records.AddSession(_summary);
+    }
 
     public void Dispose()
     {
@@ -28,79 +49,242 @@ public sealed class ChatLogStoreTests : IDisposable
     }
 
     [Fact]
-    public void Reader_maps_messages_to_the_media_timeline_and_applies_the_offset()
+    public async Task Reader_maps_messages_to_the_media_timeline_and_applies_the_offset()
     {
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(
-            new ChatOptions());
-        string directory = store.SessionDirectory(summary);
-        WritePlaylist(directory);
-        store.OpenSession(summary, ChatSources.Anonymous);
-        store.Append("chan", Message(summary, "a", offsetSeconds: 3, "first"));
-        store.Append("chan", Message(summary, "b", offsetSeconds: 8, "second"));
-        store.CloseSession(summary.Id, finalize: true);
+        (ChatLogStore store, ChatReader reader) = Create(new ChatOptions());
+        WritePlaylist(store.SessionDirectory(_summary));
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", offsetSeconds: 3, "first"));
+        store.Append("chan", Message("b", offsetSeconds: 8, "second"));
+        store.CloseSession(_summary.Id, finalize: true);
 
-        ChatQueryResult result = reader.Query(summary, 0, 20, 300, 0);
+        ChatQueryResult result = await QueryAsync(reader, 0, 20);
 
         Assert.Equal("complete", result.State);
         Assert.True(result.HasChat);
+        Assert.Equal(ChatSources.Anonymous, result.Source);
         Assert.Equal([3d, 8d], result.Messages.Select(message => message.Mt));
         Assert.Equal(["first", "second"], result.Messages.Select(message => message.Text));
 
-        ChatQueryResult shifted = reader.Query(summary, 0, 20, 300, 5);
+        ChatQueryResult shifted = await QueryAsync(reader, 0, 20, offset: 5);
         Assert.Equal([8d, 13d], shifted.Messages.Select(message => message.Mt));
     }
 
     [Fact]
-    public void Query_hides_a_deleted_message_even_when_purge_is_off()
+    public async Task Messages_keep_their_badges_emotes_reply_and_action_flag()
     {
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(
-            new ChatOptions());
-        string directory = store.SessionDirectory(summary);
-        WritePlaylist(directory);
-        store.OpenSession(summary, ChatSources.Anonymous);
-        store.Append("chan", Message(summary, "a", 3, "first"));
-        store.Append("chan", Message(summary, "b", 6, "second"));
-        store.Append("chan", new ChatSourceEvent.Delete("chan", At(summary, 7), "b"));
-        store.CloseSession(summary.Id, finalize: true);
+        (ChatLogStore store, ChatReader reader) = Create(new ChatOptions());
+        WritePlaylist(store.SessionDirectory(_summary));
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", new ChatSourceEvent.MessageEvent(new ChatMessage(
+            "rich", "chan", At(4), AtIsLocal: true, "42", "alice", "Alice", "#FF0000",
+            [new ChatBadge("subscriber", "12", "13")],
+            [new ChatEmote("25", [new ChatEmoteRange(0, 4)])],
+            Bits: 100,
+            new ChatReply("p1", "bob", "Bob", "parent"),
+            Action: true,
+            "Kappa hi")));
+        store.CloseSession(_summary.Id, finalize: false);
 
-        ChatQueryResult result = reader.Query(summary, 0, 20, 300, 0);
+        ChatQueryMessage message = Assert.Single((await QueryAsync(reader, 0, 20)).Messages);
+
+        Assert.Equal("rich", message.Id);
+        Assert.Equal(At(4), message.At);
+        Assert.Equal("42", message.Uid);
+        Assert.Equal("#FF0000", message.Color);
+        Assert.Equal(new StoredChatBadge("subscriber", "12", "13"), Assert.Single(message.Badges));
+        StoredChatEmote emote = Assert.Single(message.Emotes);
+        Assert.Equal("25", emote.Id);
+        Assert.Equal(new StoredChatRange(0, 4), Assert.Single(emote.Ranges));
+        Assert.Equal(100, message.Bits);
+        Assert.Equal(new StoredChatReply("p1", "bob", "Bob", "parent"), message.Reply);
+        Assert.True(message.Action);
+        Assert.True(Assert.Single(_records.Messages(_summary.Id)).Local);
+    }
+
+    [Fact]
+    public async Task Live_replay_reads_a_batch_once_it_is_flushed()
+    {
+        (ChatLogStore store, ChatReader reader) = Create(new ChatOptions());
+        RecordingSummary live = _summary with { IsRecording = true, EndedAt = null, DurationSeconds = null };
+        WritePlaylist(store.SessionDirectory(live));
+        store.OpenSession(live, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, "first"));
+
+        // Rows are written in batches: nothing is stored until the batch is flushed.
+        Assert.Empty(_records.Messages(live.Id));
+        Assert.False((await QueryAsync(reader, 0, 20, summary: live)).HasChat);
+
+        store.Flush();
+
+        ChatQueryResult result = await QueryAsync(reader, 0, 20, summary: live);
+        Assert.Equal("recording", result.State);
+        Assert.True(result.HasChat);
+        Assert.Equal("a", Assert.Single(result.Messages).Id);
+        Assert.Equal("recording", _records.ChatSession(live.Id)!.Status);
+    }
+
+    [Fact]
+    public void A_full_batch_is_written_without_waiting_for_a_flush()
+    {
+        (ChatLogStore store, _) = Create(new ChatOptions());
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        for (int i = 0; i < ChatLogStore.BatchSize; i++)
+            store.Append("chan", Message($"m{i}", 3, "busy"));
+
+        Assert.Equal(ChatLogStore.BatchSize, _records.Messages(_summary.Id).Count);
+        Assert.Equal(ChatLogStore.BatchSize, _records.ChatSession(_summary.Id)!.MessageCount);
+    }
+
+    [Fact]
+    public async Task Chat_survives_a_restart_and_replays_from_the_store()
+    {
+        (ChatLogStore store, _) = Create(new ChatOptions());
+        WritePlaylist(store.SessionDirectory(_summary));
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, "first"));
+        store.Append("chan", Message("b", 6, "second"));
+        store.Append("chan", new ChatSourceEvent.Delete("chan", At(7), "b"));
+        store.CloseAll(finalize: false);
+
+        ChatTestRecords restarted = _records.Restart();
+        ChatLogStore after = restarted.CreateStore(new ChatOptions(), _clock);
+        ChatReader reader = ChatTestRecords.CreateReader(after, new ChatOptions());
+
+        ChatQueryResult result = await QueryAsync(reader, 0, 20);
+
+        Assert.True(result.HasChat);
+        Assert.True(await after.HasChatAsync(_summary.Id, CancellationToken.None));
+        Assert.Equal("a", Assert.Single(result.Messages).Id);
+    }
+
+    [Fact]
+    public async Task A_message_stored_again_after_a_restart_replays_once()
+    {
+        (ChatLogStore store, ChatReader reader) = Create(new ChatOptions());
+        WritePlaylist(store.SessionDirectory(_summary));
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, "first"));
+        store.CloseSession(_summary.Id, finalize: false);
+
+        // A new writer has no memory of the ids the previous one stored.
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, "first"));
+        store.Append("chan", Message("b", 9, "second"));
+        store.CloseSession(_summary.Id, finalize: true);
+
+        Assert.Equal(3, _records.Messages(_summary.Id).Count);
+        Assert.Equal(["a", "b"], (await QueryAsync(reader, 0, 20)).Messages.Select(message => message.Id));
+        Assert.Equal(
+            ["a", "b"],
+            (await reader.QueryTailAsync(_summary, 20, 300, 0, CancellationToken.None))
+                .Messages.Select(message => message.Id));
+    }
+
+    [Fact]
+    public void Events_are_stored_as_rows_with_their_fields()
+    {
+        (ChatLogStore store, _) = Create(new ChatOptions());
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", new ChatSourceEvent.Delete("chan", At(1), "x"));
+        store.Append("chan", new ChatSourceEvent.Clear("chan", At(2), "7", "bob"));
+        store.Append("chan", new ChatSourceEvent.Clear("chan", At(3), null, null));
+        store.Append("chan", new ChatSourceEvent.RoomState("chan", At(4), true, false, true, 30));
+        store.Append("chan", new ChatSourceEvent.Notice("chan", At(5), "msg_slowmode", "slow down"));
+        store.Append("chan", new ChatSourceEvent.Gap("chan", At(6), At(5), At(6), ChatGapReasons.IrcDisconnected));
+        store.Append("chan", new ChatSourceEvent.Dropped("chan", At(7), At(6), At(7), Count: 4));
+        store.CloseSession(_summary.Id, finalize: true);
+
+        List<ChatEventRow> events = _records.Events(_summary.Id);
+
+        Assert.Equal(
+            ["delete", "clear_user", "clear_all", "roomstate", "notice", "gap", "dropped", "end"],
+            events.Select(row => row.Kind));
+        Assert.Equal("x", events[0].TargetMessageId);
+        Assert.Equal(("7", "bob"), (events[1].TargetUserId, events[1].TargetLogin));
+        Assert.Equal((true, false, true, 30), (events[3].EmoteOnly, events[3].SubscribersOnly, events[3].UniqueChat, events[3].SlowSeconds));
+        Assert.Equal("slow down", events[4].Reason);
+        Assert.Equal((At(5), At(6), "irc-disconnected"), (events[5].FromAt, events[5].ToAt, events[5].Reason));
+        Assert.Equal((4, "queue-full"), (events[6].Count, events[6].Reason));
+
+        ChatSessionRow chat = _records.ChatSession(_summary.Id)!;
+        Assert.Equal("complete", chat.Status);
+        Assert.Equal(Now, chat.EndedAt);
+        Assert.Equal("wss", chat.Transport);
+        Assert.Equal(12, chat.LeadInSeconds);
+    }
+
+    [Fact]
+    public async Task Query_hides_a_deleted_message_even_when_purge_is_off()
+    {
+        (ChatLogStore store, ChatReader reader) = Create(new ChatOptions());
+        WritePlaylist(store.SessionDirectory(_summary));
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, "first"));
+        store.Append("chan", Message("b", 6, "second"));
+        store.Append("chan", new ChatSourceEvent.Delete("chan", At(7), "b"));
+        store.CloseSession(_summary.Id, finalize: true);
+
+        ChatQueryResult result = await QueryAsync(reader, 0, 20);
 
         Assert.Equal("a", Assert.Single(result.Messages).Id);
     }
 
     [Fact]
-    public void On_finalize_purge_removes_deleted_text_and_redacts_replies()
+    public async Task Query_hides_messages_removed_by_a_user_clear_and_a_full_clear()
+    {
+        (ChatLogStore store, ChatReader reader) = Create(new ChatOptions());
+        WritePlaylist(store.SessionDirectory(_summary));
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("bob1", 2, "bob early", login: "bob", userId: "7"));
+        store.Append("chan", Message("alice1", 3, "alice early"));
+        store.Append("chan", new ChatSourceEvent.Clear("chan", At(4), "7", "bob"));
+        store.Append("chan", Message("alice2", 5, "alice middle"));
+        store.Append("chan", new ChatSourceEvent.Clear("chan", At(6), null, null));
+        store.Append("chan", Message("bob2", 8, "bob after the clears", login: "bob", userId: "7"));
+        store.CloseSession(_summary.Id, finalize: true);
+
+        ChatQueryResult result = await QueryAsync(reader, 0, 20);
+
+        Assert.Equal(["bob2"], result.Messages.Select(message => message.Id));
+    }
+
+    [Fact]
+    public async Task On_finalize_purge_removes_deleted_text_and_redacts_replies()
     {
         var options = new ChatOptions { PurgeDeletedText = ChatPurgeMode.OnFinalize };
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(options);
-        string directory = store.SessionDirectory(summary);
-        WritePlaylist(directory);
-        store.OpenSession(summary, ChatSources.Anonymous);
-        store.Append("chan", Message(summary, "a", 3, "first"));
-        store.Append("chan", Message(summary, "b", 6, "second"));
-        store.Append("chan", Message(summary, "c", 9, "third", replyId: "b", replyText: "second"));
+        (ChatLogStore store, ChatReader reader) = Create(options);
+        WritePlaylist(store.SessionDirectory(_summary));
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, "first"));
+        store.Append("chan", Message("b", 6, "second"));
+        store.Append("chan", Message("c", 9, "third", replyId: "b", replyText: "second"));
         store.Append(
-            "chan", Message(summary, "d", 10, "fourth", replyId: "missing", replyText: "secret quote"));
-        store.Append("chan", new ChatSourceEvent.Delete("chan", At(summary, 11), "b"));
-        store.Append("chan", new ChatSourceEvent.Delete("chan", At(summary, 12), "missing"));
-        store.CloseSession(summary.Id, finalize: true);
+            "chan", Message("d", 10, "fourth", replyId: "missing", replyText: "secret quote"));
+        store.Append("chan", new ChatSourceEvent.Delete("chan", At(11), "b"));
+        store.Append("chan", new ChatSourceEvent.Delete("chan", At(12), "missing"));
+        store.CloseSession(_summary.Id, finalize: true);
 
-        string chatDirectory = ChatLogLayout.ChatDirectory(directory);
-        string bucket = Assert.Single(
-            Directory.GetFiles(chatDirectory, "*.jsonl"),
-            path => !path.EndsWith("events.jsonl", StringComparison.Ordinal));
-        string raw = File.ReadAllText(bucket);
-        Assert.DoesNotContain("second", raw, StringComparison.Ordinal);
-        Assert.DoesNotContain("secret quote", raw, StringComparison.Ordinal);
-        Assert.Contains("\"id\":\"a\"", raw, StringComparison.Ordinal);
-        Assert.Contains("\"id\":\"c\"", raw, StringComparison.Ordinal);
-        Assert.Contains("\"id\":\"d\"", raw, StringComparison.Ordinal);
+        List<ChatMessageRow> rows = _records.Messages(_summary.Id);
+        Assert.Equal(["a", "c", "d"], rows.Select(row => row.MessageId));
+        Assert.All(rows, row => Assert.NotEqual("second", row.Text));
+        Assert.All(rows, row => Assert.Null(row.ReplyText));
+        Assert.Null(rows.Single(row => row.MessageId == "c").ReplyMessageId);
 
-        string events = File.ReadAllText(Path.Combine(chatDirectory, "events.jsonl"));
-        Assert.Contains("purged", events, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"kind\":\"delete\"", events, StringComparison.Ordinal);
+        List<ChatEventRow> events = _records.Events(_summary.Id);
+        Assert.DoesNotContain(events, row => row.Kind == "delete");
+        ChatEventRow purged = Assert.Single(events, row => row.Kind == "purged");
+        Assert.Equal(1, purged.Count);
+        Assert.Equal("1 messages, 2 replies", purged.Reason);
 
-        ChatQueryResult result = reader.Query(summary, 0, 20, 300, 0);
+        ChatSessionRow chat = _records.ChatSession(_summary.Id)!;
+        Assert.Equal(3, chat.MessageCount);
+        Assert.Equal(1, chat.PurgedCount);
+        Assert.Equal(Now, chat.PurgedAt);
+        Assert.True(chat.PurgedDeletedText);
+        Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(At(10)), chat.LastMessageAt);
+
+        ChatQueryResult result = await QueryAsync(reader, 0, 20);
         Assert.Equal(["a", "c", "d"], result.Messages.Select(message => message.Id));
         Assert.Null(result.Messages.Single(message => message.Id == "c").Reply);
         Assert.Null(result.Messages.Single(message => message.Id == "d").Reply);
@@ -110,61 +294,52 @@ public sealed class ChatLogStoreTests : IDisposable
     public void Purge_redacts_a_quote_of_a_banned_author_whose_message_was_never_captured()
     {
         var options = new ChatOptions { PurgeDeletedText = ChatPurgeMode.OnFinalize };
-        (ChatLogStore store, _, RecordingSummary summary) = Create(options);
-        string directory = store.SessionDirectory(summary);
-        WritePlaylist(directory);
-        store.OpenSession(summary, ChatSources.Anonymous);
-        store.Append("chan", Message(summary, "a", 3, "first"));
+        (ChatLogStore store, _) = Create(options);
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, "first"));
         store.Append(
-            "chan", Message(summary, "r", 5, "reply", replyId: "before-capture", replyText: "bob secret"));
-        store.Append("chan", new ChatSourceEvent.Clear("chan", At(summary, 9), "7", "bob"));
-        store.CloseSession(summary.Id, finalize: true);
+            "chan", Message("r", 5, "reply", replyId: "before-capture", replyText: "bob secret"));
+        store.Append("chan", new ChatSourceEvent.Clear("chan", At(9), "7", "bob"));
+        store.CloseSession(_summary.Id, finalize: true);
 
-        string raw = string.Concat(MessageBuckets(directory).Select(File.ReadAllText));
-        Assert.DoesNotContain("bob secret", raw, StringComparison.Ordinal);
-        Assert.Contains("\"id\":\"r\"", raw, StringComparison.Ordinal);
+        List<ChatMessageRow> rows = _records.Messages(_summary.Id);
+        Assert.Equal(["a", "r"], rows.Select(row => row.MessageId));
+        Assert.All(rows, row => Assert.Null(row.ReplyText));
     }
 
     [Fact]
-    public void Purge_redacts_a_reply_in_a_later_bucket_whose_parent_was_cleared()
+    public void Purge_redacts_every_later_reply_whose_parent_was_cleared()
     {
         var options = new ChatOptions { PurgeDeletedText = ChatPurgeMode.OnFinalize };
-        (ChatLogStore store, _, RecordingSummary summary) = Create(options);
-        string directory = store.SessionDirectory(summary);
-        WritePlaylist(directory);
-        store.OpenSession(summary, ChatSources.Anonymous);
-
-        // Parent and ban in the first 10-minute bucket; replies in the next three buckets.
-        store.Append("chan", Message(summary, "p", 3, "parent text", login: "bob", userId: "7"));
-        store.Append("chan", new ChatSourceEvent.Clear("chan", At(summary, 4), "7", "bob"));
+        (ChatLogStore store, _) = Create(options);
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("p", 3, "parent text", login: "bob", userId: "7"));
+        store.Append("chan", new ChatSourceEvent.Clear("chan", At(4), "7", "bob"));
         foreach (int minutes in new[] { 11, 21, 31 })
         {
             store.Append("chan", Message(
-                summary, $"r{minutes}", minutes * 60, "reply", replyId: "p", replyText: "parent text"));
+                $"r{minutes}", minutes * 60, "reply", replyId: "p", replyText: "parent text"));
         }
 
-        store.CloseSession(summary.Id, finalize: true);
+        store.CloseSession(_summary.Id, finalize: true);
 
-        string[] buckets = MessageBuckets(directory);
-        Assert.Equal(3, buckets.Length);
-        foreach (string bucket in buckets)
-            Assert.DoesNotContain("parent text", File.ReadAllText(bucket), StringComparison.Ordinal);
+        List<ChatMessageRow> rows = _records.Messages(_summary.Id);
+        Assert.Equal(["r11", "r21", "r31"], rows.Select(row => row.MessageId));
+        Assert.All(rows, row => Assert.Null(row.ReplyText));
     }
 
     [Fact]
-    public void Query_hides_a_quote_of_a_deleted_message_even_when_purge_is_off()
+    public async Task Query_hides_a_quote_of_a_deleted_message_even_when_purge_is_off()
     {
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(
-            new ChatOptions());
-        string directory = store.SessionDirectory(summary);
-        WritePlaylist(directory);
-        store.OpenSession(summary, ChatSources.Anonymous);
-        store.Append("chan", Message(summary, "a", 3, "first"));
-        store.Append("chan", Message(summary, "b", 6, "second", replyId: "a", replyText: "first"));
-        store.Append("chan", new ChatSourceEvent.Delete("chan", At(summary, 7), "a"));
-        store.CloseSession(summary.Id, finalize: true);
+        (ChatLogStore store, ChatReader reader) = Create(new ChatOptions());
+        WritePlaylist(store.SessionDirectory(_summary));
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, "first"));
+        store.Append("chan", Message("b", 6, "second", replyId: "a", replyText: "first"));
+        store.Append("chan", new ChatSourceEvent.Delete("chan", At(7), "a"));
+        store.CloseSession(_summary.Id, finalize: true);
 
-        ChatQueryResult result = reader.Query(summary, 0, 20, 300, 0);
+        ChatQueryResult result = await QueryAsync(reader, 0, 20);
 
         ChatQueryMessage reply = Assert.Single(result.Messages);
         Assert.Equal("b", reply.Id);
@@ -176,20 +351,21 @@ public sealed class ChatLogStoreTests : IDisposable
     {
         using var logs = new ListLoggerProvider();
         using ILoggerFactory loggers = TestLogging.Factory(logs);
-        (ChatLogStore store, _, RecordingSummary summary) = Create(
-            new ChatOptions(), loggers.CreateLogger<ChatLogStore>());
-        store.OpenSession(summary, ChatSources.Anonymous);
-        store.Append("chan", Message(summary, "a", 2, "first"));
-        store.Append("chan", Message(summary, "b", 3, "second"));
-        store.CloseSession(summary.Id, finalize: true);
+        (ChatLogStore store, _) = Create(new ChatOptions(), loggers.CreateLogger<ChatLogStore>());
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 2, "first"));
+        store.Append("chan", Message("b", 3, "second"));
+        store.CloseSession(_summary.Id, finalize: true);
 
         CapturedLogEntry closed = Assert.Single(
             logs.Entries, entry => entry.Properties.ContainsKey("MessageCount"));
         Assert.Equal(LogLevel.Information, closed.Level);
-        Assert.Equal(summary.Id, closed.Properties["SessionId"]);
+        Assert.Equal(_summary.Id, closed.Properties["SessionId"]);
         Assert.Equal("chan", closed.Properties["Channel"]);
         Assert.Equal(2, closed.Properties["MessageCount"]);
-        Assert.Equal(BucketBytes(store.SessionDirectory(summary)), closed.Properties["Bytes"]);
+        long stored = _records.ChatSession(_summary.Id)!.StoredBytes;
+        Assert.True(stored > 0);
+        Assert.Equal(stored, closed.Properties["Bytes"]);
         Assert.Equal(true, closed.Properties["Finalized"]);
     }
 
@@ -198,14 +374,13 @@ public sealed class ChatLogStoreTests : IDisposable
     {
         using var logs = new ListLoggerProvider();
         using ILoggerFactory loggers = TestLogging.Factory(logs);
-        (ChatLogStore store, _, RecordingSummary summary) = Create(
-            new ChatOptions(), loggers.CreateLogger<ChatLogStore>());
-        store.OpenSession(summary, ChatSources.Anonymous);
+        (ChatLogStore store, _) = Create(new ChatOptions(), loggers.CreateLogger<ChatLogStore>());
+        store.OpenSession(_summary, ChatSources.Anonymous);
         store.Append("chan", new ChatSourceEvent.Dropped(
-            "chan", At(summary, 6), At(summary, 3), At(summary, 6), Count: 40));
+            "chan", At(6), At(3), At(6), Count: 40));
 
         CapturedLogEntry dropped = Assert.Single(logs.Entries, entry => entry.Level == LogLevel.Warning);
-        Assert.Equal(summary.Id, dropped.Properties["SessionId"]);
+        Assert.Equal(_summary.Id, dropped.Properties["SessionId"]);
         Assert.Equal("chan", dropped.Properties["Channel"]);
         Assert.Equal(40, dropped.Properties["Count"]);
         Assert.Equal(Pdt.AddSeconds(3 - 12), dropped.Properties["DroppedFrom"]);
@@ -213,177 +388,204 @@ public sealed class ChatLogStoreTests : IDisposable
     }
 
     [Fact]
-    public void Query_reports_messages_dropped_by_a_full_capture_queue_as_a_gap()
+    public async Task Query_reports_messages_dropped_by_a_full_capture_queue_as_a_gap()
     {
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(
-            new ChatOptions());
-        string directory = store.SessionDirectory(summary);
-        WritePlaylist(directory);
-        store.OpenSession(summary, ChatSources.Anonymous);
-        store.Append("chan", Message(summary, "a", 2, "first"));
+        (ChatLogStore store, ChatReader reader) = Create(new ChatOptions());
+        WritePlaylist(store.SessionDirectory(_summary));
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 2, "first"));
         store.Append("chan", new ChatSourceEvent.Dropped(
-            "chan", At(summary, 6), At(summary, 3), At(summary, 6), Count: 40));
-        store.CloseSession(summary.Id, finalize: true);
+            "chan", At(6), At(3), At(6), Count: 40));
+        store.CloseSession(_summary.Id, finalize: true);
 
-        ChatQueryResult result = reader.Query(summary, 0, 20, 300, 0);
+        ChatQueryResult result = await QueryAsync(reader, 0, 20);
 
         Assert.Equal([new ChatQueryGap(3, 6, 3)], result.Gaps);
     }
 
     [Fact]
-    public void Query_reports_a_truncated_log_as_a_gap_to_the_end_of_the_window()
+    public async Task Query_reports_a_truncated_log_as_a_gap_to_the_end_of_the_window()
     {
         var options = new ChatOptions { MaxBytesPerSession = 1 };
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(options);
-        string directory = store.SessionDirectory(summary);
-        WritePlaylist(directory);
-        store.OpenSession(summary, ChatSources.Anonymous);
-        store.Append("chan", Message(summary, "a", 2, "first"));
+        (ChatLogStore store, ChatReader reader) = Create(options);
+        WritePlaylist(store.SessionDirectory(_summary));
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 2, "first"));
 
         // The cap trips on "b", so nothing after the last stored message ("a", at 2 s) survives.
-        store.Append("chan", Message(summary, "b", 13, "dropped by the cap"));
-        store.CloseSession(summary.Id, finalize: true);
+        store.Append("chan", Message("b", 13, "dropped by the cap"));
+        store.CloseSession(_summary.Id, finalize: true);
 
-        ChatQueryResult result = reader.Query(summary, 0, 20, 300, 0);
+        ChatQueryResult result = await QueryAsync(reader, 0, 20);
 
         Assert.Equal(["a"], result.Messages.Select(message => message.Id));
         ChatQueryGap gap = Assert.Single(result.Gaps);
         Assert.Equal(2, gap.From);
         Assert.Equal(20, gap.To);
+        Assert.True(_records.ChatSession(_summary.Id)!.Truncated);
     }
 
     [Fact]
-    public void Query_reports_the_unrecorded_time_between_parts_as_a_gap()
+    public async Task Query_reports_the_unrecorded_time_between_parts_as_a_gap()
     {
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(
-            new ChatOptions());
-        string directory = store.SessionDirectory(summary);
+        (ChatLogStore store, ChatReader reader) = Create(new ChatOptions());
+        string directory = store.SessionDirectory(_summary);
         WritePlaylist(directory);
         WritePlaylist(directory, part: 2, pdt: Pdt.AddSeconds(60 + 90));
-        store.OpenSession(summary, ChatSources.Anonymous);
-        store.Append("chan", Message(summary, "a", 55, "before the outage"));
-        store.Append("chan", Message(summary, "lost", 100, "while nothing was recorded"));
-        store.Append("chan", Message(summary, "b", 60 + 90 + 5, "after the outage"));
-        store.CloseSession(summary.Id, finalize: true);
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 55, "before the outage"));
+        store.Append("chan", Message("lost", 100, "while nothing was recorded"));
+        store.Append("chan", Message("b", 60 + 90 + 5, "after the outage"));
+        store.CloseSession(_summary.Id, finalize: true);
 
-        ChatQueryResult result = reader.Query(
-            summary with { DurationSeconds = 120, PartCount = 2 }, 50, 70, 300, 0);
+        ChatQueryResult result = await QueryAsync(
+            reader, 50, 70, summary: _summary with { DurationSeconds = 120, PartCount = 2 });
 
         Assert.Equal(["a", "b"], result.Messages.Select(message => message.Id));
         Assert.Equal([new ChatQueryGap(60, 60, 90)], result.Gaps);
     }
 
-    [Theory]
-    [InlineData(7)]
-    [InlineData(13)]
-    public void Reader_finds_messages_for_a_bucket_size_that_does_not_divide_an_hour(int minutes)
-    {
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(
-            new ChatOptions { BucketMinutes = minutes });
-        string directory = store.SessionDirectory(summary);
-        WritePlaylist(directory);
-        store.OpenSession(summary, ChatSources.Anonymous);
-        store.Append("chan", Message(summary, "a", 3, "first"));
-        store.Append("chan", Message(summary, "b", 50, "second"));
-        store.CloseSession(summary.Id, finalize: true);
-
-        ChatQueryResult result = reader.Query(summary, 0, 60, 300, 0);
-
-        Assert.Equal(["a", "b"], result.Messages.Select(message => message.Id));
-    }
-
     [Fact]
-    public void Query_keeps_the_recorded_part_of_an_outage_that_ends_between_parts()
+    public async Task Query_keeps_the_recorded_part_of_an_outage_that_ends_between_parts()
     {
-        (ChatLogStore store, ChatReader reader, RecordingSummary summary) = Create(
-            new ChatOptions());
-        string directory = store.SessionDirectory(summary);
+        (ChatLogStore store, ChatReader reader) = Create(new ChatOptions());
+        string directory = store.SessionDirectory(_summary);
         WritePlaylist(directory);
         WritePlaylist(directory, part: 2, pdt: Pdt.AddSeconds(60 + 90));
-        store.OpenSession(summary, ChatSources.Anonymous);
+        store.OpenSession(_summary, ChatSources.Anonymous);
         store.Append("chan", new ChatSourceEvent.Gap(
-            "chan", At(summary, 100), At(summary, 50), At(summary, 100), "irc-disconnected"));
-        store.CloseSession(summary.Id, finalize: true);
+            "chan", At(100), At(50), At(100), "irc-disconnected"));
+        store.CloseSession(_summary.Id, finalize: true);
 
-        ChatQueryResult result = reader.Query(
-            summary with { DurationSeconds = 120, PartCount = 2 }, 40, 70, 300, 0);
+        ChatQueryResult result = await QueryAsync(
+            reader, 40, 70, summary: _summary with { DurationSeconds = 120, PartCount = 2 });
 
         Assert.Contains(new ChatQueryGap(50, 60, 50), result.Gaps);
     }
 
     [Fact]
-    public void Purge_leaves_a_bucket_with_an_unreadable_row_untouched()
+    public async Task Window_reports_older_and_newer_chat_outside_it()
     {
-        var options = new ChatOptions { PurgeDeletedText = ChatPurgeMode.OnFinalize };
-        (ChatLogStore store, _, RecordingSummary summary) = Create(options);
-        string directory = store.SessionDirectory(summary);
-        WritePlaylist(directory);
-        store.OpenSession(summary, ChatSources.Anonymous);
-        store.Append("chan", Message(summary, "a", 3, "first"));
-        store.Append("chan", Message(summary, "b", 6, "second"));
-        AppendUnreadableRow(MessageBuckets(directory).Single());
-        store.Append("chan", new ChatSourceEvent.Delete("chan", At(summary, 7), "b"));
-        store.CloseSession(summary.Id, finalize: true);
+        (ChatLogStore store, ChatReader reader) = Create(new ChatOptions());
+        WritePlaylist(store.SessionDirectory(_summary));
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("old", 2, "before the window"));
+        store.Append("chan", Message("in", 30, "inside"));
+        store.Append("chan", Message("new", 55, "after the window"));
+        store.Append("chan", Message("gone", 58, "deleted after the window"));
+        store.Append("chan", new ChatSourceEvent.Delete("chan", At(59), "gone"));
+        store.CloseSession(_summary.Id, finalize: true);
 
-        string raw = File.ReadAllText(MessageBuckets(directory).Single());
-        Assert.Contains("{not json", raw, StringComparison.Ordinal);
-        Assert.Contains("second", raw, StringComparison.Ordinal);
-    }
+        ChatQueryResult middle = await QueryAsync(reader, 20, 40);
+        Assert.Equal(["in"], middle.Messages.Select(message => message.Id));
+        Assert.True(middle.HasMoreBefore);
+        Assert.True(middle.HasMoreAfter);
 
-    /// <summary>
-    /// Appends outside the store's writer. The bucket handle is open for append, so Windows
-    /// admits the second writer only when it shares write access; POSIX ignores the difference.
-    /// </summary>
-    private static void AppendUnreadableRow(string path)
-    {
-        using var stream = new FileStream(
-            path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-        using var writer = new StreamWriter(stream);
-        writer.Write("{not json\n");
+        ChatQueryResult end = await QueryAsync(reader, 50, 60);
+        Assert.Equal(["new"], end.Messages.Select(message => message.Id));
+        Assert.True(end.HasMoreBefore);
+        Assert.False(end.HasMoreAfter);
     }
 
     [Fact]
-    public void Has_chat_is_false_before_the_first_event_and_true_after_finalize()
+    public async Task Has_chat_is_false_before_the_first_event_and_true_after_finalize()
     {
-        var options = new ChatOptions();
-        (ChatLogStore store, _, RecordingSummary summary) = Create(options);
-        string directory = store.SessionDirectory(summary);
+        (ChatLogStore store, _) = Create(new ChatOptions());
 
-        Assert.False(ChatLogLayout.HasChat(directory, NullLogger.Instance));
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Flush();
+        Assert.False(await store.HasChatAsync(_summary.Id, CancellationToken.None));
 
-        store.OpenSession(summary, ChatSources.Anonymous);
-        store.Append("chan", Message(summary, "a", 3, "first"));
-        store.CloseSession(summary.Id, finalize: true);
+        store.Append("chan", Message("a", 3, "first"));
+        store.CloseSession(_summary.Id, finalize: true);
 
-        Assert.True(ChatLogLayout.HasChat(directory, NullLogger.Instance));
+        Assert.True(await store.HasChatAsync(_summary.Id, CancellationToken.None));
     }
 
-    private (ChatLogStore, ChatReader, RecordingSummary) Create(
-        ChatOptions options, ILogger<ChatLogStore>? logger = null)
+    [Fact]
+    public void A_session_closed_without_chat_leaves_no_rows()
     {
-        var storage = Options.Create(new StorageOptions { RecordingsRoot = _root });
-        var chat = Options.Create(options);
-        var store = new ChatLogStore(
-            storage, chat, _clock, logger ?? NullLogger<ChatLogStore>.Instance);
-        var reader = new ChatReader(store, chat, NullLogger<ChatReader>.Instance);
-        var summary = new RecordingSummary(
-            "20261110T163000Z_1",
-            "chan",
-            "Title",
-            "Game",
-            Now,
-            Now.AddMinutes(1),
-            IsRecording: false,
-            DurationSeconds: 60,
-            SizeBytes: 1,
-            PartCount: 1,
-            SegmentCount: 2,
-            HasThumbnail: false,
-            Chapters: []);
-        return (store, reader, summary);
+        (ChatLogStore store, _) = Create(new ChatOptions());
+
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.CloseSession(_summary.Id, finalize: true);
+
+        Assert.Null(_records.ChatSession(_summary.Id));
+        Assert.Empty(_records.Events(_summary.Id));
     }
 
-    private void WritePlaylist(string directory, int part = 1, DateTimeOffset? pdt = null)
+    [Fact]
+    public void A_chat_write_failure_is_logged_and_never_thrown()
+    {
+        using var logs = new ListLoggerProvider();
+        using ILoggerFactory loggers = TestLogging.Factory(logs);
+        var contexts = new FailableRecordContexts(_records.Contexts, _records.DatabasePath) { Failing = true };
+        ChatLogStore store = _records.CreateStore(
+            new ChatOptions { PurgeDeletedText = ChatPurgeMode.OnFinalize },
+            _clock,
+            loggers.CreateLogger<ChatLogStore>(),
+            contexts);
+
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, "first"));
+        store.Append("chan", new ChatSourceEvent.Delete("chan", At(4), "a"));
+        store.Flush();
+        store.Append("chan", Message("b", 5, "second"));
+        store.CloseSession(_summary.Id, finalize: true);
+
+        Assert.Contains(logs.Entries, entry =>
+            entry.Level == LogLevel.Warning &&
+            entry.Message.Contains("could not be stored", StringComparison.Ordinal));
+        contexts.Failing = false;
+        Assert.Null(_records.ChatSession(_summary.Id));
+    }
+
+    [Fact]
+    public void A_batch_written_after_its_session_record_is_gone_is_logged_and_skipped()
+    {
+        using var logs = new ListLoggerProvider();
+        using ILoggerFactory loggers = TestLogging.Factory(logs);
+        (ChatLogStore store, _) = Create(new ChatOptions(), loggers.CreateLogger<ChatLogStore>());
+        RecordingSummary unrecorded = _summary with { Id = "20261110T163000Z_2" };
+
+        store.OpenSession(unrecorded, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, "first"));
+        store.CloseSession(unrecorded.Id, finalize: true);
+
+        Assert.Contains(logs.Entries, entry =>
+            entry.Level == LogLevel.Warning &&
+            entry.Message.Contains("could not be stored", StringComparison.Ordinal));
+        Assert.Null(_records.ChatSession(unrecorded.Id));
+    }
+
+    [Fact]
+    public async Task Deleting_the_session_record_deletes_its_chat()
+    {
+        (ChatLogStore store, _) = Create(new ChatOptions());
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, "first"));
+        store.Append("chan", new ChatSourceEvent.Delete("chan", At(4), "x"));
+        store.CloseSession(_summary.Id, finalize: true);
+
+        await using (RecordStoreDbContext db = await _records.Contexts.CreateDbContextAsync())
+            await db.Sessions.Where(session => session.Id == _summary.Id).ExecuteDeleteAsync();
+
+        Assert.Null(_records.ChatSession(_summary.Id));
+        Assert.Empty(_records.Messages(_summary.Id));
+        Assert.Empty(_records.Events(_summary.Id));
+    }
+
+    private (ChatLogStore, ChatReader) Create(ChatOptions options, ILogger<ChatLogStore>? logger = null)
+    {
+        ChatLogStore store = _records.CreateStore(options, _clock, logger);
+        return (store, ChatTestRecords.CreateReader(store, options));
+    }
+
+    private Task<ChatQueryResult> QueryAsync(
+        ChatReader reader, double from, double to, double offset = 0, RecordingSummary? summary = null) =>
+        reader.QueryAsync(summary ?? _summary, from, to, 300, offset, CancellationToken.None);
+
+    private static void WritePlaylist(string directory, int part = 1, DateTimeOffset? pdt = null)
     {
         Directory.CreateDirectory(directory);
         File.WriteAllText(
@@ -397,8 +599,7 @@ public sealed class ChatLogStoreTests : IDisposable
             "#EXTINF:30.000000,\nsegment-2.m4s\n");
     }
 
-    private static ChatSourceEvent.MessageEvent Message(
-        RecordingSummary summary,
+    private ChatSourceEvent.MessageEvent Message(
         string id,
         int offsetSeconds,
         string text,
@@ -409,8 +610,8 @@ public sealed class ChatLogStoreTests : IDisposable
     {
         var message = new ChatMessage(
             id,
-            summary.Channel,
-            At(summary, offsetSeconds),
+            _summary.Channel,
+            At(offsetSeconds),
             AtIsLocal: false,
             UserId: userId,
             Login: login,
@@ -427,14 +628,6 @@ public sealed class ChatLogStoreTests : IDisposable
         return new ChatSourceEvent.MessageEvent(message);
     }
 
-    private static string[] MessageBuckets(string sessionDirectory) =>
-        Directory.GetFiles(ChatLogLayout.ChatDirectory(sessionDirectory), "*.jsonl")
-            .Where(path => !path.EndsWith("events.jsonl", StringComparison.Ordinal))
-            .ToArray();
-
-    private static long BucketBytes(string sessionDirectory) =>
-        MessageBuckets(sessionDirectory).Sum(path => new FileInfo(path).Length);
-
-    private static long At(RecordingSummary summary, int offsetSeconds) =>
+    private static long At(int offsetSeconds) =>
         Pdt.AddSeconds(offsetSeconds - 12).ToUnixTimeMilliseconds();
 }

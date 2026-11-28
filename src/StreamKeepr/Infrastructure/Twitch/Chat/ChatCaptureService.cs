@@ -8,7 +8,8 @@ namespace StreamKeepr.Infrastructure.Twitch.Chat;
 
 /// <summary>
 /// Keeps the chat source joined to currently recording channels and routes its events to the
-/// per-session chat log. Chat failures are logged; they never affect recording.
+/// per-session chat log, flushing it to the record store every tick. Chat failures are logged;
+/// they never affect recording.
 /// </summary>
 public sealed class ChatCaptureService(
     IChatSource source,
@@ -167,6 +168,8 @@ public sealed class ChatCaptureService(
         {
             try
             {
+                // Each tick also writes buffered chat, so live replay trails capture by about a tick.
+                store.Flush();
                 await ReconcileOnceAsync(ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)

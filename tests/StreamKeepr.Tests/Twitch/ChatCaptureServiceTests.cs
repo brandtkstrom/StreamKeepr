@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.Metrics;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Logging;
@@ -9,10 +8,12 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
+using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Telemetry;
 using StreamKeepr.Infrastructure.Twitch.Chat;
 using StreamKeepr.Tests.Hosting;
+using StreamKeepr.Tests.Storage;
 
 namespace StreamKeepr.Tests.Twitch;
 
@@ -30,6 +31,7 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
     private readonly FakeChatSource _source = new();
     private readonly ListLoggerProvider _logs = new();
     private readonly ILoggerFactory _loggers;
+    private readonly ChatTestRecords _records;
     private readonly ChatLogStore _store;
     private readonly ServiceProvider _meters;
     private readonly IMeterFactory _meterFactory;
@@ -43,11 +45,13 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
         _meters = new ServiceCollection().AddMetrics().BuildServiceProvider();
         _meterFactory = _meters.GetRequiredService<IMeterFactory>();
         _telemetry = new StreamKeeprTelemetry(_meterFactory, enabled: true);
+        _records = new ChatTestRecords(_root);
         (_store, _service) = CreateCapture(new ChatOptions { Enabled = true });
         _recording = new RecordingSummary(
             "20261113T180000Z_1", "chan", "Title", "Game", Start, null,
             IsRecording: true, DurationSeconds: null, SizeBytes: 1, PartCount: 1,
             SegmentCount: 1, HasThumbnail: false, Chapters: []);
+        _records.AddSession(_recording);
         Directory.CreateDirectory(_store.SessionDirectory(_recording));
     }
 
@@ -69,14 +73,16 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
     {
         await StartRecordingAsync();
         _source.Events.Write(Message("m1", Start.AddSeconds(5)));
-        await EventuallyAsync(() => File.Exists(MetaPath));
+
+        // Capture writes its buffer every tick, so live chat reaches the store without a close.
+        await EventuallyAsync(() => _records.Messages(_recording.Id).Count == 1);
+        Assert.Equal("recording", _records.ChatSession(_recording.Id)!.Status);
 
         _library.Upsert(_recording with { IsRecording = false, EndedAt = Start.AddMinutes(1) });
         await EventuallyAsync(() => _source.Parted.Contains("chan"));
+        await EventuallyAsync(() => _records.ChatSession(_recording.Id)!.Status == "complete");
 
-        using JsonDocument meta = JsonDocument.Parse(File.ReadAllText(MetaPath));
-        Assert.Equal("complete", meta.RootElement.GetProperty("status").GetString());
-        Assert.Contains(Events(), evt => evt.GetProperty("kind").GetString() == "end");
+        Assert.Contains(Events(), evt => evt.Kind == "end");
     }
 
     [Fact]
@@ -88,10 +94,10 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
         _source.Events.Write(new ChatSourceEvent.Disconnected("chan", ToMs(Start.AddSeconds(30))));
         _source.Events.Write(new ChatSourceEvent.Joined("chan", ToMs(Start.AddSeconds(95))));
 
-        JsonElement gap = await SingleGapAsync();
+        ChatEventRow gap = await SingleGapAsync();
 
-        Assert.Equal(ToMs(last), gap.GetProperty("from").GetInt64());
-        Assert.Equal(ToMs(Start.AddSeconds(95)), gap.GetProperty("to").GetInt64());
+        Assert.Equal(ToMs(last), gap.FromAt);
+        Assert.Equal(ToMs(Start.AddSeconds(95)), gap.ToAt);
     }
 
     [Fact]
@@ -102,10 +108,10 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
         _source.Events.Write(new ChatSourceEvent.Disconnected("chan", ToMs(Start.AddSeconds(40))));
         _source.Events.Write(new ChatSourceEvent.Joined("chan", ToMs(Start.AddSeconds(95))));
 
-        JsonElement gap = await SingleGapAsync();
+        ChatEventRow gap = await SingleGapAsync();
 
-        Assert.Equal(ToMs(Start.AddSeconds(30)), gap.GetProperty("from").GetInt64());
-        Assert.Equal(ToMs(Start.AddSeconds(95)), gap.GetProperty("to").GetInt64());
+        Assert.Equal(ToMs(Start.AddSeconds(30)), gap.FromAt);
+        Assert.Equal(ToMs(Start.AddSeconds(95)), gap.ToAt);
     }
 
     [Fact]
@@ -154,16 +160,16 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
         await StartRecordingAsync();
         _source.Events.Write(Message("m1", Start.AddSeconds(5)));
         _source.Events.Write(new ChatSourceEvent.Disconnected("chan", ToMs(Start.AddSeconds(30))));
-        await EventuallyAsync(() => File.Exists(MetaPath));
+        await EventuallyAsync(() => _records.ChatSession(_recording.Id) is not null);
         await Task.Delay(50);
         _clock.Advance(TimeSpan.FromMinutes(1));
 
         long stoppedAt = ToMs(_clock.GetUtcNow());
         await _service.StopAsync(CancellationToken.None);
 
-        JsonElement gap = Assert.Single(Events(), evt => evt.GetProperty("kind").GetString() == "gap");
-        Assert.Equal(ToMs(Start.AddSeconds(5)), gap.GetProperty("from").GetInt64());
-        Assert.Equal(stoppedAt, gap.GetProperty("to").GetInt64());
+        ChatEventRow gap = Assert.Single(Events(), evt => evt.Kind == "gap");
+        Assert.Equal(ToMs(Start.AddSeconds(5)), gap.FromAt);
+        Assert.Equal(stoppedAt, gap.ToAt);
     }
 
     [Fact]
@@ -209,18 +215,10 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
         }
     }
 
-    private string ChatDirectory => ChatLogLayout.ChatDirectory(_store.SessionDirectory(_recording));
-
-    private string MetaPath => Path.Combine(ChatDirectory, ChatLogLayout.MetaFileName);
-
     private (ChatLogStore, ChatCaptureService) CreateCapture(ChatOptions options)
     {
         var chat = Options.Create(options);
-        var store = new ChatLogStore(
-            Options.Create(new StorageOptions { RecordingsRoot = _root }),
-            chat,
-            _clock,
-            _loggers.CreateLogger<ChatLogStore>());
+        ChatLogStore store = _records.CreateStore(options, _clock, _loggers.CreateLogger<ChatLogStore>());
         var service = new ChatCaptureService(
             _source, _library, store, chat, _clock, _loggers.CreateLogger<ChatCaptureService>(),
             _telemetry);
@@ -235,28 +233,15 @@ public sealed class ChatCaptureServiceTests : IAsyncLifetime
         await EventuallyAsync(() => _source.Joined.Contains("chan"));
     }
 
-    private async Task<JsonElement> SingleGapAsync()
+    private async Task<ChatEventRow> SingleGapAsync()
     {
         await EventuallyAsync(() => Events().Any(IsGap));
         return Assert.Single(Events(), IsGap);
 
-        static bool IsGap(JsonElement evt) => evt.GetProperty("kind").GetString() == "gap";
+        static bool IsGap(ChatEventRow evt) => evt.Kind == "gap";
     }
 
-    private List<JsonElement> Events()
-    {
-        string path = Path.Combine(ChatDirectory, ChatLogLayout.EventsFileName);
-        if (!File.Exists(path))
-            return [];
-
-        using var stream = new FileStream(
-            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using var reader = new StreamReader(stream);
-        return reader.ReadToEnd()
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(line => JsonDocument.Parse(line).RootElement.Clone())
-            .ToList();
-    }
+    private List<ChatEventRow> Events() => _records.Events(_recording.Id);
 
     /// <summary>Advances the fake clock until the condition holds or real patience runs out.</summary>
     private async Task EventuallyAsync(Func<bool> condition)

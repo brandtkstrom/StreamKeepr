@@ -15,7 +15,7 @@ public static class ChatEndpoint
     public const double DefaultWindowSeconds = 120;
     public const double MaxWindowSeconds = 600;
 
-    public static IResult Handle(
+    public static async Task<IResult> Handle(
         string id,
         HttpContext context,
         RecordingLibrary library,
@@ -47,7 +47,8 @@ public static class ChatEndpoint
                 return Results.BadRequest();
             }
 
-            return Results.Json(reader.QueryTail(summary, playhead, limit, offset));
+            return Results.Json(await reader.QueryTailAsync(
+                summary, playhead, limit, offset, context.RequestAborted));
         }
 
         if (!TryDouble(context, "fromSec", required: true, out double from) ||
@@ -62,7 +63,8 @@ public static class ChatEndpoint
         if (!double.IsFinite(to) || to <= from || to - from > MaxWindowSeconds)
             return Results.BadRequest();
 
-        ChatQueryResult result = reader.Query(summary, from, to, limit, offset);
+        ChatQueryResult result = await reader.QueryAsync(
+            summary, from, to, limit, offset, context.RequestAborted);
         return Results.Json(result);
     }
 

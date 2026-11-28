@@ -487,10 +487,7 @@ public sealed class SessionStore(
             segmentCount,
             record.HasThumbnail,
             chapters,
-            // Interim until #317 moves chat into the record store: chat is still captured to the
-            // chat/ sidecar, so a session without a chat row still has chat when that exists.
-            // #317 removes the sidecar check and keeps only the row.
-            HasChat: record.HasChatSession || ChatLogLayout.HasChat(directory, logger));
+            HasChat: record.HasChatSession);
     }
 
     private async Task UpsertLibraryAsync(string directory, SessionRecord record, CancellationToken ct)

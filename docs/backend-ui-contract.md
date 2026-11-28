@@ -51,7 +51,7 @@ public interface ILibraryView : IDisposable
 - `SizeBytes` is null while recording; otherwise media bytes.
 - `PlaylistUrl` is `/media/{channel}/{id}/index.m3u8`.
 - `ResumeSec` is the recording's resume position, or null when it has none. Recording/reconnecting sessions have one once a viewer leaves the live edge; complete sessions never hold one within 30 s of the end.
-- `HasChat` is true when the session's `chat/` folder has metadata or at least one bucket; it gates the chat pane.
+- `HasChat` is true when the session has a chat row in the record store; it gates the chat pane.
 
 ### State derivation
 
@@ -127,13 +127,13 @@ public interface IConnectionStatusView : IDisposable
 ## 3b. Chat replay
 
 - `GET /api/recordings/{id}/chat?fromSec=&toSec=&limit=&syncOffsetSec=&tail=` is public and read-only. It returns a bounded media-time window from the session's chat log; `Cache-Control: no-store`.
-- Non-tail requests (`tail` absent or `false`) are unchanged: `fromSec` is required and non-negative; `toSec` defaults to `fromSec + 120` and the window is capped at 600 s; the oldest `limit` messages are returned.
-- `tail=true` selects the newest `limit` messages at or before the playhead. `toSec` is required and is the playhead; `fromSec` is ignored. The query scans backward across chat buckets until it fills the tail, reaches the recording start, or hits its safety cap of 30 minutes or 100 bucket files. The resulting `fromSec` echoes the oldest returned message (or the clamped playhead when empty), `hasMoreBefore` reports whether the bounded scan found older messages beyond the returned tail, and `hasMoreAfter` is always `false`.
+- Non-tail requests (`tail` absent or `false`) are unchanged: `fromSec` is required and non-negative; `toSec` defaults to `fromSec + 120` and the window is capped at 600 s; the oldest `limit` messages are returned. `hasMoreBefore` and `hasMoreAfter` report whether a visible message exists before or after the window (`hasMoreAfter` also when `limit` cut the window short).
+- `tail=true` selects the newest `limit` messages at or before the playhead. `toSec` is required and is the playhead; `fromSec` is ignored. The query scans backward until it fills the tail, reaches the recording start, or hits its safety cap of 30 minutes. The resulting `fromSec` echoes the oldest returned message (or the clamped playhead when empty), `hasMoreBefore` reports whether a visible older message exists beyond the returned tail, and `hasMoreAfter` is always `false`.
 - In both modes `limit` defaults to 300 and is capped at 1000; `syncOffsetSec` must be within ±30 s (out of range is 400). Timeline mapping, tombstones, redactions, deduplication, gaps, part boundaries, and clamping are shared by both modes.
 - The response envelope is `v`, `recordingId`, `state` (`recording` | `complete` | `starting` | `unavailable`), `hasChat`, `source` (`irc-anonymous` | `irc-token` | `mock` | `none`), `leadInSec`, `fromSec`, `toSec`, `syncOffsetSec`, `messages`, `gaps`, `hasMoreBefore`, `hasMoreAfter`. Messages carry `id`, `mt`, `at`, user fields, badges, text, emote ranges, bits, reply, and the action flag.
 - Each gap is `{from, to, seconds}`: `from`/`to` in media seconds clipped to the window, `seconds` the wall-clock length for the divider. Gaps come from IRC outages (last message to rejoin), queue overflow (`dropped`), a truncated log (from the cap to the window end), and unrecorded time between parts, which is a single media point (`from == to`) because the stitched timeline is contiguous.
 - Deleted and cleared messages are hidden, and a surviving reply's `reply` is `null` when it quotes removed text, whether or not purge ran.
-- Unknown recordings are 404; malformed or out-of-range queries are 400; a recording without chat is 200 with `hasChat:false`. Raw `.jsonl` files are never served.
+- Unknown recordings are 404; malformed or out-of-range queries are 400; a recording without chat is 200 with `hasChat:false`.
 - The pane receives the endpoint's `limit` and sync range in its load payload. It keeps one fetch in flight; after a failure it waits 1 s, doubling to 30 s, before trying again. Seeks and sync changes replace the request in flight.
 
 ## 3c. Emote catalogs

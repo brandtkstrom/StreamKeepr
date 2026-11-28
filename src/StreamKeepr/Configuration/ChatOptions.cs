@@ -26,6 +26,10 @@ public sealed class ChatOptions
 
     [Range(0, 60)] public int LeadInSeconds { get; set; } = 12;
 
+    /// <summary>
+    /// Unused since chat moved into the record store (#317); still bound so existing settings
+    /// keep validating until #323 removes the legacy keys.
+    /// </summary>
     [Range(1, 60)] public int BucketMinutes { get; set; } = 10;
 
     [Range(1, 100)] public int MaxChannels { get; set; } = 100;
@@ -43,8 +47,6 @@ public sealed class ChatOptions
     public ChatPurgeMode PurgeDeletedText { get; set; } = ChatPurgeMode.Off;
 
     public ChatEmoteOptions Emotes { get; set; } = new();
-
-    public int BucketSeconds => BucketMinutes * 60;
 
     public bool HasToken => !string.IsNullOrWhiteSpace(TwitchUserOAuthToken);
 }

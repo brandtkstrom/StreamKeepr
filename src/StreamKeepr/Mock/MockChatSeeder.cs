@@ -5,14 +5,18 @@ using StreamKeepr.Infrastructure.Storage;
 
 namespace StreamKeepr.Mock;
 
-/// <summary>Seeds deterministic chat logs for the finished Mock recordings.</summary>
+/// <summary>
+/// Seeds deterministic chat logs for the finished Mock recordings through the chat store, so
+/// they land in the record store like captured chat. It runs after <see cref="MockSeeder"/> has
+/// recorded the sessions; a recording that already has chat is left alone.
+/// </summary>
 public sealed class MockChatSeeder(
     RecordingLibrary library,
     ChatLogStore store,
     IOptions<ChatOptions> options,
     ILogger<MockChatSeeder> logger) : IHostedService
 {
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         foreach (RecordingSummary summary in library.All.Where(summary => !summary.IsRecording))
         {
@@ -27,7 +31,7 @@ public sealed class MockChatSeeder(
             }
 
             string playlist = Path.Combine(directory, PartFiles.Playlist(1));
-            if (!File.Exists(playlist) || ChatLogLayout.HasChat(directory, logger))
+            if (!File.Exists(playlist) || await store.HasChatAsync(summary.Id, cancellationToken))
                 continue;
 
             DateTimeOffset? pdt = PlaylistTimeline.TryParse(File.ReadAllText(playlist))
@@ -68,8 +72,6 @@ public sealed class MockChatSeeder(
             store.CloseSession(summary.Id, finalize: true);
             logger.LogInformation("Seeded chat for {Session}.", summary.Id);
         }
-
-        return Task.CompletedTask;
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
