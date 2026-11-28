@@ -100,13 +100,14 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
 
         await Feedback.Snackbar(page, "Recording deleted").WaitForAsync();
         await page.Locator($"{LibraryHooks.Drawer} a[data-recording-id='{id}']").WaitForAsync(new() { State = WaitForSelectorState.Detached });
-        Assert.Equal(before - 1, await page.Locator(LibraryHooks.Row).CountAsync());
+        // Web-first assertions: the column and the channel count re-render after the row leaves,
+        // so a one-shot read can see the old values.
+        await Assertions.Expect(page.Locator(LibraryHooks.Row)).ToHaveCountAsync(before - 1);
         // The drawer stays open on the same column, and focus lands on a remaining row.
         await Assertions.Expect(page.Locator($"{LibraryHooks.Drawer} [data-recordings-column='{column}']")).ToBeVisibleAsync();
         await page.WaitForFunctionAsync("() => document.activeElement?.matches('a[data-recording-id]')");
-        Assert.Equal(
-            (before - 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
-            (await page.Locator($"{LibraryHooks.ChannelFor(column)} [data-channel-count]").InnerTextAsync()).Trim());
+        await Assertions.Expect(page.Locator($"{LibraryHooks.ChannelFor(column)} [data-channel-count]"))
+            .ToHaveTextAsync((before - 1).ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     [Fact]

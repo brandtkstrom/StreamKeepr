@@ -13,6 +13,7 @@ using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Telemetry;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
+using StreamKeepr.Tests.Runtime;
 using StreamKeepr.Tests.Telemetry;
 
 namespace StreamKeepr.Tests.Twitch;
@@ -439,7 +440,7 @@ public sealed class HelixPollerTests : IDisposable
     [Fact]
     public async Task A_recording_channel_forces_the_short_interval_even_with_full_push_coverage()
     {
-        var clock = new FakeTimeProvider(
+        var clock = new TrackingTimeProvider(
             new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
         var status = new DvrStatus();
         var session = new Session(
@@ -504,6 +505,9 @@ public sealed class HelixPollerTests : IDisposable
             stop.Token);
 
         await firstPoll.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        // The handler runs before the poller schedules its wait; advancing before that timer
+        // exists would leave it due 30 s after the advanced time.
+        Assert.Equal(TimeSpan.FromSeconds(30), await NextTimerAsync(clock));
         clock.Advance(TimeSpan.FromSeconds(29));
         Assert.Equal(1, Volatile.Read(ref polls));
 
@@ -554,7 +558,7 @@ public sealed class HelixPollerTests : IDisposable
     [Fact]
     public async Task A_successful_poll_records_its_round_trip_and_a_failed_one_does_not()
     {
-        var clock = new FakeTimeProvider(
+        var clock = new TrackingTimeProvider(
             new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
         var schedule = new PollSchedule(clock);
         int polls = 0;
@@ -583,6 +587,9 @@ public sealed class HelixPollerTests : IDisposable
         DateTimeOffset succeededAt = schedule.LastSuccessfulPollAt!.Value;
         Assert.Equal(TimeSpan.FromMilliseconds(180), schedule.LastApiRoundTrip);
 
+        // The round is recorded before the poller schedules its wait; advance only once the
+        // interval timer exists, or it would be due 60 s after the advanced time.
+        Assert.Equal(TimeSpan.FromSeconds(60), await NextTimerAsync(clock));
         clock.Advance(TimeSpan.FromSeconds(60));
         await WaitUntilAsync(() => schedule.LastPollAt > succeededAt);
         Assert.True(Volatile.Read(ref polls) >= 2, "the second poll reached Helix");
@@ -592,6 +599,9 @@ public sealed class HelixPollerTests : IDisposable
         stop.Cancel();
         await run.WaitAsync(TimeSpan.FromSeconds(5));
     }
+
+    private static Task<TimeSpan> NextTimerAsync(TrackingTimeProvider clock) =>
+        clock.CreatedTimers.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
@@ -613,7 +623,7 @@ public sealed class HelixPollerTests : IDisposable
 
     private TwitchStreamPoller CreatePoller(
         StubHandler handler,
-        FakeTimeProvider clock,
+        TimeProvider clock,
         PollSchedule schedule,
         ILoggerFactory? logs = null)
     {
