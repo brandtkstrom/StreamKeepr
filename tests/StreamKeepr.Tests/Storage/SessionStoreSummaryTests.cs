@@ -29,7 +29,9 @@ public sealed class SessionStoreSummaryTests
         await context.Store.AppendMetadataAsync(
             context.Session, context.Metadata("Title two", "Game two"), CancellationToken.None);
 
-        await File.WriteAllBytesAsync(context.ThumbnailPath, new byte[5], CancellationToken.None);
+        string image = Path.Combine(context.Directory, "grab.jpg");
+        await File.WriteAllBytesAsync(image, new byte[5], CancellationToken.None);
+        Assert.True(await context.Store.SaveThumbnailAsync(context.Directory, image, CancellationToken.None));
 
         var live = await context.Store.SummarizeAsync(context.Directory, CancellationToken.None);
 
@@ -79,7 +81,7 @@ public sealed class SessionStoreSummaryTests
     }
 
     [Fact]
-    public async Task Summary_returns_null_when_the_manifest_is_missing()
+    public async Task Summary_returns_null_for_a_session_without_a_record()
     {
         using var context = new SessionStoreTestContext();
 

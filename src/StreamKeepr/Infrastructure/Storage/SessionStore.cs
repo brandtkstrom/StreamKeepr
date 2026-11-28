@@ -1,43 +1,41 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
+using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Media;
+using StreamKeepr.Infrastructure.Records;
 
 namespace StreamKeepr.Infrastructure.Storage;
 
 /// <summary>
-/// Owns the per-session manifest, locking, atomic writes, and playlist stitching. The recorder
-/// writes the part files; this store writes <c>session.json</c> and <c>index.m3u8</c>.
+/// Owns the session records, the per-session locks, atomic index writes, and playlist stitching.
+/// The recorder writes the part files; this store writes the session's record-store rows
+/// (ADR-0014) and <c>index.m3u8</c>, and projects both into the <see cref="RecordingLibrary"/>.
 /// </summary>
 /// <remarks>
 /// Every mutation takes <see cref="LockFor"/> for its session folder. Public methods never call
 /// another locking method while holding a lock; the <c>*Core</c> helpers assume the caller holds it.
+/// The record is the commit point: a lifecycle change counts once its row is written, and a
+/// failed row write throws and leaves the previous record in place. While a session records,
+/// its counts, size, and chapters are derived from the part playlists and never stored.
 /// </remarks>
 public sealed class SessionStore(
     IOptions<RecorderOptions> recorder,
+    IDbContextFactory<RecordStoreDbContext> contexts,
     RecordingLibrary library,
     TimeProvider clock,
     ILogger<SessionStore> logger,
     Func<TimeSpan, CancellationToken, Task> retryDelay)
 {
-    public const int ManifestVersion = 1;
-    public const string ManifestFileName = "session.json";
     public const string IndexFileName = "index.m3u8";
     public const string ThumbnailFileName = "thumb.jpg";
 
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter() },
-    };
-
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.Ordinal);
+    private readonly SessionRecords _records = new(contexts, logger);
 
     internal int MinTargetDuration => 2 * recorder.Value.SegmentSeconds;
 
@@ -53,8 +51,8 @@ public sealed class SessionStore(
         _locks.TryRemove(Normalize(sessionDir), out _);
 
     /// <summary>
-    /// Creates a session, or reopens the existing one. Never overwrites an existing manifest or
-    /// its metadata history.
+    /// Creates a session, or reopens the existing one. Never overwrites an existing record or
+    /// its metadata history. A failed record write throws, so the recorder does not start.
     /// </summary>
     public async Task OpenAsync(Session session, LiveStream live, CancellationToken ct)
     {
@@ -63,25 +61,64 @@ public sealed class SessionStore(
         await gate.WaitAsync(ct);
         try
         {
-            if (File.Exists(Path.Combine(directory, ManifestFileName)))
+            if (await _records.FindAsync(session.Id, ct) is { } existing)
             {
-                await ReopenCoreAsync(directory, ct);
+                await ReopenCoreAsync(directory, existing, ct);
                 return;
             }
 
+            // The folder comes first: a failed insert leaves an empty folder that nothing
+            // reads, and the next open inserts the record again.
             Directory.CreateDirectory(directory);
-            var manifest = new SessionManifest(
-                ManifestVersion,
+            var opened = new SessionRecord(
                 session.Id,
                 session.Channel,
                 session.StreamId,
                 session.StartedAt,
                 SessionStatus.Recording,
                 ImmutableList.Create(new MetadataChange(clock.GetUtcNow(), live.Title, live.Game)));
+            await _records.CreateAsync(session, opened.Metadata, endedAt: null, ct);
 
-            await WriteManifestAsync(directory, manifest, ct);
-            await UpsertLibraryAsync(directory, ct);
+            await UpsertLibraryAsync(directory, opened, ct);
             logger.LogInformation("Opened session {SessionId} in {Directory}.", session.Id, directory);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Records a session with a known metadata history without touching its folder, for the Mock
+    /// seeder, which writes the part files itself and then finalizes Complete sessions. An
+    /// <paramref name="endedAt"/> is kept by that finalize.
+    /// </summary>
+    public async Task SeedAsync(
+        Session session,
+        IReadOnlyList<MetadataChange> metadata,
+        DateTimeOffset? endedAt,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(metadata);
+
+        string directory = Normalize(session.Directory);
+        var gate = LockFor(directory);
+        await gate.WaitAsync(ct);
+        try
+        {
+            await _records.CreateAsync(session, metadata, endedAt, ct);
+            await UpsertLibraryAsync(
+                directory,
+                new SessionRecord(
+                    session.Id,
+                    session.Channel,
+                    session.StreamId,
+                    session.StartedAt,
+                    SessionStatus.Recording,
+                    metadata.ToImmutableList(),
+                    endedAt),
+                ct);
         }
         finally
         {
@@ -97,7 +134,8 @@ public sealed class SessionStore(
         await gate.WaitAsync(ct);
         try
         {
-            await ReopenCoreAsync(directory, ct);
+            SessionRecord record = await RequireRecordAsync(session.Id, ct);
+            await ReopenCoreAsync(directory, record, ct);
         }
         finally
         {
@@ -107,7 +145,8 @@ public sealed class SessionStore(
 
     /// <summary>
     /// Appends a title/game change. A repeated observation with the same title and game writes
-    /// nothing. The latest entry is the session's current title and game.
+    /// nothing. The latest entry is the session's current title and game. A failed write throws
+    /// and changes nothing; the caller logs it and keeps recording.
     /// </summary>
     public async Task AppendMetadataAsync(Session session, LiveStream live, CancellationToken ct)
     {
@@ -116,21 +155,16 @@ public sealed class SessionStore(
         await gate.WaitAsync(ct);
         try
         {
-            var manifest = await ReadManifestCoreAsync(directory, ct);
-            if (manifest.Metadata.IsEmpty)
-                throw new InvalidDataException($"Session manifest in {directory} has no metadata.");
+            SessionRecord record = await RequireRecordAsync(session.Id, ct);
 
-            var latest = manifest.Metadata[^1];
+            var latest = record.Metadata[^1];
             if (latest.Title == live.Title && latest.Game == live.Game)
                 return;
 
-            var updated = manifest with
-            {
-                Metadata = manifest.Metadata.Add(
-                    new MetadataChange(clock.GetUtcNow(), live.Title, live.Game)),
-            };
-            await WriteManifestAsync(directory, updated, ct);
-            await UpsertLibraryAsync(directory, ct);
+            var change = new MetadataChange(clock.GetUtcNow(), live.Title, live.Game);
+            await _records.AppendMetadataAsync(session.Id, change, ct);
+            await UpsertLibraryAsync(
+                directory, record with { Metadata = record.Metadata.Add(change) }, ct);
         }
         finally
         {
@@ -182,8 +216,9 @@ public sealed class SessionStore(
     }
 
     /// <summary>
-    /// Stitches every non-empty part into <c>index.m3u8</c> with one ENDLIST and marks the manifest
-    /// Complete. A session with no media is deleted.
+    /// Stitches every non-empty part into <c>index.m3u8</c> with one ENDLIST and marks the record
+    /// Complete with its final aggregates. A session with no media is deleted. If the record
+    /// write fails, the session stays Recording and startup recovery finalizes it.
     /// </summary>
     public async Task FinalizeAsync(Session session, CancellationToken ct)
     {
@@ -192,7 +227,7 @@ public sealed class SessionStore(
         await gate.WaitAsync(ct);
         try
         {
-            await FinalizeCoreAsync(directory, ct);
+            await FinalizeCoreAsync(directory, session.Id, ct);
         }
         finally
         {
@@ -201,11 +236,11 @@ public sealed class SessionStore(
     }
 
     /// <summary>
-    /// Moves a finished thumbnail image into the session as <c>thumb.jpg</c> and refreshes the
-    /// library. The thumbnail is written once and never replaced, because <c>/media</c> serves it
-    /// as immutable. <paramref name="imagePath"/> must be on the recordings volume so the move is a
-    /// rename. The image is consumed either way: returns false (and deletes it) when the session
-    /// no longer exists or already has a thumbnail.
+    /// Moves a finished thumbnail image into the session as <c>thumb.jpg</c>, records it, and
+    /// refreshes the library. The thumbnail is written once and never replaced, because
+    /// <c>/media</c> serves it as immutable. <paramref name="imagePath"/> must be on the
+    /// recordings volume so the move is a rename. The image is consumed either way: returns
+    /// false (and deletes it) when the session no longer exists or already has a thumbnail.
     /// </summary>
     public async Task<bool> SaveThumbnailAsync(string sessionDir, string imagePath, CancellationToken ct)
     {
@@ -216,15 +251,22 @@ public sealed class SessionStore(
         await gate.WaitAsync(ct);
         try
         {
-            // A delete holds this lock while it removes the folder, so the check is race-free.
-            if (!File.Exists(Path.Combine(directory, ManifestFileName)) || File.Exists(target))
+            // A delete holds this lock while it removes the record, so the check is race-free.
+            SessionRecord? record = await _records.FindAsync(SessionIdOf(directory), ct);
+            if (record is null || File.Exists(target))
             {
                 File.Delete(imagePath);
+
+                // A record write that failed after an earlier move left the file unrecorded;
+                // the existing image is the thumbnail, so record it now.
+                if (record is { HasThumbnail: false })
+                    await RecordThumbnailAsync(directory, record, ct);
+
                 return false;
             }
 
             File.Move(imagePath, target, overwrite: false);
-            await UpsertLibraryAsync(directory, ct);
+            await RecordThumbnailAsync(directory, record, ct);
             return true;
         }
         finally
@@ -234,142 +276,149 @@ public sealed class SessionStore(
     }
 
     /// <summary>
-    /// Reads the manifest and derives the library summary. Returns null when the manifest is
-    /// missing or unreadable. Chapter history comes from the metadata after the first entry.
+    /// Reads the session's record and derives its library summary. Returns null when the session
+    /// has no record. A Recording session's counts, size, and chapters come from its part
+    /// playlists; a Complete session's come from its record, positioned on its index.
     /// </summary>
     public async Task<RecordingSummary?> SummarizeAsync(string sessionDir, CancellationToken ct)
     {
         string directory = Normalize(sessionDir);
-        var manifest = await TryLoadAsync(directory, ct);
-        if (manifest is null)
-            return null;
-
-        var parts = await ReadPartsAsync(directory, ct);
-        string? playlist = null;
-
-        if (manifest.Status == SessionStatus.Complete)
-            playlist = await TryReadFileAsync(Path.Combine(directory, IndexFileName), ct);
-
-        return Summarize(directory, manifest, parts, playlist, MediaSize(directory));
+        SessionRecord? record = await TryLoadAsync(directory, ct);
+        return record is null ? null : await ProjectAsync(directory, record, ct);
     }
 
     /// <summary>
-    /// Derives the library projection from a manifest, its parts, an optional finalized
-    /// playlist, and the already-measured media size. Callers that hold the lock and have the
-    /// inputs in memory use this instead of re-reading the session folder.
+    /// Derives the summary of every recorded session under <paramref name="recordingsRoot"/> for
+    /// a library load. A session whose folder name is unsafe or whose media cannot be read is
+    /// logged and left out; its record is kept.
     /// </summary>
-    private RecordingSummary Summarize(
-        string directory,
-        SessionManifest manifest,
-        IReadOnlyList<PartPlaylist> parts,
-        string? playlist,
-        long mediaSize)
+    public async Task<IReadOnlyList<RecordingSummary>> SummarizeAllAsync(
+        string recordingsRoot, CancellationToken ct)
     {
-        playlist ??= PlaylistStitcher.Stitch(parts, MinTargetDuration, final: false);
+        IReadOnlyList<SessionRecord> records = await _records.AllAsync(ct);
+        var summaries = new List<RecordingSummary>(records.Count);
+        foreach (SessionRecord record in records)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!TryResolveDirectory(recordingsRoot, record, out string directory))
+                continue;
 
-        var latest = manifest.Metadata.Count > 0
-            ? manifest.Metadata[^1]
-            : throw new InvalidDataException($"Session manifest in {directory} has no metadata.");
-        PlaylistTimeline timeline = PlaylistTimeline.Parse(playlist);
+            try
+            {
+                summaries.Add(await ProjectAsync(directory, record, ct));
+            }
+            catch (Exception ex) when (IsProjectionFailure(ex))
+            {
+                logger.LogWarning(ex, "Skipping unreadable session in {Directory}.", directory);
+            }
+        }
 
-        double? duration = manifest.Status == SessionStatus.Complete
-            ? (File.Exists(Path.Combine(directory, IndexFileName))
-                ? timeline.Duration
-                : manifest.DurationSeconds)
-            : null;
+        return summaries;
+    }
 
-        return new RecordingSummary(
-            manifest.Id,
-            manifest.Channel,
-            latest.Title,
-            latest.Game,
-            manifest.StartedAt,
-            manifest.EndedAt,
-            IsRecording: manifest.Status == SessionStatus.Recording,
-            duration,
-            mediaSize,
-            PartCount: parts.Count,
-            SegmentCount: timeline.SegmentCount,
-            HasThumbnail: File.Exists(Path.Combine(directory, ThumbnailFileName)),
-            Chapters: timeline.Chapters(manifest.Metadata),
-            HasChat: ChatLogLayout.HasChat(directory, logger));
+    /// <summary>Every session record, for startup recovery. Order is unspecified.</summary>
+    public Task<IReadOnlyList<SessionRecord>> LoadRecordsAsync(CancellationToken ct) =>
+        _records.AllAsync(ct);
+
+    /// <summary>
+    /// The session folder for a record, refusing a record whose channel or id would leave the
+    /// recordings root.
+    /// </summary>
+    public bool TryResolveDirectory(string recordingsRoot, SessionRecord record, out string directory)
+    {
+        if (Session.IsValidId(record.Id)
+            && RecordingsPath.TryResolve(recordingsRoot, [record.Channel, record.Id], out directory))
+        {
+            directory = Normalize(directory);
+            return true;
+        }
+
+        logger.LogWarning(
+            "Skipping session {SessionId}: its channel or id is not a safe folder name.", record.Id);
+        directory = "";
+        return false;
     }
 
     /// <summary>
-    /// Reads a session manifest without taking the lock. Used at startup and for read-only
-    /// summary projections; a missing or corrupt manifest returns null and never deletes media.
+    /// Reads the record of the session in <paramref name="sessionDir"/> (the folder is named for
+    /// the session id) without taking the lock. Returns null when the session has no record; a
+    /// record-store failure throws.
     /// </summary>
-    public async Task<SessionManifest?> TryLoadAsync(string sessionDir, CancellationToken ct)
-    {
-        string directory = Normalize(sessionDir);
-        if (!File.Exists(Path.Combine(directory, ManifestFileName)))
-            return null;
+    public Task<SessionRecord?> TryLoadAsync(string sessionDir, CancellationToken ct) =>
+        _records.FindAsync(SessionIdOf(Normalize(sessionDir)), ct);
 
-        try
-        {
-            return await ReadManifestCoreAsync(directory, ct);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-            or JsonException or InvalidDataException or NotSupportedException)
-        {
-            logger.LogWarning(ex, "Skipping unreadable session manifest in {Directory}.", directory);
-            return null;
-        }
-    }
+    /// <summary>
+    /// Deletes a session's record and its dependent rows. The caller holds <see cref="LockFor"/>
+    /// and removes the library entry and folder itself.
+    /// </summary>
+    public Task DeleteRecordAsync(string sessionId, CancellationToken ct) =>
+        _records.DeleteAsync(sessionId, ct);
 
-    private async Task ReopenCoreAsync(string directory, CancellationToken ct)
+    private async Task ReopenCoreAsync(string directory, SessionRecord record, CancellationToken ct)
     {
-        var manifest = await ReadManifestCoreAsync(directory, ct);
-        var reopened = manifest with
-        {
-            Status = SessionStatus.Recording,
-            EndedAt = null,
-            DurationSeconds = null,
-            SizeBytes = null,
-        };
+        // The record changes first: a failed write leaves the session Complete with its index,
+        // and a failed index delete afterwards leaves a Recording session that the next
+        // finalize re-stitches.
+        await _records.MarkRecordingAsync(record.Id, ct);
 
         string indexPath = Path.Combine(directory, IndexFileName);
         if (File.Exists(indexPath))
             File.Delete(indexPath);
 
-        await WriteManifestAsync(directory, reopened, ct);
-        await UpsertLibraryAsync(directory, ct);
+        var reopened = record with
+        {
+            Status = SessionStatus.Recording,
+            EndedAt = null,
+            DurationSeconds = null,
+            SizeBytes = null,
+            PartCount = null,
+            SegmentCount = null,
+        };
+        await UpsertLibraryAsync(directory, reopened, ct);
         logger.LogInformation("Reopened session {SessionId} in {Directory}.", reopened.Id, directory);
     }
 
-    private async Task FinalizeCoreAsync(string directory, CancellationToken ct)
+    private async Task FinalizeCoreAsync(string directory, string sessionId, CancellationToken ct)
     {
         // Callers hold the session lock, so ElapsedMs times the finalize work, not the wait.
         long startedAt = clock.GetTimestamp();
-        var manifest = await ReadManifestCoreAsync(directory, ct);
+        SessionRecord record = await RequireRecordAsync(sessionId, ct);
         var parts = await ReadPartsAsync(directory, ct);
 
         if (parts.Count == 0)
         {
+            // The record goes first; a folder left behind by a failed delete is never read.
+            await _records.DeleteAsync(record.Id, ct);
+            library.Remove(record.Id);
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
 
-            library.Remove(manifest.Id);
-            logger.LogInformation("Deleted empty session {SessionId}.", manifest.Id);
+            logger.LogInformation("Deleted empty session {SessionId}.", record.Id);
             return;
         }
 
         string index = PlaylistStitcher.Stitch(parts, MinTargetDuration, final: true);
         await WriteAtomicAsync(Path.Combine(directory, IndexFileName), index, ct);
 
-        long sizeBytes = MediaSize(directory);
-        var complete = manifest with
+        PlaylistTimeline timeline = PlaylistTimeline.Parse(index);
+        var complete = record with
         {
             Status = SessionStatus.Complete,
-            EndedAt = manifest.EndedAt ?? clock.GetUtcNow(),
-            DurationSeconds = PlaylistTimeline.Parse(index).Duration,
-            SizeBytes = sizeBytes,
+            EndedAt = record.EndedAt ?? clock.GetUtcNow(),
+            DurationSeconds = timeline.Duration,
+            SizeBytes = MediaSize(directory),
+            PartCount = parts.Count,
+            SegmentCount = timeline.SegmentCount,
         };
-        await WriteManifestAsync(directory, complete, ct);
+        await _records.MarkCompleteAsync(complete, ct);
 
-        // Project from the inputs already in memory instead of re-reading the manifest, every
-        // part, the index, and every media file while the session lock is still held.
-        TryUpsertLibrary(directory, () => Summarize(directory, complete, parts, index, sizeBytes));
+        // Project from the inputs already in memory instead of re-reading every part and the
+        // index while the session lock is still held.
+        TryUpsertLibrary(
+            directory,
+            () => ToSummary(
+                directory, complete, parts.Count, timeline.SegmentCount, complete.SizeBytes,
+                timeline.Chapters(complete.Metadata)));
 
         logger.LogInformation(
             "Finalized session {SessionId} for {Channel} in {ElapsedMs:0} ms: {PartCount} parts, {SizeBytes} bytes in {Directory}.",
@@ -381,12 +430,88 @@ public sealed class SessionStore(
             directory);
     }
 
-    private async Task UpsertLibraryAsync(string directory, CancellationToken ct)
+    private async Task<SessionRecord> RequireRecordAsync(string sessionId, CancellationToken ct) =>
+        await _records.FindAsync(sessionId, ct)
+            ?? throw new InvalidDataException($"Session {sessionId} has no record.");
+
+    private async Task RecordThumbnailAsync(string directory, SessionRecord record, CancellationToken ct)
+    {
+        await _records.MarkThumbnailAsync(record.Id, ct);
+        await UpsertLibraryAsync(directory, record with { HasThumbnail = true }, ct);
+    }
+
+    /// <summary>
+    /// Derives a summary from a record. A Recording session is measured from its part
+    /// playlists; a Complete session uses its stored aggregates, requires its index, and reads
+    /// the index only to position chapters, so a session without title changes reads no file.
+    /// </summary>
+    private async Task<RecordingSummary> ProjectAsync(
+        string directory, SessionRecord record, CancellationToken ct)
+    {
+        if (record.Status == SessionStatus.Recording)
+        {
+            var parts = await ReadPartsAsync(directory, ct);
+            var live = PlaylistTimeline.Parse(PlaylistStitcher.Stitch(parts, MinTargetDuration, final: false));
+            return ToSummary(
+                directory, record, parts.Count, live.SegmentCount, MediaSize(directory),
+                live.Chapters(record.Metadata));
+        }
+
+        // Never list a Complete session that cannot be played; recovery re-stitches a
+        // missing index before the library loads.
+        string indexPath = Path.Combine(directory, IndexFileName);
+        if (!File.Exists(indexPath))
+            throw MissingIndex(record);
+
+        IReadOnlyList<Chapter> chapters = [];
+        if (record.Metadata.Count > 1)
+        {
+            string index = await TryReadFileAsync(indexPath, ct) ?? throw MissingIndex(record);
+            chapters = PlaylistTimeline.Parse(index).Chapters(record.Metadata);
+        }
+
+        return ToSummary(
+            directory, record, record.PartCount ?? 0, record.SegmentCount ?? 0, record.SizeBytes, chapters);
+    }
+
+    private static InvalidDataException MissingIndex(SessionRecord record) =>
+        new($"Complete session {record.Id} has no index.");
+
+    private RecordingSummary ToSummary(
+        string directory,
+        SessionRecord record,
+        int partCount,
+        int segmentCount,
+        long? sizeBytes,
+        IReadOnlyList<Chapter> chapters)
+    {
+        bool complete = record.Status == SessionStatus.Complete;
+        MetadataChange latest = record.Metadata[^1];
+        return new RecordingSummary(
+            record.Id,
+            record.Channel,
+            latest.Title,
+            latest.Game,
+            record.StartedAt,
+            complete ? record.EndedAt : null,
+            IsRecording: !complete,
+            complete ? record.DurationSeconds : null,
+            sizeBytes,
+            partCount,
+            segmentCount,
+            record.HasThumbnail,
+            chapters,
+            // Interim until #317 moves chat into the record store: chat is still captured to the
+            // chat/ sidecar, so a session without a chat row still has chat when that exists.
+            // #317 removes the sidecar check and keeps only the row.
+            HasChat: record.HasChatSession || ChatLogLayout.HasChat(directory, logger));
+    }
+
+    private async Task UpsertLibraryAsync(string directory, SessionRecord record, CancellationToken ct)
     {
         try
         {
-            if (await SummarizeAsync(directory, ct) is { } summary)
-                library.Upsert(summary);
+            library.Upsert(await ProjectAsync(directory, record, ct));
         }
         catch (Exception ex) when (IsProjectionFailure(ex))
         {
@@ -407,7 +532,7 @@ public sealed class SessionStore(
     }
 
     private void LogProjectionFailure(string directory, Exception exception) =>
-        // The manifest mutation already succeeded. A projection failure must not turn a
+        // The record mutation already succeeded. A projection failure must not turn a
         // recording command into a failure; recovery or the next update will rebuild the
         // summary once the media is readable.
         logger.LogWarning(
@@ -417,39 +542,8 @@ public sealed class SessionStore(
         ex is FormatException or IOException or InvalidDataException
             or UnauthorizedAccessException or NotSupportedException;
 
-    private async Task<SessionManifest> ReadManifestCoreAsync(string directory, CancellationToken ct)
-    {
-        string path = Path.Combine(directory, ManifestFileName);
-        await using var stream = OpenSharedRead(path);
-
-        var manifest = await JsonSerializer.DeserializeAsync<SessionManifest>(stream, Json, ct)
-            ?? throw new InvalidDataException($"Empty session manifest in {directory}.");
-
-        if (manifest.Version != ManifestVersion)
-        {
-            throw new InvalidDataException(
-                $"Unsupported session manifest version {manifest.Version} in {directory}.");
-        }
-
-        if (manifest.Metadata is not { Count: > 0 })
-            throw new InvalidDataException($"Session manifest in {directory} has no metadata.");
-
-        return manifest;
-    }
-
-    /// <summary>Serializes a manifest with the store's authoritative schema options.</summary>
-    internal static string SerializeManifest(SessionManifest manifest)
-    {
-        ArgumentNullException.ThrowIfNull(manifest);
-        return JsonSerializer.Serialize(manifest, Json);
-    }
-
-    private Task WriteManifestAsync(
-        string directory, SessionManifest manifest, CancellationToken ct) =>
-        WriteAtomicAsync(
-            Path.Combine(directory, ManifestFileName),
-            SerializeManifest(manifest),
-            ct);
+    /// <summary>A session folder is named for its session id (<see cref="Session.For"/>).</summary>
+    private static string SessionIdOf(string directory) => Path.GetFileName(directory);
 
     private async Task WriteAtomicAsync(string path, string content, CancellationToken ct)
     {
@@ -545,14 +639,6 @@ public sealed class SessionStore(
 
     private static Task<string?> TryReadFileAsync(string path, CancellationToken ct) =>
         PartPlaylistReader.TryReadAllTextAsync(path, ct);
-
-    /// <summary>
-    /// Opens a file for reading while allowing writers and deleters. Windows refuses to replace
-    /// a file that another handle opened without delete sharing, so a lock-free reader would
-    /// break the store's temp-and-move writes.
-    /// </summary>
-    private static FileStream OpenSharedRead(string path) =>
-        PartPlaylistReader.OpenSharedRead(path);
 
     private static long MediaSize(string directory)
     {

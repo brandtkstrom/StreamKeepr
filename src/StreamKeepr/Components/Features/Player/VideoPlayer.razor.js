@@ -1110,6 +1110,10 @@ export function createPlayer(
       // Route change: the previous recording's position goes out before its engine is torn down.
       if (view && view.recordingId !== next.recordingId) progress.flush();
       view = next;
+      // The player is reused across recordings, so its seek bar stays enabled until start()
+      // resets it below. Naming the recording in this same task means a reader that sees the
+      // new id also sees the reset (E2E waits on this; docs/testing-contract.md).
+      root.dataset.skRecording = next.recordingId ?? "";
       live = isLiveState(next.state);
       progress.track({
         recordingId: next.recordingId,

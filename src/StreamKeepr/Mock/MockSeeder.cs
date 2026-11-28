@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
@@ -31,19 +30,24 @@ public sealed class MockSeedOptions
 }
 
 /// <summary>
-/// Populates the disposable Mock recordings root before startup recovery runs: four fake
-/// channels and eight sessions, including a finished VOD, a complete two-part session, a
-/// two-part partial, a growing EVENT capture, thumbnails, and chapters. All IDs and timestamps
-/// come from <see cref="MockCatalog"/>. <see cref="MockSeedOptions.ScaleRecordings"/> adds
-/// media-less archive recordings for measuring the library at scale.
+/// Populates the disposable Mock recordings root and the session records before startup
+/// recovery runs: four fake channels and eight sessions, including a finished VOD, a complete
+/// two-part session, a two-part partial, a growing EVENT capture, thumbnails, and chapters. All
+/// IDs and timestamps come from <see cref="MockCatalog"/>.
+/// <see cref="MockSeedOptions.ScaleRecordings"/> adds media-less archive recordings for
+/// measuring the library at scale.
 /// </summary>
+/// <remarks>
+/// Seeding is split by store so each can change on its own: this seeder owns channels and
+/// recordings (the session store); <see cref="MockViewerSeeder"/> owns viewer samples and
+/// <see cref="MockChatSeeder"/> owns chat, both run after it.
+/// </remarks>
 public sealed class MockSeeder(
     IOptions<StorageOptions> storage,
     IOptions<RecorderOptions> recorder,
     IOptions<MockSeedOptions> seedOptions,
     ChannelStore channels,
     SessionStore sessions,
-    RecordingLibrary library,
     ILogger<MockSeeder> logger) : IHostedService
 {
     private const string SeedVersion = "1";
@@ -87,8 +91,10 @@ public sealed class MockSeeder(
 
         if (!options.ResetOnStart && File.Exists(marker))
         {
-            // The Mock record store is per process, so the channel list starts empty every time.
+            // The Mock record store is per process, so the channel list and session records
+            // start empty every time; record the kept recordings again without new media.
             await SeedChannelsAsync(cancellationToken);
+            await RecordKeptRecordingsAsync(root, options.ScaleRecordings, cancellationToken);
             logger.LogInformation("Keeping the existing mock recordings at {Root}.", root);
             return;
         }
@@ -176,52 +182,54 @@ public sealed class MockSeeder(
                 Path.Combine(session.Directory, $"p{part:D3}.m3u8"), playlist, ct);
         }
 
-        File.Copy(
-            Path.Combine(template, MockMedia.Thumbnail),
-            Path.Combine(session.Directory, SessionStore.ThumbnailFileName),
-            overwrite: true);
+        // The thumbnail goes through the store, which records it; the image is consumed.
+        string image = SeedImagePath(session);
+        File.Copy(Path.Combine(template, MockMedia.Thumbnail), image, overwrite: true);
 
+        await RecordAsync(recording, session, image, ct);
+    }
+
+    /// <summary>
+    /// Records every catalog recording whose folder survived from an earlier run, as the seed
+    /// did, keeping its media and thumbnail.
+    /// </summary>
+    private async Task RecordKeptRecordingsAsync(string root, int scaleRecordings, CancellationToken ct)
+    {
+        foreach (MockRecording recording in MockCatalog.Recordings.Concat(
+            MockCatalog.ArchiveRecordings(scaleRecordings)))
+        {
+            Session session = MockCatalog.SessionFor(recording, root);
+            if (!Directory.Exists(session.Directory))
+                continue;
+
+            // Saving over an existing thumbnail records it and consumes only the copy.
+            string thumbnail = Path.Combine(session.Directory, SessionStore.ThumbnailFileName);
+            string? image = null;
+            if (File.Exists(thumbnail))
+            {
+                image = SeedImagePath(session);
+                File.Copy(thumbnail, image, overwrite: true);
+            }
+
+            await RecordAsync(recording, session, image, ct);
+        }
+    }
+
+    private async Task RecordAsync(
+        MockRecording recording, Session session, string? thumbnailImage, CancellationToken ct)
+    {
         DateTimeOffset? endedAt = recording.Complete
             ? session.StartedAt + (MockMedia.PartDuration * recording.Parts)
             : null;
 
-        var manifest = new SessionManifest(
-            SessionStore.ManifestVersion,
-            session.Id,
-            session.Channel,
-            session.StreamId,
-            session.StartedAt,
-            recording.Complete ? SessionStatus.Complete : SessionStatus.Recording,
-            ImmutableList.CreateRange(MockCatalog.MetadataFor(recording)),
-            EndedAt: endedAt);
-
-        await File.WriteAllTextAsync(
-            Path.Combine(session.Directory, SessionStore.ManifestFileName),
-            SessionStore.SerializeManifest(manifest),
-            ct);
-
+        await sessions.SeedAsync(session, [.. MockCatalog.MetadataFor(recording)], endedAt, ct);
+        if (thumbnailImage is not null)
+            await sessions.SaveThumbnailAsync(session.Directory, thumbnailImage, ct);
         if (recording.Complete)
-        {
             await sessions.FinalizeAsync(session, ct);
-            await SeedViewerSamplesAsync(session, ct);
-        }
-        else
-            library.Upsert((await sessions.SummarizeAsync(session.Directory, ct))!);
     }
 
-    /// <summary>
-    /// Writes deterministic viewer samples across a finished recording so the Stats viewer chart
-    /// has data. Live capture fills the growing session at its own cadence.
-    /// </summary>
-    private async Task SeedViewerSamplesAsync(Session session, CancellationToken ct)
-    {
-        double duration = library.Find(session.Id)?.DurationSeconds ?? 0;
-        double spacing = MockCatalog.SeededViewerSpacing.TotalSeconds;
-        IEnumerable<string> lines = Enumerable.Range(0, (int)(duration / spacing) + 1)
-            .Select(i => i * spacing)
-            .Select(at => ViewerSamples.FormatLine(at, MockCatalog.ViewerCount(session.StreamId, at)));
-
-        await File.WriteAllLinesAsync(
-            Path.Combine(session.Directory, ViewerSamples.FileName), lines, ct);
-    }
+    /// <summary>Where a thumbnail image waits, on the recordings volume, for the store to take it.</summary>
+    private static string SeedImagePath(Session session) =>
+        Path.Combine(session.Directory, SessionStore.ThumbnailFileName + ".seed");
 }

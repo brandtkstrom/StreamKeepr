@@ -13,7 +13,7 @@ namespace StreamKeepr.Infrastructure.Storage;
 /// <see cref="LiveIndexRefresher"/> refreshes every live session once per tick.
 /// </summary>
 /// <remarks>
-/// A refresh reads the manifest and part playlists without the session manifest lock. A warm
+/// A refresh reads the session record and part playlists without the session lock. A warm
 /// refresh only stats part files; only the active last part (or the previous last part once a
 /// new part appears) is read again. A failed or timed-out refresh keeps the last-known-good
 /// body and backs off. When a session stops being Recording or leaves the library, its whole
@@ -231,28 +231,22 @@ public sealed class LiveIndex
     }
 
     /// <summary>
-    /// Reads the session folder without the manifest lock. A Recording session is composed from
+    /// Reads the session record and folder without the session lock. A Recording session is composed from
     /// its part playlists into <paramref name="entry"/>; without an entry it is not composed.
     /// </summary>
     private async Task<SessionRead> ReadAsync(
         RecordingSummary summary, Entry? entry, CancellationToken ct)
     {
-        if (!TryResolveDirectory(summary, out string directory)
-            || !File.Exists(Path.Combine(directory, SessionStore.ManifestFileName)))
-        {
+        if (!TryResolveDirectory(summary, out string directory) || !Directory.Exists(directory))
             return SessionRead.Missing;
-        }
 
-        SessionManifest? manifest = await _store.TryLoadAsync(directory, ct).ConfigureAwait(false);
-        if (manifest is null)
-        {
-            // The manifest exists but could not be read. Treat it as a refresh failure so the
-            // last-known-good body stays live instead of being dropped as a deleted session.
-            throw new InvalidDataException(
-                $"The session manifest for {summary.Id} is unreadable.");
-        }
+        // A record-store failure throws: the refresh fails and the last-known-good body stays
+        // live instead of being dropped as a deleted session.
+        SessionRecord? record = await _store.TryLoadAsync(directory, ct).ConfigureAwait(false);
+        if (record is null)
+            return SessionRead.Missing;
 
-        if (manifest.Status == SessionStatus.Complete)
+        if (record.Status == SessionStatus.Complete)
         {
             string? index = await PartPlaylistReader
                 .TryReadAllTextAsync(Path.Combine(directory, SessionStore.IndexFileName), ct)
@@ -314,7 +308,8 @@ public sealed class LiveIndex
             or InvalidDataException
             or NotSupportedException
             or FormatException
-            or System.Text.Json.JsonException;
+            // The session record could not be read; the last-known-good body stays live.
+            or System.Data.Common.DbException;
 
     private enum SessionReadKind
     {

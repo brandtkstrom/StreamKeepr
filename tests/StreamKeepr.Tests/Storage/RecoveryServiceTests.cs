@@ -45,12 +45,12 @@ public sealed class RecoveryServiceTests : IDisposable
         Assert.Equal(older.Id, channel.Finished.Session.Id);
         Assert.True(channel.Finished.Complete);
 
-        SessionManifest? olderManifest = await _context.Store.TryLoadAsync(
+        SessionRecord? olderManifest = await _context.Store.TryLoadAsync(
             older.Directory, CancellationToken.None);
         Assert.Equal(SessionStatus.Complete, olderManifest!.Status);
         Assert.True(File.Exists(Path.Combine(older.Directory, SessionStore.IndexFileName)));
 
-        SessionManifest? newerManifest = await _context.Store.TryLoadAsync(
+        SessionRecord? newerManifest = await _context.Store.TryLoadAsync(
             newer.Directory, CancellationToken.None);
         Assert.Equal(SessionStatus.Recording, newerManifest!.Status);
 
@@ -77,7 +77,7 @@ public sealed class RecoveryServiceTests : IDisposable
         Assert.True(channel.Finished.Complete);
         Assert.True(File.Exists(Path.Combine(session.Directory, SessionStore.IndexFileName)));
 
-        SessionManifest? manifest = await _context.Store.TryLoadAsync(
+        SessionRecord? manifest = await _context.Store.TryLoadAsync(
             session.Directory, CancellationToken.None);
         Assert.Equal(SessionStatus.Complete, manifest!.Status);
         Assert.True(_context.Library.IsLoaded);
@@ -109,19 +109,20 @@ public sealed class RecoveryServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Corrupt_or_missing_manifests_and_unparseable_parts_are_skipped()
+    public async Task Folders_without_a_record_are_ignored_and_unparseable_parts_are_skipped()
     {
-        Session corrupt = CreateSession("555", SessionStoreTestContext.StartedAt);
-        Directory.CreateDirectory(corrupt.Directory);
-        string corruptMedia = Path.Combine(corrupt.Directory, "keep.m4s");
-        await File.WriteAllBytesAsync(corruptMedia, [1, 2, 3]);
-        await File.WriteAllTextAsync(
-            Path.Combine(corrupt.Directory, SessionStore.ManifestFileName), "not json");
+        // A pre-upgrade recording: its manifest is never read (ADR-0014 clean break).
+        Session legacy = CreateSession("555", SessionStoreTestContext.StartedAt);
+        Directory.CreateDirectory(legacy.Directory);
+        WritePart(legacy, validPart: true);
+        await File.WriteAllTextAsync(Path.Combine(legacy.Directory, "session.json"), "{}");
+        string legacyTemp = Path.Combine(legacy.Directory, "stale.tmp");
+        await File.WriteAllTextAsync(legacyTemp, "stale");
 
-        Session missing = CreateSession("556", SessionStoreTestContext.StartedAt.AddMinutes(1));
-        Directory.CreateDirectory(missing.Directory);
-        string missingMedia = Path.Combine(missing.Directory, "keep.m4s");
-        await File.WriteAllBytesAsync(missingMedia, [1, 2, 3]);
+        Session unknown = CreateSession("556", SessionStoreTestContext.StartedAt.AddMinutes(1));
+        Directory.CreateDirectory(unknown.Directory);
+        string unknownMedia = Path.Combine(unknown.Directory, "keep.m4s");
+        await File.WriteAllBytesAsync(unknownMedia, [1, 2, 3]);
 
         Session badPart = CreateSession("557", SessionStoreTestContext.StartedAt.AddMinutes(2));
         await WriteRecordingAsync(badPart, "557", validPart: false);
@@ -133,11 +134,124 @@ public sealed class RecoveryServiceTests : IDisposable
 
         Assert.Null(recovered[Channel].Unfinished);
         Assert.Null(recovered[Channel].Finished);
-        Assert.True(File.Exists(corruptMedia));
-        Assert.True(File.Exists(missingMedia));
+        Assert.True(File.Exists(legacyTemp), "an unrecorded folder is never touched");
+        Assert.True(File.Exists(unknownMedia));
+        Assert.Null(_context.Library.Find(legacy.Id));
         Assert.False(File.Exists(badTemp));
         Assert.True(File.Exists(Path.Combine(badPart.Directory, "p001_00000.m4s")));
+        Assert.NotNull(await _context.Store.TryLoadAsync(badPart.Directory, CancellationToken.None));
         Assert.True(_context.Library.IsLoaded);
+    }
+
+    [Fact]
+    public async Task A_record_whose_folder_is_missing_is_skipped_and_kept()
+    {
+        Session session = CreateSession("558", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(session, "558");
+        await _context.Store.FinalizeAsync(session, CancellationToken.None);
+        Directory.Delete(session.Directory, recursive: true);
+
+        IReadOnlyDictionary<string, RecoveredChannel> recovered =
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.Null(recovered[Channel].Finished);
+        Assert.Null(_context.Library.Find(session.Id));
+        Assert.False(Directory.Exists(session.Directory));
+        Assert.NotNull(await _context.Store.TryLoadAsync(session.Directory, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_restart_loads_the_library_from_the_record_store()
+    {
+        Session complete = CreateSession("560", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(complete, "560");
+        // A dated part, so the title change lands on the timeline as a chapter at 0.
+        await File.WriteAllTextAsync(
+            Path.Combine(complete.Directory, "p001.m3u8"),
+            PlaylistTestData.Playlist(
+                6, "init_001.mp4", PlaylistTestData.Segment("p001_00000.m4s", "2026-11-10T16:35:00Z", 6)));
+        await _context.Store.AppendMetadataAsync(
+            complete,
+            new LiveStream("560", "Second title", "Second game", complete.StartedAt, null),
+            CancellationToken.None);
+        await _context.Store.FinalizeAsync(complete, CancellationToken.None);
+        await _context.Store.SaveThumbnailAsync(
+            complete.Directory, await WriteImageAsync(complete), CancellationToken.None);
+        RecordingSummary before = _context.Library.Find(complete.Id)!;
+
+        Session live = CreateSession("561", SessionStoreTestContext.StartedAt.AddHours(1));
+        await WriteRecordingAsync(live, "561");
+
+        (RecoveryService recovery, RecordingLibrary library) = Restart();
+        Assert.False(library.IsLoaded);
+
+        await recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.True(library.IsLoaded);
+        Assert.Equal([live.Id, complete.Id], library.All.Select(summary => summary.Id));
+
+        RecordingSummary reloaded = library.Find(complete.Id)!;
+        Assert.Equal("Second title", reloaded.Title);
+        Assert.Equal("Second game", reloaded.Game);
+        Assert.False(reloaded.IsRecording);
+        Assert.Equal(before.EndedAt, reloaded.EndedAt);
+        Assert.Equal(6.0, reloaded.DurationSeconds);
+        Assert.Equal(before.SizeBytes, reloaded.SizeBytes);
+        Assert.Equal(1, reloaded.PartCount);
+        Assert.Equal(1, reloaded.SegmentCount);
+        Assert.True(reloaded.HasThumbnail);
+        Assert.Equal(before.Chapters, reloaded.Chapters);
+        Assert.Equal("Second title", Assert.Single(reloaded.Chapters).Title);
+
+        RecordingSummary recording = library.Find(live.Id)!;
+        Assert.True(recording.IsRecording);
+        Assert.Equal(1, recording.PartCount);
+        Assert.Equal(1, recording.SegmentCount);
+        Assert.Null(recording.DurationSeconds);
+        Assert.False(recording.HasThumbnail);
+    }
+
+    [Fact]
+    public async Task A_finalize_that_failed_to_record_is_finalized_by_the_next_recovery()
+    {
+        Session session = CreateSession("562", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(session, "562");
+        _context.Records.WritesFailing = true;
+        await Assert.ThrowsAnyAsync<Exception>(
+            () => _context.Store.FinalizeAsync(session, CancellationToken.None));
+        _context.Records.WritesFailing = false;
+
+        (RecoveryService recovery, RecordingLibrary library) = Restart();
+        IReadOnlyDictionary<string, RecoveredChannel> recovered = await recovery.RecoverAsync(
+            [new ChannelEntry(Channel, Paused: true)], CancellationToken.None);
+
+        Assert.Equal(session.Id, recovered[Channel].Finished!.Session.Id);
+        SessionRecord? record = await _context.Store.TryLoadAsync(session.Directory, CancellationToken.None);
+        Assert.Equal(SessionStatus.Complete, record!.Status);
+        Assert.Equal(6.0, record.DurationSeconds);
+        Assert.False(library.Find(session.Id)!.IsRecording);
+    }
+
+    [Fact]
+    public async Task A_reopen_that_failed_to_record_stays_finished_after_a_restart()
+    {
+        Session session = CreateSession("563", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(session, "563");
+        await _context.Store.FinalizeAsync(session, CancellationToken.None);
+        _context.Records.WritesFailing = true;
+        await Assert.ThrowsAnyAsync<Exception>(
+            () => _context.Store.ReopenAsync(session, CancellationToken.None));
+        _context.Records.WritesFailing = false;
+
+        (RecoveryService recovery, RecordingLibrary library) = Restart();
+        IReadOnlyDictionary<string, RecoveredChannel> recovered =
+            await recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.Null(recovered[Channel].Unfinished);
+        Assert.Equal(session.Id, recovered[Channel].Finished!.Session.Id);
+        Assert.Equal(2, recovered[Channel].Finished!.NextPart);
+        Assert.True(File.Exists(Path.Combine(session.Directory, SessionStore.IndexFileName)));
+        Assert.False(library.Find(session.Id)!.IsRecording);
     }
 
     [Fact]
@@ -160,7 +274,7 @@ public sealed class RecoveryServiceTests : IDisposable
         Assert.Null(recovered[Channel].Finished);
         Assert.Null(_context.Library.Find(session.Id));
         Assert.True(File.Exists(Path.Combine(session.Directory, "p001_00000.m4s")));
-        Assert.True(File.Exists(Path.Combine(session.Directory, SessionStore.ManifestFileName)));
+        Assert.NotNull(await _context.Store.TryLoadAsync(session.Directory, CancellationToken.None));
     }
 
     [Fact]
@@ -187,11 +301,7 @@ public sealed class RecoveryServiceTests : IDisposable
         await _context.Store.FinalizeAsync(session, CancellationToken.None);
 
         foreach (string file in Directory.EnumerateFiles(session.Directory))
-        {
-            string name = Path.GetFileName(file);
-            if (name != SessionStore.ManifestFileName)
-                File.Delete(file);
-        }
+            File.Delete(file);
 
         IReadOnlyDictionary<string, RecoveredChannel> recovered =
             await _recovery.RecoverAsync(Watched, CancellationToken.None);
@@ -311,7 +421,7 @@ public sealed class RecoveryServiceTests : IDisposable
         Assert.Null(recovered[Channel].Unfinished);
         Assert.NotNull(recovered[Channel].Finished);
         Assert.True(recovered[Channel].Finished!.Complete);
-        SessionManifest? manifest = await _context.Store.TryLoadAsync(
+        SessionRecord? manifest = await _context.Store.TryLoadAsync(
             session.Directory, CancellationToken.None);
         Assert.Equal(SessionStatus.Complete, manifest!.Status);
         Assert.False(_context.Library.Find(session.Id)!.IsRecording);
@@ -330,7 +440,7 @@ public sealed class RecoveryServiceTests : IDisposable
         Assert.Null(recovered[Channel].Unfinished);
         Assert.Null(recovered[Channel].Finished);
 
-        SessionManifest? manifest = await _context.Store.TryLoadAsync(
+        SessionRecord? manifest = await _context.Store.TryLoadAsync(
             session.Directory, CancellationToken.None);
         Assert.Equal(SessionStatus.Complete, manifest!.Status);
         Assert.True(File.Exists(Path.Combine(session.Directory, SessionStore.IndexFileName)));
@@ -350,7 +460,8 @@ public sealed class RecoveryServiceTests : IDisposable
         await WriteRecordingAsync(repaired, "333");
         await _context.Store.FinalizeAsync(repaired, CancellationToken.None);
         File.Delete(Path.Combine(repaired.Directory, SessionStore.IndexFileName));
-        Directory.CreateDirectory(missing.Directory);
+        await WriteRecordingAsync(missing, "444");
+        Directory.Delete(missing.Directory, recursive: true);
         await WriteRecordingAsync(intact, "555");
         await _context.Store.FinalizeAsync(intact, CancellationToken.None);
         await _context.Store.OpenAsync(
@@ -376,7 +487,8 @@ public sealed class RecoveryServiceTests : IDisposable
         // The skip keeps its own warning; the summary does not replace it.
         Assert.Contains(logs.Entries, entry =>
             entry.Level == LogLevel.Warning
-            && entry.Message.StartsWith("Skipping session without a manifest", StringComparison.Ordinal));
+            && entry.Message.Contains(missing.Id, StringComparison.Ordinal)
+            && entry.Message.Contains("is missing", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -400,6 +512,27 @@ public sealed class RecoveryServiceTests : IDisposable
             Options.Create(new StorageOptions { RecordingsRoot = _context.Root }),
             _context.Clock,
             loggers.CreateLogger<RecoveryService>());
+
+    /// <summary>A fresh library, store, and recovery over the same record store and root.</summary>
+    private (RecoveryService Recovery, RecordingLibrary Library) Restart()
+    {
+        RecordingLibrary library = _context.CreateLibrary();
+        return (
+            new RecoveryService(
+                _context.CreateStore(library),
+                library,
+                Options.Create(new StorageOptions { RecordingsRoot = _context.Root }),
+                _context.Clock,
+                NullLogger<RecoveryService>.Instance),
+            library);
+    }
+
+    private static async Task<string> WriteImageAsync(Session session)
+    {
+        string image = Path.Combine(session.Directory, "grab.jpg");
+        await File.WriteAllBytesAsync(image, [0xFF, 0xD8, 0xFF]);
+        return image;
+    }
 
     private Session CreateSession(
         string streamId, DateTimeOffset startedAt, string channel = Channel)

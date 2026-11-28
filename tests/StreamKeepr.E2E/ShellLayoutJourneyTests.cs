@@ -88,7 +88,7 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         string id = (await row.GetAttributeAsync("data-recording-id"))!;
         await session.ActAsync(() => row.TapAsync());
         await Journey.WaitForUrlAsync(page, url => new Uri(url).AbsolutePath == $"/r/{id}");
-        await session.WaitForRecordingAsync();
+        await session.WaitForRecordingAsync(id);
         await page.Locator("[data-shell]:not([data-drawer-modal-open])").WaitForAsync();
 
         // The watch page gives the player the room: no bottom bar, and a back arrow home.
