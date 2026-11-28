@@ -318,6 +318,10 @@ public sealed class LibraryDrawerTests
 
         Assert.Equal(6, cut.FindAll("[data-library-skeleton]").Count);
         Assert.Empty(cut.FindAll("[data-library-empty]"));
+        // Wide, the recordings pane mirrors the channel skeletons; it is silent to AT.
+        Assert.Single(cut.FindAll("[data-recordings-skeleton]"));
+        Assert.Equal("true", cut.Find("[data-recordings-skeleton]").GetAttribute("aria-hidden"));
+        Assert.Empty(cut.FindAll("[data-recordings-prompt]"));
 
         view.IsLoaded = true;
         view.RaiseChanged();
@@ -325,6 +329,7 @@ public sealed class LibraryDrawerTests
         cut.WaitForAssertion(() =>
         {
             Assert.Empty(cut.FindAll("[data-library-skeleton]"));
+            Assert.Empty(cut.FindAll("[data-recordings-skeleton]"));
             Assert.Single(cut.FindAll("[data-library-empty]"));
             Assert.Contains("No recordings yet", cut.Find("[data-library-empty]").TextContent);
         });
@@ -587,7 +592,7 @@ public sealed class LibraryDrawerTests
     private static IRenderedComponent<LibraryDrawer> RenderDrawer(BunitContext context) =>
         context.Render<LibraryDrawer>();
 
-    // Rows show in the picked channel's column.
+    // Rows show in the picked channel's pane.
     private static void Open(IRenderedComponent<LibraryDrawer> cut, string login) =>
         cut.Find($"[data-library-channel='{login}']").Click();
 

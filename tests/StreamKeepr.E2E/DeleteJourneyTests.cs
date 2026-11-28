@@ -85,11 +85,10 @@ public sealed class DeleteJourneyTests : IAsyncLifetime
         string column = (await page.Locator(LibraryHooks.Column).GetAttributeAsync("data-recordings-column"))!;
         int before = await page.Locator(LibraryHooks.Row).CountAsync();
 
-        // Hidden until the row is hovered or focused, but always in the tab order.
+        // Always visible and always in the tab order; focus does not need to reveal it.
         ILocator button = item.Locator("button[data-row-delete]");
-        Assert.Equal("0", await button.EvaluateAsync<string>("b => getComputedStyle(b).opacity"));
-        await target.FocusAsync();
         await Assertions.Expect(button).ToHaveCSSAsync("opacity", "1");
+        await target.FocusAsync();
         await new LibraryJourneyTests(_app).AssertAxeCleanAsync(page, "library-row-delete");
 
         // The Delete key on the focused row opens the same dialog as the title block.

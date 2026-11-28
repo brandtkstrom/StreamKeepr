@@ -47,6 +47,10 @@
                 return;
             }
             await _module.InvokeVoidAsync("init", _input, _self);
+            // A URL change can land while the field is mounting (the rail clears a stale
+            // search as it opens the drawer); mirror the latest value once the module is ready.
+            if (_current != _initial)
+                await _module.InvokeVoidAsync("setValue", _input, _current ?? "");
         }
         catch (JSException ex)
         {

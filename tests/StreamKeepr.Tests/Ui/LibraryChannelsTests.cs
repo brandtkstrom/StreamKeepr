@@ -11,8 +11,9 @@ using StreamKeepr.Ui;
 
 namespace StreamKeepr.Tests.Ui;
 
-/// <summary>The library's two columns (design system: LibraryDrawer): the channels listbox and the
-/// selected channel's recordings, with Delete on each row (RecordingRow). Replaces the tree.</summary>
+/// <summary>The library's channel index and recordings pane (design system: LibraryDrawer): the
+/// channels listbox and the selected channel's recordings, with Delete on each row
+/// (RecordingRow). Replaces the tree.</summary>
 public sealed class LibraryChannelsTests
 {
     private const string KeysModule = "./js/library-keys.js";
@@ -37,7 +38,48 @@ public sealed class LibraryChannelsTests
     }
 
     [Fact]
-    public async Task Picking_a_channel_opens_its_column_and_close_returns_to_the_channels()
+    public async Task Wide_the_pane_asks_for_a_channel_until_one_is_picked()
+    {
+        await using BunitContext context = CreateContext(out _);
+        IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
+
+        var prompt = cut.Find("[data-recordings-prompt]");
+        Assert.Contains("Choose a channel", prompt.TextContent);
+        Assert.Contains("ready to watch or delete", prompt.TextContent);
+        Assert.Empty(cut.FindAll("[data-recordings-column]"));
+
+        Option(cut, "alpha").Click();
+
+        Assert.Empty(cut.FindAll("[data-recordings-prompt]"));
+        Assert.Equal("Alpha", cut.Find("[data-recordings-column='alpha'] h3").TextContent);
+        Assert.Single(cut.FindAll("[data-recordings-column='alpha'] [data-channel-color]"));
+    }
+
+    [Fact]
+    public async Task The_closed_rail_ignores_search_and_filter()
+    {
+        var view = View();
+        await using BunitContext context = CreateContext(out _, view);
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/?q=zzzz-no-match&state=saved");
+
+        var cut = context.Render<CascadingValue<bool>>(parameters => parameters
+            .Add(component => component.Name, "LibraryRail")
+            .Add(component => component.Value, true)
+            .AddChildContent<LibraryDrawer>());
+
+        Assert.Equal(
+            ["alpha", "beta"],
+            cut.FindAll("[data-library-channel]").Select(option => option.GetAttribute("data-library-channel")));
+        Assert.Empty(cut.FindAll("[data-library-no-match]"));
+        Assert.Empty(cut.FindAll("[data-library-empty]"));
+        Assert.Empty(cut.FindAll("[data-recordings-prompt]"));
+        Assert.NotNull(view.LastQuery);
+        Assert.Null(view.LastQuery.Search);
+        Assert.Null(view.LastQuery.State);
+    }
+
+    [Fact]
+    public async Task Picking_a_channel_opens_its_pane_and_close_returns_to_the_channels()
     {
         await using BunitContext context = CreateContext(out _);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
@@ -52,7 +94,7 @@ public sealed class LibraryChannelsTests
         Assert.Equal(["a1", "a2"], cut.FindAll("[role='list'] [role='listitem'] a[data-recording-id]").Select(a => a.GetAttribute("data-recording-id")));
         Assert.All(cut.FindAll("[data-day-header]"), day => Assert.Equal("presentation", day.GetAttribute("role")));
 
-        // Switching channels swaps the column's contents.
+        // Switching channels swaps the pane's contents.
         Option(cut, "beta").Click();
         Assert.Single(cut.FindAll("[data-recordings-column='beta']"));
         Assert.Empty(cut.FindAll("[data-recordings-column='alpha']"));
@@ -64,7 +106,7 @@ public sealed class LibraryChannelsTests
     }
 
     [Fact]
-    public async Task A_channel_the_search_drops_closes_its_column()
+    public async Task A_channel_the_search_drops_closes_its_pane()
     {
         var view = View();
         await using BunitContext context = CreateContext(out _, view);
@@ -138,13 +180,16 @@ public sealed class LibraryChannelsTests
     }
 
     [Fact]
-    public async Task Below_md_the_column_drills_in_with_all_channels_and_reopens_on_the_watched_channel()
+    public async Task Below_md_the_pane_drills_in_with_all_channels_and_reopens_on_the_watched_channel()
     {
         var view = View();
         view.FindById["b1"] = view.RecordingsByLogin["beta"][0];
         await using BunitContext context = CreateContext(out _, view);
         NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
         IRenderedComponent<CascadingValue<bool>> cut = RenderCompact(context);
+
+        // There is no room for a second pane below Md; the index is the only first step.
+        Assert.Empty(cut.FindAll("[data-recordings-prompt]"));
 
         cut.Find("[data-library-channel='alpha']").Click();
         Assert.NotNull(cut.Find("[data-recordings-column='alpha'] button[aria-label='All channels']"));
@@ -158,19 +203,27 @@ public sealed class LibraryChannelsTests
     }
 
     [Fact]
-    public async Task A_rail_avatar_opens_the_drawer_on_that_channel()
+    public async Task A_rail_avatar_opens_the_drawer_on_that_channel_and_clears_a_stale_query()
     {
-        await using BunitContext context = CreateContext(out _);
+        var view = View();
+        await using BunitContext context = CreateContext(out _, view);
+        NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo("/?q=zzzz-no-match&state=saved");
 
         var cut = context.Render<CascadingValue<bool>>(parameters => parameters
             .Add(component => component.Name, "LibraryRail")
             .Add(component => component.Value, true)
             .AddChildContent<LibraryDrawer>());
-        // The rail's avatar names the channel, 32px (MudAvatar Size.Medium), and opens no column.
+        // The rail's avatar names the channel, 32px (MudAvatar Size.Medium), and opens no pane.
         Assert.Equal("Beta", cut.Find("[data-library-channel='beta'] [role='img']").GetAttribute("aria-label"));
         Assert.All(cut.FindComponents<ChannelAvatar>(), avatar => Assert.Equal(MudBlazor.Size.Medium, avatar.Instance.Size));
 
         cut.Find("[data-library-channel='beta']").Click();
+
+        // The rail shows every channel, but its pick must clear the stale search/state before
+        // the drawer expands; otherwise the chosen channel's pane cannot be shown.
+        Assert.DoesNotContain("q=", new Uri(navigation.Uri).Query, StringComparison.Ordinal);
+        Assert.DoesNotContain("state=", new Uri(navigation.Uri).Query, StringComparison.Ordinal);
 
         // The shell opens the library (MainLayout test below); it is the same drawer, which
         // keeps the channel picked in the rail.
