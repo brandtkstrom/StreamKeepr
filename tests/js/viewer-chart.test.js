@@ -129,6 +129,12 @@ describe("viewerChartGeometry", () => {
     expect(ticks[0].fraction).toBe(0);
     expect(ticks[1].fraction).toBeCloseTo(900 / 3733, 6);
     expect(ticks.at(-1).fraction).toBe(1);
+
+    // A session that outgrows the day-scale steps still gets four or five labels.
+    const weeks = viewerChartGeometry([{ at: 0, count: 1 }], { durationSec: 1_515_012 })
+      .xTicks.map((tick) => tick.label);
+    expect(weeks).toHaveLength(5);
+    expect(weeks.at(-1)).toBe("420:50:12");
   });
 });
 

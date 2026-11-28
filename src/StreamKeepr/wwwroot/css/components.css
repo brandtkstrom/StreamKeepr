@@ -708,7 +708,6 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   /* The tab has no header: Video and Network stack, and their tiles stack too. */
   .sk-stats-panel[data-chrome="tab"] .sk-stats { grid-template-columns: 1fr; }
   .sk-stats-panel[data-chrome="tab"] .sk-tiles { grid-template-columns: 1fr; }
-  .sk-viewers-tab .sk-viewers { grid-template-columns: minmax(0, 1fr); }
   .sk-watch-tabs .sk-chat,
   .sk-watch-tabs .sk-chat[data-open="true"] {
     width: 100%; max-height: none; min-height: 0; height: 60dvh; contain: none;
@@ -974,24 +973,61 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-stats-heading.network .swatch { background: var(--secondary); }
 .sk-stats-heading.stream .swatch { background: var(--tertiary); }
 .sk-stats-section.stream { grid-column: 1 / -1; padding-top: var(--space-4); border-top: 1px solid var(--divider); }
-/* Viewers (design system: Viewers; #211): the 220px tile beside the chart, in its own panel
-   under Chapters, or at the bottom of the phone Stats tab. */
+/* Viewers (design system: Viewers; #211): one flat readout over a full-width signal, in its
+   own panel under Chapters, or at the bottom of the phone Stats tab. */
 .sk-viewers-panel[hidden], .sk-viewers-tab[hidden] { display: none !important; }
+.sk-viewers-panel, .sk-viewers-tab { container-type: inline-size; }
 .sk-viewers-panel .sk-disclosure-body { padding: 0 var(--space-4) var(--space-4); }
+/* MudCollapse leaves its wrapper scrollable; this panel has no focusable content and never
+   scrolls on its own, so a stray pixel of overflow must not become a scroll region. */
+.sk-viewers-panel .mud-collapse-wrapper { overflow-y: hidden; }
 .sk-viewers-tab { padding: 0 var(--space-4) var(--space-4); }
 .sk-disclosure-head .hint:empty { display: none; }
-.sk-viewers { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--space-3); align-items: stretch; }
-.sk-viewer-tile .sk-kv { margin-top: var(--space-2); }
-.sk-vchart {
-  min-width: 0; padding: var(--space-4) var(--space-3) 26px 44px; border-radius: var(--radius-md); background: var(--surface-raised);
+/* The hint is the collapsed summary; the readout carries the peak while the panel is open. */
+.sk-viewers-panel .sk-disclosure-head[aria-expanded="true"] .hint { display: none; }
+.sk-viewers { display: block; min-width: 0; }
+.sk-viewer-readout {
+  display: flex; align-items: flex-start; flex-wrap: wrap; gap: var(--space-3) var(--space-8);
+  padding-bottom: var(--space-3);
 }
+.sk-viewer-now { display: flex; flex-direction: column; gap: 2px; min-width: 144px; }
+.sk-viewer-lbl {
+  color: var(--text-secondary); font: var(--text-overline); line-height: 16px;
+  letter-spacing: var(--text-overline-letter-spacing); text-transform: uppercase; white-space: nowrap;
+}
+.sk-viewer-count {
+  font: var(--text-stat-hero); letter-spacing: var(--text-stat-hero-letter-spacing);
+  font-variant-numeric: var(--text-stat-hero-numeric);
+}
+.sk-viewer-figures { display: flex; align-items: flex-start; gap: var(--space-6); margin: 0; padding: 0; }
+.sk-viewer-figure { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sk-viewer-figure dt {
+  color: var(--text-secondary); font: var(--text-overline); line-height: 16px;
+  letter-spacing: var(--text-overline-letter-spacing); text-transform: uppercase; white-space: nowrap;
+}
+.sk-viewer-figure dd {
+  margin: 0; font: var(--text-stat-value); letter-spacing: var(--text-stat-value-letter-spacing);
+  font-variant-numeric: var(--text-stat-value-numeric); white-space: nowrap;
+}
+.sk-viewer-at { color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
+/* A narrow panel or tab drops the figures under the hero and spreads them across it. */
+@container (max-width: 560px) {
+  .sk-viewer-readout { gap: var(--space-3); }
+  .sk-viewer-figures {
+    width: 100%; justify-content: space-between; gap: var(--space-3);
+    padding-top: var(--space-3); border-top: 1px solid var(--divider);
+  }
+}
+/* The chart's ground: the panel's surface on desktop, the page ground in the phone Stats tab. */
+.sk-vchart { --chart-ground: var(--surface); position: relative; min-width: 0; padding: 10px var(--space-1) 26px 40px; }
+.sk-viewers-tab .sk-vchart { --chart-ground: var(--background); }
 .sk-vchart:has(> .plot[hidden]) { display: none; }
-.sk-vchart > .plot { position: relative; height: 120px; cursor: pointer; touch-action: none; }
+.sk-vchart > .plot { position: relative; height: 140px; cursor: pointer; touch-action: none; }
 .sk-vchart svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-.sk-vchart .grid line { stroke: var(--divider); stroke-width: 1; }
+.sk-vchart .grid line { stroke: var(--divider); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .sk-vchart .area { fill: color-mix(in srgb, var(--tertiary) 18%, transparent); }
-.sk-vchart .line { fill: none; stroke: var(--tertiary); stroke-width: 2; stroke-linejoin: round; }
-.sk-vchart .xh { stroke: var(--text-secondary); stroke-width: 1; }
+.sk-vchart .line { fill: none; stroke: var(--tertiary); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.sk-vchart .xh { stroke: var(--text-secondary); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .sk-vchart .overlay { position: absolute; inset: 0; pointer-events: none; }
 .sk-vchart .ylab, .sk-vchart .xlab {
   position: absolute; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
@@ -1001,10 +1037,17 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-vchart .xlab { bottom: -22px; transform: translateX(-50%); }
 .sk-vchart .xlab.first { transform: none; }
 .sk-vchart .xlab.last { transform: translateX(-100%); }
+.sk-vchart .chapter {
+  position: absolute; bottom: 0; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: var(--tertiary);
+}
+.sk-vchart .peak {
+  position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: var(--radius-full);
+  border: 2px solid var(--tertiary); background: var(--chart-ground);
+}
 .sk-vchart .playhead { position: absolute; top: -4px; bottom: 0; width: 0; border-left: 1px dashed var(--primary); }
 .sk-vchart .playhead .knob {
   position: absolute; left: -5px; width: 9px; height: 9px; border-radius: var(--radius-full); background: var(--primary);
-  box-shadow: 0 0 0 2px var(--surface-raised); transform: translateY(-50%);
+  box-shadow: 0 0 0 2px var(--chart-ground); transform: translateY(-50%);
 }
 .sk-vchart .playhead .tag {
   position: absolute; top: -2px; left: 6px; padding: 0 6px; border-radius: var(--radius-sm); background: var(--primary);
@@ -1012,7 +1055,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 }
 .sk-vchart .edge {
   position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: var(--radius-full); background: var(--rec);
-  box-shadow: 0 0 0 2px var(--surface-raised);
+  box-shadow: 0 0 0 2px var(--chart-ground);
 }
 .sk-vchart .tip {
   position: absolute; top: 0; transform: translate(-50%, -110%); padding: 2px 6px; border-radius: var(--radius-sm);
@@ -1059,8 +1102,6 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   .sk-stats { grid-template-columns: 1fr; }
   /* The panel stacks, but each section keeps its two tiles (player contract §10). */
   .sk-stats .sk-tiles { grid-template-columns: 1fr 1fr; }
-  /* The Stream tile moves above its chart, which keeps the full width. */
-  .sk-viewers { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
   .sk-stats-collapse, .sk-stats-switch::before, .sk-stats-switch::after, .sk-tile .tip, .sk-vchart .tip { transition: none; }

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using StreamKeepr.Components.Features.Player;
+using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Ui;
 
 namespace StreamKeepr.Tests.Ui;
@@ -15,7 +16,8 @@ public sealed class ViewersPanelTests
     // Keep in step with HOOKS in ViewerChart.razor.js; the Vitest fixture mirrors these.
     private static readonly string[] Hooks =
     [
-        "viewer-tile", "viewer-at", "viewer-count", "viewer-now", "viewer-peak", "viewer-average",
+        "viewer-readout", "viewer-at", "viewer-count", "viewer-now-label", "viewer-now",
+        "viewer-peak", "viewer-peak-at", "viewer-average",
         "viewer-chart", "viewer-svg", "tip-viewers", "table-viewers", "rows-viewers",
     ];
 
@@ -98,8 +100,11 @@ public sealed class ViewersPanelTests
             ["Time", "Viewers"],
             table.QuerySelectorAll("thead th").Select(th => th.TextContent.Trim()).ToArray());
 
-        var tile = cut.Find("[data-sk='viewer-tile']");
-        Assert.Equal(["Now", "Peak", "Average"], tile.QuerySelectorAll("dt").Select(dt => dt.TextContent.Trim()).ToArray());
+        var readout = cut.Find("[data-sk='viewer-readout']");
+        Assert.Equal(["Now", "Average", "Peak"], readout.QuerySelectorAll("dt").Select(dt => dt.TextContent.Trim()).ToArray());
+        Assert.Equal("Now", cut.Find("[data-sk='viewer-now-label']").TextContent.Trim());
+        Assert.Equal("—", cut.Find("[data-sk='viewer-peak']").TextContent.Trim());
+        Assert.Equal("", cut.Find("[data-sk='viewer-peak-at']").TextContent.Trim());
     }
 
     [Fact]
@@ -128,12 +133,35 @@ public sealed class ViewersPanelTests
         JSRuntimeInvocation init = Assert.Single(module.Invocations, call => call.Identifier == "init");
         Assert.Equal("r1", Payload(init.Arguments[2]).GetProperty("recordingId").GetString());
         Assert.Equal("saved", Payload(init.Arguments[2]).GetProperty("state").GetString());
+        Assert.Empty(Payload(init.Arguments[2]).GetProperty("chapters").EnumerateArray());
 
         cut.Render(p => p.Add(c => c.Recording, Recording("r2")));
 
         Assert.Single(module.Invocations, call => call.Identifier == "init");
         JSRuntimeInvocation update = Assert.Single(module.Invocations, call => call.Identifier == "update");
         Assert.Equal("r2", Payload(update.Arguments[1]).GetProperty("recordingId").GetString());
+    }
+
+    [Fact]
+    public void Sends_the_chapter_start_seconds_to_the_chart()
+    {
+        using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+        RecordingView recording = Recording("r1") with
+        {
+            Chapters =
+            [
+                new Chapter(750, "Route planning", "Celeste"),
+                new Chapter(2280, "Full runs", "Celeste"),
+            ],
+        };
+
+        context.Render<ViewersPanel>(p => p.Add(c => c.Recording, recording));
+
+        JSRuntimeInvocation init = Assert.Single(module.Invocations, call => call.Identifier == "init");
+        Assert.Equal(
+            [750d, 2280d],
+            Payload(init.Arguments[2]).GetProperty("chapters").EnumerateArray()
+                .Select(value => value.GetDouble()).ToArray());
     }
 
     private static JsonElement Payload(object? argument) =>

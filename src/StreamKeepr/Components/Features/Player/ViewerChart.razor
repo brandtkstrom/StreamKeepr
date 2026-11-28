@@ -3,20 +3,29 @@
 @inject PlayerBridge Bridge
 @inject ILogger<ViewerChart> Logger
 
-@* Rendered once. ViewerChart.razor.js fetches the viewer samples, draws the tile and chart, its
-   labels, playhead and tooltip, fills the screen-reader table, writes the panel header's hint,
-   and shares the samples with the Statistics overlay (viewer-store.js). *@
+@* Rendered once. ViewerChart.razor.js fetches the viewer samples, draws the readout band, the
+   full-width signal, its labels, chapter ticks, peak ring, playhead and tooltip, fills the
+   screen-reader table, writes the panel header's peak summary, and shares the samples with the
+   Statistics overlay (viewer-store.js). *@
 <div class="sk-viewers" data-sk-viewers @ref="_root">
-    <div class="sk-tile sk-viewer-tile" data-sk="viewer-tile">
-        <div class="lbl" data-sk="viewer-at">Viewers at 0:00</div>
-        <div class="val" data-sk="viewer-count">—</div>
-        <dl class="sk-kv">
-            <dt>Now</dt>
-            <dd data-sk="viewer-now">—</dd>
-            <dt>Peak</dt>
-            <dd data-sk="viewer-peak">—</dd>
-            <dt>Average</dt>
-            <dd data-sk="viewer-average">—</dd>
+    <div class="sk-viewer-readout" data-sk="viewer-readout">
+        <div class="sk-viewer-now">
+            <span class="sk-viewer-lbl" data-sk="viewer-at">Viewers at 0:00</span>
+            <span class="sk-viewer-count" data-sk="viewer-count">—</span>
+        </div>
+        <dl class="sk-viewer-figures">
+            <div class="sk-viewer-figure">
+                <dt data-sk="viewer-now-label">Now</dt>
+                <dd data-sk="viewer-now">—</dd>
+            </div>
+            <div class="sk-viewer-figure">
+                <dt>Average</dt>
+                <dd data-sk="viewer-average">—</dd>
+            </div>
+            <div class="sk-viewer-figure">
+                <dt>Peak</dt>
+                <dd><span data-sk="viewer-peak">—</span> <span class="sk-viewer-at" data-sk="viewer-peak-at"></span></dd>
+            </div>
         </dl>
     </div>
     <div class="sk-vchart">
@@ -111,6 +120,7 @@
             RecordingState.Partial => "partial",
             _ => "saved",
         },
+        chapters = recording.Chapters.Select(chapter => chapter.StartSeconds).ToArray(),
     };
 
     private async Task InvokeModuleAsync(string identifier, params object[] args)
