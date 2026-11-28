@@ -95,7 +95,7 @@ flowchart LR
         DVR[Per-channel coordinator<br>pure DVR reducer]
         REC[Recorder<br>Streamlink → FFmpeg]
         CHAT[Chat capture]
-        STORE[Session store<br>manifests, stitching, recovery]
+        STORE[Session store<br>session records, stitching, recovery]
         WEB[Blazor UI + media endpoints]
     end
 

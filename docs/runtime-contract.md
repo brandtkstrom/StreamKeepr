@@ -12,7 +12,7 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 | `ChannelCoordinator` | One per watched channel | Its event queue, reducer state, active job, command execution |
 | `RecordStoreStartup` | Singleton hosted service, right after preflight | Opening, `quick_check`, pre-migration backup, and migration of the record store before any store loads (ADR-0014) |
 | `ChannelStore` | Singleton | The record store's `Channels` table, the watched-channel snapshot, pause flag, profile fields |
-| `SessionStore` | Singleton | `session.json`, `index.m3u8`, thumbnails, session locks |
+| `SessionStore` | Singleton | Session records (`Sessions`, `SessionMetadataChanges`), `index.m3u8`, thumbnails, session locks |
 | `RecordingLibrary` | Singleton | In-memory recording summaries and `Changed` |
 | `LiveIndex` | Singleton | The live index of every Recording session: one entry per session (refresh gate, parsed parts, published snapshot, backoff), last-known-good retention, eviction, and the thumbnail playlist read |
 | `LiveIndexRefresher` | Singleton `BackgroundService` | Ticks `LiveIndex.RefreshAllAsync` every `LivePlaylist:RefreshSeconds` |
@@ -66,9 +66,9 @@ Only the coordinator loop mutates domain state. Readers use `DvrStatus` and `Rec
 
 The coordinator executes a step’s commands sequentially, in the returned order.
 
-- `OpenSession` / `ReopenSession`: on failure, log and `DvrStatus.Failed`. Mark the current command list so the following `StartRecorder` for that session is skipped and a synthetic `RecorderExited(job, Exited, "open failed")` is published. The reducer retries cleanly; no parts are written without a manifest.
+- `OpenSession` / `ReopenSession`: on failure, log and `DvrStatus.Failed`. Mark the current command list so the following `StartRecorder` for that session is skipped and a synthetic `RecorderExited(job, Exited, "open failed")` is published. The reducer retries cleanly; no parts are written without a session record. A session record that cannot be written is an open failure (ADR-0014).
 - `RecordMetadata`: on failure, log and `DvrStatus.Failed`; continue. The part keeps recording; metadata may be missing.
-- `FinalizeSession`: on failure, log and `DvrStatus.Failed`. The on-disk manifest may still say `Recording`; recovery re-finalizes on the next start. Do not silently mark the session complete.
+- `FinalizeSession`: on failure, log and `DvrStatus.Failed`. The session record may still say `Recording`; recovery finalizes it on the next start. Do not silently mark the session complete.
 - `StopRecorder`: await the active job stop. A failure to stop within the budget is fatal (see §4).
 - `StartRecorder`: start the job and return without awaiting its completion.
 - `ScheduleRetry`: schedule a cancellable timer with ±25 % jitter; the timer publishes `RetryTimerElapsed(job)`. A failure to schedule is fatal: the channel would otherwise sit in `WaitingToRetry` forever.
@@ -160,7 +160,7 @@ A corrupt channel list fails host startup. A failure in steps 2–3 is logged as
 | Poller/EventSub crashes | Supervised restart with backoff; polling fallback. |
 | Disk full | No recorder launched; reducer retries/cools down. |
 | Record store unopenable, failing `quick_check`, newer than the app, or failing its backup or migration | Startup fails with an error naming the path and the reason; the database is never reset. |
-| Corrupt session manifest | Session store skips it; channel control unaffected. |
+| Session folder without a record (including a legacy `session.json`) | Ignored; never listed, recovered, or deleted. |
 
 ## 10. Concurrency
 

@@ -13,8 +13,8 @@ This contract covers the library drawer, grouping and day headers, search/filter
 - `LibraryDrawer` consumes `ILibraryView` (`StreamerView`, `RecordingView`, `StorageView`, `LibraryQuery`). Components never read `RecordingLibrary`, `DvrStatus`, `ProgressStore`, or `StorageMonitor` directly.
 - `Streamers` includes channels with at least one recording. A watched channel with zero recordings appears in Settings (`ChannelsView`), not the library. `StreamerView.LastRecordedAt?` and `RecordingCount` remain nullable/zero-safe.
 - `RecordingView` state rules:
-  - `Recording`: manifest `Recording` and `DvrStatus.ActiveJob.SessionId == Id`.
-  - `Reconnecting`: manifest `Recording`, no active job for the session.
+  - `Recording`: session record `Recording` and `DvrStatus.ActiveJob.SessionId == Id`.
+  - `Reconnecting`: session record `Recording`, no active job for the session.
   - `Partial`: Complete with more than one part.
   - `Saved`: Complete with one part.
 - Status chips: Recording → `Rec`; Reconnecting → `Reconnecting` warning; Partial → `Partial` warning; Saved → no chip. `Processing` exists in the primitive for finalize/export but is not a library state in v3.

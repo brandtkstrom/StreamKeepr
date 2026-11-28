@@ -330,6 +330,7 @@ public sealed class DvrSupervisorTests
             new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
         var store = new SessionStore(
             Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
+            TestRecordStore.ContextsIn(root),
             new RecordingLibrary(clock, NullLogger<RecordingLibrary>.Instance),
             clock,
             NullLogger<SessionStore>.Instance,
@@ -378,6 +379,7 @@ public sealed class DvrSupervisorTests
         library ??= new RecordingLibrary(clock, NullLogger<RecordingLibrary>.Instance);
         var store = new SessionStore(
             Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
+            TestRecordStore.ContextsIn(root),
             library,
             clock,
             NullLogger<SessionStore>.Instance, TestRetry.Immediate);

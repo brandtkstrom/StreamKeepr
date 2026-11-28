@@ -37,7 +37,7 @@ The app's single durable record of its channels, sessions, chat logs, resume pos
 _Avoid_: Database, data store, app data
 
 **Session**:
-One continuous recording of a stream, identified by the stream's start time and stream ID. A session owns one or more parts and a manifest.
+One continuous recording of a stream, identified by the stream's start time and stream ID. A session owns one or more parts and a session record in the record store.
 _Avoid_: Recording (use “recording” for the product concept, not the domain object), capture
 
 **Open session**:

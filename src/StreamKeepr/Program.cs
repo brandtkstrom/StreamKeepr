@@ -211,7 +211,7 @@ try
     // RecordStoreStartup before any store loads.
     builder.Services.AddStreamKeeprRecordStore();
 
-    // The session store owns session.json, index.m3u8, and the per-session locks.
+    // The session store owns the session records, index.m3u8, and the per-session locks.
     builder.Services.AddSingleton<RecordingLibrary>();
     builder.Services.AddSingleton<IDiskSpace, DriveInfoDiskSpace>();
     builder.Services.AddSingleton<DiskGuard>();
@@ -314,8 +314,10 @@ try
 
     if (mock)
     {
+        // Seeding is split by store; the viewer and chat seeders read what MockSeeder recorded.
         builder.Services.AddHostedService<MockSeeder>();
         builder.Services.AddHostedService<MockLiveFeed>();
+        builder.Services.AddHostedService<MockViewerSeeder>();
         builder.Services.AddHostedService<MockChatSeeder>();
     }
 

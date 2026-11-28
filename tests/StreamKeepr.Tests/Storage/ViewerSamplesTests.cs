@@ -24,7 +24,7 @@ public sealed class ViewerSamplesTests
     }
 
     [Fact]
-    public async Task Viewer_samples_survive_finalize_and_stay_out_of_the_manifest()
+    public async Task Viewer_samples_survive_finalize()
     {
         using var context = new SessionStoreTestContext();
         context.WritePart(1, PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T16:35:00Z", 1.5));
@@ -38,9 +38,6 @@ public sealed class ViewerSamplesTests
         Assert.Equal(
             [new ViewerSample(60, 42)],
             await ViewerSamples.ReadAsync(context.Directory, NullLogger.Instance, Ct));
-        string manifest = await File.ReadAllTextAsync(context.ManifestPath);
-        Assert.DoesNotContain("viewer", manifest, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("\"count\"", manifest, StringComparison.Ordinal);
     }
 
     [Fact]

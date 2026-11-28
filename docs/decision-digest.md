@@ -112,11 +112,11 @@ This is the single handoff for the full application specification. It records th
 
 ### 4.4 Session store
 
-- `session.json` v1 (`Recording`/`Complete`), derived `RecordingSummary` fields: latest title/game, `PartCount`, `SegmentCount`, `EndedAt`, duration, media size, thumbnail, chapters, `IsRecording`.
+- Session records in SQLite (`Recording`/`Complete`; ADR-0014, #316), derived `RecordingSummary` fields: latest title/game, `PartCount`, `SegmentCount`, `EndedAt`, duration, media size, thumbnail, chapters, `IsRecording`.
 - Every mutation takes the per-session lock: open, reopen, append metadata, finalize, delete, retention, export lease; atomic temp+rename writes; stale `.tmp` cleanup.
 - Stitching: EVENT header, strip per-part headers, keep `#EXT-X-MAP`/program-date-time, insert discontinuity between non-empty parts, drop a trailing `EXTINF` without a URI, append `ENDLIST` only when final; target duration `max(2 × SegmentSeconds, part max)`.
 - Chapters are metadata changes after the first, positioned against the stitched timeline.
-- Recovery scans before channels start but after the web server is listening, skips dot folders and corrupt manifests, repairs/finalizes incomplete indexes, and classifies resumable/finished. The in-memory library raises `Changed`; `DiskGuard` gates recording; retention is a non-goal (`ADR-0004`).
+- Recovery walks the session records before channels start but after the web server is listening, ignores folders without a record, repairs/finalizes incomplete indexes, and classifies resumable/finished. The in-memory library raises `Changed`; `DiskGuard` gates recording; retention is a non-goal (`ADR-0004`).
 
 ### 4.5 Runtime
 

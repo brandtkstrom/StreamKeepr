@@ -378,7 +378,7 @@ public sealed class LiveIndexTests
     }
 
     [Fact]
-    public async Task Refresh_keeps_last_known_good_when_the_manifest_is_unreadable()
+    public async Task Refresh_keeps_last_known_good_when_the_session_record_is_unreadable()
     {
         using var context = new SessionStoreTestContext();
         context.WritePart(1, Segment("p001_00001.m4s", "2026-11-10T18:30:00Z", 6));
@@ -386,7 +386,7 @@ public sealed class LiveIndexTests
         LiveIndex index = NewIndex(context);
         LiveIndexSnapshot published = await RefreshAsync(index, context);
 
-        await File.WriteAllTextAsync(context.ManifestPath, "{ not json");
+        context.Records.Failing = true;
         await index.RefreshAllAsync(CancellationToken.None);
 
         Assert.Same(published, index.Find(context.Session.Id));
@@ -521,20 +521,19 @@ public sealed class LiveIndexTests
         var logs = new ListLoggerProvider();
         using ILoggerFactory loggers = TestLogging.Factory(logs);
         LiveIndex index = NewIndex(context, loggers: loggers);
-        string manifest = await File.ReadAllTextAsync(context.ManifestPath);
 
         await index.RefreshAllAsync(CancellationToken.None);
 
-        await File.WriteAllTextAsync(context.ManifestPath, "{ not json");
+        context.Records.Failing = true;
         await index.RefreshAllAsync(CancellationToken.None);
         context.Clock.Advance(TimeSpan.FromSeconds(2));
         await index.RefreshAllAsync(CancellationToken.None);
 
         context.Clock.Advance(TimeSpan.FromSeconds(3));
-        await File.WriteAllTextAsync(context.ManifestPath, manifest);
+        context.Records.Failing = false;
         await index.RefreshAllAsync(CancellationToken.None);
 
-        await File.WriteAllTextAsync(context.ManifestPath, "{ not json");
+        context.Records.Failing = true;
         await index.RefreshAllAsync(CancellationToken.None);
 
         CapturedLogEntry[] sessionLogs = logs.Entries
