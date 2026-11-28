@@ -620,8 +620,7 @@ public sealed class MockSeederTests : IDisposable
         foreach (RecordingSummary summary in library.All)
         {
             IReadOnlyList<ViewerSample> samples = await ViewerSamples.ReadAsync(
-                Path.Combine(_root, summary.Channel, summary.Id),
-                Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, CancellationToken.None);
+                _records[^1].Contexts, summary.Id, CancellationToken.None);
 
             if (summary.IsRecording)
             {
@@ -761,6 +760,8 @@ public sealed class MockSeederTests : IDisposable
             Options.Create(new StorageOptions { RecordingsRoot = _root, MinFreeGb = 1 }),
             Options.Create(options),
             library,
+            // The record store CreateSeeder last started, which MockSeeder recorded into.
+            _records[^1].Contexts,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<MockViewerSeeder>.Instance);
 
     public void Dispose()

@@ -1,7 +1,9 @@
 using System.Security.Claims;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
+using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Ui;
 
@@ -57,16 +59,46 @@ public sealed class RecordingAdminTests
         await SeedCompleteAsync(context);
         await context.Store.AppendViewerSampleAsync(
             context.Session, SessionStoreTestContext.StartedAt.AddSeconds(30), 9, Ct);
-        string viewers = Path.Combine(context.Directory, ViewerSamples.FileName);
-        Assert.True(File.Exists(viewers));
+        Assert.Single(await ViewerSamples.ReadAsync(context.RecordStore.Contexts, context.Session.Id, Ct));
 
         await admin.DeleteAsync(context.Session.Id, Admin, Ct);
 
-        Assert.False(File.Exists(viewers));
-        await Assert.ThrowsAsync<DirectoryNotFoundException>(() =>
+        Assert.Empty(await ViewerSamples.ReadAsync(context.RecordStore.Contexts, context.Session.Id, Ct));
+        await Assert.ThrowsAsync<DbUpdateException>(() =>
             context.Store.AppendViewerSampleAsync(
                 context.Session, SessionStoreTestContext.StartedAt.AddSeconds(90), 9, Ct));
         Assert.False(Directory.Exists(context.Directory));
+    }
+
+    [Fact]
+    public async Task Delete_removes_the_stored_resume_position_with_the_session()
+    {
+        using var context = new SessionStoreTestContext();
+        await SeedCompleteAsync(context);
+        context.Library.MarkLoaded();
+        using var progress = new ProgressStore(
+            context.Library,
+            context.RecordStore.Contexts,
+            await context.RecordStore.StartAsync(),
+            context.Clock,
+            NullLogger<ProgressStore>.Instance);
+        await progress.LoadAsync(Ct);
+        await progress.SetAsync(context.Session.Id, 1, Ct);
+        var admin = new RecordingAdmin(
+            context.Library,
+            context.Store,
+            progress,
+            new ExportLeaseRegistry(),
+            new TestStorageMonitor(),
+            Options.Create(new StorageOptions { RecordingsRoot = context.Root }),
+            NullLogger<RecordingAdmin>.Instance);
+
+        await admin.DeleteAsync(context.Session.Id, Admin, Ct);
+        await progress.FlushAsync(Ct);
+
+        Assert.Null(progress.Get(context.Session.Id));
+        await using RecordStoreDbContext db = context.RecordStore.Contexts.CreateDbContext();
+        Assert.Empty(await db.ResumePositions.ToListAsync(Ct));
     }
 
     [Fact]

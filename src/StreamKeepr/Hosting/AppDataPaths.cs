@@ -45,9 +45,6 @@ public static class AppDataPaths
     public static string ChannelsFile(string recordingsRoot) =>
         Path.Combine(AppDataDirectory(recordingsRoot), ChannelsFileName);
 
-    public static string ProgressFile(string recordingsRoot) =>
-        Path.Combine(AppDataDirectory(recordingsRoot), ProgressFileName);
-
     public static string ExportsDirectory(string recordingsRoot) =>
         Path.Combine(AppDataDirectory(recordingsRoot), ExportsDirectoryName);
 

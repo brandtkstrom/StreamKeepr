@@ -1,6 +1,5 @@
-using System.Diagnostics.CodeAnalysis;
-using System.Text;
-using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using StreamKeepr.Infrastructure.Records;
 
 namespace StreamKeepr.Infrastructure.Storage;
 
@@ -8,19 +7,18 @@ namespace StreamKeepr.Infrastructure.Storage;
 public sealed record ViewerSample(double At, int Count);
 
 /// <summary>
-/// The append-only <c>viewers.jsonl</c> in a session folder (session-store contract §7.2): one
-/// <c>{"v":1,"at":…,"count":…}</c> object per line. This type owns the line format; the
-/// coordinator decides when to sample and <see cref="SessionStore"/> serializes the appends.
+/// The record store's <c>ViewerSamples</c> table (ADR-0014; session-store contract §7.2): one row
+/// per observed sample, keyed to its session so deleting the session record cascades its samples.
+/// The coordinator decides when to sample and <see cref="SessionStore"/> appends; failures
+/// propagate to the caller, whose policy is to log and keep recording.
 /// </summary>
 public static class ViewerSamples
 {
-    public const string FileName = "viewers.jsonl";
+    /// <summary>The version of the <c>/api/recordings/{id}/viewers</c> body.</summary>
     public const int Version = 1;
 
-    /// <summary>The most samples one read returns; later lines are ignored.</summary>
+    /// <summary>The most samples one read returns; later samples are left out.</summary>
     public const int MaxSamples = 50_000;
-
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     /// <summary>Seconds from <paramref name="startedAt"/> to <paramref name="at"/>, to 0.1 s and never negative.</summary>
     public static double OffsetSeconds(DateTimeOffset startedAt, DateTimeOffset at) =>
@@ -30,81 +28,63 @@ public static class ViewerSamples
     private static double RoundSeconds(double seconds) =>
         Math.Round(seconds, 1, MidpointRounding.AwayFromZero);
 
-    /// <summary>One serialized line, without its terminating newline.</summary>
-    public static string FormatLine(double at, int count) =>
-        JsonSerializer.Serialize(new Line(Version, at, count), Json);
+    /// <summary>
+    /// Inserts one sample. A session without a record fails its foreign key, so a sample never
+    /// outlives or precedes its session.
+    /// </summary>
+    public static Task AppendAsync(
+        IDbContextFactory<RecordStoreDbContext> contexts,
+        string sessionId,
+        ViewerSample sample,
+        CancellationToken ct) =>
+        AppendRangeAsync(contexts, sessionId, [sample], ct);
+
+    /// <summary>Inserts several samples in one transaction.</summary>
+    public static async Task AppendRangeAsync(
+        IDbContextFactory<RecordStoreDbContext> contexts,
+        string sessionId,
+        IEnumerable<ViewerSample> samples,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(contexts);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentNullException.ThrowIfNull(samples);
+
+        await using RecordStoreDbContext db = await contexts.CreateDbContextAsync(ct);
+        foreach (ViewerSample sample in samples)
+        {
+            if (!double.IsFinite(sample.At) || sample.At < 0)
+                throw new ArgumentOutOfRangeException(nameof(samples), sample.At, "A sample offset must be finite and non-negative.");
+            ArgumentOutOfRangeException.ThrowIfNegative(sample.Count, nameof(samples));
+
+            db.ViewerSamples.Add(new ViewerSampleRow
+            {
+                SessionId = sessionId,
+                OffsetSeconds = sample.At,
+                Count = sample.Count,
+            });
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
 
     /// <summary>
-    /// Reads the samples in <paramref name="sessionDirectory"/>, oldest first. A missing file is no
-    /// samples. A malformed or partial line is skipped with one warning per read, never thrown.
+    /// The session's samples, oldest first (insertion order breaks ties), at most
+    /// <see cref="MaxSamples"/>. A session without samples, or without a record, has none.
     /// </summary>
     public static async Task<IReadOnlyList<ViewerSample>> ReadAsync(
-        string sessionDirectory, ILogger logger, CancellationToken ct)
+        IDbContextFactory<RecordStoreDbContext> contexts, string sessionId, CancellationToken ct)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sessionDirectory);
-        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(contexts);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        string path = Path.Combine(sessionDirectory, FileName);
-        var samples = new List<ViewerSample>();
-        int skipped = 0;
-
-        try
-        {
-            using var reader = new StreamReader(
-                new FileStream(
-                    path,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.ReadWrite | FileShare.Delete,
-                    bufferSize: 4096,
-                    useAsync: true),
-                Encoding.UTF8);
-
-            while (samples.Count < MaxSamples && await reader.ReadLineAsync(ct) is { } text)
-            {
-                if (string.IsNullOrWhiteSpace(text))
-                    continue;
-
-                if (TryParse(text, out ViewerSample? sample))
-                    samples.Add(sample);
-                else
-                    skipped++;
-            }
-        }
-        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
-        {
-            return [];
-        }
-
-        if (skipped > 0)
-        {
-            logger.LogWarning(
-                "Skipped {Count} malformed viewer sample line(s) in {Path}.", skipped, path);
-        }
-
-        return samples;
+        await using RecordStoreDbContext db = await contexts.CreateDbContextAsync(ct);
+        return await db.ViewerSamples.AsNoTracking()
+            .Where(row => row.SessionId == sessionId)
+            .OrderBy(row => row.OffsetSeconds)
+            .ThenBy(row => row.Id)
+            .Take(MaxSamples)
+            .Select(row => new ViewerSample(row.OffsetSeconds, row.Count))
+            .ToListAsync(ct);
     }
-
-    private static bool TryParse(string text, [NotNullWhen(true)] out ViewerSample? sample)
-    {
-        sample = null;
-        Line? line;
-        try
-        {
-            line = JsonSerializer.Deserialize<Line>(text, Json);
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-
-        // Missing fields deserialize as null, so a truncated object is rejected, not zeroed.
-        if (line is not { V: Version, At: double at, Count: int count } || !double.IsFinite(at) || at < 0 || count < 0)
-            return false;
-
-        sample = new ViewerSample(at, count);
-        return true;
-    }
-
-    private sealed record Line(int? V, double? At, int? Count);
 }

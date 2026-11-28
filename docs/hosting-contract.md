@@ -71,7 +71,7 @@ ADR-0002 applies.
 
 - Only `.m3u8`, `.m4s`, `.mp4`, `.jpg`, and `.png` are served. Any other extension returns 404.
 - Any decoded path segment starting with `.` returns 404. Reject `..` and encoded traversal before touching the filesystem.
-- `session.json`, `admin-tokens.json`, `progress.json`, `.streamkeepr`, `chat/`, exports, and `.tmp` files are never served. Chat is served only by the bounded `/api/recordings/{id}/chat` endpoint, and `viewers.jsonl` only by `/api/recordings/{id}/viewers`.
+- `session.json`, `admin-tokens.json`, `progress.json`, `.streamkeepr`, `chat/`, exports, and `.tmp` files are never served. Chat is served only by the bounded `/api/recordings/{id}/chat` endpoint, and viewer samples (record-store rows) only by `/api/recordings/{id}/viewers`.
 - `ServeUnknownFileTypes = false`; the explicit content type map supplies:
   - `.m3u8` → `application/vnd.apple.mpegurl`
   - `.m4s` → `video/iso.segment`

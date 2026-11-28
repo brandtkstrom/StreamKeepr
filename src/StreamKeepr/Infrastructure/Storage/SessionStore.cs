@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
-using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
@@ -35,6 +34,7 @@ public sealed class SessionStore(
     public const string ThumbnailFileName = "thumb.jpg";
 
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.Ordinal);
+    private readonly IDbContextFactory<RecordStoreDbContext> _contexts = contexts;
     private readonly SessionRecords _records = new(contexts, logger);
 
     internal int MinTargetDuration => 2 * recorder.Value.SegmentSeconds;
@@ -173,46 +173,21 @@ public sealed class SessionStore(
     }
 
     /// <summary>
-    /// Appends one viewer sample to the session's <c>viewers.jsonl</c> under the session lock.
-    /// Never creates the session folder, so a sample cannot resurrect a deleted session. A
-    /// previous partial line is terminated first, so it costs only itself.
+    /// Inserts one viewer sample row for the session (<see cref="ViewerSamples"/>). It needs no
+    /// session lock: the row's foreign key makes a sample for a deleted or never-recorded session
+    /// fail instead of resurrecting it, and it never touches the session folder.
     /// </summary>
-    public async Task AppendViewerSampleAsync(
+    public Task AppendViewerSampleAsync(
         Session session, DateTimeOffset at, int count, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentOutOfRangeException.ThrowIfNegative(count);
 
-        string directory = Normalize(session.Directory);
-        string line = ViewerSamples.FormatLine(ViewerSamples.OffsetSeconds(session.StartedAt, at), count);
-        var gate = LockFor(directory);
-        await gate.WaitAsync(ct);
-        try
-        {
-            // OpenOrCreate creates the file but never its folder: a removed session throws
-            // DirectoryNotFoundException instead of being recreated.
-            await using var stream = new FileStream(
-                Path.Combine(directory, ViewerSamples.FileName),
-                FileMode.OpenOrCreate,
-                FileAccess.ReadWrite,
-                FileShare.Read);
-
-            bool needsSeparator = false;
-            if (stream.Length > 0)
-            {
-                stream.Seek(-1, SeekOrigin.End);
-                needsSeparator = stream.ReadByte() != '\n';
-            }
-
-            stream.Seek(0, SeekOrigin.End);
-            byte[] bytes = Encoding.UTF8.GetBytes(
-                (needsSeparator ? "\n" : "") + line + "\n");
-            await stream.WriteAsync(bytes, ct);
-        }
-        finally
-        {
-            gate.Release();
-        }
+        return ViewerSamples.AppendAsync(
+            _contexts,
+            session.Id,
+            new ViewerSample(ViewerSamples.OffsetSeconds(session.StartedAt, at), count),
+            ct);
     }
 
     /// <summary>

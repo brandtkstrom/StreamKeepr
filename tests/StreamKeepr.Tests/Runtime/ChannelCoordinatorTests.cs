@@ -1,9 +1,11 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Media;
+using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Tests.Hosting;
@@ -524,11 +526,11 @@ public sealed class ChannelCoordinatorTests
 
         Assert.Equal(
             [
-                """{"v":1,"at":60,"count":100}""",
-                """{"v":1,"at":120,"count":120}""",
-                """{"v":1,"at":210,"count":130}""",
+                new ViewerSample(60, 100),
+                new ViewerSample(120, 120),
+                new ViewerSample(210, 130),
             ],
-            await context.ReadViewerLinesAsync());
+            await context.ReadViewerSamplesAsync());
     }
 
     [Fact]
@@ -552,10 +554,10 @@ public sealed class ChannelCoordinatorTests
 
         Assert.Equal(
             [
-                """{"v":1,"at":60,"count":100}""",
-                """{"v":1,"at":360,"count":140}""",
+                new ViewerSample(60, 100),
+                new ViewerSample(360, 140),
             ],
-            await context.ReadViewerLinesAsync());
+            await context.ReadViewerSamplesAsync());
     }
 
     [Fact]
@@ -582,10 +584,10 @@ public sealed class ChannelCoordinatorTests
 
         Assert.Equal(
             [
-                """{"v":1,"at":60,"count":100}""",
-                """{"v":1,"at":120,"count":90}""",
+                new ViewerSample(60, 100),
+                new ViewerSample(120, 90),
             ],
-            await context.ReadViewerLinesAsync());
+            await context.ReadViewerSamplesAsync());
     }
 
     [Fact]
@@ -595,8 +597,14 @@ public sealed class ChannelCoordinatorTests
         context.Recorder.OnRun = RecordUntilStopped(context);
         DateTimeOffset first = Context.StartedAt.AddSeconds(60);
 
-        // A directory where the log should be makes every append fail.
-        Directory.CreateDirectory(Path.Combine(context.SessionDirectory, ViewerSamples.FileName));
+        // A trigger fails only viewer-sample inserts, so the session itself still opens.
+        await using (RecordStoreDbContext db = context.Records.CreateDbContext())
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER FailViewerSamples BEFORE INSERT ON ViewerSamples "
+                + "BEGIN SELECT RAISE(ABORT, 'viewer samples unavailable (simulated)'); END;");
+        }
+
         await context.ObserveLiveAsync(first, viewers: 100);
         _ = await context.Recorder.Started.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -806,11 +814,8 @@ public sealed class ChannelCoordinatorTests
             Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
                 new StreamObservation.Live(Live with { ViewerCount = viewers }), at));
 
-        public async Task<string[]> ReadViewerLinesAsync()
-        {
-            string path = Path.Combine(SessionDirectory, ViewerSamples.FileName);
-            return File.Exists(path) ? await File.ReadAllLinesAsync(path) : [];
-        }
+        public Task<IReadOnlyList<ViewerSample>> ReadViewerSamplesAsync() =>
+            ViewerSamples.ReadAsync(Records, Path.GetFileName(SessionDirectory), CancellationToken.None);
 
         public async Task StopAsync()
         {

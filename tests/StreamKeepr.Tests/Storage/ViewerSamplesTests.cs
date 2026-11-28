@@ -1,6 +1,7 @@
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.EntityFrameworkCore;
+using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Storage;
-using StreamKeepr.Tests.Hosting;
+using StreamKeepr.Tests.Records;
 
 namespace StreamKeepr.Tests.Storage;
 
@@ -9,7 +10,7 @@ public sealed class ViewerSamplesTests
     private static readonly CancellationToken Ct = CancellationToken.None;
 
     [Fact]
-    public async Task Append_writes_one_versioned_line_per_sample_in_seconds_from_the_session_start()
+    public async Task Append_inserts_one_row_per_sample_in_seconds_from_the_session_start()
     {
         using var context = new SessionStoreTestContext();
         await context.Store.OpenAsync(context.Session, context.Live, Ct);
@@ -18,13 +19,30 @@ public sealed class ViewerSamplesTests
         await context.Store.AppendViewerSampleAsync(context.Session, start.AddSeconds(123.44), 1658, Ct);
         await context.Store.AppendViewerSampleAsync(context.Session, start.AddSeconds(-5), 1600, Ct);
 
+        await using RecordStoreDbContext db = context.RecordStore.Contexts.CreateDbContext();
         Assert.Equal(
-            "{\"v\":1,\"at\":123.4,\"count\":1658}\n{\"v\":1,\"at\":0,\"count\":1600}\n",
-            await File.ReadAllTextAsync(ViewersPath(context)));
+            [(context.Session.Id, 123.4, 1658), (context.Session.Id, 0.0, 1600)],
+            (await db.ViewerSamples.AsNoTracking().OrderBy(row => row.Id).ToListAsync(Ct))
+                .Select(row => (row.SessionId, row.OffsetSeconds, row.Count)));
     }
 
     [Fact]
-    public async Task Viewer_samples_survive_finalize()
+    public async Task Read_returns_samples_oldest_first()
+    {
+        using var context = new SessionStoreTestContext();
+        await context.Store.OpenAsync(context.Session, context.Live, Ct);
+        DateTimeOffset start = SessionStoreTestContext.StartedAt;
+        await context.Store.AppendViewerSampleAsync(context.Session, start.AddSeconds(120), 7, Ct);
+        await context.Store.AppendViewerSampleAsync(context.Session, start.AddSeconds(60), 6, Ct);
+        await context.Store.AppendViewerSampleAsync(context.Session, start.AddSeconds(180), 8, Ct);
+
+        Assert.Equal(
+            [new ViewerSample(60, 6), new ViewerSample(120, 7), new ViewerSample(180, 8)],
+            await ViewerSamples.ReadAsync(context.RecordStore.Contexts, context.Session.Id, Ct));
+    }
+
+    [Fact]
+    public async Task Viewer_samples_survive_finalize_and_a_restart()
     {
         using var context = new SessionStoreTestContext();
         context.WritePart(1, PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T16:35:00Z", 1.5));
@@ -34,91 +52,82 @@ public sealed class ViewerSamplesTests
             context.Session, SessionStoreTestContext.StartedAt.AddSeconds(60), 42, Ct);
 
         await context.Store.FinalizeAsync(context.Session, Ct);
+        await context.RecordStore.StartAsync();
 
         Assert.Equal(
             [new ViewerSample(60, 42)],
-            await ViewerSamples.ReadAsync(context.Directory, NullLogger.Instance, Ct));
+            await ViewerSamples.ReadAsync(context.RecordStore.Contexts, context.Session.Id, Ct));
+        Assert.False(File.Exists(Path.Combine(context.Directory, "viewers.jsonl")));
     }
 
     [Fact]
-    public async Task Append_after_the_session_folder_is_removed_fails_without_recreating_it()
+    public async Task Append_for_a_session_without_a_record_fails_without_creating_its_folder()
     {
         using var context = new SessionStoreTestContext();
-        await context.Store.OpenAsync(context.Session, context.Live, Ct);
-        Directory.Delete(context.Directory, recursive: true);
 
-        await Assert.ThrowsAsync<DirectoryNotFoundException>(() =>
+        await Assert.ThrowsAsync<DbUpdateException>(() =>
             context.Store.AppendViewerSampleAsync(
                 context.Session, SessionStoreTestContext.StartedAt, 1, Ct));
 
         Assert.False(Directory.Exists(context.Directory));
+        Assert.Empty(await ViewerSamples.ReadAsync(context.RecordStore.Contexts, context.Session.Id, Ct));
     }
 
     [Fact]
-    public async Task A_partial_last_line_is_terminated_so_the_next_sample_survives()
+    public async Task Deleting_the_session_record_cascades_its_samples()
     {
         using var context = new SessionStoreTestContext();
         await context.Store.OpenAsync(context.Session, context.Live, Ct);
-        await File.WriteAllTextAsync(ViewersPath(context), "{\"v\":1,\"at\":0,\"count\":5}\n{\"v\":1,\"at\":6");
-
         await context.Store.AppendViewerSampleAsync(
-            context.Session, SessionStoreTestContext.StartedAt.AddSeconds(120), 7, Ct);
+            context.Session, SessionStoreTestContext.StartedAt.AddSeconds(30), 9, Ct);
 
-        Assert.Equal(
-            [new ViewerSample(0, 5), new ViewerSample(120, 7)],
-            await ViewerSamples.ReadAsync(context.Directory, NullLogger.Instance, Ct));
+        await context.Store.DeleteRecordAsync(context.Session.Id, Ct);
+
+        await using RecordStoreDbContext db = context.RecordStore.Contexts.CreateDbContext();
+        Assert.Empty(await db.ViewerSamples.ToListAsync(Ct));
     }
 
     [Fact]
-    public async Task Read_skips_malformed_lines_and_warns_once()
+    public async Task Read_without_samples_returns_none()
     {
         using var context = new SessionStoreTestContext();
-        Directory.CreateDirectory(context.Directory);
-        await File.WriteAllLinesAsync(ViewersPath(context),
-        [
-            """{"v":1,"at":0,"count":10}""",
-            "not json",
-            """{"v":2,"at":30,"count":11}""",
-            """{"v":1,"at":60}""",
-            """{"v":1,"at":-1,"count":12}""",
-            """{"v":1,"at":90,"count":-3}""",
-            "",
-            """{"v":1,"at":120,"count":13}""",
-            """{"v":1,"at":150,"count""",
-        ]);
-        var logs = new ListLoggerProvider();
+        await context.Store.OpenAsync(context.Session, context.Live, Ct);
 
-        IReadOnlyList<ViewerSample> samples = await ViewerSamples.ReadAsync(context.Directory, logs.CreateLogger("test"), Ct);
-
-        Assert.Equal([new ViewerSample(0, 10), new ViewerSample(120, 13)], samples);
-        string warning = Assert.Single(logs.Messages);
-        Assert.Contains("Skipped 6 malformed viewer sample", warning, StringComparison.Ordinal);
+        Assert.Empty(await ViewerSamples.ReadAsync(context.RecordStore.Contexts, context.Session.Id, Ct));
+        Assert.Empty(await ViewerSamples.ReadAsync(context.RecordStore.Contexts, "missing", Ct));
     }
 
     [Fact]
-    public async Task Read_without_a_viewer_log_returns_no_samples()
+    public async Task Read_returns_at_most_the_sample_cap_keeping_the_oldest()
     {
         using var context = new SessionStoreTestContext();
-
-        Assert.Empty(await ViewerSamples.ReadAsync(context.Directory, NullLogger.Instance, Ct));
-    }
-
-    [Fact]
-    public async Task Read_returns_at_most_the_sample_cap()
-    {
-        using var context = new SessionStoreTestContext();
-        Directory.CreateDirectory(context.Directory);
-        await File.WriteAllLinesAsync(
-            ViewersPath(context),
+        await context.Store.OpenAsync(context.Session, context.Live, Ct);
+        // Inserted newest first, so the cap must order before it takes.
+        await ViewerSamples.AppendRangeAsync(
+            context.RecordStore.Contexts,
+            context.Session.Id,
             Enumerable.Range(0, ViewerSamples.MaxSamples + 5)
-                .Select(i => $$"""{"v":1,"at":{{i * 60}},"count":{{i}}}"""));
+                .Reverse()
+                .Select(i => new ViewerSample(i * 60, i)),
+            Ct);
 
-        IReadOnlyList<ViewerSample> samples = await ViewerSamples.ReadAsync(context.Directory, NullLogger.Instance, Ct);
+        IReadOnlyList<ViewerSample> samples =
+            await ViewerSamples.ReadAsync(context.RecordStore.Contexts, context.Session.Id, Ct);
 
         Assert.Equal(50_000, samples.Count);
+        Assert.Equal(new ViewerSample(0, 0), samples[0]);
         Assert.Equal(new ViewerSample(49_999 * 60, 49_999), samples[^1]);
     }
 
-    private static string ViewersPath(SessionStoreTestContext context) =>
-        Path.Combine(context.Directory, ViewerSamples.FileName);
+    [Fact]
+    public async Task A_failed_write_throws_for_the_caller_to_log()
+    {
+        using var context = new SessionStoreTestContext();
+        await context.Store.OpenAsync(context.Session, context.Live, Ct);
+        context.Records.WritesFailing = true;
+
+        await Assert.ThrowsAnyAsync<Exception>(() =>
+            context.Store.AppendViewerSampleAsync(
+                context.Session, SessionStoreTestContext.StartedAt, 1, Ct));
+    }
 }

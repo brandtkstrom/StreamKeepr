@@ -321,7 +321,7 @@ try
         builder.Services.AddHostedService<MockChatSeeder>();
     }
 
-    // Loads watch positions at startup and flushes pending ones on graceful shutdown.
+    // Loads resume positions from the record store; shutdown waits out a write in flight.
     builder.Services.AddHostedService(services => services.GetRequiredService<ProgressStore>());
     // One FFmpeg export at a time, independent of any circuit.
     builder.Services.AddHostedService(services => services.GetRequiredService<ExportService>());

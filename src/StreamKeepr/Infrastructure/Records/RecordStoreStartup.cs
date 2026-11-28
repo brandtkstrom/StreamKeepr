@@ -34,6 +34,7 @@ public sealed class RecordStoreStartup(
     private static readonly string[] LegacyFileNames =
     [
         AppDataPaths.ChannelsFileName,
+        AppDataPaths.ProgressFileName,
         AppDataPaths.AdminTokensFileName,
         AppDataPaths.EventSubConduitFileName,
     ];

@@ -216,6 +216,23 @@ public sealed class RecordStoreStartupTests : IDisposable
     }
 
     [Fact]
+    public async Task Legacy_watch_progress_is_ignored_with_one_log_line()
+    {
+        string appData = AppDataPaths.AppDataDirectory(_store.RecordingsRoot);
+        Directory.CreateDirectory(appData);
+        string legacy = Path.Combine(appData, AppDataPaths.ProgressFileName);
+        await File.WriteAllTextAsync(legacy, """{"r1":42}""");
+
+        await _store.StartAsync();
+
+        CapturedLogEntry line = Assert.Single(
+            _store.Logs.Entries,
+            entry => entry.Message.Contains("ignored", StringComparison.Ordinal));
+        Assert.Contains("progress.json", line.Message, StringComparison.Ordinal);
+        Assert.Equal("""{"r1":42}""", await File.ReadAllTextAsync(legacy));
+    }
+
+    [Fact]
     public async Task No_legacy_files_means_no_ignored_line()
     {
         await _store.StartAsync();

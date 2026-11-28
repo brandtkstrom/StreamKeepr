@@ -176,11 +176,11 @@ public interface IProgressStore
 }
 ```
 
-- File: `/recordings/.streamkeepr/progress.json`, a JSON map of recording id to position.
-- Load at startup; corrupt/missing file logs and starts empty.
-- In-memory reads; atomic writes at most every 10 s and on graceful shutdown; no write per keystroke.
+- Storage: the record store's `ResumePositions` table (ADR-0014, #318), one row per session with its position and update time. `progress.json` is neither read nor written; a leftover one is logged once at startup as ignored.
+- Load at startup into an in-memory projection; rows that are negative or not finite are skipped, and an unreadable store logs and starts empty.
+- Reads are synchronous from the projection. Each change updates the projection, raises `Changed`, then writes its row through (upsert or delete), one write at a time in change order. A failed write logs a warning and never throws: the projection keeps the change and playback and recording carry on (ADR-0014's write-failure policy).
 - `SetAsync` validates the recording exists. For a finished recording it clamps to `[0, duration]` and clears positions within 30 s of the end. For a recording still being captured it only clamps the lower bound to 0: the live edge sits inside the 30 s margin and the library's duration trails the player's, so neither the margin nor the upper clamp applies. When the capture finishes, a position within 30 s of the final end is dropped (and so is one loaded at startup for a session recovered as finished), so the finished recording opens at 0. Unknown id is a no-op for in-process callers; the HTTP endpoint returns 404.
-- `ClearAsync` removes the entry; delete also clears it.
+- `ClearAsync` removes the entry and its row; deleting the session record cascades the row, and the library removal prunes the projection.
 - `Changed` fires per update; `ILibraryView` throttles resume-bar updates.
 - `PUT /api/recordings/{id}/progress` is public while viewing is open (empty allowlist); in private mode it requires an allowed sign-in and answers `401` otherwise (ADR-0013). Body `{ positionSec }`; 204 on success; 400 for a non-finite or negative position; 404 for an unknown recording. `Cache-Control: no-store`.
 

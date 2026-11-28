@@ -1,8 +1,10 @@
 using System.Net;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
+using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Storage;
 
 namespace StreamKeepr.Tests.Hosting;
@@ -17,9 +19,7 @@ public sealed class ViewersEndpointTests
     {
         using StreamKeeprAppFactory factory = CreateFactory();
         RecordingSummary summary = Upsert(factory, Finished(durationSeconds: 8047.4));
-        WriteViewers(factory, summary,
-            """{"v":1,"at":0,"count":1658}""",
-            """{"v":1,"at":60.5,"count":1700}""");
+        await RecordViewersAsync(factory, summary, new ViewerSample(0, 1658), new ViewerSample(60.5, 1700));
         using HttpClient client = factory.CreateClient();
 
         using HttpResponseMessage response = await client.GetAsync($"/api/recordings/{summary.Id}/viewers");
@@ -42,7 +42,7 @@ public sealed class ViewersEndpointTests
             IsRecording = true,
             DurationSeconds = null,
         });
-        WriteViewers(factory, summary, """{"v":1,"at":0,"count":12}""");
+        await RecordViewersAsync(factory, summary, new ViewerSample(0, 12));
         using HttpClient client = factory.CreateClient();
 
         using JsonDocument json = await GetJsonAsync(client, summary.Id);
@@ -52,10 +52,15 @@ public sealed class ViewersEndpointTests
     }
 
     [Fact]
-    public async Task A_recording_without_a_viewer_log_returns_no_samples()
+    public async Task A_recording_without_samples_returns_none_and_ignores_a_leftover_viewers_file()
     {
         using StreamKeeprAppFactory factory = CreateFactory();
         RecordingSummary summary = Upsert(factory, Finished(durationSeconds: 60));
+        await RecordViewersAsync(factory, summary);
+        string directory = Path.Combine(factory.RecordingsRoot, summary.Channel, summary.Id);
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(
+            Path.Combine(directory, "viewers.jsonl"), """{"v":1,"at":0,"count":5}""" + "\n");
         using HttpClient client = factory.CreateClient();
 
         using JsonDocument json = await GetJsonAsync(client, summary.Id);
@@ -65,14 +70,12 @@ public sealed class ViewersEndpointTests
     }
 
     [Fact]
-    public async Task Malformed_lines_are_skipped_with_a_warning()
+    public async Task Samples_are_returned_oldest_first()
     {
         using StreamKeeprAppFactory factory = CreateFactory();
         RecordingSummary summary = Upsert(factory, Finished(durationSeconds: 120));
-        WriteViewers(factory, summary,
-            """{"v":1,"at":0,"count":5}""",
-            "{\"v\":1,\"at\":",
-            """{"v":1,"at":60,"count":6}""");
+        await RecordViewersAsync(
+            factory, summary, new ViewerSample(60, 6), new ViewerSample(0, 5), new ViewerSample(120, 7));
         using HttpClient client = factory.CreateClient();
 
         using JsonDocument json = await GetJsonAsync(client, summary.Id);
@@ -80,10 +83,7 @@ public sealed class ViewersEndpointTests
         int[] counts = json.RootElement.GetProperty("samples").EnumerateArray()
             .Select(sample => sample.GetProperty("count").GetInt32())
             .ToArray();
-        Assert.Equal([5, 6], counts);
-        Assert.Contains(
-            factory.Logs.Messages,
-            message => message.Contains("Skipped 1 malformed viewer sample", StringComparison.Ordinal));
+        Assert.Equal([5, 6, 7], counts);
     }
 
     [Theory]
@@ -133,12 +133,34 @@ public sealed class ViewersEndpointTests
         return summary;
     }
 
-    private static void WriteViewers(
-        StreamKeeprAppFactory factory, RecordingSummary summary, params string[] lines)
+    /// <summary>Records the session, as the session store would, with the given samples.</summary>
+    private static async Task RecordViewersAsync(
+        StreamKeeprAppFactory factory, RecordingSummary summary, params ViewerSample[] samples)
     {
-        string directory = Path.Combine(factory.RecordingsRoot, summary.Channel, summary.Id);
-        Directory.CreateDirectory(directory);
-        File.WriteAllLines(Path.Combine(directory, ViewerSamples.FileName), lines);
+        IDbContextFactory<RecordStoreDbContext> records =
+            factory.Services.GetRequiredService<IDbContextFactory<RecordStoreDbContext>>();
+        await using (RecordStoreDbContext db = await records.CreateDbContextAsync())
+        {
+            db.Sessions.Add(new SessionRow
+            {
+                Id = summary.Id,
+                Channel = summary.Channel,
+                StreamId = "1",
+                StartedAt = summary.StartedAt,
+                Status = summary.IsRecording ? SessionStatus.Recording : SessionStatus.Complete,
+            });
+            db.SessionMetadataChanges.Add(new SessionMetadataChangeRow
+            {
+                SessionId = summary.Id,
+                At = summary.StartedAt,
+                Title = summary.Title,
+                Game = summary.Game,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        if (samples.Length > 0)
+            await ViewerSamples.AppendRangeAsync(records, summary.Id, samples, CancellationToken.None);
     }
 
     private static async Task<JsonDocument> GetJsonAsync(HttpClient client, string id)

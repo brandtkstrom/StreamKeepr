@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
+using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Ui;
@@ -454,7 +455,10 @@ public sealed class LibraryViewTests
                 MinFreeGb = 1,
             });
 
-            ChannelStore channels = await TestRecordStore.LoadChannelStoreInAsync(root);
+            var records = new TestRecordStore(root);
+            RecordStoreState recordStore = await records.StartAsync();
+            ChannelStore channels = records.CreateChannelStore(recordStore);
+            await channels.LoadAsync(CancellationToken.None);
 
             foreach (string login in logins)
                 await channels.AddAsync(login, CancellationToken.None);
@@ -471,7 +475,7 @@ public sealed class LibraryViewTests
                 clock,
                 NullLogger<StorageMonitor>.Instance);
             var progress = new ProgressStore(
-                library, storageOptions, clock, NullLogger<ProgressStore>.Instance);
+                library, records.Contexts, recordStore, clock, NullLogger<ProgressStore>.Instance);
             var view = new LibraryView(library, channels, status, storage, progress, clock);
 
             return new Harness(root, clock, library, channels, status, disk, storage, progress, view);

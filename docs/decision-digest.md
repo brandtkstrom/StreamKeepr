@@ -158,7 +158,7 @@ This is the single handoff for the full application specification. It records th
 
 - `ILibraryView` (`StreamerView`, `RecordingView`, `StorageView`, `LibraryQuery`): scoped, 500 ms `Changed`, nullable `LastRecordedAt`/`SizeBytes`/`ResumeSec`, deterministic sort/search/state rules, `PlaylistUrl` `/media/{channel}/{id}/index.m3u8`.
 - `IChannelsView`: scoped, signed-in; list/add/remove/stop/resume; `ChannelView` with `PushConnected`/`PushReason`; service enforces authorization.
-- `IProgressStore`: JSON file under `.streamkeepr`, in-memory reads, atomic writes at most every 10 s, clamp `[0,duration]`, clear within 30 s of end; public `PUT /api/recordings/{id}/progress`, 204/400/404, `no-store`.
+- `IProgressStore`: `ResumePositions` rows in the record store (#318), in-memory reads, write-through on every change (failures logged, never thrown), clamp `[0,duration]`, clear within 30 s of end; public `PUT /api/recordings/{id}/progress`, 204/400/404, `no-store`.
 - `IExportService`: always one MP4; auth; Complete-only; ffprobe compatibility; one at a time FIFO; progress from FFmpeg; lease registry; 24 h cleanup; signed-in range download; cancel; `FindByRecording` for rehydration.
 - `IRecordingAdmin`: signed-in, Complete-only, session lock, lease refusal, removes library/progress; `IStorageMonitor` 60 s/event sampling with >1% threshold.
 - Authorization: scoped views pass the authenticated `ClaimsPrincipal` to singleton services; disabled controls are never the only guard. F10-T1 absorbed; F10-T7 precedes sign-in.
