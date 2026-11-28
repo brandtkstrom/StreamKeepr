@@ -8,6 +8,14 @@ namespace StreamKeepr.Tests.Ui;
 internal static class MoreActions
 {
     /// <summary>
+    /// Opening the menu takes a dozen renders through the popover provider. On a loaded CI
+    /// runner bUnit's 1 s default has expired before the first check ran (run 46117858176:
+    /// check count 0, 13 renders), so this wait gets the margin other slow waits here use.
+    /// A passing check still returns at once.
+    /// </summary>
+    private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
     /// Opens More actions and returns its item carrying <paramref name="hook"/> (a data
     /// attribute such as <c>data-delete</c>). MudMenu renders its list in the popover provider;
     /// pass an existing one when a test opens the menu more than once.
@@ -24,7 +32,7 @@ internal static class MoreActions
         if (item is null)
         {
             cut.Find("button[aria-label='More actions']").Click();
-            popovers.WaitForAssertion(() => item = popovers.Find($"[{hook}]"));
+            popovers.WaitForAssertion(() => item = popovers.Find($"[{hook}]"), OpenTimeout);
         }
 
         return item!;
