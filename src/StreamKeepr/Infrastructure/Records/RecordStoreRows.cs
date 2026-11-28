@@ -131,7 +131,10 @@ public sealed class ChatMessageRow
     /// <summary>JSON array of badges, in the chat API's shape.</summary>
     public required string BadgesJson { get; set; }
 
-    /// <summary>Null once a finalize purge removed a deleted message's text.</summary>
+    /// <summary>
+    /// The message text; capture always stores one. The column is nullable from the initial schema,
+    /// but a finalize purge deletes a removed message's whole row instead of nulling this (ADR 0009).
+    /// </summary>
     public string? Text { get; set; }
 
     /// <summary>JSON array of emotes, in the chat API's shape.</summary>

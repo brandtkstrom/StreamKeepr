@@ -15,6 +15,15 @@ internal sealed record ChatBatch(
     long LastMessageAt,
     bool Truncated);
 
+/// <summary>
+/// What a session's chat row already holds, so a writer reopened for it keeps counting
+/// against <c>Chat:MaxBytesPerSession</c> where the previous one stopped.
+/// </summary>
+internal readonly record struct ChatTotals(long Bytes, int MessageCount, long LastMessageAt, bool Truncated)
+{
+    public static readonly ChatTotals None = new(0, 0, 0, false);
+}
+
 /// <summary>A position in a session's messages, ordered by <c>At</c> then row id.</summary>
 internal readonly record struct ChatCursor(long At, long Id);
 
@@ -77,15 +86,31 @@ internal sealed class ChatRecords(IDbContextFactory<RecordStoreDbContext> contex
         db.SaveChanges();
     }
 
+    /// <summary>The stored totals of a session's chat, or <see cref="ChatTotals.None"/> when it has none.</summary>
+    public ChatTotals Totals(string sessionId)
+    {
+        using RecordStoreDbContext db = contexts.CreateDbContext();
+        ChatSessionRow? chat = db.ChatSessions.AsNoTracking().SingleOrDefault(row => row.SessionId == sessionId);
+        return chat is null
+            ? ChatTotals.None
+            : new ChatTotals(
+                chat.StoredBytes,
+                chat.MessageCount,
+                chat.LastMessageAt?.ToUnixTimeMilliseconds() ?? 0,
+                chat.Truncated);
+    }
+
     /// <summary>
     /// Marks a session's chat complete with an <c>end</c> event. Returns false, writing nothing,
-    /// when the session has no chat.
+    /// when the session has no chat or its chat is already complete, so finalizing again writes
+    /// no second <c>end</c> and never purges a complete session (ADR 0009). A batch
+    /// stored after finalize returns the chat to recording, so the next finalize is real again.
     /// </summary>
     public bool Finish(string sessionId, DateTimeOffset endedAt)
     {
         using RecordStoreDbContext db = contexts.CreateDbContext();
         ChatSessionRow? chat = db.ChatSessions.Find(sessionId);
-        if (chat is null)
+        if (chat is null || chat.Status == ChatStates.Complete)
             return false;
 
         db.ChatEvents.Add(NewEvent(sessionId, ChatEventKinds.End, endedAt.ToUnixTimeMilliseconds()));
@@ -167,6 +192,24 @@ internal sealed class ChatRecords(IDbContextFactory<RecordStoreDbContext> contex
         db.SaveChanges();
         transaction.Commit();
         return (removed, redactRows.Length);
+    }
+
+    /// <summary>
+    /// Empties the write-ahead log after a purge so the purged text's earlier page images leave
+    /// the disk (ADR 0009); see <see cref="RecordStoreConnection.CheckpointWriteAheadLog"/>.
+    /// </summary>
+    public bool CheckpointWriteAheadLog()
+    {
+        using RecordStoreDbContext db = contexts.CreateDbContext();
+        db.Database.OpenConnection();
+        try
+        {
+            return RecordStoreConnection.CheckpointWriteAheadLog(db.Database.GetDbConnection());
+        }
+        finally
+        {
+            db.Database.CloseConnection();
+        }
     }
 
     public async Task<bool> HasChatAsync(string sessionId, CancellationToken ct)

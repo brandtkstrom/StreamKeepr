@@ -46,6 +46,22 @@ public static class RecordStoreConnection
         command.ExecuteNonQuery();
     }
 
+    /// <summary>
+    /// Copies every write-ahead-log frame into the database and empties the log, so page images
+    /// written before a deletion (which <c>secure_delete</c> cannot reach) are gone from disk.
+    /// Returns false when a reader still in a transaction kept the log from being emptied; the
+    /// old frames are then overwritten by later writes once SQLite restarts the log.
+    /// </summary>
+    public static bool CheckpointWriteAheadLog(DbConnection connection)
+    {
+        using DbCommand command = connection.CreateCommand();
+        command.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+        using DbDataReader result = command.ExecuteReader();
+
+        // One row: busy (0 or 1), frames in the log, frames checkpointed.
+        return result.Read() && result.GetInt32(0) == 0;
+    }
+
     public static async Task ApplyPragmasAsync(DbConnection connection, CancellationToken ct)
     {
         await using DbCommand command = connection.CreateCommand();
