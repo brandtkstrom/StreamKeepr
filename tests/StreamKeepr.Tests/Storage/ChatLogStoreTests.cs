@@ -852,18 +852,7 @@ public sealed class ChatLogStoreTests : IDisposable
         return _records.ChatSession(probe.Id)!.StoredBytes;
     }
 
-    /// <summary>The raw bytes of the database and its write-ahead log, as Latin-1 text to search.</summary>
-    private string DatabaseFileText()
-    {
-        var text = new System.Text.StringBuilder();
-        foreach (string path in new[] { _records.DatabasePath, _records.DatabasePath + "-wal" })
-        {
-            if (File.Exists(path))
-                text.Append(System.Text.Encoding.Latin1.GetString(File.ReadAllBytes(path)));
-        }
-
-        return text.ToString();
-    }
+    private string DatabaseFileText() => RecordStoreFiles.Text(_records.DatabasePath);
 
     private Task<ChatQueryResult> QueryAsync(
         ChatReader reader, double from, double to, double offset = 0, RecordingSummary? summary = null) =>

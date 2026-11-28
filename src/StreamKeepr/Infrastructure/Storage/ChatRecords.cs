@@ -196,21 +196,9 @@ internal sealed class ChatRecords(IDbContextFactory<RecordStoreDbContext> contex
 
     /// <summary>
     /// Empties the write-ahead log after a purge so the purged text's earlier page images leave
-    /// the disk (ADR 0009); see <see cref="RecordStoreConnection.CheckpointWriteAheadLog"/>.
+    /// the disk (ADR 0009); see <see cref="RecordStoreConnection.CheckpointWriteAheadLog(System.Data.Common.DbConnection)"/>.
     /// </summary>
-    public bool CheckpointWriteAheadLog()
-    {
-        using RecordStoreDbContext db = contexts.CreateDbContext();
-        db.Database.OpenConnection();
-        try
-        {
-            return RecordStoreConnection.CheckpointWriteAheadLog(db.Database.GetDbConnection());
-        }
-        finally
-        {
-            db.Database.CloseConnection();
-        }
-    }
+    public bool CheckpointWriteAheadLog() => RecordStoreConnection.CheckpointWriteAheadLog(contexts);
 
     public async Task<bool> HasChatAsync(string sessionId, CancellationToken ct)
     {

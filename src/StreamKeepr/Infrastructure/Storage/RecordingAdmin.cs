@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Hosting;
+using StreamKeepr.Infrastructure.Records;
 
 namespace StreamKeepr.Infrastructure.Storage;
 
@@ -15,8 +16,9 @@ public interface IRecordingAdmin
 
 /// <summary>
 /// Deletes one complete session: checks authorization and the export lease, holds the session
-/// lock, re-reads the session record, then removes the library entry, record, folder, and watch
-/// progress.
+/// lock, re-reads the session record, then removes the library entry, the record with every
+/// row that cascades from it, the folder (best effort), and the cached watch progress. Export
+/// files live outside the session folder and are kept.
 /// </summary>
 public sealed class RecordingAdmin(
     RecordingLibrary library,
@@ -70,14 +72,27 @@ public sealed class RecordingAdmin(
             if (record.Status != SessionStatus.Complete)
                 throw new InvalidOperationException("That recording is still being captured.");
 
+            // The library entry goes first so reads return 404 at once. The record goes before
+            // the folder so a deleted recording never returns on restart: the library is built
+            // from the record store only, and a folder without a record is never read.
+            // Removing the entry also drops the resume position, so keep it for a rollback.
+            double? resumePosition = progress.Get(recordingId);
             library.Remove(recordingId);
-            // The record goes before the folder so a deleted recording never returns on restart.
-            // #322 makes this one coordinated delete across every table and the media.
-            await sessions.DeleteRecordAsync(recordingId, ct).ConfigureAwait(false);
-            if (Directory.Exists(directory))
-                Directory.Delete(directory, recursive: true);
+            try
+            {
+                await sessions.DeleteRecordAsync(recordingId, ct).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Nothing was deleted: list the recording again rather than hide it until restart.
+                library.Upsert(summary);
+                await RestoreResumePositionAsync(recordingId, resumePosition).ConfigureAwait(false);
+                throw;
+            }
 
-            await progress.ClearAsync(recordingId, ct).ConfigureAwait(false);
+            // The delete is committed: finish the cleanup even if the caller cancels now.
+            DeleteFolder(recordingId, directory);
+            await progress.ClearAsync(recordingId, CancellationToken.None).ConfigureAwait(false);
             storage.Refresh();
             deleted = true;
             logger.LogInformation(
@@ -90,5 +105,45 @@ public sealed class RecordingAdmin(
 
         if (deleted)
             sessions.ForgetLock(directory);
+    }
+
+    /// <summary>
+    /// Best effort, during a rollback: a failure is logged so the caller still sees why the
+    /// delete failed. The viewer then starts from the beginning, which loses nothing else.
+    /// </summary>
+    private async Task RestoreResumePositionAsync(string recordingId, double? position)
+    {
+        if (position is not double seconds)
+            return;
+
+        try
+        {
+            await progress.SetAsync(recordingId, seconds, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (RecordStoreFailures.IsStoreFailure(ex))
+        {
+            logger.LogWarning(ex,
+                "Could not restore the resume position of recording {RecordingId} after its delete failed.",
+                recordingId);
+        }
+    }
+
+    /// <summary>
+    /// Best effort: the recording is already deleted once its record is gone, so a folder that
+    /// cannot be removed is logged as an orphan for the operator, never surfaced as a failure.
+    /// </summary>
+    private void DeleteFolder(string recordingId, string directory)
+    {
+        try
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning(ex,
+                "Deleted recording {RecordingId}, but its folder {Directory} could not be removed; it is an orphan that the library never lists. Remove it by hand.",
+                recordingId, directory);
+        }
     }
 }
