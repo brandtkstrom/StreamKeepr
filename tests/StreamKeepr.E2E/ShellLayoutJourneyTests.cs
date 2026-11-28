@@ -69,17 +69,18 @@ public sealed class ShellLayoutJourneyTests(MockAppFixture app)
         await LibraryJourneyTests.Expect(async () => await IsOnScreenAsync(channel) ? 1 : 0, 1);
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "phone-library-drawer");
 
-        // There is no room for two columns: a channel's recordings drill in over the list, with
-        // a way back, and every row shows its Delete button (touch has no hover).
+        // There is no room for two panes: a channel's recordings drill in over the index, with
+        // a way back. The toolbar stays above it, and every row shows its Delete button.
         string login = (await channel.GetAttributeAsync("data-library-channel"))!;
         await channel.TapAsync();
         ILocator column = page.Locator($"{LibraryHooks.Drawer} [data-recordings-column='{login}']");
         await Assertions.Expect(column.GetByRole(AriaRole.Button, new() { Name = "All channels" })).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator("input[data-search-input]")).ToBeVisibleAsync();
         await column.EvaluateAsync("c => Promise.all(c.getAnimations().map(a => a.finished))");
         LocatorBoundingBoxResult drawerBox = (await page.Locator(LibraryHooks.Drawer).BoundingBoxAsync())!;
         LocatorBoundingBoxResult columnBox = (await column.BoundingBoxAsync())!;
         Assert.Equal(drawerBox.X, columnBox.X, 1.0);
-        Assert.True(columnBox.Width <= drawerBox.Width + 1, "the column drills in inside the drawer");
+        Assert.True(columnBox.Width <= drawerBox.Width + 1, "the pane drills in inside the drawer");
         Assert.Equal("1", await column.Locator("button[data-row-delete]").First.EvaluateAsync<string>("b => getComputedStyle(b).opacity"));
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "phone-library-drill-in");
         ILocator row = column.Locator("a[data-recording-id]").First;

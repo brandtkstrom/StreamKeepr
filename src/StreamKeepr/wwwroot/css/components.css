@@ -190,9 +190,10 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 
 /* ---------- library drawer (design system: LibraryDrawer, RecordingRow) ----------
    New rules read tokens.css directly (ADR 0012). The MudDrawer frame sets the width (320px
-   library, 72px rail); the library fills it, with the channels scrolling between head and footer. */
+   library, 72px rail); when a recordings pane shows, the sheet widens to 320px + rec-col and
+   the channels scroll between the toolbar and the storage footer. */
 .sk-drawer { width: 100%; height: 100%; display: flex; flex-direction: column; min-height: 0; overflow: hidden; color: var(--drawer-text); }
-.sk-drawer-toolbar { flex: none; padding: var(--space-4) var(--space-2) var(--space-3) var(--space-4); }
+.sk-drawer-toolbar { flex: none; padding: var(--space-4) var(--space-4) var(--space-3); }
 .sk-drawer-head {
   display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center;
   column-gap: var(--space-2); row-gap: 0;
@@ -224,6 +225,24 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 .sk-drawer-note.mud-alert { display: none; margin: 0 var(--space-4) var(--space-2); }
 body[data-sk-reconnect="show"] .sk-drawer-note.mud-alert, body[data-sk-reconnect="retrying"] .sk-drawer-note.mud-alert { display: flex; }
 .sk-drawer.rail .sk-drawer-note .msg { display: none; }
+/* One sheet, two panes: the channel index on the left and the recordings beside it. The
+   index is the drawer's 320px; the pane takes the rest. */
+.sk-library-body { flex: 1; min-height: 0; display: flex; position: relative; }
+.sk-library-channels { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.sk-library-pane {
+  flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  background: var(--surface); border-left: 1px solid var(--divider);
+}
+/* Wide, before a channel is picked: the pane says what it holds instead of standing empty. */
+.sk-recordings-prompt {
+  display: grid; place-content: center; justify-items: center; gap: var(--space-2);
+  padding: var(--space-8); text-align: center; color: var(--text-secondary);
+}
+.sk-recordings-prompt .mud-icon-root { font-size: 48px; color: var(--action-default); }
+.sk-recordings-prompt-title { margin: 0; color: var(--text-primary); }
+.sk-recordings-prompt-line { margin: 0; max-width: 34ch; color: var(--text-secondary); }
+.sk-row-skeleton { display: flex; gap: var(--space-3); padding: var(--space-2); }
+.sk-row-skeleton .who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); padding-top: var(--space-1); }
 .sk-drawer-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--space-2) var(--space-4); scrollbar-width: thin; scrollbar-color: var(--lines-default) transparent; }
 .sk-drawer-foot { flex: none; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--divider); }
 .sk-storage-line { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); font: var(--text-caption); color: var(--text-secondary); }
@@ -242,7 +261,13 @@ body[data-sk-reconnect="show"] .sk-drawer-note.mud-alert, body[data-sk-reconnect
 .sk-channel .name { font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sk-channel .meta { color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sk-channel .meta.live { color: var(--text-primary); }
-.sk-channel .count { color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); font-variant-numeric: tabular-nums; }
+/* The count is a quiet pill, not a stray number: it is the size of the channel's shelf. */
+.sk-channel .count {
+  flex: none; display: inline-grid; place-items: center; min-width: 22px; height: 20px; padding: 0 6px;
+  border-radius: var(--radius-full); background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
+  font-variant-numeric: tabular-nums;
+}
 .sk-channel .chev { color: var(--action-default); }
 /* The chevron is a drill-in affordance, not a decoration on every row. Touch keeps it visible. */
 @media (hover: hover) {
@@ -252,36 +277,34 @@ body[data-sk-reconnect="show"] .sk-drawer-note.mud-alert, body[data-sk-reconnect
 .sk-channel[aria-selected="true"] { background: var(--selection); }
 .sk-channel[aria-selected="true"]::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 2px 2px 0; background: var(--primary); }
 .sk-channel[aria-selected="true"] :is(.meta, .count) { color: var(--text-primary); }
+.sk-channel[aria-selected="true"] .count { background: color-mix(in srgb, var(--text-primary) 16%, transparent); }
 .sk-channel[data-library-skeleton] { cursor: default; }
 /* Long lists keep rows in the DOM (E-19) and skip off-screen layout; day headers stick under
-   the column's own header so the day is always in view. */
+   the pane's own header so the day is always in view. */
 .sk-drawer :is(.sk-row, .sk-channel):focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .sk-day {
   position: sticky; top: 0; z-index: 1; padding: var(--space-2) var(--space-2) var(--space-1);
-  background: var(--drawer-background); color: var(--text-secondary);
+  background: var(--surface); color: var(--text-secondary);
   font: var(--text-label); letter-spacing: var(--text-label-letter-spacing);
   box-shadow: 0 1px 0 var(--divider);
 }
 /* The live badge on a channel avatar (MudBadge Dot) is the rec colour, never a state colour. */
 .sk-channel-avatar .mud-badge.sk-live { background-color: var(--rec); }
 
-/* The recordings column (360px). Md and up it opens to the right of the channels, over the page,
-   so nothing reflows; the drawer frame lets it overflow. Below Md it drills in over the list. */
-.sk-drawer-frame:not(.mud-drawer-temporary), .sk-drawer-frame:not(.mud-drawer-temporary) > .mud-drawer-content,
-.sk-drawer-frame:not(.mud-drawer-temporary) .sk-drawer { overflow: visible; }
+/* The recordings pane sits beside the 320px channel index, inside the same sheet, so the whole
+   open library casts one shadow and the pane boundary is a hairline. Below Md it drills in over
+   the index. */
 .sk-rec-col {
-  position: absolute; z-index: 1; top: 0; bottom: 0; left: 100%; width: var(--rec-col-width); display: flex; flex-direction: column;
-  background: var(--drawer-background); border-left: 1px solid var(--divider);
-  animation: sk-col-in 200ms cubic-bezier(0.2, 0, 0, 1);
+  position: relative; animation: sk-col-in 200ms cubic-bezier(0.2, 0, 0, 1);
 }
-.sk-rec-col.drill { left: 0; right: 0; width: auto; border-left: 0; box-shadow: none; animation-name: sk-drill-in; }
-/* One floating sheet: the column is its right edge, so the shadow is cast right only and the
-   pane boundary stays a hairline. */
-.sk-rec-col:not(.drill) { box-shadow: 10px 0 24px -16px rgba(0, 0, 0, 0.65); }
+.sk-rec-col.drill { position: absolute; z-index: 1; inset: 0; width: auto; border-left: 0; animation-name: sk-drill-in; }
 @keyframes sk-col-in { from { transform: translateX(-24px); opacity: 0; } }
 @keyframes sk-drill-in { from { transform: translateX(32px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .sk-rec-col { animation: none; } }
-.sk-rec-col-head { flex: none; display: flex; align-items: center; gap: var(--space-3); min-height: 56px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); border-bottom: 1px solid var(--divider); }
+.sk-rec-col-head {
+  flex: none; display: flex; align-items: center; gap: var(--space-2); min-height: 56px;
+  padding: var(--space-2); border-bottom: 1px solid var(--divider);
+}
 .sk-rec-col.drill .sk-rec-col-head { padding-left: var(--space-1); }
 .sk-rec-col-head .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .sk-rec-col-head h3 { margin: 0; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -289,7 +312,7 @@ body[data-sk-reconnect="show"] .sk-drawer-note.mud-alert, body[data-sk-reconnect
 .sk-rec-col-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--space-2) var(--space-4); scrollbar-width: thin; scrollbar-color: var(--lines-default) transparent; }
 
 /* A recording row: the link, and its Delete button at the top right. The link reserves the
-   button's width, so titles never reflow when it appears. */
+   button's width, so titles never run under it. */
 .sk-row-item { position: relative; margin-bottom: 2px; content-visibility: auto; contain-intrinsic-size: auto 80px; }
 /* A deleted row collapsing out (library-keys.js animates its height). */
 .sk-row-item[data-collapsing] { overflow: hidden; pointer-events: none; }
@@ -302,15 +325,14 @@ body[data-sk-reconnect="show"] .sk-drawer-note.mud-alert, body[data-sk-reconnect
 .sk-row:hover::after, .sk-channel:hover::after { opacity: var(--hover-opacity); }
 .sk-row[aria-current="true"] { background: var(--selection); }
 .sk-row[aria-current="true"] .sk-row-meta { color: var(--text-primary); }
-/* Delete: shown on hover, on focus anywhere in the row, on the selected row, and always on touch.
-   Hidden is opacity 0, never display none, so it stays in the tab order. */
+/* Delete is always in the row, quietly: watching and deleting are the two things a library
+   row is for, so delete must not wait for a hover to be discovered. Hover and focus turn it
+   red; a blocked row keeps it visible and dimmed, with its reason in the tooltip. */
 .sk-row-del {
   position: absolute; top: var(--space-1); right: var(--space-1); display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
-  border: 0; border-radius: var(--radius-full); background: transparent; color: var(--action-default); cursor: pointer; opacity: 0;
+  border: 0; border-radius: var(--radius-full); background: transparent; color: var(--action-default); cursor: pointer;
 }
 .sk-row-del svg[data-icon] { width: 20px; height: 20px; fill: currentColor; }
-.sk-row-item:is(:hover, :focus-within) .sk-row-del, .sk-row[aria-current="true"] + .sk-row-del { opacity: 1; }
-@media (hover: none) { .sk-row-del { opacity: 1; } }
 .sk-row-del:not([aria-disabled="true"]):hover { color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); }
 .sk-row-del[aria-disabled="true"] { color: var(--action-disabled); cursor: default; }
 .sk-row-del:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
@@ -365,6 +387,28 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   width: 14px; height: 14px; min-width: 14px; border: 2px solid var(--drawer-background); animation: sk-pulse 1.6s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) { .sk-drawer.rail .sk-channel-avatar .mud-badge.sk-live { animation: none; } }
+
+/* Md and up the library is one sheet: the 320px channel index and the recordings pane beside
+   it. It widens only when a pane shows, so an empty or no-match library stays 320px. */
+@media (min-width: 960px) {
+  .sk-shell[data-layout="wide"][data-library-open] .sk-library-channels { flex: 0 0 var(--drawer-width); }
+  .sk-shell[data-layout="wide"][data-library-open] .sk-drawer-frame:has([data-recordings-pane]) {
+    width: calc(var(--drawer-width) + var(--rec-col-width));
+  }
+  /* The toolbar spans the sheet, so search and filters visibly belong to both panes. */
+  .sk-shell[data-layout="wide"][data-library-open] .sk-drawer-frame:has([data-recordings-pane]) .sk-drawer-toolbar {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-3) var(--space-4);
+  }
+  .sk-shell[data-layout="wide"][data-library-open] .sk-drawer-frame:has([data-recordings-pane]) .sk-drawer-head {
+    grid-column: 1 / -1;
+  }
+  .sk-shell[data-layout="wide"][data-library-open] .sk-drawer-frame:has([data-recordings-pane]) .sk-drawer-search {
+    grid-column: 1; grid-row: 2; margin-top: 0;
+  }
+  .sk-shell[data-layout="wide"][data-library-open] .sk-drawer-frame:has([data-recordings-pane]) .sk-filters {
+    grid-column: 2; grid-row: 2; margin-top: 0; align-self: center;
+  }
+}
 
 /* ---------- player (design system: VideoPlayer, Keyboard; JS island, #180) ----------
    VideoPlayer.razor.js owns this DOM, so it holds no MudBlazor components: plain markup on the

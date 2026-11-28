@@ -1,36 +1,28 @@
 @using StreamKeepr.Ui
 
-@* The selected channel's recordings (design system: LibraryDrawer, recordings column): a 64px
-   header with the channel and a way back, then its recordings by day, newest first. Md and up it
-   opens to the right of the channels, over the page; below Md it drills in over the list. *@
-<section class="sk-rec-col @(Compact ? "drill" : null)"
+@* The selected channel's recordings (design system: LibraryDrawer, recordings pane): a 56px
+   header with the way back, the channel's avatar and its name, then its recordings by day,
+   newest first. Md and up it is the right-hand pane of the library sheet; below Md it drills in
+   over the channel index. The back control sits at the seam, pointing at the channels. *@
+<section class="sk-rec-col sk-library-pane @(Compact ? "drill" : null)"
          aria-labelledby="@HeadingId"
-         data-recordings-column="@Streamer.Login">
+         data-recordings-column="@Streamer.Login"
+         data-recordings-pane>
     <div class="sk-rec-col-head">
-        @if (Compact)
-        {
-            <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.ArrowBack"
-                                     aria-label="All channels"
-                                     OnClick="OnClose"
-                                     data-column-close />
-            <ChannelAvatar Login="@Streamer.Login"
-                           Name="@Streamer.DisplayName"
-                           ImageUrl="@Streamer.AvatarUrl"
-                           Live="@Streamer.IsRecording"
-                           Size="MudBlazor.Size.Medium"
-                           Decorative="true" />
-        }
+        <MudBlazor.MudIconButton Icon="@(Compact ? MudBlazor.Icons.Material.Rounded.ArrowBack : MudBlazor.Icons.Material.Rounded.ChevronLeft)"
+                                 aria-label="@(Compact ? "All channels" : $"Close {Streamer.DisplayName}'s recordings")"
+                                 OnClick="OnClose"
+                                 data-column-close />
+        <ChannelAvatar Login="@Streamer.Login"
+                       Name="@Streamer.DisplayName"
+                       ImageUrl="@Streamer.AvatarUrl"
+                       Live="@Streamer.IsRecording"
+                       Size="MudBlazor.Size.Medium"
+                       Decorative="true" />
         <span class="who">
             <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h3" id="@HeadingId">@Streamer.DisplayName</MudBlazor.MudText>
             <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="meta" data-column-meta>@Meta</MudBlazor.MudText>
         </span>
-        @if (!Compact)
-        {
-            <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.ChevronLeft"
-                                     aria-label="@($"Close {Streamer.DisplayName}'s recordings")"
-                                     OnClick="OnClose"
-                                     data-column-close />
-        }
     </div>
     <div class="sk-rec-col-body" role="list" aria-labelledby="@HeadingId" data-column-body>
         @{
@@ -72,7 +64,7 @@
 
     [Parameter] public DateTimeOffset Now { get; set; }
 
-    /// <summary>Below Md: the column drills in over the channels, with a way back.</summary>
+    /// <summary>Below Md: the pane drills in over the channel index, with a way back.</summary>
     [Parameter] public bool Compact { get; set; }
 
     [Parameter] public Func<RecordingView, string?> DeleteBlockedReason { get; set; } = _ => null;

@@ -107,104 +107,151 @@ else
    circuit cannot render anything while it is down. *@
 <UpdatesPausedAlert Class="sk-drawer-note" data-updates-paused />
 
-<div class="sk-drawer-list"
-     data-drawer-list
-     @ref="_list"
-     aria-busy="@(Library.IsLoaded ? null : "true")">
-    @if (!Library.IsLoaded)
-    {
-        @for (int index = 0; index < 6; index++)
-        {
-            <div class="sk-channel" data-library-skeleton aria-hidden="true">
-                <MudBlazor.MudSkeleton SkeletonType="MudBlazor.SkeletonType.Circle" Width="40px" Height="40px" />
-                <span class="who">
-                    <MudBlazor.MudSkeleton Width="70%" />
-                    <MudBlazor.MudSkeleton Width="40%" />
-                </span>
-            </div>
-        }
-    }
-    else
-    {
-        IReadOnlyList<StreamerView> streamers = Library.Streamers(_query);
-        if (streamers.Count == 0)
-        {
-            if (!Filtered)
+@{
+    // Read once: the channel index and the recordings pane show the same result. The rail is a
+    // shortcut strip with no search or filter of its own, so it shows every channel regardless
+    // of the library view's query (a stale no-match query must not empty the closed rail).
+    LibraryQuery railQuery = _query with { Search = null, State = null };
+    LibraryQuery listQuery = Rail ? railQuery : _query;
+    IReadOnlyList<StreamerView> streamers = Library.IsLoaded
+        ? Library.Streamers(listQuery)
+        : [];
+}
+
+@* One sheet: the channel index on the left, the selected channel's recordings beside it.
+   The toolbar above spans the sheet, so search, filter and sort visibly belong to both. *@
+<div class="sk-library-body" data-library-body>
+    <div class="sk-library-channels" data-library-channels>
+        <div class="sk-drawer-list"
+             data-drawer-list
+             @ref="_list"
+             aria-busy="@(Library.IsLoaded ? null : "true")">
+            @if (!Library.IsLoaded)
             {
-                <div class="sk-empty-state" data-library-no-recordings>
-                    <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.VideoLibrary" aria-hidden="true" />
-                    <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle1" HtmlTag="p" data-library-empty>No recordings yet</MudBlazor.MudText>
-                    <MudBlazor.MudText Typo="MudBlazor.Typo.body2">Recordings appear when a watched channel goes live.</MudBlazor.MudText>
-                    <MudBlazor.MudButton Variant="MudBlazor.Variant.Text" Color="MudBlazor.Color.Primary" Href="/settings#channels">Open channel settings</MudBlazor.MudButton>
-                </div>
+                @for (int index = 0; index < 6; index++)
+                {
+                    <div class="sk-channel" data-library-skeleton aria-hidden="true">
+                        <MudBlazor.MudSkeleton SkeletonType="MudBlazor.SkeletonType.Circle" Width="40px" Height="40px" />
+                        <span class="who">
+                            <MudBlazor.MudSkeleton Width="70%" />
+                            <MudBlazor.MudSkeleton Width="40%" />
+                        </span>
+                    </div>
+                }
+            }
+            else if (streamers.Count == 0)
+            {
+                if (!Filtered && !Rail)
+                {
+                    <div class="sk-empty-state" data-library-no-recordings>
+                        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.VideoLibrary" aria-hidden="true" />
+                        <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle1" HtmlTag="p" data-library-empty>No recordings yet</MudBlazor.MudText>
+                        <MudBlazor.MudText Typo="MudBlazor.Typo.body2">Recordings appear when a watched channel goes live.</MudBlazor.MudText>
+                        <MudBlazor.MudButton Variant="MudBlazor.Variant.Text" Color="MudBlazor.Color.Primary" Href="/settings#channels">Open channel settings</MudBlazor.MudButton>
+                    </div>
+                }
+                else if (!Rail)
+                {
+                    @* Design system: EmptyStates, no match. One icon, one headline, one sentence, one way out. *@
+                    NoMatchState noMatch = NoMatch;
+                    <div class="sk-empty-state" data-library-no-match data-empty-icon="search">
+                        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Search" aria-hidden="true" />
+                        <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle1" HtmlTag="p" data-library-empty>@noMatch.Headline</MudBlazor.MudText>
+                        <MudBlazor.MudText Typo="MudBlazor.Typo.body2">@noMatch.Line</MudBlazor.MudText>
+                        <MudBlazor.MudButton Variant="MudBlazor.Variant.Text" Color="MudBlazor.Color.Primary" OnClick="noMatch.OnAction">@noMatch.Action</MudBlazor.MudButton>
+                    </div>
+                }
             }
             else
             {
-                @* Design system: EmptyStates, no match. One icon, one headline, one sentence, one way out. *@
-                NoMatchState noMatch = NoMatch;
-                <div class="sk-empty-state" data-library-no-match data-empty-icon="search">
-                    <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Search" aria-hidden="true" />
-                    <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle1" HtmlTag="p" data-library-empty>@noMatch.Headline</MudBlazor.MudText>
-                    <MudBlazor.MudText Typo="MudBlazor.Typo.body2">@noMatch.Line</MudBlazor.MudText>
-                    <MudBlazor.MudButton Variant="MudBlazor.Variant.Text" Color="MudBlazor.Color.Primary" OnClick="noMatch.OnAction">@noMatch.Action</MudBlazor.MudButton>
+                @* The channels (design system: LibraryDrawer): a single-select listbox. Picking one opens
+                   its recordings pane; in the rail each option is an avatar that opens the drawer
+                   on that channel. library-keys.js moves through the options and into the pane. *@
+                <div class="sk-channels" role="listbox" aria-label="Channels" data-channel-list>
+                    @foreach (StreamerView streamer in streamers)
+                    {
+                        IReadOnlyList<RecordingView> recordings = Library.Recordings(streamer.Login, listQuery);
+                        bool selected = !Rail && streamer.Login == _selectedChannel;
+                        bool tabStop = selected || (_selectedChannel is null || Rail ? streamer == streamers[0] : false);
+                        <ChannelOption @key="streamer.Login"
+                                       Streamer="streamer"
+                                       Count="recordings.Count"
+                                       Meta="@ChannelMeta(streamer, recordings)"
+                                       Selected="selected"
+                                       Current="@(streamer.Login == CurrentChannel)"
+                                       TabStop="tabStop"
+                                       Rail="Rail"
+                                       Search="@_query.Search"
+                                       OnSelect="() => SelectChannelAsync(streamer.Login)" />
+                    }
                 </div>
             }
-        }
-        else
-        {
-            @* The channels (design system: LibraryDrawer): a single-select listbox. Picking one opens
-               its recordings column; in the rail each option is an avatar that opens the drawer
-               on that channel. library-keys.js moves through the options and into the column. *@
-            <div class="sk-channels" role="listbox" aria-label="Channels" data-channel-list>
-                @foreach (StreamerView streamer in streamers)
+        </div>
+
+        <div class="sk-drawer-foot">
+            <StorageMeter FreeBytes="@Library.Storage.FreeBytes"
+                          TotalBytes="@Library.Storage.TotalBytes"
+                          Rail="@Rail"
+                          OnOpen="ExpandFromRailAsync" />
+        </div>
+    </div>
+
+    @* Wide, before anything is picked: the pane says what it holds instead of leaving the
+       sheet half blank. Compact has no room for it; picking a channel is the only step. *@
+    @if (!Rail && !Compact && !Library.IsLoaded)
+    {
+        <div class="sk-library-pane" data-recordings-pane data-recordings-skeleton aria-hidden="true">
+            <div class="sk-rec-col-head">
+                <MudBlazor.MudSkeleton SkeletonType="MudBlazor.SkeletonType.Circle" Width="40px" Height="40px" />
+                <span class="who">
+                    <MudBlazor.MudSkeleton Width="45%" />
+                    <MudBlazor.MudSkeleton Width="30%" />
+                </span>
+            </div>
+            <div class="sk-rec-col-body">
+                @for (int index = 0; index < 3; index++)
                 {
-                    IReadOnlyList<RecordingView> recordings = Library.Recordings(streamer.Login, _query);
-                    bool selected = !Rail && streamer.Login == _selectedChannel;
-                    bool tabStop = selected || (_selectedChannel is null || Rail ? streamer == streamers[0] : false);
-                    <ChannelOption @key="streamer.Login"
-                                   Streamer="streamer"
-                                   Count="recordings.Count"
-                                   Meta="@ChannelMeta(streamer, recordings)"
-                                   Selected="selected"
-                                   Current="@(streamer.Login == CurrentChannel)"
-                                   TabStop="tabStop"
-                                   Rail="Rail"
-                                   Search="@_query.Search"
-                                   OnSelect="() => SelectChannelAsync(streamer.Login)" />
+                    <div class="sk-row-item sk-row-skeleton">
+                        <MudBlazor.MudSkeleton Width="112px" Height="63px" />
+                        <span class="who">
+                            <MudBlazor.MudSkeleton Width="80%" />
+                            <MudBlazor.MudSkeleton Width="45%" />
+                        </span>
+                    </div>
                 }
             </div>
-        }
+        </div>
+    }
+    else if (!Rail && !Compact && SelectedStreamer is null && streamers.Count > 0)
+    {
+        <div class="sk-library-pane sk-recordings-prompt" data-recordings-pane data-recordings-prompt>
+            <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.VideoLibrary" aria-hidden="true" />
+            <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle1" HtmlTag="p" Class="sk-recordings-prompt-title">Choose a channel</MudBlazor.MudText>
+            <MudBlazor.MudText Typo="MudBlazor.Typo.body2" HtmlTag="p" Class="sk-recordings-prompt-line">Its recordings open here, ready to watch or delete.</MudBlazor.MudText>
+        </div>
+    }
+    else if (!Rail && Library.IsLoaded && SelectedStreamer is { } open)
+    {
+        <RecordingsColumn @key="open.Login"
+                          Streamer="open"
+                          Recordings="Library.Recordings(open.Login, _query)"
+                          SelectedId="@SelectedId"
+                          Search="@_query.Search"
+                          ViewQuery="@ViewQuery"
+                          TimeZone="@Clock.TimeZone"
+                          Now="@Clock.Now"
+                          Compact="@Compact"
+                          DeleteBlockedReason="DeleteBlockedReason"
+                          OnDelete="OpenDelete"
+                          OnClose="ClosePaneAsync" />
     }
 </div>
-
-@if (!Rail && Library.IsLoaded && SelectedStreamer is { } open)
-{
-    <RecordingsColumn @key="open.Login"
-                      Streamer="open"
-                      Recordings="Library.Recordings(open.Login, _query)"
-                      SelectedId="@SelectedId"
-                      Search="@_query.Search"
-                      ViewQuery="@ViewQuery"
-                      TimeZone="@Clock.TimeZone"
-                      Now="@Clock.Now"
-                      Compact="@Compact"
-                      DeleteBlockedReason="DeleteBlockedReason"
-                      OnDelete="OpenDelete"
-                      OnClose="CloseColumnAsync" />
-}
 
 <DeleteRecordingDialog Recording="_deleteTarget"
                        Visible="@_deleteOpen"
                        VisibleChanged="OnDeleteOpenChanged"
                        BlockedReason="@(_deleteTarget is { } target ? DeleteBlockedReason(target) : null)"
                        OnDeleted="OnDeletedAsync" />
-
-<div class="sk-drawer-foot">
-    <StorageMeter FreeBytes="@Library.Storage.FreeBytes"
-                  TotalBytes="@Library.Storage.TotalBytes"
-                  Rail="@Rail"
-                  OnOpen="ExpandFromRailAsync" />
-</div>
 
 @code {
     private const string KeysModule = "./js/library-keys.js";
@@ -234,7 +281,7 @@ else
     /// <summary>True while the shell shows the desktop rail (set by <c>AppShell</c>).</summary>
     [CascadingParameter(Name = "LibraryRail")] public bool Rail { get; set; }
 
-    /// <summary>Below Md the drawer is temporary and the recordings column drills in.</summary>
+    /// <summary>Below Md the drawer is temporary and the recordings pane drills in.</summary>
     [CascadingParameter(Name = AppShell.CompactCascade)] public bool Compact { get; set; }
 
     /// <summary>True while the library is open, at every width (set by <c>AppShell</c>).</summary>
@@ -356,7 +403,7 @@ else
     private string? ChannelOf(string? recordingId) =>
         recordingId is not null && Library.IsLoaded ? Library.Find(recordingId)?.StreamerLogin : null;
 
-    // The open column's channel; a channel the search or filter dropped closes it.
+    // The open pane's channel; a channel the search or filter dropped closes it.
     private StreamerView? SelectedStreamer =>
         _selectedChannel is null
             ? null
@@ -388,7 +435,16 @@ else
         if (Rail)
         {
             // In the rail an avatar opens the library on that channel, its recordings showing.
+            // The rail is not filtered, so a stale search/filter must not hide the channel
+            // picked here: clear it (and the URL) before the drawer expands.
             _selectedChannel = login;
+            LibraryQuery query = _query with { Search = null, State = null };
+            if (query != _query)
+            {
+                _query = query;
+                Navigate(query);
+            }
+
             Shell?.OpenLibrary();
             await Task.CompletedTask;
             return;
@@ -403,12 +459,12 @@ else
             await Shell.CloseModalDrawer();
     }
 
-    private async Task CloseColumnAsync()
+    private async Task ClosePaneAsync()
     {
         string? login = _selectedChannel;
         _selectedChannel = null;
         // BL0012 assumes the framework's post-callback render is soon enough. It is not:
-        // the focus below queries the DOM, so the column must collapse first. Remove when
+        // the focus below queries the DOM, so the pane must collapse first. Remove when
         // BL0012 stops treating an intentional render before a DOM read as redundant.
 #pragma warning disable BL0012
         StateHasChanged();

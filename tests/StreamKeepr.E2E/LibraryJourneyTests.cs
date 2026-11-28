@@ -22,7 +22,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
 
         await page.Locator(Search).FillAsync("NIGHT");
         await Journey.WaitForUrlAsync(page, url => url.Contains("q=NIGHT", StringComparison.Ordinal));
-        // The channels count matches, not totals; each match is highlighted in its column.
+        // The channels count matches, not totals; each match is highlighted in its pane.
         await Expect(() => TotalRecordingsAsync(page), 2);
         await (await LibraryHooks.RowAsync(page)).WaitForAsync();
         Assert.True(await page.Locator($"{LibraryHooks.Row} mark").CountAsync() >= 1);
@@ -77,10 +77,22 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         await page.Locator("[data-library-empty]").WaitForAsync();
         Assert.Equal("No recordings match “zzzz-no-match”", await page.Locator("[data-library-empty]").InnerTextAsync());
         Assert.Equal(0, await page.Locator(LibraryHooks.Channel).CountAsync());
+
+        // The rail is not filtered: it still lists every channel. Picking one must open its
+        // pane and clear the stale search/state that would otherwise hide it.
+        await page.Locator("[data-drawer-toggle]").ClickAsync();
+        await page.Locator("[data-shell]:not([data-library-open])").WaitForAsync();
+        ILocator railChannel = page.Locator(LibraryHooks.Channel).First;
+        string railLogin = (await railChannel.GetAttributeAsync("data-library-channel"))!;
+        await railChannel.ClickAsync();
+        await Assertions.Expect(page.Locator($"{LibraryHooks.Drawer} [data-recordings-column='{railLogin}']")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator(Search)).ToHaveValueAsync("");
+        await Assertions.Expect(page.Locator("[data-filter='all']")).ToHaveAttributeAsync("aria-pressed", "true");
+        await Journey.WaitForUrlAsync(page, url => !url.Contains("q=", StringComparison.Ordinal) && !url.Contains("state=", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task Keyboard_users_move_through_the_channels_and_into_a_column()
+    public async Task Keyboard_users_move_through_the_channels_and_into_a_pane()
     {
         await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
@@ -100,13 +112,13 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         Assert.True(await first.EvaluateAsync<bool>("el => el === document.activeElement"));
         string login = (await first.GetAttributeAsync("data-library-channel"))!;
 
-        // → selects the channel, opens its column and moves focus to its first recording.
+        // → selects the channel, opens its pane and moves focus to its first recording.
         await session.OpenFocusedChannelAsync();
         await Assertions.Expect(first).ToHaveAttributeAsync("aria-selected", "true");
         await page.Keyboard.PressAsync("ArrowDown");
         string? second = await page.EvaluateAsync<string?>("document.activeElement.dataset.recordingId");
         Assert.False(string.IsNullOrEmpty(second));
-        await AssertAxeCleanAsync(page, "library-column");
+        await AssertAxeCleanAsync(page, "library-pane");
 
         // ← goes back to the channel; Escape from a row does too, and leaves the drawer open.
         await page.Keyboard.PressAsync("ArrowLeft");
@@ -162,6 +174,10 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         await LibraryHooks.OpenLibraryAsync(page);
         Assert.Equal(before.X, (await main.BoundingBoxAsync())!.X, 0.5);
         await AssertAxeCleanAsync(page, "library-open");
+        // Before a pick the wide sheet already has its pane, showing the invitation.
+        ILocator prompt = page.Locator("[data-recordings-prompt]");
+        await Assertions.Expect(prompt).ToBeVisibleAsync();
+        Assert.Contains("Choose a channel", await prompt.InnerTextAsync());
         ILocator first = page.Locator(LibraryHooks.Channel).First;
         string login = (await first.GetAttributeAsync("data-library-channel"))!;
 
@@ -170,17 +186,26 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         ILocator column = page.Locator($"{LibraryHooks.Drawer} [data-recordings-column='{login}']");
         await Assertions.Expect(column).ToBeVisibleAsync();
         await column.EvaluateAsync("c => Promise.all(c.getAnimations().map(a => a.finished))");
-        // It starts at the drawer's right edge (320px of channels) and lies over the page.
+        // It sits beside the channel index, inside the same sheet, and ends at the sheet's
+        // right edge; the page still does not move.
         LocatorBoundingBoxResult drawer = (await page.Locator(LibraryHooks.Drawer).BoundingBoxAsync())!;
+        LocatorBoundingBoxResult index = (await page.Locator("[data-library-channels]").BoundingBoxAsync())!;
         LocatorBoundingBoxResult box = (await column.BoundingBoxAsync())!;
-        Assert.Equal(drawer.X + drawer.Width, box.X, 2.0);
+        Assert.Equal(index.X + index.Width, box.X, 2.0);
+        Assert.Equal(drawer.X + drawer.Width, box.X + box.Width, 2.0);
         Assert.Equal(360, box.Width, 1.0);
         LocatorBoundingBoxResult after = (await main.BoundingBoxAsync())!;
         Assert.Equal(before.X, after.X, 0.5);
         Assert.Equal(before.Width, after.Width, 0.5);
-        // The count on the channel matches the column's rows.
+        // The count on the channel matches the pane's rows.
         int count = int.Parse((await first.Locator("[data-channel-count]").InnerTextAsync()).Trim(), System.Globalization.CultureInfo.InvariantCulture);
         Assert.Equal(count, await column.Locator("a[data-recording-id]").CountAsync());
+        // Watching and deleting are the two row actions. Delete must be painted without a
+        // hover; Playwright treats opacity: 0 as visible, so assert the computed opacity.
+        Assert.Equal(
+            "1",
+            await column.Locator("button[data-row-delete]").First
+                .EvaluateAsync<string>("b => getComputedStyle(b).opacity"));
 
         await column.Locator("[data-column-close]").ClickAsync();
         await Assertions.Expect(column).ToBeHiddenAsync();
@@ -373,7 +398,7 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         return counts.Sum(count => int.Parse(count.Trim(), System.Globalization.CultureInfo.InvariantCulture));
     }
 
-    /// <summary>Every matching row's state, opening each channel's column in turn.</summary>
+    /// <summary>Every matching row's state, opening each channel's pane in turn.</summary>
     internal static async Task<IReadOnlyList<string>> RowStatesAsync(IPage page)
     {
         var states = new List<string>();
