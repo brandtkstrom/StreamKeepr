@@ -18,6 +18,7 @@ public static class AppDataPaths
     public const string EventSubConduitFileName = "eventsub-conduit.json";
 
     public const string ChannelsFileName = "channels.json";
+    /// <summary>Legacy resume-position file; the record store replaced it (ADR-0014). Never read or written.</summary>
     public const string ProgressFileName = "progress.json";
     public const string ExportsDirectoryName = "exports";
     public const string ThumbnailsDirectoryName = "thumbnails";

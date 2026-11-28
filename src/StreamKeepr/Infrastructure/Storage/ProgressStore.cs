@@ -110,7 +110,7 @@ public sealed class ProgressStore : IProgressStore, IHostedService, IDisposable
             await using RecordStoreDbContext db = await _records.CreateDbContextAsync(ct);
             rows = await db.ResumePositions.AsNoTracking().ToListAsync(ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        catch (Exception ex) when (RecordStoreFailures.IsStoreFailure(ex))
         {
             _logger.LogWarning(ex, "Could not read the stored resume positions; starting empty.");
             rows = [];
@@ -185,13 +185,15 @@ public sealed class ProgressStore : IProgressStore, IHostedService, IDisposable
     private async Task WriteAfterAsync(
         Task previous, string recordingId, double? position, DateTimeOffset at)
     {
-        await previous.ConfigureAwait(false);
+        // A write that failed for any other reason already faulted its own caller; it must not
+        // stop the writes queued behind it.
+        await previous.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         await WriteAsync(recordingId, position, at).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Upserts or deletes one row. The write is not cancellable: the projection has already
-    /// changed, so the row must follow it. Failures are logged and never thrown (ADR-0014).
+    /// changed, so the row must follow it. Store failures are logged and never thrown (ADR-0014).
     /// </summary>
     private async Task WriteAsync(string recordingId, double? position, DateTimeOffset at)
     {
@@ -224,7 +226,7 @@ public sealed class ProgressStore : IProgressStore, IHostedService, IDisposable
             });
             await db.SaveChangesAsync(CancellationToken.None);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (RecordStoreFailures.IsStoreFailure(ex))
         {
             // Resume positions are best effort: playback and recording carry on regardless.
             _logger.LogWarning(

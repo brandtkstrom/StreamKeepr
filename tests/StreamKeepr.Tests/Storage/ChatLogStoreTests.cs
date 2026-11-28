@@ -541,6 +541,30 @@ public sealed class ChatLogStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task A_batch_that_could_not_be_stored_replays_as_a_gap()
+    {
+        var options = new ChatOptions();
+        var contexts = new FailableRecordContexts(_records.Contexts, _records.DatabasePath) { Failing = true };
+        ChatLogStore store = _records.CreateStore(options, _clock, contexts: contexts);
+        ChatReader reader = ChatTestRecords.CreateReader(store, options);
+        WritePlaylist(store.SessionDirectory(_summary));
+
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, "lost"));
+        store.Append("chan", new ChatSourceEvent.Delete("chan", At(4), "x"));
+        store.Append("chan", Message("b", 5, "lost too"));
+        store.Flush();
+        contexts.Failing = false;
+        store.Append("chan", Message("c", 8, "kept"));
+        store.CloseSession(_summary.Id, finalize: true);
+
+        ChatQueryResult result = await QueryAsync(reader, 0, 20);
+
+        Assert.Equal(["c"], result.Messages.Select(message => message.Id));
+        Assert.Equal([new ChatQueryGap(3, 5, 2)], result.Gaps);
+    }
+
+    [Fact]
     public void A_batch_written_after_its_session_record_is_gone_is_logged_and_skipped()
     {
         using var logs = new ListLoggerProvider();

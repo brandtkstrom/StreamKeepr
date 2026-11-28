@@ -99,7 +99,8 @@ flowchart LR
         WEB[Blazor UI + media endpoints]
     end
 
-    DISK[(Recordings volume<br>HLS parts, playlists,<br>thumbnails, chat logs)]
+    DISK[(Recordings volume<br>HLS parts, playlists,<br>thumbnails)]
+    DB[(Data volume<br>SQLite record store:<br>sessions, chat, positions,<br>admin token, conduit)]
     BROWSER[Browser<br>hls.js player]
 
     ES --> OBS
@@ -108,15 +109,17 @@ flowchart LR
     DVR -->|start / stop part| REC
     HLS --> REC
     REC --> DISK
-    IRC --> CHAT --> DISK
+    IRC --> CHAT --> DB
     DVR --> STORE --> DISK
+    STORE --> DB
     DISK --> WEB --> BROWSER
+    DB --> WEB
 ```
 
 - **One web project.** Everything runs in a single ASP.NET Core (.NET 11) app at [`src/StreamKeepr`](src/StreamKeepr): the recorder, Twitch integration, storage, and the Blazor Interactive Server UI built with MudBlazor.
 - **A pure state machine per channel.** Each watched channel has its own coordinator that feeds events (live, offline, recorder exited, timer fired) into a pure reducer ([`Domain/DvrReducer.cs`](src/StreamKeepr/Domain/DvrReducer.cs)). The reducer returns commands, and the coordinator runs them one at a time. States are `Idle`, `Recording`, `WaitingToRetry`, `CoolingDown`, and `Paused`.
 - **Sessions and parts.** A *session* is one continuous recording of a stream. Each recorder run writes one *part*: Streamlink pipes the stream into FFmpeg, which writes a part playlist and fMP4 segments. While a stream is live, the app serves a stitched *live index*; when it ends, the parts are stitched into one *session index* closed with `#EXT-X-ENDLIST`.
-- **Filesystem storage.** Media, manifests, and app state live under the recordings root. App state goes under a private `.streamkeepr/` folder (Data Protection keys, logs) that the media endpoint never serves.
+- **Storage.** Media (parts, playlists, thumbnails) lives under the recordings root; logs go under its private `.streamkeepr/` folder, which the media endpoint never serves. Durable records (channels, sessions, chat, viewer samples, resume positions, the encrypted admin token, and EventSub conduit state) live in one SQLite database on the data volume (ADR-0014), with the Data Protection keys beside it in `keys/`.
 - **Twitch.** An app access token drives Helix lookups and EventSub; Twitch OAuth signs in the administrator. Push-aware polling keeps coverage when EventSub is unavailable.
 
 The terms above are defined in [`GLOSSARY.md`](GLOSSARY.md). The binding design lives in the contracts under [`docs/`](docs) and the decisions in [`docs/adr/`](docs/adr); [`docs/decision-digest.md`](docs/decision-digest.md) is the entry point.

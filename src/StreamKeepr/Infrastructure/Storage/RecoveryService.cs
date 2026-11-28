@@ -180,8 +180,14 @@ public sealed class RecoveryService(
 
         if (record.Status == SessionStatus.Complete)
         {
-            if (await IndexIsValidAsync(directory, ct))
+            if (await ReadFinalIndexAsync(directory, ct) is { } index)
             {
+                if (!IndexedMediaIsPresent(directory, index))
+                {
+                    skipped.Add(record.Id);
+                    return Inspection.Skipped;
+                }
+
                 finished.Add(new Resumable(session, LastPart(directory) + 1, Complete: true));
                 return Inspection.Complete;
             }
@@ -217,7 +223,7 @@ public sealed class RecoveryService(
         // Finalize crash window: the index was written but the record never said Complete, or a
         // reopen died between its record write and the index delete. Either way no recorder ran
         // after the index, so the session completes; re-finalizing recomputes its aggregates.
-        if (await IndexIsValidAsync(directory, ct))
+        if (await ReadFinalIndexAsync(directory, ct) is not null)
         {
             if (!cleaned.HasSegments)
             {
@@ -364,23 +370,53 @@ public sealed class RecoveryService(
         return parts;
     }
 
-    private async Task<bool> IndexIsValidAsync(string directory, CancellationToken ct)
+    /// <summary>The session's index when it exists, is readable and is final; otherwise null.</summary>
+    private async Task<string?> ReadFinalIndexAsync(string directory, CancellationToken ct)
     {
         string path = Path.Combine(directory, SessionStore.IndexFileName);
         if (!File.Exists(path))
-            return false;
+            return null;
 
         try
         {
             string index = await PartPlaylistReader.ReadAllTextAsync(path, ct);
-            return PlaylistStitcher.IsFinalIndex(index);
+            return PlaylistStitcher.IsFinalIndex(index) ? index : null;
         }
         catch (Exception ex) when (IsReadFailure(ex))
         {
             logger.LogWarning(
                 ex, "Ignoring an unreadable session index at {Directory}.", directory);
-            return false;
+            return null;
         }
+    }
+
+    /// <summary>
+    /// False when none of the media the index names is on disk: the session is unplayable, so it
+    /// is skipped (and kept) instead of listed. Some missing files only warn, since the rest
+    /// still plays. One directory listing per session keeps startup cheap.
+    /// </summary>
+    private bool IndexedMediaIsPresent(string directory, string index)
+    {
+        IReadOnlySet<string> named = PlaylistStitcher.ReferencedMedia(index);
+        var onDisk = Directory.EnumerateFiles(directory)
+            .Select(Path.GetFileName)
+            .ToHashSet(StringComparer.Ordinal);
+        int missing = named.Count(name => !onDisk.Contains(name));
+        if (missing == 0)
+            return true;
+
+        if (missing < named.Count)
+        {
+            logger.LogWarning(
+                "Session at {Directory} is missing {MissingCount} of {MediaCount} media files its index names; the rest still plays.",
+                directory, missing, named.Count);
+            return true;
+        }
+
+        logger.LogWarning(
+            "Skipping complete session at {Directory}: none of the {MediaCount} media files its index names exist. The record is kept.",
+            directory, named.Count);
+        return false;
     }
 
     private int LastPart(string directory) =>

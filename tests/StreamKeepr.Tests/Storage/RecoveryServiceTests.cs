@@ -331,6 +331,42 @@ public sealed class RecoveryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Complete_session_whose_indexed_media_is_gone_is_skipped_and_kept()
+    {
+        Session session = CreateSession("989", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(session, "989");
+        await _context.Store.FinalizeAsync(session, CancellationToken.None);
+        foreach (string media in Directory.EnumerateFiles(session.Directory, "*.m4s")
+                     .Concat(Directory.EnumerateFiles(session.Directory, "init_*.mp4")))
+        {
+            File.Delete(media);
+        }
+
+        IReadOnlyDictionary<string, RecoveredChannel> recovered =
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.False(recovered.ContainsKey(Channel) && recovered[Channel].Finished is not null);
+        Assert.Null(_context.Library.Find(session.Id));
+        Assert.True(File.Exists(Path.Combine(session.Directory, SessionStore.IndexFileName)));
+        Assert.NotNull(await _context.Store.TryLoadAsync(session.Directory, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Complete_session_missing_only_some_indexed_media_stays_listed()
+    {
+        Session session = CreateSession("988", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(session, "988");
+        await _context.Store.FinalizeAsync(session, CancellationToken.None);
+        File.Delete(Directory.EnumerateFiles(session.Directory, "*.m4s").First());
+
+        IReadOnlyDictionary<string, RecoveredChannel> recovered =
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.Equal(session.Id, recovered[Channel].Finished!.Session.Id);
+        Assert.NotNull(_context.Library.Find(session.Id));
+    }
+
+    [Fact]
     public async Task Complete_session_with_a_non_final_index_is_re_finalized()
     {
         Session session = CreateSession("991", SessionStoreTestContext.StartedAt);

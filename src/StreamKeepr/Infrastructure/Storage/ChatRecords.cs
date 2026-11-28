@@ -1,4 +1,3 @@
-using System.Data.Common;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
@@ -35,9 +34,6 @@ internal sealed class ChatRecords(IDbContextFactory<RecordStoreDbContext> contex
 
     /// <summary>Ids per statement when the purge deletes or redacts by row id.</summary>
     private const int PurgeChunk = 500;
-
-    /// <summary>True for a failure of the record store itself, which chat logs and skips.</summary>
-    public static bool IsStoreFailure(Exception ex) => ex is DbException or DbUpdateException;
 
     public static string SerializeBadges(IEnumerable<StoredChatBadge> badges) =>
         JsonSerializer.Serialize(badges.ToArray(), Json);

@@ -1,4 +1,3 @@
-using System.Data.Common;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -369,7 +368,7 @@ public sealed class AdminTokenStore(
             // Not cancellable: the caller already dropped the token and must not leave it stored.
             await DeleteRowAsync(CancellationToken.None);
         }
-        catch (Exception ex) when (ex is DbException or DbUpdateException)
+        catch (Exception ex) when (RecordStoreFailures.IsStoreFailure(ex))
         {
             logger.LogError(ex, "The {Reason} admin Twitch token could not be removed from the record store.", reason);
         }

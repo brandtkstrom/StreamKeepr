@@ -8,7 +8,7 @@ namespace StreamKeepr.Infrastructure.Storage;
 /// Captures one active session's chat into the record store: messages (deduplicated by id) and
 /// other events are buffered and written in batches, when a batch fills, on
 /// <see cref="Flush"/>, and on close. It enforces the per-session byte cap and, on finalize,
-/// runs the opt-in purge. A failed write is logged and its batch skipped (ADR-0014); it never
+/// runs the opt-in purge. A failed write is logged, its batch skipped (ADR-0014) and replayed as a gap; it never
 /// throws to capture. All methods are serialized by its own lock.
 /// </summary>
 internal sealed class ChatSessionWriter(
@@ -173,7 +173,7 @@ internal sealed class ChatSessionWriter(
             if (!records.Finish(summary.Id, now) || options.PurgeDeletedText != ChatPurgeMode.OnFinalize)
                 return;
         }
-        catch (Exception ex) when (ChatRecords.IsStoreFailure(ex))
+        catch (Exception ex) when (RecordStoreFailures.IsStoreFailure(ex))
         {
             logger.LogWarning(ex, "Chat for {SessionId} could not be stored as complete.", summary.Id);
             return;
@@ -183,7 +183,7 @@ internal sealed class ChatSessionWriter(
         {
             records.Purge(summary.Id, now);
         }
-        catch (Exception ex) when (ChatRecords.IsStoreFailure(ex))
+        catch (Exception ex) when (RecordStoreFailures.IsStoreFailure(ex))
         {
             logger.LogWarning(ex, "Chat purge failed for {SessionId}; the log is unchanged and the query path still hides deleted text.",
                 summary.Id);
@@ -290,12 +290,33 @@ internal sealed class ChatSessionWriter(
         {
             records.Write(batch);
         }
-        catch (Exception ex) when (ChatRecords.IsStoreFailure(ex))
+        catch (Exception ex) when (RecordStoreFailures.IsStoreFailure(ex))
         {
             logger.LogWarning(ex,
                 "Chat for {SessionId} could not be stored; {MessageCount} messages and {EventCount} events were skipped.",
                 summary.Id, batch.Messages.Count, batch.Events.Count);
+            _pendingEvents.Add(LostBatchGap(batch));
         }
+    }
+
+    /// <summary>
+    /// A gap over the skipped batch's time range, so replay shows the loss instead of a silent
+    /// hole. It is buffered for the next batch; if that one fails too, the next gap widens to
+    /// cover this one, so a broken store leaves at most one pending gap.
+    /// </summary>
+    private ChatEventRow LostBatchGap(ChatBatch batch)
+    {
+        IEnumerable<long> starts = batch.Messages.Select(message => message.At)
+            .Concat(batch.Events.Select(evt => evt.FromAt ?? evt.At));
+        IEnumerable<long> ends = batch.Messages.Select(message => message.At)
+            .Concat(batch.Events.Select(evt => evt.ToAt ?? evt.At));
+        long from = starts.Min();
+        long to = ends.Max();
+        ChatEventRow gap = NewEvent(ChatEventKinds.Gap, to);
+        gap.FromAt = from;
+        gap.ToAt = to;
+        gap.Reason = ChatGapReasons.StoreFailed;
+        return gap;
     }
 
     private ChatSessionRow NewSession() => new()

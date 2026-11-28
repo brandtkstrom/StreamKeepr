@@ -403,7 +403,7 @@ public sealed class SessionStore(
         TryUpsertLibrary(
             directory,
             () => ToSummary(
-                directory, complete, parts.Count, timeline.SegmentCount, complete.SizeBytes,
+                complete, parts.Count, timeline.SegmentCount, complete.SizeBytes,
                 timeline.Chapters(complete.Metadata)));
 
         logger.LogInformation(
@@ -439,7 +439,7 @@ public sealed class SessionStore(
             var parts = await ReadPartsAsync(directory, ct);
             var live = PlaylistTimeline.Parse(PlaylistStitcher.Stitch(parts, MinTargetDuration, final: false));
             return ToSummary(
-                directory, record, parts.Count, live.SegmentCount, MediaSize(directory),
+                record, parts.Count, live.SegmentCount, MediaSize(directory),
                 live.Chapters(record.Metadata));
         }
 
@@ -457,14 +457,13 @@ public sealed class SessionStore(
         }
 
         return ToSummary(
-            directory, record, record.PartCount ?? 0, record.SegmentCount ?? 0, record.SizeBytes, chapters);
+            record, record.PartCount ?? 0, record.SegmentCount ?? 0, record.SizeBytes, chapters);
     }
 
     private static InvalidDataException MissingIndex(SessionRecord record) =>
         new($"Complete session {record.Id} has no index.");
 
-    private RecordingSummary ToSummary(
-        string directory,
+    private static RecordingSummary ToSummary(
         SessionRecord record,
         int partCount,
         int segmentCount,

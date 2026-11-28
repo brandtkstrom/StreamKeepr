@@ -58,6 +58,7 @@ public static class ChatGapReasons
 {
     public const string IrcDisconnected = "irc-disconnected";
     public const string QueueFull = "queue-full";
+    public const string StoreFailed = "store-failed";
 }
 
 /// <summary>The <c>Kind</c> values of <c>ChatEvents</c> rows.</summary>
