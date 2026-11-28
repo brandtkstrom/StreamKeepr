@@ -10,7 +10,7 @@ import { ICONS } from "../../src/StreamKeepr/wwwroot/js/island-icons.js";
 const MARKUP = `
   <div class="sk-player" data-sk-player aria-busy="true" tabindex="0">
     <video data-sk="video"></video>
-    <div class="sk-player-top"><div class="t"><b data-sk="title"></b><span data-sk="streamer"></span></div><span data-sk="chip"></span></div>
+    <div class="sk-player-top"><div class="t"><b data-sk="title"></b><span class="meta"><span data-sk="streamer"></span><span class="chapter" data-sk="chapter" hidden><span data-sk="chapter-title"></span></span></span></div><span data-sk="chip"></span></div>
     <button data-sk="center" aria-label="Play"><svg data-icon="PlayArrow"></svg></button>
     <div data-sk="spinner" hidden><span data-sk="spinner-text">Loading video</span><p data-sk="waiting" role="status" hidden>Waiting for the first segment…</p></div>
     <div data-sk="overlay" role="alert" hidden><p data-sk="overlay-message"></p><button data-sk="retry">Retry</button><a href="/">Back</a></div>
@@ -24,7 +24,7 @@ const MARKUP = `
     <button data-sk="mute" aria-label="Mute"><svg data-icon="VolumeUp"></svg></button>
     <div data-sk="volume" role="slider" tabindex="0" aria-valuenow="100"><i data-sk="volume-level"></i></div>
     <span data-sk="current"></span><span data-sk="duration"></span>
-    <button data-sk="live" aria-label="Jump to live edge" hidden>Live edge</button>
+    <button data-sk="live" aria-label="Jump to live edge" hidden><span class="lbl-long">Jump to live</span><span class="lbl-short">Live</span></button>
     <button data-sk="speed" aria-expanded="false">1×</button>
     <div data-sk="speed-menu" role="menu" hidden>
       <button role="menuitemradio" data-rate="0.5" aria-checked="false"></button>
@@ -775,17 +775,61 @@ describe("VideoPlayer.razor.js", () => {
       expect(media.currentTime).toBe(0);
     });
 
-    it("draws valid chapter ticks and names the chapter under the pointer", async () => {
+    it("draws valid chapter ticks, names the current chapter, and previews one on hover", async () => {
       await start();
       media.metadata(120);
 
       const ticks = hook("ticks").querySelectorAll(".tick");
       expect([...ticks].map((t) => t.style.left)).toEqual(["50%"]);
 
+      expect(hook("chapter").hidden).toBe(false);
+      expect(hook("chapter-title").textContent).toBe("Intro");
+
+      media.time(75);
+      expect(hook("chapter-title").textContent).toBe("Main course");
+
       pointer(hook("seek"), "pointermove", 75);
-      expect(hook("hover-time").textContent).toBe("1:30 · Main course");
+      expect(hook("hover-time").querySelector(".time").textContent).toBe("1:30");
+      expect(hook("hover-time").querySelector(".chapter").textContent).toBe("Main course");
       pointer(hook("seek"), "pointermove", 25);
-      expect(hook("hover-time").textContent).toBe("0:30 · Intro");
+      expect(hook("hover-time").querySelector(".time").textContent).toBe("0:30");
+      expect(hook("hover-time").querySelector(".chapter").textContent).toBe("Intro");
+    });
+
+    it("keeps the hover tooltip inside the seek bar", async () => {
+      await start();
+      media.metadata(120);
+      const tip = hook("hover-time");
+      Object.defineProperty(tip, "offsetWidth", { configurable: true, value: 80 });
+
+      pointer(hook("seek"), "pointermove", 0);
+      expect(tip.style.left).toBe("40px");
+
+      pointer(hook("seek"), "pointermove", 100);
+      expect(tip.style.left).toBe("60px");
+
+      // A tooltip wider than the bar (a narrow player with a chapter title) centers instead
+      // of claiming a negative offset; the CSS max-width keeps its box within the bar.
+      Object.defineProperty(tip, "offsetWidth", { configurable: true, value: 300 });
+      pointer(hook("seek"), "pointermove", 0);
+      expect(tip.style.left).toBe("50px");
+      pointer(hook("seek"), "pointermove", 100);
+      expect(tip.style.left).toBe("50px");
+    });
+
+    it("hides the chapter readout before the first chapter", async () => {
+      await start(view({ chapters: [{ startSeconds: 60, title: "Main course", game: "Food" }] }));
+      media.metadata(120);
+
+      expect(hook("chapter").hidden).toBe(true);
+
+      media.time(90);
+      expect(hook("chapter").hidden).toBe(false);
+      expect(hook("chapter-title").textContent).toBe("Main course");
+
+      media.time(10);
+      expect(hook("chapter").hidden).toBe(true);
+      expect(hook("chapter-title").textContent).toBe("");
     });
 
     it("shows the buffered range around the playhead", async () => {
@@ -1083,6 +1127,7 @@ describe("VideoPlayer.razor.js", () => {
       expect(hook("live").hidden).toBe(false);
       expect(hook("live").classList.contains("at-edge")).toBe(true);
       expect(hook("live").hasAttribute("data-at-edge")).toBe(true);
+      expect(hook("live").getAttribute("aria-label")).toBe("Jump to live edge (at the live edge)");
       expect(hook("edge").hidden).toBe(false);
       expect(hook("edge").style.left).toBe("100%");
       expect(hook("video").play).not.toHaveBeenCalled();
@@ -1096,6 +1141,7 @@ describe("VideoPlayer.razor.js", () => {
       expect(hook("live").hidden).toBe(false);
       expect(hook("live").classList.contains("at-edge")).toBe(false);
       expect(hook("live").hasAttribute("data-at-edge")).toBe(false);
+      expect(hook("live").getAttribute("aria-label")).toBe("Jump to live edge");
 
       // Playing from there stays put instead of jumping to the edge.
       hook("center").click();
@@ -1115,7 +1161,7 @@ describe("VideoPlayer.razor.js", () => {
       expect(hook("duration").textContent).toBe("1:30");
     });
 
-    it("stops following after a manual seek back or a pause, and Live edge resumes it", async () => {
+    it("stops following after a manual seek back or a pause, and Jump to live resumes it", async () => {
       const instance = await startLive();
       hook("center").click();
 
@@ -1125,13 +1171,16 @@ describe("VideoPlayer.razor.js", () => {
       media.time(1);
       expect(hook("video").currentTime).toBe(1);
       expect(hook("live").classList.contains("at-edge")).toBe(false);
+      expect(hook("live").getAttribute("aria-label")).toBe("Jump to live edge");
 
       hook("live").click();
       expect(hook("video").currentTime).toBe(78);
       expect(hook("live").classList.contains("at-edge")).toBe(true);
+      expect(hook("live").getAttribute("aria-label")).toBe("Jump to live edge (at the live edge)");
 
       hook("play").click();
       expect(hook("live").classList.contains("at-edge")).toBe(false);
+      expect(hook("live").getAttribute("aria-label")).toBe("Jump to live edge");
     });
 
     it("snaps a seek to the true end back to the sync position and follows", async () => {
@@ -1380,7 +1429,7 @@ describe("VideoPlayer.razor.js", () => {
         expect(clears()).toEqual([]);
       });
 
-      it("clears once when Live edge is pressed after leaving the edge", async () => {
+      it("clears once when Jump to live is pressed after leaving the edge", async () => {
         await startLive("recording", 25);
         hook("live").click();
         expect(clears()).toEqual([["ClearProgress", "r1"]]);
