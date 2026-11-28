@@ -64,9 +64,9 @@ public sealed class RestartContinuityTests
                 Path.Combine(sessionDirectory, "p001.m3u8"));
             Assert.Contains("#EXT-X-ENDLIST", partPlaylist, StringComparison.Ordinal);
 
-            SessionManifest? manifest = await ReadManifestAsync(sessionDirectory);
-            Assert.NotNull(manifest);
-            Assert.Equal(SessionStatus.Recording, manifest!.Status);
+            SessionRecord? record = await ReadRecordAsync(sessionDirectory);
+            Assert.NotNull(record);
+            Assert.Equal(SessionStatus.Recording, record!.Status);
 
             var secondPoller = new ScriptedStreamPoller();
             using (var factory = CreateFactory(root, secondPoller, ffmpeg))
@@ -258,10 +258,12 @@ public sealed class RestartContinuityTests
                 StringComparer.Ordinal);
     }
 
-    private static async Task<SessionManifest?> ReadManifestAsync(string sessionDirectory)
+    private static async Task<SessionRecord?> ReadRecordAsync(string sessionDirectory)
     {
+        string root = Path.GetDirectoryName(Path.GetDirectoryName(sessionDirectory)!)!;
         var store = new SessionStore(
             Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
+            Records.TestRecordStore.ContextsIn(root),
             new RecordingLibrary(TimeProvider.System, NullLogger<RecordingLibrary>.Instance),
             TimeProvider.System,
             NullLogger<SessionStore>.Instance, TestRetry.Immediate);

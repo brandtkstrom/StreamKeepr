@@ -121,7 +121,7 @@ public sealed class MockLiveFeed(
 
                     if (!deleted && elapsed >= TimeSpan.FromSeconds(options.DeleteSeconds))
                     {
-                        DeleteSeededRecording();
+                        await DeleteSeededRecordingAsync(stoppingToken);
                         deleted = true;
                     }
 
@@ -168,7 +168,7 @@ public sealed class MockLiveFeed(
         }
     }
 
-    private void DeleteSeededRecording()
+    private async Task DeleteSeededRecordingAsync(CancellationToken ct)
     {
         string root = Path.GetFullPath(storageOptions.Value.RecordingsRoot);
         string marker = Path.Combine(AppDataPaths.AppDataDirectory(root), "mock-seeded");
@@ -193,9 +193,19 @@ public sealed class MockLiveFeed(
 
         var session = MockCatalog.SessionFor(target, root);
 
-        library.Remove(session.Id);
-        if (Directory.Exists(session.Directory))
-            Directory.Delete(session.Directory, recursive: true);
+        SemaphoreSlim gate = sessions.LockFor(session.Directory);
+        await gate.WaitAsync(ct);
+        try
+        {
+            library.Remove(session.Id);
+            await sessions.DeleteRecordAsync(session.Id, ct);
+            if (Directory.Exists(session.Directory))
+                Directory.Delete(session.Directory, recursive: true);
+        }
+        finally
+        {
+            gate.Release();
+        }
 
         storage.Refresh();
         logger.LogInformation(

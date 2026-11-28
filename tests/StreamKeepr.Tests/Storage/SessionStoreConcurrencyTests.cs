@@ -56,7 +56,6 @@ public sealed class SessionStoreConcurrencyTests
         Assert.Equal(1, SessionStoreTestContext.Occurrences(index, "#EXT-X-DISCONTINUITY"));
         Assert.Equal(12.0, PlaylistTimeline.Parse(index).Duration);
 
-        Assert.False(File.Exists(context.ManifestPath + ".tmp"));
         Assert.False(File.Exists(context.IndexPath + ".tmp"));
         Assert.Equal(1, context.Store.LockFor(context.Directory).CurrentCount);
     }
@@ -209,7 +208,7 @@ public sealed class SessionStoreConcurrencyTests
     }
 
     [Fact]
-    public async Task Atomic_write_retries_while_a_reader_still_holds_the_manifest()
+    public async Task Atomic_write_retries_while_a_reader_still_holds_the_index()
     {
         FileStream? blocker = null;
         using var context = new SessionStoreTestContext(retryDelay: (_, _) =>
@@ -218,26 +217,27 @@ public sealed class SessionStoreConcurrencyTests
             return Task.CompletedTask;
         });
         await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
+        context.WritePart(1, PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T16:30:00Z", 6));
+        await context.Store.FinalizeAsync(context.Session, CancellationToken.None);
+        context.WritePart(
+            1,
+            PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T16:30:00Z", 6),
+            PlaylistTestData.Segment("p001_00002.m4s", "2026-11-10T16:30:06Z", 6));
 
         // A handle without delete sharing blocks Windows' replace. The injected retry releases
         // it, proving the write survives a sharing violation instead of failing.
         blocker = new FileStream(
-            context.ManifestPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            context.IndexPath, FileMode.Open, FileAccess.Read, FileShare.Read);
         try
         {
-            await context.Store.AppendMetadataAsync(
-                context.Session,
-                context.Metadata("Retried title", "Retried game"),
-                CancellationToken.None);
+            await context.Store.FinalizeAsync(context.Session, CancellationToken.None);
         }
         finally
         {
             blocker.Dispose();
         }
 
-        var manifest = await context.Store.TryLoadAsync(context.Directory, CancellationToken.None);
-        Assert.NotNull(manifest);
-        Assert.Contains(manifest.Metadata, entry => entry.Title == "Retried title");
+        Assert.Equal(12.0, PlaylistTimeline.Parse(await File.ReadAllTextAsync(context.IndexPath)).Duration);
     }
 
     [Fact]

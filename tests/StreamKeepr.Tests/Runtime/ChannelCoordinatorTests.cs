@@ -9,6 +9,8 @@ using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Tests.Hosting;
 using StreamKeepr.Tests.Storage;
 
+using StreamKeepr.Tests.Records;
+
 namespace StreamKeepr.Tests.Runtime;
 
 public sealed class ChannelCoordinatorTests
@@ -47,8 +49,8 @@ public sealed class ChannelCoordinatorTests
         DvrSnapshot snapshot = await RuntimeTestWait.ForStatusAsync(
             context.Status, Channel, status => status.State is DvrState.Recording);
 
-        // StartRecorder is only reachable after OpenSession writes the manifest.
-        Assert.True(File.Exists(Path.Combine(context.SessionDirectory, SessionStore.ManifestFileName)));
+        // StartRecorder is only reachable after OpenSession records the session.
+        Assert.NotNull(await context.Store.TryLoadAsync(context.SessionDirectory, CancellationToken.None));
         Assert.Equal(call.Job, snapshot.ActiveJob);
 
         call.ReportProgress?.Invoke(call.Job, 4096, TimeSpan.FromSeconds(2));
@@ -123,13 +125,62 @@ public sealed class ChannelCoordinatorTests
     }
 
     [Fact]
+    public async Task A_session_record_that_cannot_be_written_skips_the_recorder_and_retries()
+    {
+        using var context = new Context();
+        context.Records.WritesFailing = true;
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Live(context.Live), context.Clock.GetUtcNow()));
+
+        DvrSnapshot snapshot = await RuntimeTestWait.ForStatusAsync(
+            context.Status, Channel, status => status.State is DvrState.WaitingToRetry);
+        await context.StopAsync();
+
+        Assert.Equal("open failed", snapshot.LastDetail);
+        Assert.False(string.IsNullOrEmpty(snapshot.LastError));
+        Assert.False(context.Recorder.Started.TryRead(out _));
+        context.Records.WritesFailing = false;
+        Assert.Null(await context.Store.TryLoadAsync(context.SessionDirectory, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_metadata_change_that_cannot_be_written_is_logged_and_recording_continues()
+    {
+        using var context = new Context();
+        context.Recorder.OnRun = RecordUntilStopped(context);
+        await context.ObserveLiveAsync(context.Clock.GetUtcNow(), viewers: null);
+        _ = await context.Recorder.Started.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        await RuntimeTestWait.ForStatusAsync(
+            context.Status, Channel, status => status.State is DvrState.Recording { HasMedia: true });
+
+        context.Records.WritesFailing = true;
+        await context.Coordinator.PublishAsync(new DvrEvent.StreamStatusObserved(
+            new StreamObservation.Live(context.Live with { Title = "A new title" }),
+            context.Clock.GetUtcNow()));
+        await RuntimeTestWait.UntilAsync(
+            () => context.Logs.Messages.Any(
+                message => message.Contains("metadata failed", StringComparison.OrdinalIgnoreCase)),
+            TimeSpan.FromSeconds(5));
+
+        Assert.IsType<DvrState.Recording>(context.Status.Current[Channel].State);
+        Assert.False(context.Recorder.Started.TryRead(out _), "the recorder was not restarted");
+
+        await context.Coordinator.PublishAsync(new DvrEvent.StopRequested());
+        await context.StopAsync();
+        context.Records.WritesFailing = false;
+        SessionRecord? record = await context.Store.TryLoadAsync(
+            context.SessionDirectory, CancellationToken.None);
+        Assert.Equal("A stream", Assert.Single(record!.Metadata).Title);
+    }
+
+    [Fact]
     public async Task Reopen_failure_skips_the_recorder_and_surfaces_the_failure()
     {
         using var context = new Context();
         Session session = Session.For(context.Live, Channel, context.Root);
+        // The folder exists but the session has no record, so the reopen cannot be recorded.
         Directory.CreateDirectory(session.Directory);
-        await File.WriteAllTextAsync(
-            Path.Combine(session.Directory, SessionStore.ManifestFileName), "not json");
 
         await context.Coordinator.PublishAsync(new DvrEvent.SessionRecovered(
             new Resumable(session, 2, Complete: true)));
@@ -334,7 +385,7 @@ public sealed class ChannelCoordinatorTests
             context.Status, Channel, status => !string.IsNullOrEmpty(status.LastError));
 
         Assert.IsType<DvrState.Idle>(snapshot.State);
-        SessionManifest? manifest = await context.Store.TryLoadAsync(
+        SessionRecord? manifest = await context.Store.TryLoadAsync(
             context.SessionDirectory, CancellationToken.None);
         Assert.NotNull(manifest);
         Assert.Equal(SessionStatus.Recording, manifest!.Status);
@@ -678,8 +729,11 @@ public sealed class ChannelCoordinatorTests
             Directory.CreateDirectory(Root);
 
             Library = new RecordingLibrary(Clock, NullLogger<RecordingLibrary>.Instance);
+            Records = new FailableRecordContexts(
+                TestRecordStore.ContextsIn(Root), TestRecordStore.DatabasePathIn(Root));
             Store = new SessionStore(
                 Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
+                Records,
                 Library,
                 Clock,
                 NullLogger<SessionStore>.Instance, TestRetry.Immediate);
@@ -722,6 +776,9 @@ public sealed class ChannelCoordinatorTests
         public RecordingLibrary Library { get; }
 
         public SessionStore Store { get; }
+
+        /// <summary>The store's record contexts; set <c>WritesFailing</c> to fail record writes.</summary>
+        public FailableRecordContexts Records { get; }
 
         public DvrStatus Status { get; } = new();
 

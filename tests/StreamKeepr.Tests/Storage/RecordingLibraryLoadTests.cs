@@ -9,7 +9,7 @@ namespace StreamKeepr.Tests.Storage;
 public sealed class RecordingLibraryLoadTests
 {
     [Fact]
-    public async Task Load_skips_dot_folders_missing_or_corrupt_manifests_and_unparseable_parts()
+    public async Task Load_lists_recorded_sessions_and_skips_unrecorded_folders_unsafe_ids_and_unreadable_media()
     {
         using var context = new SessionStoreTestContext();
 
@@ -24,7 +24,9 @@ public sealed class RecordingLibraryLoadTests
         context.Clock.Advance(TimeSpan.FromSeconds(1));
         await context.Store.AppendMetadataAsync(
             context.Session, context.Metadata("Changed", "New game"), CancellationToken.None);
-        await File.WriteAllBytesAsync(context.ThumbnailPath, new byte[5]);
+        string image = Path.Combine(context.Directory, "grab.jpg");
+        await File.WriteAllBytesAsync(image, new byte[5]);
+        await context.Store.SaveThumbnailAsync(context.Directory, image, CancellationToken.None);
         context.Clock.Advance(TimeSpan.FromMinutes(1));
         await context.Store.FinalizeAsync(context.Session, CancellationToken.None);
 
@@ -41,11 +43,9 @@ public sealed class RecordingLibraryLoadTests
                 PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T16:35:00Z", 6)),
             CancellationToken.None);
 
-        // Dot-prefixed channel and session.
+        // A record whose id is not a safe session folder name.
         var hiddenLive = new LiveStream(
             "333333333", "Hidden", "Game", context.Session.StartedAt.AddHours(2), null);
-        var hiddenChannel = Session.For(hiddenLive, ".hidden", context.Root);
-        await context.Store.OpenAsync(hiddenChannel, hiddenLive, CancellationToken.None);
         var hiddenSession = new Session(
             "hidden",
             "streamer",
@@ -54,7 +54,7 @@ public sealed class RecordingLibraryLoadTests
             Path.Combine(context.Root, "streamer", ".hidden-session"));
         await context.Store.OpenAsync(hiddenSession, hiddenLive, CancellationToken.None);
 
-        // A folder without a manifest, a corrupt manifest, and a malformed part playlist.
+        // Folders without a record (one with a legacy manifest) and a malformed part playlist.
         string noManifest = Path.Combine(context.Root, "streamer", "no-manifest");
         Directory.CreateDirectory(noManifest);
         await File.WriteAllTextAsync(
@@ -74,7 +74,7 @@ public sealed class RecordingLibraryLoadTests
             "#EXTM3U\n#EXTINF:oops,\np001_00001.m4s\n",
             CancellationToken.None);
 
-        // A Complete manifest with neither an index nor parts is not servable.
+        // A Complete session whose index and parts are gone is not servable.
         var emptyLive = new LiveStream(
             "666666666", "Empty", "Game", context.Session.StartedAt.AddHours(4), null);
         var empty = Session.For(emptyLive, "streamer", context.Root);
@@ -127,7 +127,6 @@ public sealed class RecordingLibraryLoadTests
         Assert.Equal(1, live.PartCount);
         Assert.Equal(1, live.SegmentCount);
 
-        Assert.Null(target.Find(hiddenChannel.Id));
         Assert.Null(target.Find(hiddenSession.Id));
         Assert.Null(target.Find(broken.Id));
         Assert.Null(target.Find(empty.Id));
@@ -151,11 +150,16 @@ public sealed class RecordingLibraryLoadTests
         await context.Store.OpenAsync(
             Session.For(otherLive, "streamer", context.Root), otherLive, CancellationToken.None);
 
-        // A corrupt manifest is skipped with its own warning and is not counted.
-        string corrupt = Path.Combine(context.Root, "streamer", "corrupt");
-        Directory.CreateDirectory(corrupt);
+        // A session with an unreadable part playlist is skipped with its own warning and is
+        // not counted.
+        var brokenLive = new LiveStream(
+            "555555555", "Broken", "Game", context.Session.StartedAt.AddHours(2), null);
+        var broken = Session.For(brokenLive, "streamer", context.Root);
+        await context.Store.OpenAsync(broken, brokenLive, CancellationToken.None);
         await File.WriteAllTextAsync(
-            Path.Combine(corrupt, "session.json"), "{ not json", CancellationToken.None);
+            Path.Combine(broken.Directory, "p001.m3u8"),
+            "#EXTM3U\n#EXTINF:oops,\np001_00001.m4s\n",
+            CancellationToken.None);
 
         var library = new RecordingLibrary(context.Clock, loggers.CreateLogger<RecordingLibrary>());
         await library.LoadAsync(context.Root, context.Store, CancellationToken.None);
@@ -167,6 +171,7 @@ public sealed class RecordingLibraryLoadTests
         Assert.Equal(0.0, summary.Properties["ElapsedMs"]);
         Assert.Contains(logs.Entries, entry =>
             entry.Level == LogLevel.Warning
-            && entry.Message.StartsWith("Skipping unreadable session manifest", StringComparison.Ordinal));
+            && entry.Message.StartsWith("Skipping unreadable session", StringComparison.Ordinal)
+            && entry.Message.Contains(broken.Id, StringComparison.Ordinal));
     }
 }
