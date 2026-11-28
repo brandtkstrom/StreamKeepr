@@ -212,7 +212,7 @@ dotnet user-secrets --project src/StreamKeepr set "Chat:TwitchUserOAuthToken" "<
 dotnet user-secrets --project src/StreamKeepr set "Chat:TwitchLogin" "<twitch-login>"
 ```
 
-Chat is a best-effort live tap, not a complete history: disconnects, dropped events, and a full log appear as gaps. `Chat:PurgeDeletedText=OnFinalize` opts in to physically removing deleted text when a recording finalizes; it is off by default. Third-party emotes are off by default too; enable them with `Chat:Emotes:Bttv:Enabled=true`, `Chat:Emotes:SevenTv:Enabled=true`, and `Chat:Emotes:Ffz:Enabled=true`. Chat failures never stop recording. The other `Chat:` settings are listed in [`docs/runtime-contract.md`](docs/runtime-contract.md).
+Chat is a best-effort live tap, not a complete history: disconnects, dropped events, and a full log appear as gaps. `Chat:PurgeDeletedText=OnFinalize` opts in to physically removing deleted text when a recording finalizes; it is off by default, and backups of the `/data` volume taken before the purge still hold the text. Third-party emotes are off by default too; enable them with `Chat:Emotes:Bttv:Enabled=true`, `Chat:Emotes:SevenTv:Enabled=true`, and `Chat:Emotes:Ffz:Enabled=true`. Chat failures never stop recording. The other `Chat:` settings are listed in [`docs/runtime-contract.md`](docs/runtime-contract.md).
 
 ### Telemetry
 

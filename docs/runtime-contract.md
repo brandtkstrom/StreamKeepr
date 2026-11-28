@@ -45,8 +45,8 @@ Chat capture is isolated from the DVR path: a source or store failure is logged 
 | `JoinIntervalMs` | `600` | Spacing between `JOIN`s (Twitch allows 20 per 10 s). |
 | `ConnectTimeoutSeconds`, `RegistrationTimeoutSeconds` | `10`, `15` | WebSocket connect and IRC registration limits. |
 | `ReconnectMaxSeconds` | `300` | Cap on the doubling reconnect backoff (from 5 s, jittered). |
-| `MaxBytesPerSession` | 512 MiB | Per-session cap; a full log is marked `truncated` and capture stops for that session. |
-| `PurgeDeletedText` | `Off` | `OnFinalize` removes deleted text at finalize (ADR 0009). |
+| `MaxBytesPerSession` | 512 MiB | Per-session cap on estimated stored message bytes, across every writer of the session; the message that reaches it is the last one kept, the log is marked `truncated`, and capture stops for that session. |
+| `PurgeDeletedText` | `Off` | `OnFinalize` removes deleted text when a session's chat completes; finalizing a complete session again purges nothing (ADR 0009). Backups taken before the purge keep the text (`docs/session-store-contract.md`). |
 
 Third-party emote catalogs are fetched on demand by `GET /api/recordings/{id}/emotes` behind an `IEmoteProvider` seam; global refreshes start before channel-ID resolution, and the five-minute cache and three-second provider bound are constants, not configuration. Catalog and image failures never affect chat capture, replay, or health (ADR 0011).
 

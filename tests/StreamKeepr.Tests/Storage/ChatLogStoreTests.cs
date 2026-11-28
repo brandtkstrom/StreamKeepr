@@ -291,6 +291,107 @@ public sealed class ChatLogStoreTests : IDisposable
     }
 
     [Fact]
+    public void Finalizing_a_complete_session_again_writes_no_second_end_or_purge()
+    {
+        var options = new ChatOptions { PurgeDeletedText = ChatPurgeMode.OnFinalize };
+        (ChatLogStore store, _) = Create(options);
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, "first"));
+        store.Append("chan", Message("b", 6, "second"));
+        store.Append("chan", new ChatSourceEvent.Delete("chan", At(7), "b"));
+        store.CloseSession(_summary.Id, finalize: true);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.CloseSession(_summary.Id, finalize: true);
+
+        List<ChatEventRow> events = _records.Events(_summary.Id);
+        Assert.Single(events, row => row.Kind == "end");
+        Assert.Single(events, row => row.Kind == "purged");
+        ChatSessionRow chat = _records.ChatSession(_summary.Id)!;
+        Assert.Equal(Now, chat.EndedAt);
+        Assert.Equal(Now, chat.PurgedAt);
+        Assert.Equal(1, chat.PurgedCount);
+    }
+
+    [Fact]
+    public void Turning_purge_on_does_not_purge_a_session_completed_while_it_was_off()
+    {
+        (ChatLogStore off, _) = Create(new ChatOptions());
+        off.OpenSession(_summary, ChatSources.Anonymous);
+        off.Append("chan", Message("a", 3, "first"));
+        off.Append("chan", Message("b", 6, "second"));
+        off.Append("chan", new ChatSourceEvent.Delete("chan", At(7), "b"));
+        off.CloseSession(_summary.Id, finalize: true);
+
+        ChatLogStore on = _records.CreateStore(
+            new ChatOptions { PurgeDeletedText = ChatPurgeMode.OnFinalize }, _clock);
+        on.OpenSession(_summary, ChatSources.Anonymous);
+        on.CloseSession(_summary.Id, finalize: true);
+
+        Assert.Equal(["a", "b"], _records.Messages(_summary.Id).Select(row => row.MessageId));
+        List<ChatEventRow> events = _records.Events(_summary.Id);
+        Assert.Contains(events, row => row.Kind == "delete");
+        Assert.DoesNotContain(events, row => row.Kind == "purged");
+        Assert.Null(_records.ChatSession(_summary.Id)!.PurgedAt);
+    }
+
+    [Fact]
+    public void Purged_text_is_gone_from_the_database_and_its_write_ahead_log()
+    {
+        const string Kept = "kept-6c1e9b2d";
+        const string Deleted = "deleted-4f8a0c73";
+        const string Quoted = "quoted-91d5e2aa";
+        var options = new ChatOptions { PurgeDeletedText = ChatPurgeMode.OnFinalize };
+        (ChatLogStore store, _) = Create(options);
+
+        // Another open connection (a reader, say) stops SQLite from checkpointing and removing
+        // the log when the writer's connection closes, as can happen while the app runs.
+        using var other = new Microsoft.Data.Sqlite.SqliteConnection(
+            RecordStoreConnection.ConnectionString(_records.DatabasePath, Microsoft.Data.Sqlite.SqliteOpenMode.ReadWrite));
+        other.Open();
+        using (var read = other.CreateCommand())
+        {
+            // SQLite attaches a connection to the log on its first read, not on open.
+            read.CommandText = "SELECT count(*) FROM sqlite_master;";
+            read.ExecuteScalar();
+        }
+
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, Kept));
+        store.Append("chan", Message("b", 6, Deleted));
+        store.Append("chan", Message("c", 9, "reply", replyId: "b", replyText: Quoted));
+        store.Append("chan", new ChatSourceEvent.Delete("chan", At(11), "b"));
+        store.CloseSession(_summary.Id, finalize: true);
+
+        string files = DatabaseFileText();
+
+        // The scan sees stored text, so the absences below mean the bytes were overwritten.
+        Assert.Contains(Kept, files);
+        Assert.DoesNotContain(Deleted, files);
+        Assert.DoesNotContain(Quoted, files);
+    }
+
+    [Fact]
+    public void Purge_off_keeps_deleted_text_and_its_tombstone()
+    {
+        (ChatLogStore store, _) = Create(new ChatOptions());
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 3, "first"));
+        store.Append("chan", Message("c", 9, "third", replyId: "a", replyText: "first"));
+        store.Append("chan", new ChatSourceEvent.Delete("chan", At(11), "a"));
+        store.CloseSession(_summary.Id, finalize: true);
+
+        List<ChatMessageRow> rows = _records.Messages(_summary.Id);
+        Assert.Equal(["first", "third"], rows.Select(row => row.Text));
+        Assert.Equal("first", rows[1].ReplyText);
+        List<ChatEventRow> events = _records.Events(_summary.Id);
+        Assert.Contains(events, row => row.Kind == "delete");
+        Assert.DoesNotContain(events, row => row.Kind == "purged");
+        Assert.Null(_records.ChatSession(_summary.Id)!.PurgedDeletedText);
+    }
+
+    [Fact]
     public void Purge_redacts_a_quote_of_a_banned_author_whose_message_was_never_captured()
     {
         var options = new ChatOptions { PurgeDeletedText = ChatPurgeMode.OnFinalize };
@@ -426,6 +527,93 @@ public sealed class ChatLogStoreTests : IDisposable
     }
 
     [Fact]
+    public void A_message_that_reaches_the_cap_is_kept_and_truncates_the_log_at_once()
+    {
+        long size = StoredBytesOfOneMessage();
+        var options = new ChatOptions { MaxBytesPerSession = size };
+        (ChatLogStore store, _) = Create(options);
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 2, "first"));
+
+        // No later message arrives: reaching the cap alone marks the log.
+        store.CloseSession(_summary.Id, finalize: true);
+
+        ChatSessionRow chat = _records.ChatSession(_summary.Id)!;
+        Assert.True(chat.Truncated);
+        Assert.Equal(size, chat.StoredBytes);
+        Assert.Equal(["a"], _records.Messages(_summary.Id).Select(row => row.MessageId));
+        ChatEventRow truncated = Assert.Single(_records.Events(_summary.Id), row => row.Kind == "truncated");
+        Assert.Equal(At(2), truncated.FromAt);
+        Assert.Equal(1, truncated.Count);
+    }
+
+    [Fact]
+    public void A_message_one_byte_under_the_cap_leaves_the_log_open()
+    {
+        long size = StoredBytesOfOneMessage();
+        var options = new ChatOptions { MaxBytesPerSession = size + 1 };
+        (ChatLogStore store, _) = Create(options);
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 2, "first"));
+        store.CloseSession(_summary.Id, finalize: true);
+
+        Assert.False(_records.ChatSession(_summary.Id)!.Truncated);
+        Assert.DoesNotContain(_records.Events(_summary.Id), row => row.Kind == "truncated");
+    }
+
+    [Fact]
+    public void A_truncated_log_stores_nothing_more_for_the_session()
+    {
+        var options = new ChatOptions { MaxBytesPerSession = 1 };
+        (ChatLogStore store, _) = Create(options);
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 2, "first"));
+        store.Append("chan", Message("b", 3, "second"));
+        store.Append("chan", new ChatSourceEvent.Notice("chan", At(4), "slow_on", "slow mode"));
+        store.CloseSession(_summary.Id, finalize: false);
+
+        Assert.Equal(["a"], _records.Messages(_summary.Id).Select(row => row.MessageId));
+        Assert.Equal(["truncated"], _records.Events(_summary.Id).Select(row => row.Kind));
+    }
+
+    [Fact]
+    public void A_reopened_session_keeps_its_byte_count_against_the_cap()
+    {
+        long size = StoredBytesOfOneMessage();
+        var options = new ChatOptions { MaxBytesPerSession = size + size / 2 };
+        (ChatLogStore store, _) = Create(options);
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 2, "first"));
+        store.CloseSession(_summary.Id, finalize: false);
+        Assert.False(_records.ChatSession(_summary.Id)!.Truncated);
+
+        // A new writer for the same session counts what the first one stored.
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("b", 3, "first"));
+        store.CloseSession(_summary.Id, finalize: false);
+
+        Assert.True(_records.ChatSession(_summary.Id)!.Truncated);
+        Assert.Single(_records.Events(_summary.Id), row => row.Kind == "truncated");
+    }
+
+    [Fact]
+    public void A_reopened_truncated_session_stays_stopped()
+    {
+        var options = new ChatOptions { MaxBytesPerSession = 1 };
+        (ChatLogStore store, _) = Create(options);
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 2, "first"));
+        store.CloseSession(_summary.Id, finalize: false);
+
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("b", 3, "second"));
+        store.CloseSession(_summary.Id, finalize: false);
+
+        Assert.Equal(["a"], _records.Messages(_summary.Id).Select(row => row.MessageId));
+        Assert.Single(_records.Events(_summary.Id), row => row.Kind == "truncated");
+    }
+
+    [Fact]
     public async Task Query_reports_the_unrecorded_time_between_parts_as_a_gap()
     {
         (ChatLogStore store, ChatReader reader) = Create(new ChatOptions());
@@ -541,6 +729,26 @@ public sealed class ChatLogStoreTests : IDisposable
     }
 
     [Fact]
+    public void A_truncation_whose_batch_could_not_be_stored_is_stored_with_the_next_batch()
+    {
+        var options = new ChatOptions { MaxBytesPerSession = 1 };
+        var contexts = new FailableRecordContexts(_records.Contexts, _records.DatabasePath) { Failing = true };
+        ChatLogStore store = _records.CreateStore(options, _clock, contexts: contexts);
+        store.OpenSession(_summary, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 2, "first"));
+
+        contexts.Failing = false;
+        store.Flush();
+        store.Append("chan", Message("b", 3, "second"));
+        store.CloseSession(_summary.Id, finalize: false);
+
+        // A writer reopened later must still see the session as truncated.
+        Assert.True(_records.ChatSession(_summary.Id)!.Truncated);
+        Assert.Single(_records.Events(_summary.Id), row => row.Kind == "truncated");
+        Assert.Empty(_records.Messages(_summary.Id));
+    }
+
+    [Fact]
     public async Task A_batch_that_could_not_be_stored_replays_as_a_gap()
     {
         var options = new ChatOptions();
@@ -627,6 +835,34 @@ public sealed class ChatLogStoreTests : IDisposable
     {
         ChatLogStore store = _records.CreateStore(options, _clock, logger);
         return (store, ChatTestRecords.CreateReader(store, options));
+    }
+
+    /// <summary>
+    /// What the store counts for one <c>Message("a", 2, "first")</c>, read back from an uncapped
+    /// side session so the cap tests take their boundary from the store, not from its formula.
+    /// </summary>
+    private long StoredBytesOfOneMessage()
+    {
+        RecordingSummary probe = _summary with { Id = "20261110T163000Z_2" };
+        _records.AddSession(probe);
+        ChatLogStore store = _records.CreateStore(new ChatOptions(), _clock);
+        store.OpenSession(probe, ChatSources.Anonymous);
+        store.Append("chan", Message("a", 2, "first"));
+        store.CloseSession(probe.Id, finalize: false);
+        return _records.ChatSession(probe.Id)!.StoredBytes;
+    }
+
+    /// <summary>The raw bytes of the database and its write-ahead log, as Latin-1 text to search.</summary>
+    private string DatabaseFileText()
+    {
+        var text = new System.Text.StringBuilder();
+        foreach (string path in new[] { _records.DatabasePath, _records.DatabasePath + "-wal" })
+        {
+            if (File.Exists(path))
+                text.Append(System.Text.Encoding.Latin1.GetString(File.ReadAllBytes(path)));
+        }
+
+        return text.ToString();
     }
 
     private Task<ChatQueryResult> QueryAsync(

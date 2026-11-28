@@ -16,6 +16,7 @@ internal sealed class ChatSessionWriter(
     string source,
     ChatOptions options,
     ChatRecords records,
+    ChatTotals stored,
     int batchSize,
     TimeProvider clock,
     ILogger logger)
@@ -37,10 +38,10 @@ internal sealed class ChatSessionWriter(
     private long _pendingBytes;
     private bool _pendingTruncated;
     private bool _closed;
-    private bool _truncated;
-    private int _messageCount;
-    private long _lastMessageAt;
-    private long _approxBytes;
+    private bool _truncated = stored.Truncated;
+    private int _messageCount = stored.MessageCount;
+    private long _lastMessageAt = stored.LastMessageAt;
+    private long _approxBytes = stored.Bytes;
 
     public string Channel => summary.Channel;
 
@@ -51,15 +52,16 @@ internal sealed class ChatSessionWriter(
             if (_closed || _truncated)
                 return;
 
-            if (_approxBytes >= options.MaxBytesPerSession)
-            {
-                Truncate();
-                return;
-            }
-
             if (evt is ChatSourceEvent.MessageEvent message)
             {
                 AppendMessage(message.Message);
+
+                // The message that reaches the cap is kept; nothing after it is.
+                if (_approxBytes >= options.MaxBytesPerSession)
+                {
+                    Truncate();
+                    return;
+                }
             }
             else if (ToEvent(evt) is { } row)
             {
@@ -181,11 +183,35 @@ internal sealed class ChatSessionWriter(
 
         try
         {
-            records.Purge(summary.Id, now);
+            if (records.Purge(summary.Id, now) is null)
+                return;
         }
         catch (Exception ex) when (RecordStoreFailures.IsStoreFailure(ex))
         {
             logger.LogWarning(ex, "Chat purge failed for {SessionId}; the log is unchanged and the query path still hides deleted text.",
+                summary.Id);
+            return;
+        }
+
+        CheckpointWriteAheadLog();
+    }
+
+    /// <summary>The purge is committed either way; this only decides how soon its old page images leave the disk.</summary>
+    private void CheckpointWriteAheadLog()
+    {
+        try
+        {
+            if (!records.CheckpointWriteAheadLog())
+            {
+                logger.LogWarning(
+                    "Chat for {SessionId} was purged, but an open reader kept the write-ahead log from being emptied; purged text stays in it until later writes reuse it.",
+                    summary.Id);
+            }
+        }
+        catch (Exception ex) when (RecordStoreFailures.IsStoreFailure(ex))
+        {
+            logger.LogWarning(ex,
+                "Chat for {SessionId} was purged, but the write-ahead log could not be emptied; purged text stays in it until later writes reuse it.",
                 summary.Id);
         }
     }
@@ -300,6 +326,14 @@ internal sealed class ChatSessionWriter(
             _messageCount -= batch.Messages.Count;
             _approxBytes -= batch.Bytes;
             _pendingEvents.Add(LostBatchGap(batch));
+
+            // Capture stays stopped, so the truncation must reach the store with a later batch
+            // or a reopened writer would read the session as open and resume capture.
+            if (batch.Truncated)
+            {
+                _pendingEvents.Add(batch.Events.Single(evt => evt.Kind == ChatEventKinds.Truncated));
+                _pendingTruncated = true;
+            }
         }
     }
 

@@ -48,11 +48,40 @@ public sealed class ChatLogStore(
         {
             if (_bySession.ContainsKey(summary.Id))
                 return;
+        }
+
+        ChatTotals stored = StoredTotals(summary.Id);
+
+        lock (_gate)
+        {
+            if (_bySession.ContainsKey(summary.Id))
+                return;
 
             var writer = new ChatSessionWriter(
-                summary, source, chatOptions.Value, _records, BatchSize, clock, logger);
+                summary, source, chatOptions.Value, _records, stored, BatchSize, clock, logger);
             _bySession[summary.Id] = writer;
             _byChannel[summary.Channel] = writer;
+        }
+    }
+
+    /// <summary>
+    /// What a reopened session already stored, so the cap spans every writer of the session.
+    /// Read outside the lock so other channels' appends never wait on the store. A store that
+    /// cannot be read starts the count at zero: chat must not stop recording, and a later batch
+    /// write against the same store fails and is logged too.
+    /// </summary>
+    private ChatTotals StoredTotals(string sessionId)
+    {
+        try
+        {
+            return _records.Totals(sessionId);
+        }
+        catch (Exception ex) when (RecordStoreFailures.IsStoreFailure(ex))
+        {
+            logger.LogWarning(ex,
+                "Chat totals for {SessionId} could not be read; the byte cap counts from zero for this writer.",
+                sessionId);
+            return ChatTotals.None;
         }
     }
 
