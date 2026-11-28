@@ -549,10 +549,12 @@
         // A query-only change is a view change (search, filter, sort), not a new page: keep the
         // library open at every width. On a phone it is now where the search field lives, so
         // closing it on the first keystroke would make search impossible. A path change
-        // (picking a recording, Settings) still closes it.
+        // (picking a recording, Settings) still closes it. So does a pick of the recording already
+        // open: only the query changes (the autoplay intent), but it is a pick, not a view change.
         bool samePage = string.Equals(
             new Uri(previous).AbsolutePath, new Uri(e.Location).AbsolutePath, StringComparison.Ordinal);
-        _modalOpen = arrived || (_modalOpen && samePage);
+        bool picked = LibraryUrl.AutoplayRequested(e.Location);
+        _modalOpen = arrived || (_modalOpen && samePage && !picked);
         _openModalOnArrivalAt = null;
         StateHasChanged();
     });
