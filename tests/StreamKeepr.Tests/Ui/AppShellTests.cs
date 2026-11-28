@@ -248,6 +248,31 @@ public sealed class AppShellTests
     }
 
     [Fact]
+    public async Task Picking_the_recording_already_open_closes_the_library()
+    {
+        await using var context = CreateContext();
+        NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo("/r/abc");
+        var cut = RenderShell(context);
+        cut.Find("[data-drawer-toggle]").Click();
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-shell][data-library-open]")));
+
+        // A library row links to its recording with the autoplay intent. On the same recording
+        // only the query changes, but it is a pick, not a view change: the library closes.
+        navigation.NavigateTo("/r/abc?autoplay=1");
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Empty(cut.FindAll("[data-shell][data-library-open]"));
+            Assert.Equal("rail", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
+        });
+
+        // Home strips the intent with a replace navigation; the library stays closed.
+        navigation.NavigateTo("/r/abc", replace: true);
+        cut.WaitForAssertion(() => Assert.Equal("/r/abc", "/" + navigation.ToBaseRelativePath(navigation.Uri)));
+        Assert.Empty(cut.FindAll("[data-shell][data-library-open]"));
+    }
+
+    [Fact]
     public async Task On_a_phone_the_bottom_bar_links_home_and_settings_and_marks_the_current_page()
     {
         await using var context = CreateContext();
