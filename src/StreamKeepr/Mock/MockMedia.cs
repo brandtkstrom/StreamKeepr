@@ -133,11 +133,19 @@ internal static class MockMedia
             File.Copy(source, Path.Combine(sessionDirectory, name), overwrite: true);
         }
 
+        CopyPartInit(templateDirectory, sessionDirectory, part);
+    }
+
+    /// <summary>
+    /// Copies only a part's small init file. Scale archive recordings use it: their index then
+    /// names some media that exists, so startup recovery keeps listing them, while they still
+    /// have no segments to play.
+    /// </summary>
+    public static void CopyPartInit(string templateDirectory, string sessionDirectory, int part) =>
         File.Copy(
             Path.Combine(templateDirectory, TemplateInit),
             Path.Combine(sessionDirectory, $"init_{part:D3}.mp4"),
             overwrite: true);
-    }
 
     private static async Task RunAsync(
         string ffmpegPath,
