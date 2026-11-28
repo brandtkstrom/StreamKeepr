@@ -2,6 +2,7 @@
 @using System.Security.Claims
 @using StreamKeepr.Infrastructure.Storage
 @implements IDisposable
+@implements IAsyncDisposable
 @inject ViewerClock Clock
 @inject MudBlazor.ISnackbar Snackbars
 @inject IJSRuntime JS
@@ -12,16 +13,16 @@
 @inject IRecordingAdmin Admin
 @inject AuthenticationStateProvider AuthStateProvider
 
-@* The recording's title, meta line and actions (design system: RecordingDetails, #178, #175):
-   the title and meta on the left, the live chip and More actions menu at the top right. It sits
-   directly under the player at every width, outside any panel; below Md also outside the tabs,
-   so the title and actions stay visible while a tab scrolls. The export row is
-   RecordingDetailsBody. *@
-<div class="sk-details-summary" data-details-summary>
+@* The recording's title, channel byline, fact slate and actions (design system:
+   RecordingDetails, #178, #175): the title with the live chip and More actions menu at its top
+   right, then the linked channel and the labelled facts. It sits directly under the player at
+   every width, outside any panel; below Md also outside the tabs, so the title and actions stay
+   visible while a tab scrolls. The export row is RecordingDetailsBody. *@
+<div class="sk-details-summary" data-details-summary data-compact="@(Compact ? "true" : null)" @ref="_root">
     @* The title wraps to two lines, then the tooltip has the rest.
        It is a tab stop so keyboard users can open that tooltip too (MudTooltip shows on
        focus); screen readers already read the whole title. *@
-    <div class="sk-details-info">
+    <div class="sk-details-head">
         <MudBlazor.MudTooltip Text="@Recording.Title"
                               Placement="MudBlazor.Placement.Top"
                               RootClass="sk-details-title-root">
@@ -31,51 +32,79 @@
                                tabindex="0"
                                data-details-title="true">@Recording.Title</MudBlazor.MudText>
         </MudBlazor.MudTooltip>
+    </div>
 
-        <div class="sk-details-meta" data-details-meta="true">
-            <span class="who">
-                <ChannelAvatar Login="@Recording.StreamerLogin"
-                               Name="@Recording.StreamerLogin"
-                               ImageUrl="@AvatarUrl"
-                               Size="MudBlazor.Size.Small"
-                               Decorative="true"
-                               data-details-avatar />
-                <span data-details-streamer>@Recording.StreamerLogin</span>
-            </span>
-            @if (!Compact)
+    <div class="sk-details-meta" data-details-meta="true">
+        @* The channel is a real link to its Twitch page: the avatar and name are one target,
+           and the external-link glyph says it leaves StreamKeepr. The visible name carries
+           the link's name; the hidden suffix explains the new tab. *@
+        <a class="sk-channel-link"
+           href="@ChannelUrl"
+           target="_blank"
+           rel="noopener noreferrer"
+           data-details-channel>
+            <ChannelAvatar Login="@Recording.StreamerLogin"
+                           Name="@ChannelName"
+                           ImageUrl="@Streamer?.AvatarUrl"
+                           Size="MudBlazor.Size.Medium"
+                           Decorative="true"
+                           data-details-avatar />
+            <span class="name" data-details-streamer>@ChannelName</span>
+            <span class="where" data-details-channel-where>on Twitch</span>
+            <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.OpenInNew"
+                               Class="ext"
+                               aria-hidden="true" />
+            <span class="sk-visually-hidden" data-details-channel-hint> (opens in a new tab)</span>
+        </a>
+
+        @* A labelled slate under the title: the facts a viewer chooses a recording by.
+           The channel, title and actions stay above it; the file fact keeps the recorded
+           size and the segment/part counts on its second line. *@
+        <dl class="sk-details-facts" data-details-facts>
+            <div class="sk-fact when">
+                <dt>
+                    <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Event" aria-hidden="true" />Recorded
+                </dt>
+                <dd>
+                    <span class="num" data-details-start>@StartDateLabel</span>
+                    <span class="sub num" data-details-time>@TimeRangeLabel</span>
+                </dd>
+            </div>
+            <div class="sk-fact">
+                <dt>
+                    <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Timer" aria-hidden="true" />@DurationLabel
+                </dt>
+                <dd><span class="num" data-details-duration>@Format.Duration(Recording.DurationSec)</span></dd>
+            </div>
+            <div class="sk-fact">
+                <dt>
+                    <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.SportsEsports" aria-hidden="true" />Category
+                </dt>
+                <dd data-details-category>@CategoryLabel</dd>
+            </div>
+            <div class="sk-fact">
+                <dt>
+                    <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Toc" aria-hidden="true" />Chapters
+                </dt>
+                <dd><span class="num" data-details-chapters>@ChapterLabel</span></dd>
+            </div>
+            @if (!Compact && ShowSize)
             {
-                <span class="pair">
-                    <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.SportsEsports" />
-                    <span data-details-category>@CategoryLabel</span>
-                </span>
+                <div class="sk-fact">
+                    <dt>
+                        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Storage" aria-hidden="true" />File
+                    </dt>
+                    <dd>
+                        <span class="num" data-details-size>@Format.Bytes(Recording.SizeBytes)</span>
+                        <span class="sub" data-details-counts>
+                            <span class="num" data-details-segments>@Count(Recording.SegmentCount, "segment")</span>
+                            <span aria-hidden="true"> · </span>
+                            <span class="num" data-details-parts>@Count(Recording.PartCount, "part")</span>
+                        </span>
+                    </dd>
+                </div>
             }
-            <span class="pair">
-                <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Event" />
-                <span data-details-start>@StartLabel</span>
-            </span>
-            <span class="pair">
-                <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Timer" />
-                <span data-details-duration>@Format.Duration(Recording.DurationSec)</span>
-            </span>
-            @if (!Compact)
-            {
-                <span class="pair">
-                    <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.FolderOpen" />
-                    <span data-details-counts>
-                        <span data-details-segments>@Count(Recording.SegmentCount, "segment")</span>
-                        <span aria-hidden="true"> · </span>
-                        <span data-details-parts>@Count(Recording.PartCount, "part")</span>
-                    </span>
-                </span>
-                @if (ShowSize)
-                {
-                    <span class="pair">
-                        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Storage" />
-                        <span data-details-size>@Format.Bytes(Recording.SizeBytes)</span>
-                    </span>
-                }
-            }
-        </div>
+        </dl>
     </div>
 
     <div class="sk-actions" data-details-actions="true">
@@ -179,6 +208,12 @@
     private ElementReference _more;
     private string? _dialogOpenFor;
 
+    // The title is measured against its column after render; the watched pair re-runs the
+    // measurement only when the text or the compact layout actually changes.
+    private ElementReference _root;
+    private string? _watchedTitle;
+    private bool _watchedCompact;
+
     private bool _signedIn;
     private bool _starting;
     private bool _stopOpen;
@@ -189,8 +224,8 @@
 
     [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
 
-    /// <summary>The channel's Twitch profile image, the same one the drawer shows; null shows its initial.</summary>
-    [Parameter] public string? AvatarUrl { get; set; }
+    /// <summary>The channel's library identity: its display name and Twitch profile image; null falls back to the login and its initial.</summary>
+    [Parameter] public StreamerView? Streamer { get; set; }
 
     /// <summary>Below <c>Breakpoint.Md</c>: the summary sits outside the details card and tabs.</summary>
     [Parameter] public bool Compact { get; set; }
@@ -233,7 +268,51 @@
     private string CategoryLabel =>
         string.IsNullOrWhiteSpace(Recording.Category) ? "No category" : Recording.Category;
 
-    private string StartLabel => Format.FullDate(Clock.ToLocal(Recording.StartedAt));
+    // The channel's display name when the library knows it, otherwise the login Twitch shows
+    // in the URL. The link's accessible name adds the new-tab behaviour.
+    private string ChannelName =>
+        Streamer?.DisplayName is { } name && !string.IsNullOrWhiteSpace(name)
+            ? name.Trim()
+            : Recording.StreamerLogin;
+
+    private string ChannelUrl =>
+        $"https://www.twitch.tv/{Uri.EscapeDataString(Recording.StreamerLogin)}";
+
+    private string StartDateLabel => Format.Date(Clock.ToLocal(Recording.StartedAt));
+
+    // Live captures have no end yet; a finished recording shows the local time it ran, and an
+    // end on a different day carries its date so the range is never ambiguous.
+    private string TimeRangeLabel
+    {
+        get
+        {
+            DateTimeOffset start = Clock.ToLocal(Recording.StartedAt);
+            if (IsLive)
+                return $"{Format.Time(start)} – now";
+
+            DateTimeOffset? ended = Recording.EndedAt;
+            if (ended is null && double.IsFinite(Recording.DurationSec) && Recording.DurationSec > 0)
+                ended = Recording.StartedAt.AddSeconds(Recording.DurationSec);
+
+            if (ended is not { } endAt)
+                return Format.Time(start);
+
+            DateTimeOffset end = Clock.ToLocal(endAt);
+            if (end <= start)
+                return Format.Time(start);
+
+            return end.Date == start.Date
+                ? $"{Format.Time(start)} – {Format.Time(end)}"
+                : $"{Format.Time(start)} – {Format.MonthDayTime(end)}";
+        }
+    }
+
+    // A live session's duration keeps growing, so it reads as elapsed time rather than length.
+    private string DurationLabel => IsLive ? "Elapsed" : "Length";
+
+    // The count comes from the same filtered list the panel and tabs render, so invalid chapter
+    // offsets never inflate it.
+    private string ChapterLabel => ChapterList.CountLabel(Recording);
 
     private string AbsolutePlaylistUrl =>
         new Uri(new Uri(Navigation.BaseUri), Recording.PlaylistUrl).AbsoluteUri;
@@ -418,6 +497,21 @@
         }
     }
 
+    // The collocated module measures the title at its base size and steps the type down when it
+    // needs a second or third line. A disconnected circuit leaves the title at that base size.
+    private async Task WatchTitleAsync()
+    {
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
+            await _module.InvokeVoidAsync("watchTitle", _root);
+        }
+        catch (JSDisconnectedException ex)
+        {
+            Logger.LogDebug(ex, "The title was not measured because the circuit disconnected.");
+        }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
@@ -431,6 +525,13 @@
             {
                 Logger.LogDebug(ex, "Menu keyboard activation was not installed because the circuit disconnected.");
             }
+        }
+
+        if (firstRender || _watchedTitle != Recording.Title || _watchedCompact != Compact)
+        {
+            await WatchTitleAsync();
+            _watchedTitle = Recording.Title;
+            _watchedCompact = Compact;
         }
 
         if (_stopOpen || _deleteOpen)
@@ -458,10 +559,32 @@
         }
     }
 
-    public void Dispose()
+    private void Unsubscribe()
     {
         Clock.Changed -= OnClockChanged;
         Exports.Changed -= OnExportsChanged;
         AuthStateProvider.AuthenticationStateChanged -= OnAuthenticationStateChanged;
+    }
+
+    public void Dispose() => Unsubscribe();
+
+    public async ValueTask DisposeAsync()
+    {
+        Unsubscribe();
+        if (_module is null)
+            return;
+
+        try
+        {
+            await _module.InvokeVoidAsync("disposeTitle", _root);
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is already gone; the observer goes with the document.
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "The title observer was not released.");
+        }
     }
 }

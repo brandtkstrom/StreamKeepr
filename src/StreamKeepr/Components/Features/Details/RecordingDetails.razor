@@ -4,13 +4,13 @@
    own panel (ChaptersPanel). The same instance survives recording swaps because Home keeps it
    in one slot. Below Breakpoint.Md Home renders the summary and export row itself (#175). *@
 <div class="sk-details" data-recording-details="true">
-    <RecordingDetailsSummary Recording="Recording" AvatarUrl="@AvatarUrl" />
+    <RecordingDetailsSummary Recording="Recording" Streamer="@Streamer" />
     <RecordingDetailsBody Recording="Recording" />
 </div>
 
 @code {
     [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
 
-    /// <summary>The channel's Twitch profile image for the title block's avatar.</summary>
-    [Parameter] public string? AvatarUrl { get; set; }
+    /// <summary>The channel's library identity for the title block's byline; null falls back to the recording's login.</summary>
+    [Parameter] public StreamerView? Streamer { get; set; }
 }

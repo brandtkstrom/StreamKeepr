@@ -69,7 +69,7 @@ These are compiled from `tokens.json` into the app's `tokens.css`, on `:root`, n
 | `twitch`, `twitch-hover`, `twitch-contrast-text` | the Connect with Twitch button |
 | `player-*` | the player island and its menus |
 | `tooltip-background`, `tooltip-text` | `.mud-tooltip.mud-tooltip-default { background: var(--tooltip-background); color: var(--tooltip-text); }` |
-| `text-label`, `text-wordmark`, `text-timecode`, `text-stat-value`, `text-stat-hero` | the type styles outside Mud's `Typo` enum, applied with classes; the three data styles also set `font-variant-numeric: tabular-nums` |
+| `text-label`, `text-wordmark`, `text-timecode`, `text-stat-value`, `text-stat-hero`, `text-title-step-1`, `text-title-step-2`, `text-title-step-1-compact`, `text-title-step-2-compact` | the type styles outside Mud's `Typo` enum, applied with classes; the three data styles also set `font-variant-numeric: tabular-nums`; the title-step styles are the measured long-title sizes for `RecordingDetails` |
 
 ## Rules
 

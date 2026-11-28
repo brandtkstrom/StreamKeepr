@@ -136,7 +136,8 @@ public sealed class RecordingDetailsLayoutTests
 
         IRenderedComponent<RecordingDetails> cut = context.Render<RecordingDetails>(parameters => parameters
             .Add(component => component.Recording, Recording())
-            .Add(component => component.AvatarUrl, "https://static-cdn.jtvnw.net/ann.png"));
+            .Add(component => component.Streamer, new StreamerView(
+                "ann", "ann", "https://static-cdn.jtvnw.net/ann.png", false, false, false, 1, null)));
 
         Assert.Equal("https://static-cdn.jtvnw.net/ann.png",
             cut.Find("[data-details-avatar] img[data-avatar-image]").GetAttribute("src"));
@@ -278,8 +279,10 @@ public sealed class RecordingDetailsLayoutTests
 
         Assert.Empty(cut.FindAll("[data-details-meta] [data-status]"));
         Assert.NotNull(cut.Find("[data-details-actions] [data-status]"));
-        Assert.Empty(cut.FindAll("[data-details-category]"));
-        Assert.Empty(cut.FindAll("[data-details-counts]"));
+        Assert.NotNull(cut.Find("[data-details-category]"));
+        Assert.NotNull(cut.Find("[data-details-chapters]"));
+        Assert.Empty(cut.FindAll("[data-details-size]"));
+        Assert.Empty(cut.FindAll("[data-details-parts]"));
     }
 
     private static IElement MenuItem(IRenderedComponent<MudBlazor.MudPopoverProvider> popovers, string label) =>

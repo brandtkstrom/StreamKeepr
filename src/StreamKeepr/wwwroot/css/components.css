@@ -975,13 +975,17 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-panel { background: var(--sk-surface-container); border-radius: var(--sk-radius-md); overflow: hidden; }
 
 /* ---------- title block and panels (design system: RecordingDetails, Chapters, #178) ----------
-   The title block sits on the page ground under the player, outside any panel: the title and
-   meta on the left, the icon actions at the top right. Panels under it (Chapters) are
-   disclosures: a MudPaper with a real button header over a MudCollapse. */
+   The title block sits on the page ground under the player, outside any panel: the title with
+   the live chip and actions, then the channel byline and the labelled fact slate. Panels under
+   it (Chapters) are disclosures: a MudPaper with a real button header over a MudCollapse. */
 .sk-details { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
-.sk-details-summary { display: flex; align-items: flex-start; gap: var(--space-4); min-width: 0; }
-.sk-details-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
-.sk-details-summary .sk-actions { flex: none; display: flex; align-items: center; gap: var(--space-2); padding-top: var(--space-1); }
+.sk-details-summary {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "head actions" "meta meta";
+  column-gap: var(--space-4); row-gap: var(--space-2); align-items: start; min-width: 0;
+}
+.sk-details-head { grid-area: head; min-width: 0; }
+.sk-details-summary .sk-actions { grid-area: actions; display: flex; align-items: center; gap: var(--space-2); padding-top: var(--space-1); }
 .sk-details-summary .sk-actions-group { display: flex; align-items: center; gap: var(--space-1); }
 .sk-disclosure { background: var(--surface); border-radius: var(--radius-lg); overflow: hidden; }
 .sk-disclosure-head {
@@ -998,12 +1002,69 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 /* The title has the row to itself: two lines, then an ellipsis; the tooltip has the rest.
    The tooltip's hover target is the text, not the empty rest of the row beside a short title. */
 .sk-details-title-root { display: inline-block; max-width: 100%; vertical-align: top; }
-.sk-details-title { margin: 0; padding: var(--space-2) 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.sk-details-title { margin: 0; padding: var(--space-1) 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .sk-details-title:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--radius-sm); }
-.sk-details-meta { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
-.sk-details-meta .who { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-primary); font-weight: 600; }
-.sk-details-meta .pair { display: inline-flex; align-items: center; gap: var(--space-1); }
-.sk-details-meta .pair .mud-icon-root { font-size: var(--icon-inline); color: var(--action-default); }
+/* A title that wraps takes one type step at two lines and a second at three or more.
+   RecordingDetails.razor.js measures the natural line count at the base size; the two-line
+   clamp and the full-title tooltip stay. */
+.sk-details-title[data-title-step="1"] {
+  font: var(--text-title-step-1); letter-spacing: var(--text-title-step-1-letter-spacing);
+}
+.sk-details-title[data-title-step="2"] {
+  font: var(--text-title-step-2); letter-spacing: var(--text-title-step-2-letter-spacing);
+}
+.sk-details-summary[data-compact="true"] .sk-details-title[data-title-step="1"] {
+  font: var(--text-title-step-1-compact); letter-spacing: var(--text-title-step-1-compact-letter-spacing);
+}
+.sk-details-summary[data-compact="true"] .sk-details-title[data-title-step="2"] {
+  font: var(--text-title-step-2-compact); letter-spacing: var(--text-title-step-2-compact-letter-spacing);
+}
+/* The channel byline and the fact slate under the title. The avatar and name are one link to
+   the channel's Twitch page; the external-link glyph says it leaves StreamKeepr. */
+.sk-details-meta { grid-area: meta; min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.sk-channel-link {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: var(--space-2);
+  max-width: 100%; margin-left: -2px; padding: 2px 6px 2px 2px;
+  border-radius: var(--radius-full); color: var(--text-primary); text-decoration: none;
+  font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing);
+}
+.sk-channel-link .name { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.sk-channel-link .where { flex: none; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
+.sk-channel-link .ext { flex: none; font-size: var(--icon-inline); color: var(--action-default); }
+.sk-channel-link:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
+.sk-channel-link:hover .ext { color: var(--primary); }
+.sk-channel-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.sk-details-facts {
+  display: flex; flex-wrap: wrap; align-items: flex-start;
+  gap: var(--space-2) var(--space-6);
+  margin: 0; padding-top: var(--space-3); border-top: 1px solid var(--divider);
+}
+.sk-fact { flex: 1 1 0; min-width: 88px; display: flex; flex-direction: column; gap: 2px; }
+.sk-fact.when { min-width: 180px; }
+.sk-fact dt {
+  display: inline-flex; align-items: center; gap: var(--space-1); margin: 0;
+  color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
+}
+.sk-fact dt .mud-icon-root { font-size: var(--icon-inline); color: var(--action-default); }
+.sk-fact dd {
+  margin: 0; min-width: 0; color: var(--text-primary); overflow-wrap: anywhere;
+  font: var(--text-body2); letter-spacing: var(--text-body2-letter-spacing);
+}
+.sk-fact dd .num { font-variant-numeric: var(--text-stat-value-numeric); }
+.sk-fact dd .sub { display: block; color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); }
+/* Below Md the facts pair up under the title; the file fact stays desktop-only. */
+.sk-details-summary[data-compact="true"] .sk-details-facts {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-2) var(--space-4);
+}
+.sk-details-summary[data-compact="true"] .sk-fact { min-width: 0; }
+/* A phone in landscape or a small tablet has room for one row of facts, like desktop. */
+@media (min-width: 600px) {
+  .sk-details-summary[data-compact="true"] .sk-details-facts {
+    display: flex; flex-wrap: wrap;
+  }
+  .sk-details-summary[data-compact="true"] .sk-fact { min-width: 88px; }
+  .sk-details-summary[data-compact="true"] .sk-fact.when { min-width: 180px; }
+}
 /* Buttons card: icon buttons rest in action-default (MudBlazor's button root is currentColor). */
 .sk-details-summary .sk-actions .mud-icon-button:not(:disabled) { color: var(--action-default); }
 /* More actions: Stop recording in error; a blocked item gives its reason under its label. */
