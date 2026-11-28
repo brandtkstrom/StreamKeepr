@@ -1,5 +1,3 @@
-using Microsoft.Extensions.Logging;
-
 namespace StreamKeepr.Infrastructure.Storage;
 
 /// <summary>
@@ -83,11 +81,11 @@ public sealed class RecordingLibrary(TimeProvider clock, ILogger<RecordingLibrar
     }
 
     /// <summary>
-    /// Loads every session folder under the recordings root. Dot-prefixed channels and sessions
-    /// are skipped, as are folders without a readable manifest. A malformed part playlist skips
-    /// that one session; the library still becomes loaded. The scan is a single bulk update so
-    /// startup pays one sort and one change notification. Ends with one Information summary of
-    /// the recording count and elapsed time.
+    /// Loads every recorded session from the record store (ADR-0014); session folders without a
+    /// record are never listed. A session whose media cannot be read is left out; the library
+    /// still becomes loaded. The load is a single bulk update so startup pays one sort and one
+    /// change notification. Ends with one Information summary of the recording count and
+    /// elapsed time.
     /// </summary>
     public async Task LoadAsync(
         string recordingsRoot, SessionStore store, CancellationToken ct)
@@ -97,48 +95,7 @@ public sealed class RecordingLibrary(TimeProvider clock, ILogger<RecordingLibrar
 
         long startedAt = clock.GetTimestamp();
         string root = Path.GetFullPath(recordingsRoot);
-        var summaries = new List<RecordingSummary>();
-
-        if (Directory.Exists(root))
-        {
-            foreach (string channelDirectory in Directory.EnumerateDirectories(root))
-            {
-                ct.ThrowIfCancellationRequested();
-                if (Path.GetFileName(channelDirectory).StartsWith('.'))
-                    continue;
-
-                foreach (string sessionDirectory in Directory.EnumerateDirectories(channelDirectory))
-                {
-                    ct.ThrowIfCancellationRequested();
-                    if (Path.GetFileName(sessionDirectory).StartsWith('.'))
-                        continue;
-
-                    try
-                    {
-                        if (await store.SummarizeAsync(sessionDirectory, ct) is not { } summary)
-                            continue;
-
-                        if (!summary.IsRecording
-                            && summary.PartCount == 0
-                            && !File.Exists(Path.Combine(sessionDirectory, SessionStore.IndexFileName)))
-                        {
-                            logger.LogWarning(
-                                "Skipping complete session without parts in {Directory}.",
-                                sessionDirectory);
-                            continue;
-                        }
-
-                        summaries.Add(summary);
-                    }
-                    catch (Exception ex) when (ex is FormatException or IOException
-                        or InvalidDataException or UnauthorizedAccessException)
-                    {
-                        logger.LogWarning(
-                            ex, "Skipping unreadable session in {Directory}.", sessionDirectory);
-                    }
-                }
-            }
-        }
+        IReadOnlyList<RecordingSummary> summaries = await store.SummarizeAllAsync(root, ct);
 
         int recordingCount;
         lock (_gate)

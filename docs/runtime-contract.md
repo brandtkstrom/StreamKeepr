@@ -10,8 +10,9 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 |---|---|---|
 | `DvrSupervisor` | Singleton `BackgroundService` + `IChannelControl` | Startup recovery, channel loops, poller/EventSub supervision, channel add/remove/stop/resume |
 | `ChannelCoordinator` | One per watched channel | Its event queue, reducer state, active job, command execution |
-| `ChannelStore` | Singleton | `channels.json`, the watched-channel snapshot, pause flag, profile fields |
-| `SessionStore` | Singleton | `session.json`, `index.m3u8`, thumbnails, session locks |
+| `RecordStoreStartup` | Singleton hosted service, right after preflight | Opening, `quick_check`, pre-migration backup, and migration of the record store before any store loads (ADR-0014) |
+| `ChannelStore` | Singleton | The record store's `Channels` table, the watched-channel snapshot, pause flag, profile fields |
+| `SessionStore` | Singleton | Session records (`Sessions`, `SessionMetadataChanges`), `index.m3u8`, thumbnails, session locks |
 | `RecordingLibrary` | Singleton | In-memory recording summaries and `Changed` |
 | `LiveIndex` | Singleton | The live index of every Recording session: one entry per session (refresh gate, parsed parts, published snapshot, backoff), last-known-good retention, eviction, and the thumbnail playlist read |
 | `LiveIndexRefresher` | Singleton `BackgroundService` | Ticks `LiveIndex.RefreshAllAsync` every `LivePlaylist:RefreshSeconds` |
@@ -35,6 +36,7 @@ Chat capture is isolated from the DVR path: a source or store failure is logged 
 | `Enabled` | `false` | Turns capture on. While off, live recordings show no chat pane; recordings with captured chat still replay it. |
 | `Emotes:Bttv:Enabled` | `false` | Renders BetterTTV global and channel emotes in chat replay. Off makes no catalog request. Capture and chat text are unaffected. |
 | `Emotes:SevenTv:Enabled` | `false` | Renders 7TV global and channel emotes in chat replay. Off makes no 7TV request. BetterTTV wins a shared code because it is registered first. Capture and chat text are unaffected. |
+| `Emotes:Ffz:Enabled` | `false` | Renders FrankerFaceZ global and channel emotes in chat replay. Off makes no FFZ request. BetterTTV and 7TV win a shared code because they are registered first. Capture and chat text are unaffected. |
 | `Emotes:Animated` | `false` | Loads each enabled provider's animated asset instead of its static first frame. Off keeps the static rendering that ADR 0011 chose; BetterTTV animated assets are far larger than its static ones. |
 | `TwitchUserOAuthToken`, `TwitchLogin` | unset | Optional dedicated `chat:read` identity (`docs/twitch-auth-contract.md`); a rejected token falls back to anonymous. |
 | `LeadInSeconds` | `12` | How much earlier the content at a part start aired than its first PDT. |
@@ -64,9 +66,9 @@ Only the coordinator loop mutates domain state. Readers use `DvrStatus` and `Rec
 
 The coordinator executes a step’s commands sequentially, in the returned order.
 
-- `OpenSession` / `ReopenSession`: on failure, log and `DvrStatus.Failed`. Mark the current command list so the following `StartRecorder` for that session is skipped and a synthetic `RecorderExited(job, Exited, "open failed")` is published. The reducer retries cleanly; no parts are written without a manifest.
+- `OpenSession` / `ReopenSession`: on failure, log and `DvrStatus.Failed`. Mark the current command list so the following `StartRecorder` for that session is skipped and a synthetic `RecorderExited(job, Exited, "open failed")` is published. The reducer retries cleanly; no parts are written without a session record. A session record that cannot be written is an open failure (ADR-0014).
 - `RecordMetadata`: on failure, log and `DvrStatus.Failed`; continue. The part keeps recording; metadata may be missing.
-- `FinalizeSession`: on failure, log and `DvrStatus.Failed`. The on-disk manifest may still say `Recording`; recovery re-finalizes on the next start. Do not silently mark the session complete.
+- `FinalizeSession`: on failure, log and `DvrStatus.Failed`. The session record may still say `Recording`; recovery finalizes it on the next start. Do not silently mark the session complete.
 - `StopRecorder`: await the active job stop. A failure to stop within the budget is fatal (see §4).
 - `StartRecorder`: start the job and return without awaiting its completion.
 - `ScheduleRetry`: schedule a cancellable timer with ±25 % jitter; the timer publishes `RetryTimerElapsed(job)`. A failure to schedule is fatal: the channel would otherwise sit in `WaitingToRetry` forever.
@@ -95,7 +97,7 @@ A command failure other than the fatal cases is logged and surfaced through `Dvr
 - `ResumeRecordingAsync(login)`: persist `Paused = false`, route `ResumeRequested`, then nudge the poller. The next observation decides whether to record.
 - Add/remove/stop/resume are serialized by one control gate. Recording continues while channel control is busy.
 - Each add/remove/stop/resume that succeeds logs one `Information` audit line with `Channel` (the normalized login) and `Action` (`Add`, `Remove`, `Stop`, `Resume`), after the change is persisted and routed. Rejected or failed operations throw and log no audit line (#203).
-- At startup, channels seeded from `Twitch:Channels` are added without Helix validation; profile resolution for stored channels is §7 step 2. A corrupt `channels.json` fails startup with a clear error; never silently reset the list.
+- At startup, channels seeded from `Twitch:Channels` are added without Helix validation; profile resolution for stored channels is §7 step 2. `Twitch:Channels` seeds the list once: the record store's `AppliedSeeds` table records the seed in the same transaction as its rows, so a first start that fails before seeding still seeds next time and a list emptied by the user stays empty. An unusable record store fails startup with a clear error and is never reset; `channels.json` is never read or written (startup logs once that a leftover file is ignored).
 - EventSub’s `SubscriptionsChanged` fires only when a login or `UserId` is added or removed, not when a name, avatar, or pause flag changes.
 
 ## 6. `DvrStatus`
@@ -124,7 +126,7 @@ public sealed record DvrSnapshot(
 
 Step 1 runs in `DvrSupervisor.StartAsync`, which also takes the channel-control gate. Steps 2–6 run at the start of `ExecuteAsync`, after the web server is listening: ASP.NET Core starts Kestrel only after every hosted service's `StartAsync` returns, so a long recordings scan or a slow Twitch lookup must not run there. Until the library is loaded the UI shows skeletons, `/health/ready` is unhealthy, and library-gated work (thumbnails, live index, progress, chat capture, delete, export) waits or finds nothing. Channel control (add, remove, stop, resume) waits on the gate until step 6 has started the channels.
 
-1. `ChannelStore.LoadAsync` reads `channels.json`, or seeds it from `Twitch:Channels` on first start.
+1. `ChannelStore.LoadAsync` reads the `Channels` table, first applying the `Twitch:Channels` seed if it has never been applied. `RecordStoreStartup` has already migrated it.
 2. Resolve missing profiles: every stored channel (seeded or added) missing its user ID, display name, or avatar (null or blank) is looked up through Helix `/users`, concurrently. A failed or empty lookup is logged, never aborts startup, and leaves the stored profile as it was, so a channel without a user ID stays polling-only until a later startup resolves it.
 3. `RecoveryService.RecoverAsync` scans the recordings root and returns `Unfinished`/`Finished` per channel.
 4. `RecordingLibrary.MarkLoaded()`; the UI leaves skeleton state.
@@ -157,8 +159,8 @@ A corrupt channel list fails host startup. A failure in steps 2–3 is logged as
 | Channel loop faults | Log critical; host stops. |
 | Poller/EventSub crashes | Supervised restart with backoff; polling fallback. |
 | Disk full | No recorder launched; reducer retries/cools down. |
-| Corrupt `channels.json` | Startup fails with a clear error; no silent reset. |
-| Corrupt session manifest | Session store skips it; channel control unaffected. |
+| Record store unopenable, failing `quick_check`, newer than the app, or failing its backup or migration | Startup fails with an error naming the path and the reason; the database is never reset. |
+| Session folder without a record (including a legacy `session.json`) | Ignored; never listed, recovered, or deleted. |
 
 ## 10. Concurrency
 
@@ -166,7 +168,7 @@ A corrupt channel list fails host startup. A failure in steps 2–3 is logged as
 - No global concurrent-recording cap. The channel list is user-controlled; add a cap only if disk or bandwidth pressure appears.
 - The control gate serializes channel list mutations; it never blocks a channel loop’s event processing.
 - `DvrStatus` uses a concurrent dictionary internally and exposes copied snapshots.
-- `ChannelStore` serializes `channels.json` updates and writes atomically.
+- `ChannelStore` serializes channel-list updates; each is one record-store transaction.
 
 ## 11. Test matrix
 

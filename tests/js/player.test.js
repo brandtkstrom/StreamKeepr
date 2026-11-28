@@ -313,6 +313,28 @@ describe("VideoPlayer.razor.js", () => {
       expect(loadHls).toHaveBeenCalledOnce();
     });
 
+    it("names the recording it holds in the same task that resets the seek bar", async () => {
+      await start();
+      const root = document.querySelector("[data-sk-player]");
+      media.metadata(120);
+      expect(root.dataset.skRecording).toBe("r1");
+      expect(hook("seek").getAttribute("aria-disabled")).toBe("false");
+      // hls.js's destroy detaches the media: it drops src and calls load(), which resets
+      // readyState synchronously (HTML media load algorithm).
+      hls.instances[0].destroy.mockImplementation(() => {
+        media.readyState = 0;
+        media.duration = NaN;
+      });
+
+      // Not awaited: a reader that sees the new id must never see the old recording's
+      // enabled seek bar, so a journey can wait for this recording's seek bar.
+      const loading = player.load(view({ recordingId: "r2", playlistUrl: "/media/ann/r2/index.m3u8" }));
+
+      expect(root.dataset.skRecording).toBe("r2");
+      expect(hook("seek").getAttribute("aria-disabled")).toBe("true");
+      await loading;
+    });
+
     it("updates the same recording without resetting playback", async () => {
       await start();
       media.metadata(120);

@@ -1,15 +1,13 @@
 using System.Net;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
-using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Emotes;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
 using StreamKeepr.Tests.Runtime;
+using StreamKeepr.Tests.Records;
 
 namespace StreamKeepr.Tests.Emotes;
 
@@ -212,13 +210,6 @@ public sealed class EmoteChannelResolverTests : IDisposable
         Assert.Equal(1, _poller.Lookups);
     }
 
-    private async Task<ChannelStore> CreateStoreAsync(params string[] seeds)
-    {
-        var store = new ChannelStore(
-            Options.Create(new TwitchOptions { Channels = [.. seeds] }),
-            Options.Create(new StorageOptions { RecordingsRoot = _root }),
-            NullLogger<ChannelStore>.Instance);
-        await store.LoadAsync(CancellationToken.None);
-        return store;
-    }
+    private Task<ChannelStore> CreateStoreAsync(params string[] seeds) =>
+        TestRecordStore.LoadChannelStoreInAsync(_root, seeds);
 }

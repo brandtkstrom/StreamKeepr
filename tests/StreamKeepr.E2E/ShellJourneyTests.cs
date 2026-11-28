@@ -76,6 +76,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
         await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
 
+        await LibraryHooks.OpenLibraryAsync(page);
         await page.Locator("input[data-search-input]").FillAsync("NIGHT");
         await Journey.WaitForUrlAsync(page, url => url.Contains("q=NIGHT", StringComparison.Ordinal));
         await session.OpenRecordingAsync(await LibraryHooks.RowAsync(page));
@@ -87,6 +88,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
         await Journey.WaitForUrlAsync(page, url => new Uri(url).AbsolutePath == "/");
 
         await page.Locator("[data-shell]:not([data-theater-mode])").WaitForAsync();
+        await LibraryHooks.OpenLibraryAsync(page);
         Assert.Equal("", await page.Locator("input[data-search-input]").InputValueAsync());
         Assert.Equal("newest", await page.Locator("[data-sort]").GetAttributeAsync("data-sort"));
         Assert.True(await page.Locator(LibraryHooks.Drawer).IsVisibleAsync());
@@ -147,7 +149,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
         IPage page = session.Page;
 
         // The drawer row: Home's cards carry the same hook (#182).
-        await page.Locator("input[data-search-input][data-sk-ready]").WaitForAsync();
+        await page.Locator(LibraryHooks.ShellReady).WaitForAsync();
         ILocator row = await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Ranked climb to Diamond");
 
         string id = await row.GetAttributeAsync("data-recording-id") ?? "";
@@ -170,7 +172,7 @@ public sealed class ShellJourneyTests(MockAppFixture app)
 
         await session.ReloadAsync();
 
-        await page.Locator("input[data-search-input][data-sk-ready]").WaitForAsync();
+        await page.Locator(LibraryHooks.ShellReady).WaitForAsync();
         row = await LibraryHooks.RowAsync(page, LibraryHooks.Row, "Ranked climb to Diamond");
         await Assertions.Expect(row).ToHaveAttributeAsync(
             "aria-current",

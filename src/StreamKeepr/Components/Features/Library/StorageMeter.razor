@@ -14,13 +14,19 @@
 
     if (Rail)
     {
-        <MudBlazor.MudTooltip Text="@summary" Placement="MudBlazor.Placement.Right">
-            <MudBlazor.MudIconButton Icon="@icon"
-                                     Color="@tone"
-                                     aria-label="@summary"
-                                     data-storage-rail="@(low ? "low" : "ok")"
-                                     OnClick="OnOpen" />
-        </MudBlazor.MudTooltip>
+        <div class="sk-rail-storage @(low ? "low" : null)">
+            <MudBlazor.MudTooltip Text="@summary" Placement="MudBlazor.Placement.Right">
+                <MudBlazor.MudIconButton Icon="@icon"
+                                         Color="@tone"
+                                         aria-label="@summary"
+                                         data-storage-rail="@(low ? "low" : "ok")"
+                                         OnClick="OnOpen" />
+            </MudBlazor.MudTooltip>
+            @* A tiny level gauge under the icon: disk state without a label in the 72px rail. *@
+            <span class="sk-rail-storage-gauge" aria-hidden="true">
+                <i style="width:@(usedPercent.ToString("0.#", CultureInfo.InvariantCulture))%"></i>
+            </span>
+        </div>
     }
     else
     {

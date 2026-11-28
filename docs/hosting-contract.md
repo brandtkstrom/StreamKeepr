@@ -63,7 +63,7 @@ The Blazor circuit actions (delete, export start, settings, stop/resume) enforce
 
 Chat badge rendering adds one server dependency on `https://api.twitch.tv` (Helix `chat/badges/global` and `chat/badges?broadcaster_id={id}` with an app access token, a 60-minute cache for the global badge catalog and per broadcaster ID, and independent three-second fetch bounds) and one browser dependency on `https://static-cdn.jtvnw.net` for the badge images, loaded with `referrerpolicy="no-referrer"`. Twitch sees the viewer's IP and user agent for those image requests; no image proxy was added. Badge failures never affect media, chat, or health.
 
-Third-party emote rendering adds two runtime dependencies for each enabled provider. With BetterTTV enabled, the server fetches `https://api.betterttv.net` over HTTPS (unauthenticated, five-minute cache, three-second bound), and the browser loads images from `https://cdn.betterttv.net` with `referrerpolicy="no-referrer"`. With 7TV enabled, the server fetches `https://api.7tv.app` the same way (v3 emote-set and user routes, unauthenticated, same cache and bound) and the browser loads images from `https://cdn.7tv.app`. Those images are the static first frame by default, or the animated asset when `Chat:Emotes:Animated` is on. None of these changes the media allowlist; `chat/` remains unserved.
+Third-party emote rendering adds two runtime dependencies for each enabled provider. With BetterTTV enabled, the server fetches `https://api.betterttv.net` over HTTPS (unauthenticated, five-minute cache, three-second bound), and the browser loads images from `https://cdn.betterttv.net` with `referrerpolicy="no-referrer"`. With 7TV enabled, the server fetches `https://api.7tv.app` the same way (v3 emote-set and user routes, unauthenticated, same cache and bound) and the browser loads images from `https://cdn.7tv.app`. Those images are the static first frame by default, or the animated asset when `Chat:Emotes:Animated` is on. With FFZ enabled, the server fetches `https://api.frankerfacez.com` the same way (v1 set and room routes, unauthenticated, same cache and bound) and the browser loads images from `https://cdn.frankerfacez.com`; FFZ images are 1x/2x/4x, static or animated under the same switch. None of these changes the media allowlist; `chat/` remains unserved.
 
 ## 4. Media surface
 
@@ -106,7 +106,7 @@ Runs only `DvrHealthCheck`, tagged `live`.
 
 ### `/health/ready`
 
-Runs all checks: DVR, disk, and a `LibraryLoadedHealthCheck` that requires `RecordingLibrary.IsLoaded`.
+Runs all checks: DVR, disk, a `LibraryLoadedHealthCheck` that requires `RecordingLibrary.IsLoaded`, and a `RecordStoreHealthCheck` that requires the record store to open with no pending migrations. `/health/live` never depends on the record store.
 
 - False until startup recovery has scanned the disk. Recovery runs after the server starts listening (runtime contract §7), so `/health/live` and the UI answer during the scan.
 - Disk: unhealthy below `MinFreeGb`, degraded below twice that.
@@ -142,12 +142,12 @@ long-lived routes out of HTTP metrics.
 
 - Build stage: `mcr.microsoft.com/dotnet/sdk:11.0.100` (the newest published 11.0.1xx tag); copy only `src/StreamKeepr/StreamKeepr.csproj`, restore, copy `src/`, publish Release.
 - Runtime stage: `mcr.microsoft.com/dotnet/aspnet:11.0.0`; install `python3`, `python3-venv`, `curl`; create `/opt/streamlink` venv and install the pinned Streamlink; copy static `ffmpeg` and `ffprobe`.
-- `ENV PATH="/opt/streamlink/bin:${PATH}"`, `Storage__RecordingsRoot=/recordings`.
-- Create `/recordings`, `chown "$APP_UID:$APP_UID"`, `USER $APP_UID`, `EXPOSE 8080`.
+- `ENV PATH="/opt/streamlink/bin:${PATH}"`, `Storage__RecordingsRoot=/recordings`, `Storage__DatabasePath=/data/streamkeepr.db`.
+- Create `/recordings` and `/data`, `chown "$APP_UID:$APP_UID"` both, `USER $APP_UID`, `EXPOSE 8080`.
 - `HEALTHCHECK` as above; `ENTRYPOINT ["dotnet", "StreamKeepr.dll"]`.
 - Only `src/` enters the build; tests, secrets, recordings, and docs never enter an image layer.
 
-Pinned versions: .NET SDK `11.0.100`, ASP.NET runtime `11.0.0`, Streamlink `8.6.3`, static FFmpeg/ffprobe `9.0.2-1`, CliWrap `3.10.5`, OAuth `11.0.0`, Serilog.AspNetCore `11.0.0`, OpenTelemetry `1.21.0` (`Extensions.Hosting`, `Exporter.OpenTelemetryProtocol`, `Instrumentation.AspNetCore`, `Instrumentation.Http`). Test-only: `OpenTelemetry.Exporter.InMemory` `1.21.0`, `Microsoft.Extensions.Diagnostics.Testing` `11.0.1`, and `Microsoft.Extensions.TimeProvider.Testing` `11.0.1`. Update deliberately; Streamlink is the one to watch and the build arg allows a bump.
+Pinned versions: .NET SDK `11.0.100`, ASP.NET runtime `11.0.0`, Streamlink `8.6.3`, static FFmpeg/ffprobe `9.0.2-1`, CliWrap `3.10.5`, OAuth `11.0.0`, Serilog.AspNetCore `11.0.0`, EF Core `11.0.0` (`Microsoft.EntityFrameworkCore.Sqlite`; `Microsoft.EntityFrameworkCore.Design` for `dotnet ef` only, private assets), OpenTelemetry `1.21.0` (`Extensions.Hosting`, `Exporter.OpenTelemetryProtocol`, `Instrumentation.AspNetCore`, `Instrumentation.Http`). Test-only: `OpenTelemetry.Exporter.InMemory` `1.21.0`, `Microsoft.Extensions.Diagnostics.Testing` `11.0.1`, and `Microsoft.Extensions.TimeProvider.Testing` `11.0.1`. Update deliberately; Streamlink is the one to watch and the build arg allows a bump.
 
 ### `.dockerignore`
 
@@ -159,7 +159,7 @@ Pinned versions: .NET SDK `11.0.100`, ASP.NET runtime `11.0.0`, Streamlink `8.6.
 - Port `8080:8080` (plain HTTP). **HTTPS is an external reverse-proxy requirement** (E-15); without it, sign-in works only from `localhost`.
 - Environment: `ASPNETCORE_ENVIRONMENT=Production`, `TZ`, optional `Twitch__Channels__0` seed, optional `Telemetry__Enabled` and `OTEL_EXPORTER_OTLP_ENDPOINT` (both default to disabled/empty).
 - Secrets: `Twitch__ClientId`, `Twitch__ClientSecret`; optional `Recorder__TwitchUserOAuthToken`. Mounted as `/run/secrets` and loaded by `AddKeyPerFile`.
-- Volume: `recordings:/recordings`; bind mount requires `chown -R 1654:1654 ./recordings`.
+- Volumes: `recordings:/recordings` (media) and `data:/data` (the record store, ADR-0014); a bind mount of either requires `chown -R 1654:1654`. Back up both together.
 - Logging: `json-file`, `max-size: 10m`, `max-file: 5`. The app writes through Serilog's console sink, configured by the `Serilog` section; outside Testing and Mock it also writes the same events as compact JSON to `<recordings>/.streamkeepr/logs/`, rolling daily with a 50 MB per-file cap and seven retained files. `Serilog__MinimumLevel__…` environment variables change levels on restart; `Serilog__File__Enabled=false` disables the JSON files and `Serilog__File__Path` relocates them. An unwritable log directory fails startup like an unwritable recordings root.
 - The image healthcheck is inherited; no Compose override.
 
@@ -203,6 +203,9 @@ Pinned versions: .NET SDK `11.0.100`, ASP.NET runtime `11.0.0`, Streamlink `8.6.
 | Library still recovering | `/health/ready` false; the UI shows skeletons |
 | Missing ffmpeg/ffprobe/streamlink | Startup fails with a clear message |
 | Unwritable recordings/keys | Startup fails with UID 1654 guidance |
+| Unwritable database directory, or free space below `DatabaseMinFreeGb` | Preflight fails startup naming the directory |
+| Record store unopenable, corrupt (`quick_check`), newer than the app, or failing backup/migration | Startup fails naming the path and the reason; never reset |
+| Record store lost at runtime | `/health/ready` unhealthy; `/health/live` unaffected |
 | Missing secrets | Options validation fails startup |
 | Missing reverse proxy / HTTP sign-in | Clear configuration error; admin unavailable |
 | Proxy headers not trusted | Callback/cookie origin wrong; sign-in fails |
@@ -235,7 +238,7 @@ Data Protection and preflight:
 Container:
 
 - Image builds with pinned versions; runs as UID 1654.
-- `/recordings` volume; secrets not in image; `.dockerignore` excludes secrets/tests/recordings/tooling.
+- `/recordings` and `/data` volumes, both owned by UID 1654; secrets not in image; `.dockerignore` excludes secrets/tests/recordings/tooling.
 - Healthcheck passes after startup; deep links `/r/{id}` render after restart.
 - `docker stop` finalizes within the grace period; restart recovers.
 - One startup summary and one stopping breadcrumb, with no secrets (`HostLifecycleLogHostTests`).

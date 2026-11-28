@@ -42,7 +42,7 @@ internal sealed class HostLifecycleLog(
         await _stopping.DisposeAsync();
     }
 
-    // The supervisor loads channels.json during startup, so the store is current by now.
+    // The supervisor loads the channel list during startup, so the store is current by now.
     // The EventSub client names the transport actually in use, "Mock" under the Mock profile.
     private void LogStarted() =>
         logger.LogInformation(

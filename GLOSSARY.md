@@ -37,7 +37,7 @@ The app's single durable record of its channels, sessions, chat logs, resume pos
 _Avoid_: Database, data store, app data
 
 **Session**:
-One continuous recording of a stream, identified by the stream's start time and stream ID. A session owns one or more parts and a manifest.
+One continuous recording of a stream, identified by the stream's start time and stream ID. A session owns one or more parts and a session record in the record store.
 _Avoid_: Recording (use “recording” for the product concept, not the domain object), capture
 
 **Open session**:
@@ -141,7 +141,7 @@ An emote resolved by matching a chat message's text against an emote provider's 
 _Avoid_: Custom emote, BTTV emote (unless the provider matters)
 
 **Emote provider**:
-A service that publishes emote catalogs for Twitch channels, such as BetterTTV or 7TV.
+A service that publishes emote catalogs for Twitch channels, such as BetterTTV, 7TV, or FrankerFaceZ.
 _Avoid_: Emote source, emote service
 
 **Emote catalog**:
@@ -157,7 +157,7 @@ The emote catalog a provider publishes for one Twitch channel.
 _Avoid_: Channel emotes (for the catalog)
 
 **Provider emote ID**:
-The identifier a provider assigns to one emote. Its shape belongs to the provider, not to StreamKeepr: BetterTTV uses 24 hexadecimal characters and 7TV a 26-character ULID.
+The identifier a provider assigns to one emote. Its shape belongs to the provider, not to StreamKeepr: BetterTTV uses 24 hexadecimal characters, 7TV a 26-character ULID, and FrankerFaceZ a positive decimal integer.
 _Avoid_: Emote ID (when the provider matters), provider ID
 
 **Static image**:

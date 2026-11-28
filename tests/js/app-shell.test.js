@@ -39,6 +39,29 @@ describe("AppShell.razor.js temporary drawer focus", () => {
     expect(document.activeElement).toBe(elements.library);
   });
 
+  it("focuses the drawer's marked initial control instead of its first tab stop", () => {
+    elements.library.focus();
+    const marked = document.createElement("a");
+    marked.href = "/r/1";
+    marked.setAttribute("data-drawer-autofocus", "");
+    document.getElementById("sk-drawer").prepend(marked);
+
+    shell.setModalDrawer(true);
+
+    expect(document.activeElement).toBe(marked);
+  });
+
+  it("focuses the library search field when the shell asks for search", () => {
+    const input = document.createElement("input");
+    input.type = "search";
+    input.setAttribute("data-search-input", "");
+    document.getElementById("sk-drawer").append(input);
+
+    shell.focusSearch();
+
+    expect(document.activeElement).toBe(input);
+  });
+
   it("leaves focus alone on open when it is already in the drawer", () => {
     // → on a rail avatar opens the library, and library-keys.js has moved focus to the channel's
     // first recording; the open must not pull it back to the drawer's first control.
@@ -96,19 +119,18 @@ describe("AppShell.razor.js library over the page (Md and up)", () => {
 
   const press = (target) => target.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
 
-  it("closes on a press outside it, but not inside it, on the menu button, the search, or in a popover", () => {
+  it("closes on a press outside it, but not inside it, on the menu button, the search trigger, or in a popover", () => {
     shell.setModalDrawer(true, false);
     const popover = document.createElement("div");
     popover.className = "mud-popover";
     document.body.append(popover);
-    const search = document.createElement("div");
-    search.className = "sk-search";
-    search.append(document.getElementById("search"));
+    const search = document.createElement("button");
+    search.setAttribute("data-library-search", "");
     document.querySelector("header").append(search);
 
     press(elements.row);
     press(elements.library);
-    press(document.getElementById("search"));
+    press(search);
     press(popover);
     expect(calls).toEqual([]);
 

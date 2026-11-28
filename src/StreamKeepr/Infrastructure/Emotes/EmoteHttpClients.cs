@@ -8,4 +8,7 @@ internal static class EmoteHttpClients
 
     public const string SevenTv = "emotes-7tv";
     public const string SevenTvBaseAddress = "https://api.7tv.app/";
+
+    public const string Ffz = "emotes-ffz";
+    public const string FfzBaseAddress = "https://api.frankerfacez.com/";
 }

@@ -104,6 +104,19 @@ public sealed class EmoteJourneyTests(MockAppFixture app)
             await row.ElementHandleAsync());
         Assert.Equal(0, await row.Locator("img[alt='BrokenEmote']").CountAsync());
 
+        // The image height is 2em, so it follows the viewer's chat font size.
+        Assert.InRange(await kekw.EvaluateAsync<double>("el => el.getBoundingClientRect().height"), 27.9, 28.1);
+        await page.GetByRole(AriaRole.Banner)
+            .GetByRole(AriaRole.Link, new() { Name = "Settings", Exact = true }).ClickAsync();
+        ILocator size = page.GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true })
+            .GetByRole(AriaRole.Slider, new() { Name = "Chat font size", Exact = true });
+        await Assertions.Expect(size).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        await size.FocusAsync();
+        for (int i = 0; i < 4; i++)
+            await page.Keyboard.PressAsync("ArrowRight");
+        await Assertions.Expect(page.Locator("[data-sk-chat]")).ToHaveAttributeAsync("data-font-scale", "120");
+        Assert.InRange(await kekw.EvaluateAsync<double>("el => el.getBoundingClientRect().height"), 33.4, 33.8);
+
         Assert.Empty(betterTvRequests);
     }
 }

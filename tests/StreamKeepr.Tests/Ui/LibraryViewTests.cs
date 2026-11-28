@@ -6,6 +6,7 @@ using StreamKeepr.Domain;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Ui;
+using StreamKeepr.Tests.Records;
 
 namespace StreamKeepr.Tests.Ui;
 
@@ -453,12 +454,7 @@ public sealed class LibraryViewTests
                 MinFreeGb = 1,
             });
 
-            var channels = new ChannelStore(
-                Options.Create(new TwitchOptions()),
-                storageOptions,
-                NullLogger<ChannelStore>.Instance);
-
-            await channels.LoadAsync(CancellationToken.None);
+            ChannelStore channels = await TestRecordStore.LoadChannelStoreInAsync(root);
 
             foreach (string login in logins)
                 await channels.AddAsync(login, CancellationToken.None);

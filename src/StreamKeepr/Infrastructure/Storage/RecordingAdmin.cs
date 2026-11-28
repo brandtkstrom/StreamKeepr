@@ -15,7 +15,8 @@ public interface IRecordingAdmin
 
 /// <summary>
 /// Deletes one complete session: checks authorization and the export lease, holds the session
-/// lock, re-reads the manifest, then removes the library entry, folder, and watch progress.
+/// lock, re-reads the session record, then removes the library entry, record, folder, and watch
+/// progress.
 /// </summary>
 public sealed class RecordingAdmin(
     RecordingLibrary library,
@@ -59,17 +60,20 @@ public sealed class RecordingAdmin(
         bool deleted = false;
         try
         {
-            SessionManifest? manifest = await sessions.TryLoadAsync(directory, ct).ConfigureAwait(false);
-            if (manifest is null || !string.Equals(manifest.Id, recordingId, StringComparison.Ordinal))
+            SessionRecord? record = await sessions.TryLoadAsync(directory, ct).ConfigureAwait(false);
+            if (record is null || !string.Equals(record.Id, recordingId, StringComparison.Ordinal))
                 throw new KeyNotFoundException("That recording was already deleted.");
 
-            if (!string.Equals(manifest.Channel, summary.Channel, StringComparison.Ordinal))
+            if (!string.Equals(record.Channel, summary.Channel, StringComparison.Ordinal))
                 throw new InvalidOperationException("That recording cannot be deleted.");
 
-            if (manifest.Status != SessionStatus.Complete)
+            if (record.Status != SessionStatus.Complete)
                 throw new InvalidOperationException("That recording is still being captured.");
 
             library.Remove(recordingId);
+            // The record goes before the folder so a deleted recording never returns on restart.
+            // #322 makes this one coordinated delete across every table and the media.
+            await sessions.DeleteRecordAsync(recordingId, ct).ConfigureAwait(false);
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
 

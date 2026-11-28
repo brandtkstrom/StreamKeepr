@@ -11,6 +11,7 @@ using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
 using StreamKeepr.Tests.Storage;
+using StreamKeepr.Tests.Records;
 
 namespace StreamKeepr.Tests.Runtime;
 
@@ -329,6 +330,7 @@ public sealed class DvrSupervisorTests
             new DateTimeOffset(2026, 11, 10, 16, 30, 0, TimeSpan.Zero));
         var store = new SessionStore(
             Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
+            TestRecordStore.ContextsIn(root),
             new RecordingLibrary(clock, NullLogger<RecordingLibrary>.Instance),
             clock,
             NullLogger<SessionStore>.Instance,
@@ -377,6 +379,7 @@ public sealed class DvrSupervisorTests
         library ??= new RecordingLibrary(clock, NullLogger<RecordingLibrary>.Instance);
         var store = new SessionStore(
             Options.Create(new RecorderOptions { SegmentSeconds = 2 }),
+            TestRecordStore.ContextsIn(root),
             library,
             clock,
             NullLogger<SessionStore>.Instance, TestRetry.Immediate);
@@ -398,10 +401,9 @@ public sealed class DvrSupervisorTests
             new ThrowingRetryJitter(),
             clock,
             NullLoggerFactory.Instance);
-        var channelStore = new ChannelStore(
-            Options.Create(new TwitchOptions { Channels = [.. channels] }),
-            storageOptions,
-            NullLogger<ChannelStore>.Instance);
+        var records = new TestRecordStore(storageOptions.Value.RecordingsRoot);
+        ChannelStore channelStore = records.CreateChannelStore(
+            records.StartAsync().GetAwaiter().GetResult(), [.. channels]);
         var recovery = new RecoveryService(
             store, library, storageOptions, clock, NullLogger<RecoveryService>.Instance);
 

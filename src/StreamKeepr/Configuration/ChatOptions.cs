@@ -56,6 +56,8 @@ public sealed class ChatEmoteOptions
 
     public EmoteProviderOptions SevenTv { get; set; } = new();
 
+    public EmoteProviderOptions Ffz { get; set; } = new();
+
     /// <summary>
     /// Loads the animated asset instead of the static first frame. Off by default: BetterTTV's
     /// animated assets are far larger than its static ones.

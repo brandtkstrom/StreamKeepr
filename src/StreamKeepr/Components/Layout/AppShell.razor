@@ -1,11 +1,8 @@
-@using Microsoft.Extensions.Options
-@using StreamKeepr.Configuration
 @using StreamKeepr.Components.Features.Settings
 @implements IAsyncDisposable
 @inject UiPreferences Preferences
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
-@inject IOptions<LinksOptions> Links
 @inject ILogger<AppShell> Logger
 
 @* MudBlazor's Layout 2 wireframe (design system: AppShell, TopAppBar, BottomNav, PhoneLayout):
@@ -23,18 +20,23 @@
          data-watching="@(Watching ? "" : null)"
          data-theater-mode="@(Preferences.Theater ? "" : null)"
          data-drawer-frame="@(DrawerFrameHidden ? "hidden" : null)"
+         data-shell-ready="@(_shellReady ? "" : null)"
          data-drawer-modal-open="@(_compact && _modalOpen ? "" : null)"
          data-library-open="@(_modalOpen ? "" : null)">
         <MudBlazor.MudLayout>
             <MudBlazor.MudAppBar Elevation="0" Fixed="true" Dense="_compact" Gutters="false" Class="sk-appbar">
-                <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Menu"
-                                         Class="sk-appbar-menu"
+                @* A labeled toggle, not a hamburger: its purpose and state are legible before the
+                   circuit connects. Below Md the bottom bar opens the library instead. *@
+                <MudBlazor.MudTooltip Text="@(MenuExpanded ? "Close library" : "Open library")">
+                    <MudBlazor.MudButton Variant="MudBlazor.Variant.Text"
+                                         StartIcon="@MudBlazor.Icons.Material.Rounded.VideoLibrary"
+                                         Class="@(MenuExpanded ? "sk-appbar-library sk-pressed" : "sk-appbar-library")"
                                          data-drawer-toggle
-                                         aria-label="@MenuLabel"
                                          aria-controls="@DrawerId"
                                          aria-expanded="@(MenuExpanded ? "true" : "false")"
                                          Disabled="@Preferences.Theater"
-                                         OnClick="OnMenuClickedAsync" />
+                                         OnClick="OnMenuClickedAsync">Library</MudBlazor.MudButton>
+                </MudBlazor.MudTooltip>
 
                 @if (_compact && Watching)
                 {
@@ -48,60 +50,50 @@
                     <a class="sk-wordmark" href="/" aria-label="StreamKeepr home">
                         <span class="sk-logo">
                             <img src="img/streamkeepr-mark.svg" alt="" width="28" height="28" />
-                            @if (RecordingActive)
-                            {
-                                <span class="rec-dot" data-rec-dot aria-hidden="true"></span>
-                            }
                         </span>
                         <span>Stream<b>Keepr</b></span>
                     </a>
                 }
 
-                <div class="sk-search" id="sk-search" data-search-open="@(_searchOpen ? "" : null)">
-                    <label class="sk-search-field">
-                        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Search" Size="MudBlazor.Size.Small" />
-                        @if (SearchSlot is null)
+                <div class="sk-appbar-actions">
+                    @* The tally is the one loud element: the only app-bar item that says the deck is
+                       writing. Wide only; below Md the bottom bar's Library dot carries the state. *@
+                    @if (RecordingCount > 0)
+                    {
+                        @if (Preferences.Theater)
                         {
-                            <input type="search"
-                                   placeholder="Search recordings, streamers, categories"
-                                   aria-label="Search recordings" />
+                            <span class="sk-tally sk-tally-status" data-recording-tally role="status">
+                                <span class="sk-tally-dot" data-rec-dot aria-hidden="true"></span>
+                                <span class="sk-tally-label">@TallyLabel</span>
+                            </span>
                         }
                         else
                         {
-                            @SearchSlot
+                            <MudBlazor.MudTooltip Text="Open the library filtered to recording">
+                                <button type="button"
+                                        class="sk-tally"
+                                        data-recording-tally
+                                        aria-label="@TallyAria"
+                                        aria-controls="@DrawerId"
+                                        @onclick="OpenRecordingLibraryAsync">
+                                    <span class="sk-tally-dot" data-rec-dot aria-hidden="true"></span>
+                                    <span class="sk-tally-label">@TallyLabel</span>
+                                </button>
+                            </MudBlazor.MudTooltip>
                         }
-                    </label>
-                </div>
+                    }
 
-                <div class="sk-appbar-actions">
-                    <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Search"
-                                             Class="sk-appbar-search"
-                                             aria-label="Search"
-                                             aria-controls="sk-search"
-                                             aria-expanded="@(_searchOpen ? "true" : "false")"
-                                             OnClick="ToggleSearch" />
-
-                    <MudBlazor.MudTooltip Text="StreamKeepr on GitHub" RootClass="sk-appbar-link">
-                        <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Custom.Brands.GitHub"
-                                                 Href="@Links.Value.GitHub"
-                                                 Target="_blank"
-                                                 Rel="noopener"
-                                                 aria-label="StreamKeepr on GitHub (opens in a new tab)" />
-                    </MudBlazor.MudTooltip>
-
-                    @* MudBlazor has no Twitch icon. The image is Twitch's Glitch mark, used
-                       unmodified and in full colour, so it is the button's content instead of
-                       an Icon path; the mark is never redrawn. *@
-                    <MudBlazor.MudTooltip Text="Twitch" RootClass="sk-appbar-link">
-                        <MudBlazor.MudIconButton Href="@Links.Value.Twitch"
-                                                 Target="_blank"
-                                                 Rel="noopener"
-                                                 aria-label="Twitch (opens in a new tab)">
-                            <span class="sk-twitch-mark">
-                                <img src="img/twitch-glitch.svg" alt="" data-twitch-mark />
-                            </span>
-                        </MudBlazor.MudIconButton>
-                    </MudBlazor.MudTooltip>
+                    @if (!Preferences.Theater)
+                    {
+                        <MudBlazor.MudTooltip Text="Search library (/)">
+                            <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Search"
+                                                     data-library-search
+                                                     aria-label="Search library"
+                                                     aria-keyshortcuts="/"
+                                                     aria-controls="@DrawerId"
+                                                     OnClick="OpenSearchAsync" />
+                        </MudBlazor.MudTooltip>
+                    }
 
                     @* A real link to the page, so it works before the circuit connects. With the
                        circuit, AppShell.razor.js turns the click into the sheet's toggle. *@
@@ -223,10 +215,11 @@
     private bool _compact;
     private bool _wideKnown;
     private bool _breakpointKnown;
+    private bool _shellReady;
     private bool _modalOpen;
     private bool _modalRendered;
     private string? _openModalOnArrivalAt;
-    private bool _searchOpen;
+    private bool _focusSearch;
     private NavigationHistory _history = null!;
     private bool _updatesPaused;
     private bool _reconnectModalVisible;
@@ -238,11 +231,12 @@
 
     [Parameter] public RenderFragment? Drawer { get; set; }
 
-    [Parameter] public RenderFragment? SearchSlot { get; set; }
-
     [Parameter] public RenderFragment? AuthSlot { get; set; }
 
     [Parameter] public bool RecordingActive { get; set; }
+
+    /// <summary>Channels recording now, shown in the app bar's tally on wide screens.</summary>
+    [Parameter] public int RecordingCount { get; set; }
 
     /// <summary>The open recording's title, shown in the dense top bar of a phone's watch page.</summary>
     [Parameter] public string? WatchTitle { get; set; }
@@ -273,9 +267,9 @@
 
     private bool MenuExpanded => !Preferences.Theater && _modalOpen;
 
-    private string MenuLabel => Preferences.Theater
-        ? "Menu: library hidden in theater mode"
-        : _modalOpen ? "Menu: close library" : "Menu: open library";
+    private string TallyLabel => RecordingCount == 1 ? "1 channel recording" : $"{RecordingCount} channels recording";
+
+    private string TallyAria => $"{TallyLabel}. Open the library filtered to recording.";
 
     private string DrawerClass => !_compact && !_modalOpen ? "rail" : "";
 
@@ -302,7 +296,6 @@
     {
         _history = new NavigationHistory(Navigation.Uri);
         _location = Navigation.Uri;
-        _searchOpen = LibraryUrl.Parse(Navigation.Uri).Search is not null;
         Preferences.Changed += OnPreferencesChanged;
         Navigation.LocationChanged += OnLocationChanged;
     }
@@ -327,6 +320,11 @@
                 // closes, but without the focus trap, and the app bar never shows it scrolled.
                 Logger.LogDebug(ex, "The app shell JavaScript module could not be initialized.");
             }
+
+            // The app is interactive whether or not the module loaded. E2E waits on this rather
+            // than on the search field, which now lives in the (sometimes unmounted) drawer.
+            _shellReady = true;
+            StateHasChanged();
         }
 
         if (_modalRendered != _modalOpen)
@@ -334,6 +332,13 @@
             _modalRendered = _modalOpen;
             // Below Md the drawer is modal and traps focus; Md and up it is not.
             await InvokeModuleAsync("setModalDrawer", _modalOpen, _compact);
+        }
+
+        if (_focusSearch)
+        {
+            _focusSearch = false;
+            // After setModalDrawer: opening moves focus, and the search shortcut must win.
+            await InvokeModuleAsync("focusSearch");
         }
     }
 
@@ -347,8 +352,6 @@
 
         _compact = compact;
         _modalOpen = false;
-        if (!compact)
-            _searchOpen = false;
     }
 
     private async Task OnMenuClickedAsync()
@@ -372,10 +375,42 @@
         StateHasChanged();
     }
 
+    /// <summary>
+    /// Opens the library with its search field focused. The app-bar search button and the
+    /// <c>/</c> shortcut use this; the field lives in the drawer, where the results are.
+    /// </summary>
+    public void OpenSearch()
+    {
+        if (Preferences.Theater)
+            return;
+
+        _modalOpen = true;
+        _focusSearch = true;
+        StateHasChanged();
+    }
+
+    private Task OpenSearchAsync()
+    {
+        OpenSearch();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Opens the library filtered to channels that are recording, without leaving the page
+    /// the tally was pressed on.
+    /// </summary>
+    public Task OpenRecordingLibraryAsync()
+    {
+        if (Preferences.Theater)
+            return Task.CompletedTask;
+
+        // The tally is a global "what is recording": drop any search that would hide channels.
+        LibraryQuery query = LibraryUrl.Parse(Navigation.Uri) with { State = "recording", Search = null };
+        return ShowLibraryAsync(LibraryUrl.With(Navigation.Uri, query));
+    }
+
     // MudDrawer reports the overlay click (and nothing else) through OpenChanged.
     private void OnDrawerOpenChanged(bool open) => _modalOpen = open;
-
-    private void ToggleSearch() => _searchOpen = !_searchOpen;
 
     /// <summary>
     /// Navigates to a library view (such as <c>/?state=saved</c>) and opens the library: over
@@ -511,9 +546,15 @@
         _closingSettings = false;
         bool arrived = string.Equals(
             new Uri(e.Location).AbsoluteUri, _openModalOnArrivalAt, StringComparison.Ordinal);
-        bool samePage = !_compact && string.Equals(
+        // A query-only change is a view change (search, filter, sort), not a new page: keep the
+        // library open at every width. On a phone it is now where the search field lives, so
+        // closing it on the first keystroke would make search impossible. A path change
+        // (picking a recording, Settings) still closes it. So does a pick of the recording already
+        // open: only the query changes (the autoplay intent), but it is a pick, not a view change.
+        bool samePage = string.Equals(
             new Uri(previous).AbsolutePath, new Uri(e.Location).AbsolutePath, StringComparison.Ordinal);
-        _modalOpen = arrived || (_modalOpen && samePage);
+        bool picked = LibraryUrl.AutoplayRequested(e.Location);
+        _modalOpen = arrived || (_modalOpen && samePage && !picked);
         _openModalOnArrivalAt = null;
         StateHasChanged();
     });

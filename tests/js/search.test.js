@@ -97,6 +97,7 @@ describe("shortcuts.js", () => {
 
   afterEach(() => {
     uninstall();
+    vi.useRealTimers();
     document.body.replaceChildren();
   });
 
@@ -110,6 +111,24 @@ describe("shortcuts.js", () => {
 
     expect(document.activeElement).toBe(input);
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("opens the library before focusing search when the field is not mounted", () => {
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame"] });
+    const trigger = document.createElement("button");
+    trigger.setAttribute("data-library-search", "");
+    let input = null;
+    trigger.addEventListener("click", () => {
+      input = makeSearch();
+    });
+    document.body.append(trigger);
+
+    const event = press(document.body, "/");
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(input).not.toBeNull();
+    vi.advanceTimersToNextFrame();
+    expect(document.activeElement).toBe(input);
   });
 
   it("ignores / while typing elsewhere or with modifiers", () => {

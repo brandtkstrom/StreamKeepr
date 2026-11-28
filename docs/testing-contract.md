@@ -12,10 +12,10 @@ This contract defines the test seams, projects, fake-Twitch harness, determinism
 
 | Layer | Project | Scope |
 |---|---|---|
-| Unit | `tests/StreamKeepr.Tests` | Pure reducer, stitcher, parser, recovery, args, path/media rules, poll schedule, token cache, allowlist logic, IRC/Twitch chat parser, chat timeline, chat log and purge, third-party emote providers and cache (BetterTTV, 7TV), badge sources and caches |
+| Unit | `tests/StreamKeepr.Tests` | Pure reducer, stitcher, parser, recovery, args, path/media rules, poll schedule, token cache, allowlist logic, IRC/Twitch chat parser, chat timeline, chat log and purge, third-party emote providers and cache (BetterTTV, 7TV, FFZ), badge sources and caches |
 | Integration | `tests/StreamKeepr.Tests` | `WebApplicationFactory`: media, health, auth, progress, export, channel, chat, emote catalog, and badge catalog endpoints; real DI with fake external services |
-| Component | `tests/StreamKeepr.Tests` | bUnit: primitives, library, player shell, stats, chat pane, details, auth, settings |
-| JS | `tests/js` | Vitest: timecode, preferences, tree navigation, shortcuts, sparkline, player pure logic, chat playhead/reveal/sync, third-party emote matching, badge image/chip fallback |
+| Component | `tests/StreamKeepr.Tests` | bUnit: primitives, library, player shell, stats, chat pane and typography, details, auth, settings |
+| JS | `tests/js` | Vitest: timecode, preferences, tree navigation, shortcuts, sparkline, player pure logic, chat playhead/reveal/sync, chat typography, third-party emote matching, badge image/chip fallback |
 | Process | `tests/StreamKeepr.Tests` | The built app as a child process, only for behavior `WebApplicationFactory` cannot observe: fatal startup logging, log flush, and exit code. Temp roots, no network, killed on timeout |
 | E2E | `tests/StreamKeepr.E2E` | Playwright .NET against the Mock profile: journeys, chat replay, emote replay, badge replay, axe, keyboard, screenshots |
 | Container | `tests/StreamKeepr.E2E` or CI | Docker build, non-root smoke, health, deep links, restart |
@@ -56,6 +56,7 @@ tests/
 - Use an in-memory `IAdminTokenStore` for auth/EventSub tests; the encrypted implementation is tested separately with a temp directory.
 - Use `IIrcSocket`/`IIrcSocketFactory` with a scripted transcript for the IRC state machine and parser. The Mock profile uses `MockChatSource`; no test connects to Twitch IRC or an external IRC network.
 - Use a temp `StorageOptions.RecordingsRoot` and `WebApplicationFactory` settings per test class. Never write under the repo.
+- Use a real SQLite record store, never a fake or EF's in-memory provider. `TestRecordStore` wires the production registration in a temp directory; each `StartAsync` is one process start. `StreamKeeprAppFactory` keeps the database at `TestRecordStore.DatabasePathIn(root)`, so a restart on the same root keeps it.
 - `StreamKeeprAppFactory` returns its host only after startup recovery has loaded the library. Recovery runs after the server starts listening and replaces the library's contents, so seeding earlier races the scan. A test that expects recovery to fail and the host to stop passes `waitForStartupRecovery: false`.
 - Fake `IChannelControl`/`IRecordingActions` only at the UI seam; do not fake the supervisor when testing it.
 
@@ -108,11 +109,11 @@ Rules:
 
 ### 6.1 E2E readiness, reconnect and failure evidence
 
-- A navigation is not complete when the document loads. `Journey.GotoAsync` and `Journey.ReloadAsync` wait for the shell's interactive marker (`input[data-search-input][data-sk-ready]`) or the sign-in page (`[data-signin]`). A journey that opens a recording waits for `[data-sk='seek'][aria-disabled='false']` (via `Journey.OpenRecordingAsync`) before it presses or clicks. New journeys use `Journey`, not a raw `IPage.GotoAsync`.
+- A navigation is not complete when the document loads. `Journey.GotoAsync` and `Journey.ReloadAsync` wait for the shell's interactive marker (`input[data-search-input][data-sk-ready]`) or the sign-in page (`[data-signin]`). A journey that opens a recording waits for that recording's enabled seek bar, `[data-sk-player][data-sk-recording="<id>"] [data-sk='seek'][aria-disabled='false']` (via `Journey.OpenRecordingAsync` or `Journey.WaitForRecordingAsync(id)`), before it presses or clicks. The player is reused across recordings, so a bare enabled seek bar can still be the previous recording's until the new one loads. New journeys use `Journey`, not a raw `IPage.GotoAsync`.
 - After a click that may navigate, wait for the current URL (`Journey.WaitForUrlAsync`) rather than for a future navigation event: the click can finish before `WaitForURLAsync` starts, which was the sign-in race in #296.
 - Before an action, wait for `body[data-sk-reconnect]` to be absent or `hide`. `Journey.ActAsync` and the library helpers do this; a hard-loss state fails immediately with the URL, reconnect state, focused element and the last app log lines instead of waiting for Playwright's 30 s default.
 - The library keyboard handoff re-presses Right when focus stayed on a channel after the 5 s column wait. Do not raise the 5 s cap; it exists so focus is not pulled back after the viewer has moved on.
-- Chat-sync rapid input is not required to be lossless: each press must produce one rendered step, so the journey waits for each step before the next press.
+- Chat-sync and chat-font-size rapid input is not required to be lossless: each press must produce one rendered step, so the journey waits for each step before the next press.
 - Every journey owns a `Journey` session, which starts a Playwright trace. It writes the trace and a `<test>.failure.txt` (browser state plus the last 80 Mock app log lines) only when the test failed; a passing test discards the trace. xUnit v2 has no test context, so `[CaptureFailure]` records `FirstChanceException` for `XunitException`, `TimeoutException`, `InvalidOperationException` and `PlaywrightException` in an `AsyncLocal` marker.
 
 ## 7. Selectors
@@ -136,7 +137,7 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 | `dotnet` | setup .NET 11; restore; `dotnet build -warnaserror`; `dotnet format --verify-no-changes`; `dotnet test` with coverage; upload results |
 | `js` | setup Node 24 LTS; `npm ci`; `npm run lint`; `npm test` |
 | `e2e` | setup .NET; restore and build only `tests/StreamKeepr.E2E` (and the app it references); `dotnet publish` the app once; `playwright install --with-deps`; `dotnet test tests/StreamKeepr.E2E` against that publish; upload the TRX always and the Playwright report, traces, axe output and screenshots only on failure |
-| `docker` | `docker build`; run the image with dummy non-secret config and a temp `/recordings` volume; hit `/health/live` and `/`; verify non-root; stop cleanly |
+| `docker` | `docker build`; run the image with dummy non-secret config and temp `/recordings` and `/data` volumes; hit `/health/live` and `/`; verify non-root, both volumes owned by UID 1654, and the record store created on `/data`; stop cleanly |
 
 - Triggers: pull requests and pushes to `main` and `dev`. The `fullstack-refactor` trigger was removed once that migration merged (#112).
 - `dev` is the integration branch for active work. Pull requests into `dev` and pushes to `dev` run only `changes`, `dotnet` and `js`; `docker`, `e2e` and `compose` run for everything else, including every pull request into `main`.
@@ -162,12 +163,12 @@ One workflow `.github/workflows/ci.yml` (replacing the current main-only build) 
 |---|---|
 | Domain | Every transition row in `docs/domain-model.md`; invariants; stale-job events; healthy/short parts; cooldown; stop/resume; recovery classification; property tests for totality/determinism |
 | Recorder | Args and paths; parser `N/A`/`progress=end`; part cleanup; shutdown order/budget; normal end; either process first; stop; stall; no media; short final block; part-exists; ad grace; MPEG-TS/AAC; HEVC/AV1 args |
-| Session store | Manifest round-trip; atomic writes; lock coverage; stitch/ENDLIST/chapters; live cache; recovery; corrupt manifests; missing index; library events; disk guard; no retention |
+| Session store | Session record round-trip and write-failure policy; atomic writes; lock coverage; stitch/ENDLIST/chapters; live cache; recovery; corrupt manifests; missing index; library events; disk guard; no retention |
 | Runtime | Command order; open failure skip; finalize failure; job overrun fatal; retry timer; disk full; channel add/remove/stop/resume; Helix validation; seeded failure; control gate; shutdown |
 | Twitch/auth | Token cache/refresh/401; forced admin-token refresh; poller batch/Unknown/offline/profile; schedule/coverage; EventSub welcome/refusal/409 session verification/429 capacity/partial coverage/no-resolved-channel idle/non-live online/dedupe/reconnect handoff/malformed and route isolation/401 retry/timeouts/backoff; allowlist empty/configured; callback/HTTPS/cookie/logout; token encryption/rotation/clear/wait; subscriber token |
 | Hosting | Media allowlist/traversal/content types/cache/Range; live vs final index; health push-aware/readiness; Data Protection persistence; preflight; endpoint auth; Serilog pipeline (Serilog factory, levels from the `Serilog` section, no duplicate providers, static logger untouched by test hosts); request logging (one completion event per request with `RequestId`, level policy for quiet paths/4xx/5xx, query string never logged, handled 500 logged as an error); shipped logging config and template, fatal startup log and non-zero exit; lifecycle breadcrumbs (one startup summary, one stopping line, no client secret or chat token) |
 | Frontend | bUnit primitives and feature components; Vitest helpers/player logic; Playwright journeys; axe/keyboard |
-| Emotes | Provider normalization and static URL assembly; cache TTL/stale/single-flight and bounds; channel-ID fallback and memoization; cold global with a slow resolver; endpoint shape/disabled/failure; matcher precedence and native-range protection; image attributes and text fallback; Mock/E2E fixture; no external network |
+| Emotes | Provider normalization and static URL assembly (BetterTTV, 7TV, FFZ); cache TTL/stale/single-flight and bounds; channel-ID fallback and memoization; cold global with a slow resolver; endpoint shape/disabled/failure; matcher precedence and native-range protection; image attributes and text fallback; Mock/E2E fixture; no external network |
 | Badges | Global/channel Helix request URL/Client-Id/bearer, `broadcaster_id` and 401 retry; payload normalization, URL/ID limits and caps; channel resolution/unresolved fallback; per-broadcaster cache TTL/stale/single-flight/timeout/bound and scope independence; endpoint shape/404/no-store/unavailable; one fetch per recording open; channel-over-global precedence, no-cross-version, image-vs-chip, image-error fallback and the Show badges toggle; Mock/E2E fixture; no external network |
 | Container | Build; non-root; health; deep links; volume; secrets; stop finalize; restart recovery |
 

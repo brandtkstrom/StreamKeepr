@@ -18,6 +18,7 @@ using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Badges;
 using StreamKeepr.Infrastructure.Emotes;
 using StreamKeepr.Infrastructure.Media;
+using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Telemetry;
@@ -206,7 +207,11 @@ try
 
     builder.Services.AddSingleton(TimeProvider.System);
 
-    // The session store owns session.json, index.m3u8, and the per-session locks.
+    // The record store (ADR-0014): one SQLite database at Storage:DatabasePath, migrated by
+    // RecordStoreStartup before any store loads.
+    builder.Services.AddStreamKeeprRecordStore();
+
+    // The session store owns the session records, index.m3u8, and the per-session locks.
     builder.Services.AddSingleton<RecordingLibrary>();
     builder.Services.AddSingleton<IDiskSpace, DriveInfoDiskSpace>();
     builder.Services.AddSingleton<DiskGuard>();
@@ -294,6 +299,7 @@ try
 
         builder.Services.AddSingleton<IEmoteProvider, BttvEmoteProvider>();
         builder.Services.AddSingleton<IEmoteProvider, SevenTvEmoteProvider>();
+        builder.Services.AddSingleton<IEmoteProvider, FfzEmoteProvider>();
         builder.Services.AddSingleton<IBadgeSource, TwitchBadgeSource>();
     }
 
@@ -303,11 +309,15 @@ try
     // Hosted services start in registration order, so preflight runs before Data
     // Protection, the supervisor, and any channel or recording service.
     builder.Services.AddHostedService<ToolPreflight>();
+    // Opens, checks, backs up and migrates the record store; every store loads after it.
+    builder.Services.AddHostedService<RecordStoreStartup>();
 
     if (mock)
     {
+        // Seeding is split by store; the viewer and chat seeders read what MockSeeder recorded.
         builder.Services.AddHostedService<MockSeeder>();
         builder.Services.AddHostedService<MockLiveFeed>();
+        builder.Services.AddHostedService<MockViewerSeeder>();
         builder.Services.AddHostedService<MockChatSeeder>();
     }
 
@@ -343,7 +353,8 @@ try
     builder.Services.AddHealthChecks()
            .AddCheck<DvrHealthCheck>(DvrHealthCheck.Name, tags: ["live", "ready"])
            .AddCheck<DiskSpaceHealthCheck>("disk", tags: ["ready"])
-           .AddCheck<LibraryLoadedHealthCheck>("library", tags: ["ready"]);
+           .AddCheck<LibraryLoadedHealthCheck>("library", tags: ["ready"])
+           .AddCheck<RecordStoreHealthCheck>(RecordStoreHealthCheck.Name, tags: ["ready"]);
 
     builder.Services.AddHttpClient(TwitchHttpClients.Auth, client =>
                                        client.BaseAddress = new Uri("https://id.twitch.tv/"));
@@ -356,6 +367,9 @@ try
 
     builder.Services.AddHttpClient(EmoteHttpClients.SevenTv, client =>
                                        client.BaseAddress = new Uri(EmoteHttpClients.SevenTvBaseAddress));
+
+    builder.Services.AddHttpClient(EmoteHttpClients.Ffz, client =>
+                                       client.BaseAddress = new Uri(EmoteHttpClients.FfzBaseAddress));
 
     builder.Services.AddSingleton<IAdminTokenStore, AdminTokenStore>();
 
@@ -395,12 +409,17 @@ try
 
     var app = builder.Build();
 
+    if (mock)
+        MockEnvironment.DeleteRecordStoreOnCleanShutdown(app);
+
     app.Lifetime.ApplicationStarted.Register(() =>
     {
         if (mock)
         {
-            app.Logger.LogWarning("Running the Mock profile: dummy Twitch credentials, fake poller/EventSub/auth, " + "and a disposable recordings root at {Root}. Never use it for production data.",
-                                  app.Services.GetRequiredService<IOptions<StorageOptions>>().Value.RecordingsRoot);
+            StorageOptions storage = app.Services.GetRequiredService<IOptions<StorageOptions>>().Value;
+            app.Logger.LogWarning("Running the Mock profile: dummy Twitch credentials, fake poller/EventSub/auth, " + "a disposable recordings root at {Root}, and a per-process record store at {Database}. Never use it for production data.",
+                                  storage.RecordingsRoot,
+                                  storage.DatabasePath);
         }
         else if (app.Services.GetRequiredService<IOptions<AuthOptions>>().Value.AllowedTwitchLogins.Count == 0)
         {

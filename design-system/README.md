@@ -12,17 +12,17 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 
 | Width (MudBlazor breakpoint) | Top bar | Navigation | Watching a recording |
 |---|---|---|---|
-| **Md and up** (≥ 960px): laptop, desktop | `MudAppBar`, 64px: menu, wordmark, search field, GitHub and Twitch links, settings, account avatar | `MudDrawer Variant="Mini" ClipMode="Always"`: the 72px rail, or the 320px library when opened | Two columns. Left: the player, the title block with its live chip and More actions menu at the top right, Chapters (when there are any) and Viewers (when there are samples); Statistics is an overlay inside the player. Right: chat, 320–400px wide and the full height of the view. |
-| **Sm** (600–959px): tablet, small window | `MudAppBar Dense`, 48px | Bottom app bar (`BottomNav`); the library is a temporary drawer | Player edge to edge, then the title block, then `MudTabs`: Chat · Chapters · Stats (Chapters only when there are any) |
-| **Xs** (< 600px): phone portrait | Dense, 48px; a back arrow on the watch page | Bottom app bar; temporary drawer | As Sm, with the player sticky under the top bar while the tabs scroll |
+| **Md and up** (≥ 960px): laptop, desktop | `MudAppBar`, 64px: labeled library toggle, wordmark, recording tally, search shortcut, settings, account avatar | `MudDrawer Variant="Mini" ClipMode="Always"`: the 72px rail, or the 320px library when opened; the library carries the search, sort and filters | One content column: the player, the title block with its live chip and More actions menu at the top right, Chapters (when there are any) and Viewers (when there are samples); Statistics is an overlay inside the player. The open chat is a 400px drawer docked to the right edge under the app bar, and the content reserves its width. |
+| **Sm** (600–959px): tablet, small window | `MudAppBar Dense`, 48px: wordmark, search shortcut, account | Bottom app bar (`BottomNav`); the library is a temporary drawer | Player edge to edge, then the title block, then `MudTabs`: Chat · Chapters · Stats (Chapters only when there are any) |
+| **Xs** (< 600px): phone portrait | Dense, 48px: wordmark, search shortcut, account; a back arrow on the watch page | Bottom app bar; temporary drawer | As Sm, with the player sticky under the top bar while the tabs scroll |
 | Phone landscape (height < 500px) | Hidden | Hidden | The player fills the screen, with controls overlaid |
 
 ### The player
 
 - On watch pages the player is **as wide as its column** (no max-width, and only the `space-4` gutter on desktop) and keeps 16:9. Its height is capped at the viewport height minus the app bar, the gutter and `player-peek` (88px), so the recording's title always shows below it without scrolling. When the cap applies, the video letterboxes inside the black frame.
 - Opening a recording on desktop collapses the drawer to the rail. Home opens it fully again. Both choices are remembered per viewer.
-- **Theater mode** (desktop only) makes the player span the full width of the view: no drawer, no gutters, no sidecar. Its height is capped at the viewport minus the app bar. The two columns move below it, chat still on the right, filling the height left. Fullscreen takes over theater mode's job on phones.
-- Nothing ever sits above the player, and nothing sits to the right of the open chat: it is the full-height right-hand column on desktop.
+- **Theater mode** (desktop only) makes the player span the view to the open chat drawer's divider: no drawer, no gutters, no gap before the drawer. Its height is capped at the viewport minus the app bar. The title block, Chapters and stats below it keep 16px side padding, and the chat drawer keeps its docked geometry. Fullscreen takes over theater mode's job on phones.
+- Nothing ever sits above the player, and nothing sits to the right of the open chat: it is a 400px drawer docked to the right edge under the app bar, from its bottom to the viewport's bottom. Closed, it leaves no width, strip or gap.
 - The recording's title, meta and actions sit directly under the player on the page, not in a panel; the live chip and a More actions menu sit beside the title, with Copy, Export, Stop and Delete in that menu (`RecordingDetails`). The chapters are their own panel, `Chapters`, shown only when the recording has chapters.
 
 ### The rest
@@ -30,7 +30,9 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 - **Playback is never interrupted by navigation.** Secondary things open over the page instead of replacing it: Settings is a right side sheet on desktop and a full-screen dialog on phones (`SettingsSheet`), and dialogs and menus float. The `/settings` route remains only for bookmarks.
 - **The default view** at `/`, before a recording is open, is `Home`: every active recording (`Recording` or `Reconnecting`) in one row, and the 20 most recent complete recordings (`Saved` or `Partial`) in a second row below, both newest first by start time. The rows fill the window's width, showing as many cards as fit.
 - Watch and Home pages have no width cap. Forms (Settings) cap at `form-max-width` (760px) for readable line lengths.
-- The library drawer's footer shows disk usage. The desktop app bar carries search, the GitHub and Twitch links, settings and the account avatar; on phones, search is an icon and settings moves to the bottom bar.
+- **Search lives with its results**, in the library's toolbar, at every width. The app bar's search button (and `/`) opens the library and focuses the field. On phones, settings moves to the bottom bar; GitHub and Twitch links live in Settings › About.
+- **The recording tally is the app bar's one loud element.** On Md and up it names the channels being captured and opens the library filtered to Recording. Below Md the bottom bar's Library dot carries the same state.
+- The library drawer's footer shows disk usage.
 - Maximise viewing area by collapsing things, not by scrolling. Remember each collapse per viewer.
 - Touch targets are at least 40px, 48px in the bottom bar and tabs. Nothing scrolls sideways except the Home rows, which scroll inside themselves.
 - Empty, no-match and not-found states get an icon, one headline, one sentence and at most one action. See `EmptyStates`.
@@ -38,8 +40,8 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 ## Library ordering
 
 - Group recordings **by streamer**, and sort **newest first at every level**. The library lists the streamers; picking one opens its recordings in a column to the right (`LibraryDrawer`). Streamers sort by their latest recording, and a streamer being captured right now is always on top. Inside a streamer, recordings sort by start time, descending, under day headers: `Today`, `Yesterday`, then `Wed, Nov 4`.
-- The drawer header always states the order ("Newest first"), with the sort menu beside it.
-- Filter chips (All · Recording · Saved) sit under the header as a single-select `MudChipSet`. Search in the app bar filters the same list and marks matches with `highlight`.
+- The drawer toolbar states what the library is and what is in it ("4 channels, 8 recordings"), holds the search field, and states the order ("Newest first") as its own menu button.
+- Filter chips (All · Recording · Saved) sit under the search field as a single-select `MudChipSet`; selected chips are filled and do not add a checkmark. Search filters the same list and marks matches with `highlight`.
 
 ## Color
 
@@ -51,7 +53,7 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 - Text is `text-primary` (Gray Lighten 4) and `text-secondary` (Gray Lighten 1). Both reach at least 5.3:1 on every ground, `surface-raised` and `selection` included.
 - Every bright fill takes `gray-darken-4` text through its `*-contrast-text` token (at least 5:1). Never put white on a Material accent. `twitch` is the one exception, with a white label.
 - `primary` marks the one main action per region, the selected filter chip, active toggles, the focus ring and progress. It is text-safe on every ground except `surface-raised`, where it is icon-only.
-- **Reserved colours.** `rec` means "a capture is being written right now": the pulsing REC dot, the REC chip, the live-edge tick and the live ring on an avatar. It is the brighter Red A2 and only ever a fill or a dot. `error` is the lighter Red A1, so error text stays legible, and an error always carries the warning icon or a word. `warning` marks partial captures, reconnecting, low disk and the polling fallback. `success` marks a connected Twitch account and healthy service. `twitch` is Twitch's own purple, kept exact, and appears only on the Connect with Twitch button.
+- **Reserved colours.** `rec` means "a capture is being written right now": the app bar's tally dot, the REC chip, the live-edge tick and the live ring on an avatar. It is the brighter Red A2 and only ever a fill or a dot. `error` is the lighter Red A1, so error text stays legible, and an error always carries the warning icon or a word. `warning` marks partial captures, reconnecting, low disk and the polling fallback. `success` marks a connected Twitch account and healthy service. `twitch` is Twitch's own purple, kept exact, and appears only on the Connect with Twitch button.
 - The player keeps its own fixed colours: `player-background` (black), `player-scrim` behind its strips, `player-text` over them, and `player-accent` (= `primary`) for the played range. No gradients.
 - In stats charts, video series are `primary`, network series `secondary`, and the viewer-count chart `tertiary`. Chapter ticks and offsets are `tertiary` too: indigo always means the stream itself. Draw one series per sparkline, and set labels in text tokens, never in the series colour.
 
@@ -67,7 +69,8 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
   - `subtitle2` (14px, Medium) for library row titles (two lines, then ellipsis) and chapter titles;
   - `body2` (14px) as the default UI text, `body1` (16px) for dialog copy, and `caption` (12px) for dates, durations and logins;
   - `overline` (12px, uppercase, wide tracking) for status chips and stat labels only.
-- There is no monospace face. Numbers that update or line up (`timecode`, `stat-value`, `stat-hero`) are Roboto with `font-variant-numeric: tabular-nums`, so the digits keep a fixed width and never jitter.
+- There is no monospace face. Numbers that update or line up (`timecode`, `stat-value`, `stat-hero`, the tally and the library counts) are Roboto with `font-variant-numeric: tabular-nums`, so the digits keep a fixed width and never jitter.
+- The app bar's recording tally uses `label` (caption size at Medium) and sentence case: "2 channels recording", never "REC 2".
 - Two additions sit outside MudBlazor's `Typo` enum, built from its metrics: `label` (caption size at Medium, for day headers and filter chips) and `wordmark` (h6 size at Bold).
 - Weight carries hierarchy the MudBlazor way: Light 300 only in the unused display sizes, Regular 400 for text and most headings, Medium 500 for h6, subtitle2, buttons and labels, and Bold 700 only in the wordmark.
 - Use **sentence case everywhere** except `overline` (REC, PROCESSING, PARTIAL).
@@ -114,16 +117,16 @@ The shell is MudBlazor's **Layout 2 wireframe** (Getting Started › Wireframes:
 | Player | `PlayArrow` / `Pause`, `Replay10` / `Forward10`, `VolumeUp` / `VolumeOff`, `QueryStats`, `Chat`, `PictureInPictureAlt`, `WidthWide` (theater), `Fullscreen` |
 | Actions | `PlaylistPlay` (copy playlist URL) · `Output` (export MP4) · `Download` (download an export) · `ContentCopy` (copy stats) · `Delete` · `Stop` · `Refresh` · `Add` |
 | Recording without a thumbnail | `Movie` |
-| Back · menu · search · more | `ArrowBack` · `Menu` · `Search` · `MoreVert` |
+| Back · library · search · more | `ArrowBack` · `VideoLibrary` · `Search` · `MoreVert` |
 | GitHub link · Twitch link | `Icons.Custom.Brands.GitHub` · Twitch's Glitch mark (`wwwroot/img/twitch-glitch.svg`, full-colour image; never redrawn) |
 | States | `CheckCircle`, `Warning`, `Error`, `Sync`, `CloudOff`, `WifiOff`, `Schedule` (polling) |
 
 - The previews draw their icons from `components/icons.js`, which holds the exact SVG of the `Icons.Material.Rounded` constants from MudBlazor 9.12.0. In the app, use the constants. Inside JS-owned islands and the reconnect dialog, paste the same SVG.
-- The app bar's Twitch link uses Twitch's Glitch mark from `wwwroot/img/twitch-glitch.svg`, unmodified and in full colour. The Connect with Twitch button keeps `Link`, and the previews keep `LiveTv` for the app bar link because they cannot load the app's static assets. Never redraw the mark. The GitHub link uses MudBlazor's own `Icons.Custom.Brands.GitHub`.
+- Settings › About uses Twitch's Glitch mark from `wwwroot/img/twitch-glitch.svg`, unmodified and in full colour, and MudBlazor's own `Icons.Custom.Brands.GitHub`. The Connect with Twitch button keeps `Link`, and the previews keep `LiveTv` because they cannot load the app's static assets. Never redraw the mark.
 
 ## Logo
 
 - **The mark:** three stream segments (cyan, `secondary`) flowing into a rounded keep that holds a play symbol (magenta, `primary`). It means a video stream, saved. Files and rules are in the **Logos** and **Favicon** asset groups.
-- **In the app bar**, the mark (28px; 24px in the dense bar) sits before the typed wordmark: "Stream" in `text-primary`, "Keepr" in `primary`, in `wordmark` type. While anything records, a pulsing `rec` badge sits on the mark's top-right corner. The logo itself never carries red.
+- **In the app bar**, the mark (28px; 24px in the dense bar) sits before the typed wordmark: "Stream" in `text-primary`, "Keepr" in `primary`, in `wordmark` type. The logo carries no state and no red; the recording tally is a separate control.
 - **Elsewhere** (README, social cards, docs), use the outlined lockup `streamkeepr-logo.svg` on dark grounds and `streamkeepr-logo-on-light.svg` on light ones. Keep clear space of at least half the mark's height. The minimum size is 16px for the mark and 96px wide for the lockup.
 - **The favicon** is the mark on the dark app tile. Link `favicon.svg`, `favicon.ico`, `apple-touch-icon.png` and the manifest icons as the Favicon group's README shows.

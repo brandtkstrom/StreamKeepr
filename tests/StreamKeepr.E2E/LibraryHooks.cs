@@ -12,6 +12,9 @@ internal static class LibraryHooks
     /// <summary>The library navigation landmark.</summary>
     public const string Drawer = "nav[aria-label=Library]";
 
+    /// <summary>The shell's interactive marker: the circuit and its module are ready.</summary>
+    public const string ShellReady = "[data-shell][data-shell-ready]";
+
     /// <summary>Every channel option in the channels listbox.</summary>
     public const string Channel = Drawer + " [role=option][data-library-channel]";
 
@@ -28,6 +31,14 @@ internal static class LibraryHooks
     public static string ChannelFor(string login) => $"{Drawer} [data-library-channel='{login}']";
 
     /// <summary>
+    /// The channel logins in the list's current order. A channel's identity is stable when the
+    /// list re-sorts on a recording-state change; its position is not.
+    /// </summary>
+    public static Task<string[]> ChannelLoginsAsync(IPage page) =>
+        page.Locator(Channel).EvaluateAllAsync<string[]>(
+            "channels => channels.map(c => c.dataset.libraryChannel)");
+
+    /// <summary>
     /// Opens the library when it is closed: Md and up the menu opens it over the page (it starts
     /// as the rail); below Md the bottom bar's Library opens the temporary drawer.
     /// </summary>
@@ -41,17 +52,21 @@ internal static class LibraryHooks
             return;
 
         // The library opens through the circuit, and a click on the prerendered button is lost.
-        // The shell's search field marks itself ready once the circuit is interactive.
-        await page.Locator($"{LibraryJourneyTests.Search}[data-sk-ready]")
+        await page.Locator(ShellReady)
             .WaitForAsync(new() { State = WaitForSelectorState.Attached });
 
         ILocator library = page.GetByRole(AriaRole.Navigation, new() { Name = "Main" })
             .GetByRole(AriaRole.Button, new() { Name = "Library" });
+        ILocator toggle = page.Locator("[data-drawer-toggle]");
         await Journey.WaitForReconnectAsync(page);
         if (await library.IsVisibleAsync())
             await library.ClickAsync();
+        else if (await toggle.IsVisibleAsync())
+            await toggle.ClickAsync();
         else
-            await page.Locator("[data-drawer-toggle]").ClickAsync();
+            // A phone watch page has no bottom bar and hides the app bar toggle; the search
+            // shortcut is the library's remaining entry point.
+            await page.Locator("[data-library-search]").ClickAsync();
         await page.Locator("[data-shell][data-library-open]").WaitForAsync(new() { State = WaitForSelectorState.Attached });
     }
 
@@ -81,21 +96,25 @@ internal static class LibraryHooks
     }
 
     /// <summary>
-    /// Rows show only in the open channel's column, so this opens the channels in list order
-    /// until the <paramref name="index"/>-th row matching <paramref name="selector"/> (and
-    /// <paramref name="hasText"/>, when given) is there, and returns it, its column left open.
+    /// Rows show only in the open channel's column, so this opens the channels in the order the
+    /// list had when it started, until the <paramref name="index"/>-th row matching
+    /// <paramref name="selector"/> (and <paramref name="hasText"/>, when given) is there, and
+    /// returns it, its column left open.
     /// </summary>
     public static async Task<ILocator> RowAsync(
         IPage page, string selector = Row, string? hasText = null, int index = 0)
     {
         // Attached: on a phone the drawer starts closed.
         await page.Locator(Channel).First.WaitForAsync(new() { State = WaitForSelectorState.Attached });
-        int channels = await page.Locator(Channel).CountAsync();
+
+        // The list sorts recording channels first and re-sorts when a channel starts or stops
+        // recording, so a locator re-resolved by position after an awaited step can visit one
+        // channel twice and skip another (#338). Logins are stable across a re-sort.
+        string[] logins = await ChannelLoginsAsync(page);
+
         int seen = 0;
-        for (int i = 0; i < channels; i++)
+        foreach (string login in logins)
         {
-            ILocator channel = page.Locator(Channel).Nth(i);
-            string login = (await channel.GetAttributeAsync("data-library-channel"))!;
             await OpenChannelAsync(page, login);
             ILocator rows = page.Locator(selector, new() { HasTextString = hasText });
             int count = await rows.CountAsync();
@@ -104,6 +123,7 @@ internal static class LibraryHooks
             seen += count;
         }
 
-        throw new InvalidOperationException($"No library row #{index} matches {selector} {hasText}.");
+        throw new InvalidOperationException(
+            $"No library row #{index} matches {selector} {hasText} in {string.Join(", ", logins)}.");
     }
 }

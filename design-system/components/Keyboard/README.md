@@ -1,4 +1,4 @@
-Focus rings on every ground, and the keyboard shortcuts StreamKeepr already defines (`shortcuts.js`, `player-keys.js`, `tree-nav.js`, `ChatPane.razor.js`).
+Focus rings on every ground, and the keyboard shortcuts StreamKeepr already defines (`shortcuts.js`, `player-keys.js`, `library-keys.js`, `ChatPane.razor.js`).
 
 ## Focus
 
@@ -17,6 +17,7 @@ Focus rings on every ground, and the keyboard shortcuts StreamKeepr already defi
 | ← / → | Back / forward 5 s (not inside sliders or the library) | `player-keys.js` |
 | M · F · T · I | Mute · full screen · theater · Statistics overlay | `player-keys.js` |
 | C | Open or close chat | `ChatPane.razor.js` |
+| Esc (with nothing else open) | Close the open chat drawer; it yields first to the library, a dialog, a menu, a popover, the settings sheet, a field being typed in, or fullscreen | `ChatPane.razor.js` |
 | / | Focus search | `shortcuts.js` |
 | Esc (in the settings sheet or on the Settings page) | Close or exit Settings | `SettingsSheet`, `SettingsPage` |
 | Esc | Clear the search | `shortcuts.js` |
@@ -26,5 +27,5 @@ Focus rings on every ground, and the keyboard shortcuts StreamKeepr already defi
 ## Rules
 
 - Single-letter keys never fire while typing in a field, while a menu or dialog is open (`[role=menu]`, `dialog[open]`, and MudBlazor popovers once migrated), or with a modifier held. Keep that guard when menus move to `MudMenu`. Its popover must still match the selectors, or the guard needs Mud's `.mud-popover-open`.
-- Name the shortcut in the control's tooltip ("Theater mode (T)") and in `aria-keyshortcuts`. *As built in #180 the player's controls have no tooltips yet; only the player's Chat toggle carries `aria-keyshortcuts="C"`.*
+- Name the shortcut in the control's tooltip ("Theater mode (T)") and in `aria-keyshortcuts`. *As built in #180 the player's controls have no tooltips yet; the player's Chat toggle carries `aria-keyshortcuts="C"` and the chat drawer's Close control carries `aria-keyshortcuts="Escape"` without a tooltip (#333).*
 - Key caps in documentation use `timecode` type on `surface-raised` with a `lines-inputs` border, at `radius-sm`.

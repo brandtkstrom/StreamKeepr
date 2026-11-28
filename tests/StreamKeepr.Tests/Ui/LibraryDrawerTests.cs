@@ -45,6 +45,7 @@ public sealed class LibraryDrawerTests
         await using BunitContext context = CreateContext(view);
         IRenderedComponent<LibraryDrawer> cut = context.Render<LibraryDrawer>();
 
+        Assert.Equal("2 channels, 3 recordings", cut.Find("[data-library-counts]").TextContent.Trim());
         var channels = cut.FindAll("[role='option']");
         Assert.Equal(2, channels.Count);
         Assert.Contains("Live Star", channels[0].TextContent);
@@ -415,7 +416,7 @@ public sealed class LibraryDrawerTests
             parameters.Add(component => component.Body, fragment =>
                 fragment.AddMarkupContent(0, "<div data-test='body'>Body</div>")));
 
-        Assert.NotNull(cut.Find("header a[href='/'] [data-rec-dot]"));
+        Assert.NotNull(cut.Find("header [data-recording-tally] [data-rec-dot]"));
         // Md and up the library starts as the rail: the disk is its storage button.
         Assert.Equal("rail", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
         Assert.Equal("low", cut.Find("[data-storage-rail]").GetAttribute("data-storage-rail"));

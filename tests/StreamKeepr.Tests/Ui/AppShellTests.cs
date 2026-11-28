@@ -23,7 +23,8 @@ public sealed class AppShellTests
         await using var context = CreateContext();
         var cut = RenderShell(context, parameters => parameters
             .AddChildContent("<div data-test='main'>Main column</div>")
-            .Add(component => component.RecordingActive, true));
+            .Add(component => component.RecordingActive, true)
+            .Add(component => component.RecordingCount, 2));
 
         Assert.NotNull(cut.Find("[data-shell]"));
         Assert.NotNull(cut.Find("header"));
@@ -32,8 +33,11 @@ public sealed class AppShellTests
         var wordmark = cut.Find("header a[href='/']");
         Assert.Equal("/", wordmark.GetAttribute("href"));
         Assert.Equal("StreamKeepr home", wordmark.GetAttribute("aria-label"));
-        Assert.NotNull(wordmark.QuerySelector("[data-rec-dot]"));
-        Assert.NotNull(cut.Find("header input[aria-label='Search recordings']"));
+        Assert.Null(wordmark.QuerySelector("[data-rec-dot]"));
+        Assert.NotNull(cut.Find("header button[aria-label='Search library']"));
+        var tally = cut.Find("header [data-recording-tally]");
+        Assert.NotNull(tally.QuerySelector("[data-rec-dot]"));
+        Assert.Contains("2 channels recording", tally.TextContent);
         // Disk usage moved to the library drawer's footer (#176).
         Assert.Empty(cut.FindAll("header [data-storage]"));
 
@@ -64,14 +68,14 @@ public sealed class AppShellTests
     {
         await using var context = CreateContext();
         var cut = RenderShell(context);
-        Assert.Equal("Menu: open library", cut.Find("[data-drawer-toggle]").GetAttribute("aria-label"));
+        Assert.Equal("Library", cut.Find("[data-drawer-toggle]").TextContent.Trim());
+        Assert.Equal("false", cut.Find("[data-drawer-toggle]").GetAttribute("aria-expanded"));
 
         cut.Find("[data-drawer-toggle]").Click();
         cut.WaitForAssertion(() =>
         {
             Assert.Equal("expanded", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
             Assert.Equal("true", cut.Find("[data-drawer-toggle]").GetAttribute("aria-expanded"));
-            Assert.Equal("Menu: close library", cut.Find("[data-drawer-toggle]").GetAttribute("aria-label"));
             Assert.NotNull(cut.Find("[data-shell][data-library-open]"));
             // Md and up it is not modal: no backdrop, and the phone's modal hook stays off.
             Assert.Empty(cut.FindAll("[data-shell][data-drawer-modal-open]"));
@@ -85,6 +89,21 @@ public sealed class AppShellTests
         });
         // Nothing about it is saved.
         Assert.DoesNotContain(context.JSInterop.Invocations, call => call.Identifier == "skPrefs.writeUi");
+    }
+
+    [Fact]
+    public async Task The_tally_opens_the_library_filtered_to_recording()
+    {
+        await using var context = CreateContext();
+        var cut = RenderShell(context, parameters => parameters
+            .Add(component => component.RecordingCount, 2));
+        NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
+
+        cut.Find("[data-recording-tally]").Click();
+
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-shell][data-library-open]")));
+        Assert.EndsWith("/?state=recording", navigation.Uri);
+        Assert.Equal("2 channels recording", cut.Find("[data-recording-tally]").TextContent.Trim());
     }
 
     [Fact]
@@ -167,7 +186,7 @@ public sealed class AppShellTests
     }
 
     [Fact]
-    public async Task The_logo_mark_leads_the_wordmark_and_carries_the_rec_badge_only_while_recording()
+    public async Task The_logo_mark_leads_the_wordmark_and_the_tally_carries_the_rec_state()
     {
         await using var context = CreateContext();
         var idle = RenderShell(context);
@@ -179,30 +198,20 @@ public sealed class AppShellTests
         Assert.EndsWith("streamkeepr-mark.svg", mark.GetAttribute("src"));
         Assert.Null(wordmark.QuerySelector("[data-rec-dot]"));
 
-        idle.Render(parameters => parameters.Add(component => component.RecordingActive, true));
-        Assert.NotNull(idle.Find("header a[aria-label='StreamKeepr home'] [data-rec-dot]"));
+        idle.Render(parameters => parameters.Add(component => component.RecordingCount, 2));
+        Assert.NotNull(idle.Find("header [data-recording-tally] [data-rec-dot]"));
+        Assert.Empty(idle.FindAll("header a[aria-label='StreamKeepr home'] [data-rec-dot]"));
     }
 
     [Fact]
-    public async Task GitHub_and_Twitch_open_their_configured_urls_in_a_new_tab()
+    public async Task Outbound_links_are_not_app_bar_actions()
     {
         await using var context = CreateContext();
         var cut = RenderShell(context);
 
-        var github = cut.Find("header a[aria-label='StreamKeepr on GitHub (opens in a new tab)']");
-        Assert.Equal("https://github.com/example/streamkeepr", github.GetAttribute("href"));
-        Assert.Equal("_blank", github.GetAttribute("target"));
-        Assert.Contains("noopener", github.GetAttribute("rel"));
-
-        var twitch = cut.Find("header a[aria-label='Twitch (opens in a new tab)']");
-        Assert.Equal("https://twitch.example/", twitch.GetAttribute("href"));
-        Assert.Equal("_blank", twitch.GetAttribute("target"));
-        Assert.Contains("noopener", twitch.GetAttribute("rel"));
-
-        var twitchMark = twitch.QuerySelector("[data-twitch-mark]");
-        Assert.NotNull(twitchMark);
-        Assert.Equal("", twitchMark!.GetAttribute("alt"));
-        Assert.EndsWith("twitch-glitch.svg", twitchMark.GetAttribute("src"));
+        // They moved to Settings › About: reference links, not room in the bar beside the account.
+        Assert.Empty(cut.FindAll("header a[aria-label='StreamKeepr on GitHub (opens in a new tab)']"));
+        Assert.Empty(cut.FindAll("header a[aria-label='Twitch (opens in a new tab)']"));
     }
 
     [Fact]
@@ -236,6 +245,31 @@ public sealed class AppShellTests
             Assert.Equal("rail", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
             Assert.NotNull(cut.Find("[data-shell][data-watching]"));
         });
+    }
+
+    [Fact]
+    public async Task Picking_the_recording_already_open_closes_the_library()
+    {
+        await using var context = CreateContext();
+        NavigationManager navigation = context.Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo("/r/abc");
+        var cut = RenderShell(context);
+        cut.Find("[data-drawer-toggle]").Click();
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("[data-shell][data-library-open]")));
+
+        // A library row links to its recording with the autoplay intent. On the same recording
+        // only the query changes, but it is a pick, not a view change: the library closes.
+        navigation.NavigateTo("/r/abc?autoplay=1");
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Empty(cut.FindAll("[data-shell][data-library-open]"));
+            Assert.Equal("rail", cut.Find("nav[aria-label='Library']").GetAttribute("data-drawer"));
+        });
+
+        // Home strips the intent with a replace navigation; the library stays closed.
+        navigation.NavigateTo("/r/abc", replace: true);
+        cut.WaitForAssertion(() => Assert.Equal("/r/abc", "/" + navigation.ToBaseRelativePath(navigation.Uri)));
+        Assert.Empty(cut.FindAll("[data-shell][data-library-open]"));
     }
 
     [Fact]
@@ -314,22 +348,20 @@ public sealed class AppShellTests
     }
 
     [Fact]
-    public async Task On_a_phone_the_search_icon_opens_the_search_row()
+    public async Task On_a_phone_the_search_icon_opens_the_library_to_search_it()
     {
         await using var context = CreateContext();
         var cut = RenderShell(context);
         await SetBreakpointAsync(cut, Breakpoint.Xs);
 
-        var toggle = cut.Find("header button[aria-label='Search']");
-        Assert.Equal("false", toggle.GetAttribute("aria-expanded"));
-        Assert.Empty(cut.FindAll("[data-search-open]"));
+        Assert.Empty(cut.FindAll("[data-shell][data-library-open]"));
 
-        toggle.Click();
+        cut.Find("header button[aria-label='Search library']").Click();
 
         cut.WaitForAssertion(() =>
         {
-            Assert.NotNull(cut.Find("header [data-search-open] input[aria-label='Search recordings']"));
-            Assert.Equal("true", cut.Find("header button[aria-label='Search']").GetAttribute("aria-expanded"));
+            Assert.NotNull(cut.Find("[data-shell][data-library-open]"));
+            Assert.Equal("true", cut.Find("[data-drawer-toggle]").GetAttribute("aria-expanded"));
         });
     }
 

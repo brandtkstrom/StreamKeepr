@@ -44,12 +44,12 @@ else
     </section>
 }
 
-@* The watch view (player contract §2a, #175; design system: AppShell, TheaterMode, PhoneLayout).
-   Md and up it is two columns: the player (with the Statistics overlay inside it), the title
-   block, Chapters and Viewers on the left, and
-   chat as a full-height sticky column on the right; theater spans the player across both and
-   moves the columns under it. Below Md the player is edge to edge above the title block and
-   the Chat/Chapters/Stats tabs, so the title and actions stay put while a tab scrolls. The
+@* The watch view (player contract §2a, #175, #332; design system: AppShell, TheaterMode, PhoneLayout).
+   Md and up the content is one column: the player (with the Statistics overlay inside it), the
+   title block, Chapters and Viewers, with chat as a full-height drawer docked to the right edge
+   under the app bar. The content reserves the drawer's width while it is open; theater lets the
+   player span the view up to the drawer's divider. Below Md the player is edge to edge above the title block and the
+   Chat/Chapters/Stats tabs, so the title and actions stay put while a tab scrolls. The
    VideoPlayer stays the first child of the top row at every width, so a breakpoint change never
    reloads it. *@
 @if (RecordingId is not null)

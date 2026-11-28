@@ -138,43 +138,88 @@ body { margin: 0; background: var(--sk-surface); color: var(--sk-on-surface); fo
 @media (prefers-reduced-motion: reduce) { .mud-chip.sk-status-rec .dot, .sk-twitch .sk-spin { animation: none; } }
 
 /* ---------- top app bar (MudAppBar; design system: TopAppBar) ----------
-   New shell rules read tokens.css directly, not the legacy --sk-* aliases (ADR 0012). */
+   The bar is a status strip: one labeled library toggle, the wordmark, and a quiet utility
+   cluster. The recording tally is the only loud element. New rules read tokens.css directly,
+   not the legacy --sk-* aliases (ADR 0012). */
 .sk-appbar { border-bottom: 1px solid var(--divider); }
 .sk-appbar .mud-toolbar { gap: var(--space-2); padding: 0 var(--space-4) 0 var(--space-2); }
 .sk-appbar .mud-icon-button { color: var(--action-default); }
-.sk-appbar .sk-twitch-mark { display: grid; place-items: center; width: 24px; height: 24px; }
-.sk-appbar .sk-twitch-mark img { display: block; width: auto; height: 24px; }
+.sk-twitch-mark { display: grid; place-items: center; width: 24px; height: 24px; }
+.sk-twitch-mark img { display: block; width: auto; height: 24px; }
 .sk-appbar.scrolled { box-shadow: var(--elevation-4); }
+.sk-appbar-library.mud-button-root {
+  min-height: 40px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--text-primary); white-space: nowrap;
+}
+.sk-appbar-library .mud-button-icon-start { color: var(--action-default); }
+.sk-appbar-library:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
+.sk-appbar-library.sk-pressed { background: color-mix(in srgb, var(--primary) 16%, transparent); color: var(--primary); }
+.sk-appbar-library.sk-pressed .mud-button-icon-start { color: var(--primary); }
 .sk-wordmark { display: flex; align-items: center; gap: var(--space-2); margin-left: var(--space-1); border-radius: var(--radius-sm); color: var(--text-primary); font: var(--text-wordmark); letter-spacing: var(--text-wordmark-letter-spacing); text-decoration: none; white-space: nowrap; }
 .sk-wordmark:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .sk-wordmark b { color: var(--primary); font-weight: inherit; }
 .sk-logo { position: relative; display: inline-flex; flex: none; }
 .sk-logo img { display: block; width: 28px; height: 28px; }
-.sk-logo .rec-dot { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; border-radius: var(--radius-full); background: var(--rec); box-shadow: 0 0 0 2px var(--appbar-background); animation: sk-pulse 1.6s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .sk-logo .rec-dot { animation: none; } }
 .sk-watch-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--text-subtitle1); font-weight: 500; letter-spacing: var(--text-subtitle1-letter-spacing); }
-.sk-search { flex: 1; min-width: 0; display: flex; justify-content: center; }
 .sk-search-field {
-  display: flex; align-items: center; gap: var(--space-2); width: 100%; max-width: 360px; height: 36px; padding: 0 var(--space-3);
-  border-radius: var(--radius-md); background: var(--background); color: var(--text-secondary); box-shadow: inset 0 0 0 1px var(--lines-inputs);
-  font: var(--text-body2); letter-spacing: var(--text-body2-letter-spacing); transition: max-width 200ms cubic-bezier(0.2, 0, 0, 1);
+  display: flex; align-items: center; gap: var(--space-2); width: 100%; height: 36px; padding: 0 var(--space-3);
+  border-radius: var(--radius-md); background: var(--surface); color: var(--text-secondary); box-shadow: inset 0 0 0 1px var(--lines-inputs);
+  font: var(--text-body2); letter-spacing: var(--text-body2-letter-spacing);
 }
-.sk-search-field:focus-within { max-width: 480px; outline: 2px solid var(--primary); outline-offset: -1px; }
+.sk-search-field:focus-within { outline: 2px solid var(--primary); outline-offset: -1px; }
 .sk-search-field input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: inherit; }
 .sk-search-field input::placeholder { color: var(--text-secondary); opacity: 1; }
-.sk-appbar-actions { display: flex; align-items: center; gap: var(--space-1); flex: none; }
-.sk-appbar-search { display: none; }
+.sk-keycap {
+  flex: none; display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px;
+  border-radius: var(--radius-sm); color: var(--text-secondary); box-shadow: inset 0 0 0 1px var(--lines-default);
+  font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
+}
+@media (pointer: coarse) { .sk-keycap { display: none; } }
+.sk-appbar-actions { display: flex; align-items: center; gap: var(--space-1); flex: none; margin-left: auto; }
+.sk-tally {
+  display: inline-flex; align-items: center; gap: var(--space-2); min-height: 28px; padding: 0 var(--space-3);
+  border: 0; border-radius: var(--radius-full); background: color-mix(in srgb, var(--rec) 12%, transparent);
+  color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing);
+  white-space: nowrap; cursor: pointer;
+}
+.sk-tally:hover { background: color-mix(in srgb, var(--rec) 18%, transparent); }
+.sk-tally-status, .sk-tally-status:hover { cursor: default; background: color-mix(in srgb, var(--rec) 12%, transparent); }
+.sk-tally:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.sk-tally-dot { flex: none; width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--rec); animation: sk-pulse 1.6s ease-in-out infinite; }
+.sk-tally-label { font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .sk-tally-dot { animation: none; } }
 
 /* ---------- library drawer (design system: LibraryDrawer, RecordingRow) ----------
    New rules read tokens.css directly (ADR 0012). The MudDrawer frame sets the width (320px
    library, 72px rail); the library fills it, with the channels scrolling between head and footer. */
 .sk-drawer { width: 100%; height: 100%; display: flex; flex-direction: column; min-height: 0; overflow: hidden; color: var(--drawer-text); }
-.sk-drawer-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-4) var(--space-2) var(--space-2) var(--space-4); }
-.sk-drawer-head h2 { flex: 1; margin: 0; white-space: nowrap; color: var(--text-primary); }
-.sk-sort { display: inline-flex; align-items: center; gap: 2px; color: var(--text-secondary); white-space: nowrap; }
-.sk-filters { display: flex; flex-wrap: nowrap; gap: var(--space-2); padding: 0 var(--space-4) var(--space-3); }
+.sk-drawer-toolbar { flex: none; padding: var(--space-4) var(--space-2) var(--space-3) var(--space-4); }
+.sk-drawer-head {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center;
+  column-gap: var(--space-2); row-gap: 0;
+}
+.sk-drawer-title { display: contents; }
+.sk-drawer-title h2 { grid-column: 1; grid-row: 1; margin: 0; white-space: nowrap; color: var(--text-primary); }
+.sk-drawer-counts { grid-column: 1 / -1; grid-row: 2; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.sk-drawer-head .mud-menu { grid-column: 2; grid-row: 1; }
+.sk-drawer-head .mud-icon-button { grid-column: 3; grid-row: 1; color: var(--action-default); }
+/* The sort is MudMenu's role="button" wrapper; the inner span is the visible label. */
+.sk-drawer-head .mud-menu-activator:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--radius-md); }
+.sk-sort {
+  display: inline-flex; align-items: center; gap: 2px; min-height: 32px; padding: 0 var(--space-1);
+  border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-secondary);
+  font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; cursor: pointer;
+}
+.sk-sort:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
+.sk-sort:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.sk-sort .mud-icon-root { color: inherit; }
+.sk-drawer-search { margin-top: var(--space-3); }
+.sk-filters { display: flex; flex-wrap: nowrap; gap: var(--space-2); margin-top: var(--space-3); }
 .sk-filters .mud-chip { margin: 0; }
 .sk-filters [data-filter="recording"]:not(.mud-chip-selected) .mud-chip-icon { color: var(--rec); }
+@media (max-width: 359.98px) {
+  /* At 320px the temporary drawer is 272px; labels alone fit, three icons do not. */
+  .sk-filters .mud-chip-icon { display: none; }
+}
 /* Quiet note while the circuit reconnects (reconnect.js sets body[data-sk-reconnect]). */
 .sk-drawer-note.mud-alert { display: none; margin: 0 var(--space-4) var(--space-2); }
 body[data-sk-reconnect="show"] .sk-drawer-note.mud-alert, body[data-sk-reconnect="retrying"] .sk-drawer-note.mud-alert { display: flex; }
@@ -190,23 +235,33 @@ body[data-sk-reconnect="show"] .sk-drawer-note.mud-alert, body[data-sk-reconnect
    with a 3px primary bar at its left edge, every line text-primary. */
 .sk-channels { display: flex; flex-direction: column; gap: 2px; }
 .sk-channel {
-  position: relative; display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 64px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  position: relative; display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 56px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
   border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-primary); font: inherit; text-align: left; cursor: pointer;
 }
 .sk-channel .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .sk-channel .name { font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sk-channel .meta { color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-channel .meta.live { color: var(--text-primary); }
 .sk-channel .count { color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing); font-variant-numeric: tabular-nums; }
 .sk-channel .chev { color: var(--action-default); }
+/* The chevron is a drill-in affordance, not a decoration on every row. Touch keeps it visible. */
+@media (hover: hover) {
+  .sk-channel .chev { opacity: 0; }
+  .sk-channel:is(:hover, :focus-visible, [aria-selected="true"]) .chev { opacity: 1; }
+}
 .sk-channel[aria-selected="true"] { background: var(--selection); }
 .sk-channel[aria-selected="true"]::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 2px 2px 0; background: var(--primary); }
 .sk-channel[aria-selected="true"] :is(.meta, .count) { color: var(--text-primary); }
 .sk-channel[data-library-skeleton] { cursor: default; }
-/* Long lists stay in the DOM (E-19): days and rows (.sk-row-item, below) skip off-screen layout and
-   paint, and keep remembered sizes. */
-.sk-day { content-visibility: auto; contain-intrinsic-size: auto 28px; }
+/* Long lists keep rows in the DOM (E-19) and skip off-screen layout; day headers stick under
+   the column's own header so the day is always in view. */
 .sk-drawer :is(.sk-row, .sk-channel):focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
-.sk-day { padding: var(--space-2) var(--space-2) var(--space-1); color: var(--text-secondary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
+.sk-day {
+  position: sticky; top: 0; z-index: 1; padding: var(--space-2) var(--space-2) var(--space-1);
+  background: var(--drawer-background); color: var(--text-secondary);
+  font: var(--text-label); letter-spacing: var(--text-label-letter-spacing);
+  box-shadow: 0 1px 0 var(--divider);
+}
 /* The live badge on a channel avatar (MudBadge Dot) is the rec colour, never a state colour. */
 .sk-channel-avatar .mud-badge.sk-live { background-color: var(--rec); }
 
@@ -215,15 +270,18 @@ body[data-sk-reconnect="show"] .sk-drawer-note.mud-alert, body[data-sk-reconnect
 .sk-drawer-frame:not(.mud-drawer-temporary), .sk-drawer-frame:not(.mud-drawer-temporary) > .mud-drawer-content,
 .sk-drawer-frame:not(.mud-drawer-temporary) .sk-drawer { overflow: visible; }
 .sk-rec-col {
-  position: absolute; z-index: 1; top: 0; bottom: 0; left: 100%; width: 360px; display: flex; flex-direction: column;
-  background: var(--drawer-background); border-left: 1px solid var(--divider); box-shadow: var(--elevation-8);
+  position: absolute; z-index: 1; top: 0; bottom: 0; left: 100%; width: var(--rec-col-width); display: flex; flex-direction: column;
+  background: var(--drawer-background); border-left: 1px solid var(--divider);
   animation: sk-col-in 200ms cubic-bezier(0.2, 0, 0, 1);
 }
 .sk-rec-col.drill { left: 0; right: 0; width: auto; border-left: 0; box-shadow: none; animation-name: sk-drill-in; }
+/* One floating sheet: the column is its right edge, so the shadow is cast right only and the
+   pane boundary stays a hairline. */
+.sk-rec-col:not(.drill) { box-shadow: 10px 0 24px -16px rgba(0, 0, 0, 0.65); }
 @keyframes sk-col-in { from { transform: translateX(-24px); opacity: 0; } }
 @keyframes sk-drill-in { from { transform: translateX(32px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .sk-rec-col { animation: none; } }
-.sk-rec-col-head { flex: none; display: flex; align-items: center; gap: var(--space-3); min-height: 64px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); border-bottom: 1px solid var(--divider); }
+.sk-rec-col-head { flex: none; display: flex; align-items: center; gap: var(--space-3); min-height: 56px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); border-bottom: 1px solid var(--divider); }
 .sk-rec-col.drill .sk-rec-col-head { padding-left: var(--space-1); }
 .sk-rec-col-head .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .sk-rec-col-head h3 { margin: 0; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -289,14 +347,16 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
    menu against it, leaving an opened menu stranded mid-slide. */
 .sk-drawer-frame.mud-drawer-mini { transition: none; }
 
-/* rail (desktop mini drawer): Home, 32px avatars, the storage icon */
+/* rail (desktop mini drawer): Home, 32px avatars, the storage icon and its level gauge */
 .sk-rail-home { display: grid; justify-items: center; gap: var(--space-2); padding: var(--space-2) 0 0; }
 .sk-rail-home .mud-divider { width: 32px; }
-.sk-drawer.rail .sk-drawer-head h2, .sk-drawer.rail .sk-sort, .sk-drawer.rail .sk-filters,
 .sk-drawer.rail .who, .sk-drawer.rail .chev, .sk-drawer.rail .count { display: none; }
-.sk-drawer.rail .sk-drawer-head { justify-content: center; padding: var(--space-2) 0; }
 .sk-drawer.rail .sk-channel { justify-content: center; padding: var(--space-2) 0; min-height: 0; }
 .sk-drawer.rail .sk-drawer-foot { display: grid; justify-items: center; padding: var(--space-2) 0; }
+.sk-rail-storage { display: grid; justify-items: center; gap: 2px; }
+.sk-rail-storage-gauge { width: 24px; height: 3px; border-radius: var(--radius-full); overflow: hidden; background: var(--lines-default); }
+.sk-rail-storage-gauge i { display: block; height: 100%; border-radius: inherit; background: var(--primary); }
+.sk-rail-storage.low .sk-rail-storage-gauge i { background: var(--warning); }
 .sk-drawer.rail .sk-channel .mud-avatar { width: 32px; height: 32px; font: var(--text-subtitle2); }
 /* The watched channel's avatar is ringed in primary. */
 .sk-drawer.rail .sk-channel[data-current="true"] .mud-avatar { box-shadow: 0 0 0 2px var(--drawer-background), 0 0 0 4px var(--primary); }
@@ -478,70 +538,69 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   .sk-player-spinner .sk-spin { animation-duration: 2400ms; }
 }
 
-/* ---------- watch layout (design system: AppShell, TheaterMode, PhoneLayout; #175) ----------
-   The watch page has no max width: the player is as wide as its column, and chat is a column
-   of its own beside everything else. The player's height cap keeps the title block's first
-   line above the fold; the video letterboxes inside the frame when the cap bites. */
+/* ---------- watch layout (design system: AppShell, TheaterMode, PhoneLayout; #175, #332) ----------
+   The watch page has no max width. Md and up the watch content is one column, and the open chat
+   is a 400px drawer docked under the app bar and flush to the right edge; the content reserves
+   its width while it is open. Closed, it leaves no width, strip or gap. The player's height cap
+   keeps the title block's first line above the fold; the video letterboxes inside the frame
+   when the cap bites. */
 .sk-main-inner:has(.sk-watch) { max-width: none; }
 .sk-watch { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
 .sk-watch-top { display: flex; align-items: stretch; gap: var(--space-3); min-width: 0; }
 .sk-watch-player { flex: 1 1 auto; min-width: 0; }
 .sk-watch-player > .sk-player { width: 100%; }
-/* Closed, chat is not shown: the player's Chat button and C reopen it. */
-.sk-watch-chat { display: flex; flex: 0 1 400px; min-width: var(--chat-width); min-height: 0; }
+/* Closed, the drawer is not shown and reserves nothing: the player's Chat button and C reopen it. */
 .sk-watch-chat:has(.sk-chat[data-open="false"]) { display: none; }
-.sk-watch-chat > .sk-chat { width: 100%; }
 
 @media (min-width: 960px) {
-  /* Two columns (design system: AppShell): the player, the title block, Chapters and stats on
-     the left; chat on the right, full height and sticky, so it stays put while the left
-     column scrolls. The top row dissolves so the player and chat are grid items; the last
-     row takes the height chat adds, so nothing on the left stretches. */
+  /* One content column (design system: AppShell): the player, the title block, Chapters and
+     stats. The top row dissolves so the player is a grid item; the chat is out of flow. */
   .sk-watch {
-    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto auto 1fr;
-    grid-template-areas: "player chat" "info chat" "stats chat" ". chat";
-    column-gap: var(--space-4); row-gap: var(--space-4); align-items: start;
+    display: grid; grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "player" "info" "stats";
+    row-gap: var(--space-4); align-items: start;
   }
-  .sk-watch:not(:has(.sk-watch-chat .sk-chat[data-open="true"])) { column-gap: 0; }
   .sk-watch-top { display: contents; }
   .sk-watch-player { grid-area: player; min-width: 0; }
   .sk-watch-info { grid-area: info; min-width: 0; display: flex; flex-direction: column; gap: var(--space-4); }
   .sk-watch-stats { grid-area: stats; min-width: 0; }
   .sk-watch-stats:empty { display: none; }
+  /* The open chat is a full-height drawer from the app bar's bottom to the viewport's bottom,
+     flat on the drawer background with one left divider: no card outline, radius, shadow or inset. */
   .sk-watch-chat {
-    grid-area: chat; grid-row: 1 / -1; position: sticky; top: 0; align-self: start;
-    width: clamp(var(--chat-width), 28vw, 400px); min-width: 0;
-    height: calc(100dvh - var(--appbar-height) - (2 * var(--space-6)));
+    display: flex; position: fixed; top: var(--appbar-height); right: 0; bottom: 0;
+    width: var(--chat-width); min-width: 0; min-height: 0; z-index: 1;
   }
+  .sk-watch-chat > .sk-chat[data-open] {
+    width: 100%; height: 100%; min-height: 0;
+    border: 0; border-left: 1px solid var(--divider); border-radius: 0; box-shadow: none;
+  }
+  /* Reserve the drawer's width, instantly: the rail's margin-left keeps MudBlazor's transition,
+     but the chat's margin-right must not animate. */
+  .sk-shell:has(.sk-watch) .sk-main-frame.mud-main-content { transition-property: margin-left; }
+  .sk-shell:has(.sk-watch-chat .sk-chat[data-open="true"]) .sk-main-frame { margin-right: var(--chat-width); }
   .sk-watch-player > .sk-player {
     max-height: calc(100dvh - var(--appbar-height) - (2 * var(--space-6)) - var(--player-peek));
   }
 
-  /* Theater mode (desktop only): no gutters, the player is the view's full width, and the two
-     columns follow below it with chat still sticky on the right. */
+  /* Theater mode (desktop only): no gutters, the player spans the view to the drawer's divider,
+     and the content below it keeps 16px side padding. The drawer uses the same geometry. */
   .sk-shell[data-theater-mode] .sk-main { background: var(--background-gray); padding: 0; }
-  .sk-shell[data-theater-mode] .sk-watch {
-    grid-template-rows: auto auto auto 1fr;
-    grid-template-areas: "player player" "info chat" "stats chat" ". chat";
-    padding-bottom: var(--space-4);
-  }
+  .sk-shell[data-theater-mode] .sk-watch { padding-bottom: var(--space-4); }
   .sk-shell[data-theater-mode] .sk-watch-player > .sk-player {
     max-height: calc(100dvh - var(--appbar-height)); border-radius: 0;
   }
   .sk-shell[data-theater-mode] .sk-watch-info,
-  .sk-shell[data-theater-mode] .sk-watch-stats { padding-left: var(--space-4); }
-  .sk-shell[data-theater-mode] .sk-watch:not(:has(.sk-watch-chat .sk-chat[data-open="true"])) .sk-watch-info,
-  .sk-shell[data-theater-mode] .sk-watch:not(:has(.sk-watch-chat .sk-chat[data-open="true"])) .sk-watch-stats { padding-right: var(--space-4); }
-  .sk-shell[data-theater-mode] .sk-watch-chat {
-    grid-row: 2 / -1; top: var(--space-4); margin-right: var(--space-4);
-    height: max(260px, calc(100dvh - var(--appbar-height) - (2 * var(--space-4))));
-  }
+  .sk-shell[data-theater-mode] .sk-watch-stats { padding: 0 var(--space-4); }
 }
 
 @media (max-width: 959.98px) {
   /* Edge to edge and square below Md. The top row keeps the player; the summary and tabs
      follow. The top row is the sticky box on phones, so its containing block is the whole
      watch column and the tabs scroll underneath it. */
+  /* The wide page is the server's default, so a persisted-open chat is in the first paint's
+     DOM; it must never paint as a dock here. The Chat tab owns it below Md. */
+  .sk-watch-chat { display: none; }
   .sk-watch-top {
     display: block; margin-inline: calc(var(--space-4) * -1); background: var(--player-background);
   }
@@ -590,17 +649,26 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
    the player's height and the log scrolls; without it every new message grows the pane and
    pushes the sync footer down the page. */
 .sk-chat {
+  --sk-chat-font-scale: 100; --sk-chat-font-weight: 400;
   width: 100%; flex: none; display: flex; flex-direction: column; min-height: 0; overflow: hidden; contain: size;
   background: var(--drawer-background); border: 1px solid var(--lines-default); border-radius: var(--radius-lg); color: var(--text-primary);
 }
-/* Open, the pane fills its sidecar; the watch layout owns the 400px/320px basis. As tall as
-   the player, so a narrow desktop player keeps a few rows. */
+/* Open, the pane fills its container: the watch layout's 400px drawer on desktop, or the
+   phone's Chat tab. Its log scrolls inside instead of growing the pane. */
 .sk-chat[data-open="true"] { min-height: 240px; }
 .sk-chat svg[data-icon] { display: block; width: 24px; height: 24px; fill: currentColor; flex: none; }
 .sk-chat [hidden] { display: none !important; }
 .sk-chat :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-.sk-chat-head { display: flex; align-items: center; gap: var(--space-2); min-height: 48px; padding: 0 var(--space-3); border-bottom: 1px solid var(--divider); }
+.sk-chat-head { display: flex; align-items: center; gap: var(--space-2); min-height: 64px; padding: 0 var(--space-3); border-bottom: 1px solid var(--divider); }
 .sk-chat-head svg[data-icon] { color: var(--action-default); }
+/* The close control is a 40px icon button at the header's end; it closes, it does not toggle.
+   The phone Chat tab renders no header, so it never renders this button either. */
+.sk-chat-close {
+  flex: none; display: inline-grid; place-items: center; width: 40px; height: 40px; padding: 0;
+  border: 0; border-radius: var(--radius-full); background: transparent;
+  color: var(--action-default); cursor: pointer;
+}
+.sk-chat-close:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
 .sk-chat-title {
   flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font: var(--text-subtitle1); letter-spacing: var(--text-subtitle1-letter-spacing);
@@ -624,6 +692,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; padding: var(--space-2) var(--space-3);
   display: flex; flex-direction: column; gap: var(--space-1);
   color: var(--text-primary); font: var(--text-body2); letter-spacing: var(--text-body2-letter-spacing);
+  font-size: calc(0.875rem * var(--sk-chat-font-scale, 100) / 100); font-weight: var(--sk-chat-font-weight, 400);
   overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--surface-raised) transparent;
 }
 /* Anchor short chat to the bottom so it grows upward. An auto margin, unlike
@@ -639,10 +708,15 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   display: inline-block; margin-right: var(--space-1); padding: 0 var(--space-1); border-radius: var(--radius-sm);
   background: var(--surface-raised); color: var(--text-secondary); vertical-align: 1px;
   font: var(--text-label); letter-spacing: var(--text-label-letter-spacing);
+  /* Badges grow with larger chat text but never shrink below the label size; 10px is the floor. */
+  font-size: max(10px, 0.75rem, calc(0.75rem * var(--sk-chat-font-scale, 100) / 100));
 }
-/* A catalog badge sits in the chip's slot on the first text line; 18px keeps it within the
-   line box, and auto width preserves Twitch's aspect ratio. */
-.sk-chat-badge-img { display: inline-block; height: 18px; width: auto; margin-right: var(--space-1); vertical-align: middle; }
+/* A catalog badge sits in the chip's slot on the first text line; auto width preserves Twitch's
+   aspect ratio. Like the text chip, it grows above 100% and never shrinks; 10px is the floor. */
+.sk-chat-badge-img {
+  display: inline-block; width: auto; margin-right: var(--space-1); vertical-align: middle;
+  height: max(10px, 18px, calc(18px * var(--sk-chat-font-scale, 100) / 100));
+}
 /* Settings › Chat "Show badges": the pane root carries the preference, and hidden badges
    leave the layout and the accessibility tree (display, not opacity). Both the image and its
    text-chip fallback are hidden. */
@@ -656,7 +730,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
   margin: var(--space-2) 0; padding: var(--space-1) 0; border-top: 1px dashed var(--divider); text-align: center;
   color: var(--text-secondary); font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
 }
-.sk-chat-text img { height: 28px; width: auto; vertical-align: middle; }
+.sk-chat-text img { height: 2em; width: auto; vertical-align: middle; }
 .sk-chat-text a, .sk-chat-reply a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
 .sk-chat-footer { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--divider); }
 /* Settings › Chat (design system: ChatSettings). Chat sync is a native range drawn like MudSlider
@@ -670,11 +744,11 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-chat-badges { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; max-width: 420px; margin-top: var(--space-4); color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); cursor: pointer; }
 .sk-chat-badges > svg[data-icon] { flex: none; width: 20px; height: 20px; color: var(--action-default); }
 .sk-chat-badges-input { flex: none; inline-size: 18px; block-size: 18px; margin: 0; accent-color: var(--primary); cursor: pointer; }
-.sk-chat-sync { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 420px; }
-.sk-chat-sync-head { display: flex; align-items: center; gap: var(--space-2); min-height: 28px; }
-.sk-chat-sync-head > svg[data-icon] { width: 20px; height: 20px; color: var(--action-default); }
-.sk-chat-sync-label { flex: 1; min-width: 0; color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
-.sk-chat-sync-value {
+.sk-chat-sync, .sk-chat-font { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 420px; }
+.sk-chat-sync-head, .sk-chat-font-head { display: flex; align-items: center; gap: var(--space-2); min-height: 28px; }
+.sk-chat-sync-head > svg[data-icon], .sk-chat-font-head > svg[data-icon] { width: 20px; height: 20px; color: var(--action-default); }
+.sk-chat-sync-label, .sk-chat-font-label { flex: 1; min-width: 0; color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
+.sk-chat-sync-value, .sk-chat-font-value {
   color: var(--text-primary); font: var(--text-timecode); letter-spacing: var(--text-timecode-letter-spacing);
   font-variant-numeric: var(--text-timecode-numeric); white-space: nowrap;
 }
@@ -686,7 +760,7 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-chat-sync-reset svg[data-icon] { width: 18px; height: 18px; }
 .sk-chat-sync-reset:hover { background: color-mix(in srgb, var(--text-primary) calc(var(--hover-opacity) * 100%), transparent); }
 /* The zero tick sits behind the input, centred, so the thumb covers it at 0. */
-.sk-chat-sync-slider { position: relative; display: flex; align-items: center; height: 20px; }
+.sk-chat-sync-slider, .sk-chat-font-slider { position: relative; display: flex; align-items: center; height: 20px; }
 .sk-chat-sync-slider::before {
   content: ""; position: absolute; left: 50%; top: 4px; width: 2px; height: 12px; margin-left: -1px;
   border-radius: 1px; background: var(--text-secondary); pointer-events: none;
@@ -712,9 +786,22 @@ mark.sk-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .sk-chat-sync-range::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--primary); }
 .sk-chat-sync-range:hover::-webkit-slider-thumb { box-shadow: 0 0 0 8px color-mix(in srgb, var(--primary) calc(var(--hover-opacity) * 100%), transparent); }
 .sk-chat-sync-range:hover::-moz-range-thumb { box-shadow: 0 0 0 8px color-mix(in srgb, var(--primary) calc(var(--hover-opacity) * 100%), transparent); }
-.sk-chat-sync-ends {
+.sk-chat-sync-ends, .sk-chat-font-ends {
   display: flex; justify-content: space-between; color: var(--text-secondary);
   font: var(--text-caption); letter-spacing: var(--text-caption-letter-spacing);
+}
+.sk-chat-font { margin-top: var(--space-4); }
+.sk-chat-font-weight {
+  display: flex; align-items: center; gap: var(--space-2); min-height: 40px; max-width: 420px;
+  margin-top: var(--space-4); color: var(--text-primary);
+}
+.sk-chat-font-weight > svg[data-icon] { flex: none; width: 20px; height: 20px; color: var(--action-default); }
+.sk-chat-font-weight-label { flex: 1; min-width: 0; font: var(--text-label); letter-spacing: var(--text-label-letter-spacing); }
+.sk-chat-font-select {
+  flex: none; max-width: 190px; height: 32px; padding: 0 var(--space-2);
+  border: 1px solid var(--lines-default); border-radius: var(--radius-sm);
+  background: var(--surface-raised); color: var(--text-primary);
+  font: var(--text-body2); letter-spacing: var(--text-body2-letter-spacing); cursor: pointer;
 }
 .sk-chat-jump {
   height: 24px; padding: 0 var(--space-3); border: 1px solid var(--primary); border-radius: var(--radius-full); background: transparent;
@@ -1052,26 +1139,17 @@ body:has(#components-reconnect-modal[open]) .sk-reconnect-notice { display: none
   .sk-appbar .mud-toolbar-appbar { height: var(--appbar-height-dense); }
   .sk-shell .sk-main-frame.mud-main-content { padding-top: var(--appbar-height-dense); }
   .sk-shell:has([data-bottom-nav]) .sk-main-frame { padding-bottom: calc(var(--bottom-bar-height) + env(safe-area-inset-bottom)); }
-  .sk-appbar-menu, .sk-appbar-settings { display: none; }
-  .sk-appbar-search { display: inline-flex; }
-  /* PhoneLayout: a watch page's bar holds the back arrow, the title and search. */
-  .sk-shell[data-watching] .sk-appbar-link { display: none; }
+  /* The bottom bar owns Library and Settings below Md; the app bar keeps search and account.
+     The tally is wide-only: the bottom bar's Library dot carries live state here. */
+  .sk-appbar-library, .sk-appbar-settings, .sk-tally { display: none; }
   .sk-wordmark { margin-left: var(--space-2); }
   .sk-logo img { width: 24px; height: 24px; }
-  .sk-search { flex: 0 0 auto; }
-  .sk-search:not([data-search-open]) { display: none; }
-  .sk-search[data-search-open] {
-    position: fixed; left: 0; right: 0; top: var(--appbar-height-dense); z-index: 1; padding: var(--space-2);
-    background: var(--appbar-background); border-bottom: 1px solid var(--divider);
-  }
-  .sk-search[data-search-open] .sk-search-field { max-width: none; }
   .sk-shell[data-layout="wide"] .sk-drawer-frame { display: none; }
   .sk-shell[data-layout="wide"] .sk-main-frame { margin-left: 0; }
   .sk-main { padding-right: var(--space-4); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sk-search-field { transition: none; }
   /* MudBlazor's own transitions and ripples (drawer, app bar, buttons, menus, tooltips,
      overlays) use longer selectors than ours, so reduced motion overrides them outright. */
   [class*="mud-"], [class*="mud-"]::before, [class*="mud-"]::after { transition: none !important; animation: none !important; }
@@ -1198,6 +1276,15 @@ body:has([data-bottom-nav]) .mud-snackbar-location-bottom-left {
 .sk-settings-connected { display: inline-flex; align-items: center; gap: var(--space-1); font: var(--text-body2); }
 .sk-settings-account .actions { margin-left: auto; }
 .sk-settings-empty { color: var(--text-secondary); }
+.sk-about-copy { margin: 0; color: var(--text-secondary); }
+.sk-about-links { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.sk-about-link {
+  display: inline-flex; align-items: center; gap: var(--space-2); min-height: 40px; padding: 0 var(--space-3);
+  border-radius: var(--radius-md); color: var(--text-primary); text-decoration: none; font: var(--text-body2);
+}
+.sk-about-link:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
+.sk-about-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.sk-about-link .mud-icon-root { color: var(--action-default); }
 .sk-connection-status.mud-simple-table { background: transparent; }
 .sk-connection-status tr { height: 40px; }
 .sk-connection-status th, .sk-connection-status td { border-bottom: 1px solid var(--divider); }

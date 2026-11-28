@@ -27,8 +27,13 @@ internal enum JourneyReady
 /// </summary>
 internal sealed class Journey : IAsyncDisposable
 {
-    /// <summary>The recording page's interactive marker: the seek bar is wired and playable.</summary>
-    private const string RecordingReady = "[data-sk='seek'][aria-disabled='false']";
+    /// <summary>
+    /// The recording page's interactive marker for one recording: the player names the recording
+    /// it holds, and its seek bar is wired and playable. The player is reused across recordings,
+    /// so a bare enabled seek bar can still be the previous recording's.
+    /// </summary>
+    private static string RecordingReady(string recordingId) =>
+        $"[data-sk-player][data-sk-recording=\"{recordingId}\"] [data-sk='seek'][aria-disabled='false']";
 
     /// <summary>Mirrors <c>COLUMN_WAIT_MS</c> in <c>library-keys.js</c>.</summary>
     private const int FocusHandoffTimeoutMs = 5_000;
@@ -164,7 +169,7 @@ internal sealed class Journey : IAsyncDisposable
         await page.WaitForFunctionAsync(
             """
             () => {
-              if (document.querySelector("input[data-search-input][data-sk-ready]")) return true;
+              if (document.querySelector("[data-shell][data-shell-ready]")) return true;
               if (document.querySelector("[data-signin]")) return true;
               const reconnect = document.body?.dataset.skReconnect;
               return reconnect === "failed" || reconnect === "paused" || reconnect === "resume-failed";
@@ -190,34 +195,41 @@ internal sealed class Journey : IAsyncDisposable
     public Task WaitForShellAsync(int timeoutMs = 20_000) =>
         WaitForReadyAsync(JourneyReady.Shell, timeoutMs);
 
-    /// <summary>Waits until the recording page's seek bar is wired and playable.</summary>
-    public async Task WaitForRecordingAsync(int timeoutMs = 30_000)
+    /// <summary>
+    /// Waits until the player holds <paramref name="recordingId"/> and its seek bar is wired and
+    /// playable. Going from one recording to another, the previous recording's seek bar stays
+    /// enabled until the player loads the new one, so waiting on any enabled seek bar could
+    /// return before the new recording is interactive.
+    /// </summary>
+    public async Task WaitForRecordingAsync(string recordingId, int timeoutMs = 30_000)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(recordingId);
+        string ready = RecordingReady(recordingId);
         try
         {
             await Page.WaitForFunctionAsync(
                 """
-                () => {
-                  if (document.querySelector("[data-sk='seek'][aria-disabled='false']")) return true;
+                ready => {
+                  if (document.querySelector(ready)) return true;
                   const reconnect = document.body?.dataset.skReconnect;
                   return reconnect === "failed" || reconnect === "paused" || reconnect === "resume-failed";
                 }
                 """,
-                null,
+                ready,
                 new PageWaitForFunctionOptions { Timeout = timeoutMs });
         }
         catch (TimeoutException ex)
         {
             throw new InvalidOperationException(
-                "The recording page did not become interactive.\n" +
+                $"Recording {recordingId} did not become interactive.\n" +
                 $"{await DescribeStateAsync()}\n{AppLogs(20)}",
                 ex);
         }
 
-        if (await Page.Locator(RecordingReady).CountAsync() == 0)
+        if (await Page.Locator(ready).CountAsync() == 0)
         {
             throw new InvalidOperationException(
-                "The recording page did not become interactive.\n" +
+                $"Recording {recordingId} did not become interactive.\n" +
                 $"{await DescribeStateAsync()}\n{AppLogs(20)}");
         }
 
@@ -235,7 +247,7 @@ internal sealed class Journey : IAsyncDisposable
         await ActAsync(() => row.ClickAsync());
         await WaitForUrlAsync(
             Page, url => new Uri(url).AbsolutePath == $"/r/{id}", timeoutMs);
-        await WaitForRecordingAsync(timeoutMs);
+        await WaitForRecordingAsync(id, timeoutMs);
     }
 
     /// <summary>
@@ -374,7 +386,7 @@ internal sealed class Journey : IAsyncDisposable
                 () => JSON.stringify({
                   url: location.href,
                   reconnect: document.body?.dataset.skReconnect ?? null,
-                  ready: !!document.querySelector("input[data-search-input][data-sk-ready]"),
+                  ready: !!document.querySelector("[data-shell][data-shell-ready]"),
                   active: document.activeElement ? {
                     tag: document.activeElement.tagName,
                     id: document.activeElement.id || null,

@@ -4,15 +4,13 @@
 @inject ILibraryView Library
 @inject NavigationManager Navigation
 
-<AppShell RecordingActive="@_recordingActive"
+<AppShell RecordingActive="@(_recordingCount > 0)"
+          RecordingCount="_recordingCount"
           WatchTitle="@_nowPlaying?.Title"
           NowPlaying="@_nowPlaying">
     <Drawer>
         <LibraryDrawer />
     </Drawer>
-    <SearchSlot>
-        <SearchField />
-    </SearchSlot>
     <AuthSlot>
         <TwitchAccount />
     </AuthSlot>
@@ -32,7 +30,7 @@
 </div>
 
 @code {
-    private bool _recordingActive;
+    private int _recordingCount;
     private RecordingView? _nowPlaying;
 
     protected override void OnInitialized()
@@ -45,8 +43,8 @@
     private void Refresh()
     {
         _nowPlaying = LibraryUrl.RecordingId(Navigation.Uri) is { } id ? Library.Find(id) : null;
-        _recordingActive = Library.Streamers(new LibraryQuery())
-            .Any(streamer => streamer.IsRecording);
+        _recordingCount = Library.Streamers(new LibraryQuery())
+            .Count(streamer => streamer.IsRecording);
     }
 
     private void OnLibraryChanged() => RefreshAndRender();

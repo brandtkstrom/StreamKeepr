@@ -42,6 +42,8 @@ public sealed class SessionStoreFinalizeTests
         Assert.Equal(SessionStoreTestContext.Now.AddMinutes(2), manifest.EndedAt);
         Assert.Equal(4.0, manifest.DurationSeconds);
         Assert.Equal(3 + 3 + 10 + 20 + new FileInfo(context.IndexPath).Length, manifest.SizeBytes);
+        Assert.Equal(2, manifest.PartCount);
+        Assert.Equal(2, manifest.SegmentCount);
 
         RecordingSummary summary = Assert.IsType<RecordingSummary>(
             context.Library.Find(context.Session.Id));
@@ -52,7 +54,7 @@ public sealed class SessionStoreFinalizeTests
         Assert.Equal(manifest.DurationSeconds, summary.DurationSeconds);
         Assert.Equal(manifest.SizeBytes, summary.SizeBytes);
 
-        Assert.False(File.Exists(context.ManifestPath + ".tmp"));
+        Assert.False(File.Exists(Path.Combine(context.Directory, "session.json")));
         Assert.False(File.Exists(context.IndexPath + ".tmp"));
     }
 

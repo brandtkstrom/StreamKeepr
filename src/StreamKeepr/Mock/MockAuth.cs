@@ -156,7 +156,11 @@ public static class MockAuth
     {
         ClaimsPrincipal principal = CreatePrincipal(options);
         context.User = principal;
-        await context.SignInAsync(AdminAuth.CookieScheme, principal);
+        // Persistent cookie, matching the production scheme's 7-day sliding lifetime.
+        await context.SignInAsync(
+            AdminAuth.CookieScheme,
+            principal,
+            new AuthenticationProperties { IsPersistent = true });
     }
 
     private static ClaimsPrincipal CreatePrincipal(MockAuthOptions options)

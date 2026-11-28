@@ -2,11 +2,11 @@ using System.Threading.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
-using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Runtime;
 using StreamKeepr.Infrastructure.Storage;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
+using StreamKeepr.Tests.Records;
 
 namespace StreamKeepr.Tests.Runtime;
 
@@ -123,11 +123,10 @@ public sealed class ChannelControlTests
 
         try
         {
-            Directory.CreateDirectory(AppDataPaths.AppDataDirectory(root));
-            await File.WriteAllTextAsync(
-                AppDataPaths.ChannelsFile(root),
-                System.Text.Json.JsonSerializer.Serialize(
-                    new[] { new { login = Channel, userId = "111", displayName = "Old Name", avatarUrl = avatar } }));
+            ChannelStore stored = await TestRecordStore.LoadChannelStoreInAsync(root);
+            await stored.AddAsync(
+                new ChannelEntry(Channel, UserId: "111", DisplayName: "Old Name", AvatarUrl: avatar),
+                CancellationToken.None);
 
             var poller = new ScriptedStreamPoller();
             poller.Profiles[Channel] = new ChannelProfile(

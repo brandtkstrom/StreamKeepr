@@ -4,6 +4,8 @@ Status: research memo, 2026-11-13.
 Issue: no dedicated issue. `gh issue list --search chat` returns only #131 (the EventSub conduits spike); #140 (EventSub reconnect handoff) is the other nearby item.
 Binding: no. This memo informs a decision; it changes no contract. Adoption would amend `docs/session-store-contract.md`, `docs/player-contract.md`, `docs/frontend-foundation-contract.md`, `docs/backend-ui-contract.md`, `docs/hosting-contract.md`, `docs/testing-contract.md`, and optionally `docs/twitch-auth-contract.md`.
 
+**Historical note (2026-11-26).** The shipped layout is a 400px drawer docked to the right edge under the app bar, with a 64px header and Close control (#332, #333). The 320px sidecar, its 320–340px width and the 44px rail below are the original 2026-11-13 proposal, kept as the memo's record, not current design.
+
 **Method.** Twitch facts come from official Twitch developer docs, the Twitch changelog, Twitch Developer Forums announcements/staff replies, FFmpeg master source and docs, Streamlink 8.6.3 docs/source, IRCv3, NuGet, and the Twitch Developer Agreement. All were fetched on 2026-11-13; links are in §12. No Twitch API was called and no credentials were used. The repo was read at `d47e4a0`. Serena's C# language server returned only the namespace for the inspected files, so code was read with `read`/`rg` (reported per `AGENTS.md`).
 
 ## 1. Summary and recommendation

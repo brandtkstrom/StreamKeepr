@@ -348,6 +348,43 @@ public sealed class EmoteCatalogServiceTests
     }
 
     [Fact]
+    public async Task An_ffz_numeric_id_survives_the_shared_usability_check()
+    {
+        var provider = new StubEmoteProvider
+        {
+            Id = "ffz",
+            Global = _ => Succeed(EmoteTestData.Entry(id: "381875", code: "KEKW")),
+        };
+        EmoteCatalogService service = Create([provider]);
+
+        EmoteCatalogResult result = await service.GetCatalogAsync("chan", CancellationToken.None);
+
+        EmoteCatalogItem item = Assert.Single(result.Entries);
+        Assert.Equal("ffz", item.Provider);
+        Assert.Equal("381875", item.Entry.Id);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("000")]
+    [InlineData("0001")]
+    [InlineData("12a")]
+    [InlineData("123456789012345678901")]
+    public async Task Invalid_ffz_numeric_ids_are_dropped_by_the_shared_usability_check(string id)
+    {
+        var provider = new StubEmoteProvider
+        {
+            Id = "ffz",
+            Global = _ => Succeed(EmoteTestData.Entry(id: id, code: "BROKEN")),
+        };
+        EmoteCatalogService service = Create([provider]);
+
+        EmoteCatalogResult result = await service.GetCatalogAsync("chan", CancellationToken.None);
+
+        Assert.Empty(result.Entries);
+    }
+
+    [Fact]
     public async Task A_duplicate_code_across_betterttv_and_seven_tv_keeps_the_first_provider()
     {
         var bttv = new StubEmoteProvider

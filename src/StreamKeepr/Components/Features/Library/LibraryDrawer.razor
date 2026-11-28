@@ -19,63 +19,93 @@
         <MudBlazor.MudDivider />
     </div>
 }
+else
+{
+    @* One toolbar: what the library is, what is in it, how it is ordered, and the one way to
+       find something. Sort is the menu trigger itself, so there is no second ⋮ button. *@
+    <div class="sk-drawer-toolbar">
+        <div class="sk-drawer-head">
+            <div class="sk-drawer-title">
+                <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2">Library</MudBlazor.MudText>
+                <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="sk-drawer-counts" data-library-counts>@LibraryCounts</MudBlazor.MudText>
+            </div>
+            <MudBlazor.MudMenu OpenChanged="OnSortMenuOpenChanged"
+                               AriaLabel="@($"Sort library: {CurrentSort.Label}")"
+                               AnchorOrigin="MudBlazor.Origin.BottomRight"
+                               TransformOrigin="MudBlazor.Origin.TopRight"
+                               Class="sk-sort-menu"
+                               data-sort-menu>
+                <ActivatorContent Context="menu">
+                    @* The activator wrapper is MudMenu's role="button"; this content is inert. A
+                       nested button here would be a nested interactive control (axe). *@
+                    <span class="sk-sort"
+                          data-sort="@_query.Sort"
+                          data-sort-icon="@CurrentSort.IconName"
+                          @onclick="menu.ToggleAsync">
+                        @if (CurrentSort.Glyph is { } icon)
+                        {
+                            <MudBlazor.MudIcon Icon="@icon" Size="MudBlazor.Size.Small" aria-hidden="true" />
+                        }
+                        <span>@CurrentSort.Label</span>
+                        <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.KeyboardArrowDown" Size="MudBlazor.Size.Small" aria-hidden="true" />
+                    </span>
+                </ActivatorContent>
+                <ChildContent>
+                    @foreach (SortChoice choice in SortChoices)
+                    {
+                        bool current = choice == CurrentSort;
+                        <MudBlazor.MudMenuItem Icon="@(current ? MudBlazor.Icons.Material.Rounded.Check : null)"
+                                               OnClick="@(() => SetSort(choice.Key))"
+                                               data-sort-option="@choice.Key"
+                                               aria-current="@(current ? "true" : null)"
+                                               data-selected="@(current ? "true" : null)">@choice.Label</MudBlazor.MudMenuItem>
+                    }
+                </ChildContent>
+            </MudBlazor.MudMenu>
+            <MudBlazor.MudTooltip Text="Close library">
+                <MudBlazor.MudIconButton Icon="@MudBlazor.Icons.Material.Rounded.Close"
+                                         aria-label="Close library"
+                                         OnClick="CloseAsync"
+                                         data-drawer-close />
+            </MudBlazor.MudTooltip>
+        </div>
 
-<div class="sk-drawer-head">
-    <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2">Library</MudBlazor.MudText>
-    <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="sk-sort"
-                       data-sort="@_query.Sort" data-sort-icon="@CurrentSort.IconName">
-        @if (CurrentSort.Glyph is { } icon)
-        {
-            <MudBlazor.MudIcon Icon="@icon" Size="MudBlazor.Size.Small" aria-hidden="true" />
-        }
-        @CurrentSort.Label
-    </MudBlazor.MudText>
-    @* In the rail the menu opens rightward, over the main column; expanded, it opens leftward. *@
-    <MudBlazor.MudMenu OpenChanged="OnSortMenuOpenChanged"
-                       Icon="@MudBlazor.Icons.Material.Rounded.MoreVert"
-                       Size="MudBlazor.Size.Small"
-                       AriaLabel="Library options"
-                       AnchorOrigin="@(Rail ? MudBlazor.Origin.BottomLeft : MudBlazor.Origin.BottomRight)"
-                       TransformOrigin="@(Rail ? MudBlazor.Origin.TopLeft : MudBlazor.Origin.TopRight)"
-                       Class="sk-sort-menu">
-        @foreach (SortChoice choice in SortChoices)
-        {
-            bool current = choice == CurrentSort;
-            <MudBlazor.MudMenuItem Icon="@(current ? MudBlazor.Icons.Material.Rounded.Check : null)"
-                                   OnClick="@(() => SetSort(choice.Key))"
-                                   data-sort-option="@choice.Key"
-                                   aria-current="@(current ? "true" : null)"
-                                   data-selected="@(current ? "true" : null)">@choice.Label</MudBlazor.MudMenuItem>
-        }
-    </MudBlazor.MudMenu>
-</div>
+        <div class="sk-drawer-search">
+            <label class="sk-search-field">
+                <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Search" Size="MudBlazor.Size.Small" />
+                <SearchField />
+                <kbd class="sk-keycap" aria-hidden="true">/</kbd>
+            </label>
+        </div>
+
+        <MudBlazor.MudChipSet T="string"
+                              SelectionMode="MudBlazor.SelectionMode.SingleSelection"
+                              SelectedValue="@(_query.State ?? "all")"
+                              SelectedValueChanged="OnFilterChanged"
+                              SelectedColor="MudBlazor.Color.Primary"
+                              Variant="MudBlazor.Variant.Outlined"
+                              Size="MudBlazor.Size.Small"
+                              CheckMark="false"
+                              Class="sk-filters"
+                              role="group"
+                              aria-label="Filter recordings">
+            @foreach ((string key, string label, string icon) in Filters)
+            {
+                bool pressed = (_query.State ?? "all") == key;
+                <MudBlazor.MudChip T="string"
+                                   Value="@key"
+                                   Icon="@icon"
+                                   role="button"
+                                   aria-pressed="@(pressed ? "true" : "false")"
+                                   data-filter="@key">@label</MudBlazor.MudChip>
+            }
+        </MudBlazor.MudChipSet>
+    </div>
+}
 
 @* Shown by CSS from body[data-sk-reconnect] while the circuit reconnects, because the
    circuit cannot render anything while it is down. *@
 <UpdatesPausedAlert Class="sk-drawer-note" data-updates-paused />
-
-<MudBlazor.MudChipSet T="string"
-                      SelectionMode="MudBlazor.SelectionMode.SingleSelection"
-                      SelectedValue="@(_query.State ?? "all")"
-                      SelectedValueChanged="OnFilterChanged"
-                      SelectedColor="MudBlazor.Color.Primary"
-                      Variant="MudBlazor.Variant.Outlined"
-                      Size="MudBlazor.Size.Small"
-                      CheckMark="true"
-                      Class="sk-filters"
-                      role="group"
-                      aria-label="Filter recordings">
-    @foreach ((string key, string label, string icon) in Filters)
-    {
-        bool pressed = (_query.State ?? "all") == key;
-        <MudBlazor.MudChip T="string"
-                           Value="@key"
-                           Icon="@icon"
-                           role="button"
-                           aria-pressed="@(pressed ? "true" : "false")"
-                           data-filter="@key">@label</MudBlazor.MudChip>
-    }
-</MudBlazor.MudChipSet>
 
 <div class="sk-drawer-list"
      data-drawer-list
@@ -101,7 +131,12 @@
         {
             if (!Filtered)
             {
-                <p class="body-medium" data-library-empty>No recordings yet</p>
+                <div class="sk-empty-state" data-library-no-recordings>
+                    <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.VideoLibrary" aria-hidden="true" />
+                    <MudBlazor.MudText Typo="MudBlazor.Typo.subtitle1" HtmlTag="p" data-library-empty>No recordings yet</MudBlazor.MudText>
+                    <MudBlazor.MudText Typo="MudBlazor.Typo.body2">Recordings appear when a watched channel goes live.</MudBlazor.MudText>
+                    <MudBlazor.MudButton Variant="MudBlazor.Variant.Text" Color="MudBlazor.Color.Primary" Href="/settings#channels">Open channel settings</MudBlazor.MudButton>
+                </div>
             }
             else
             {
@@ -183,7 +218,7 @@
     [
         new("newest", "Newest first", "arrow_downward", MudBlazor.Icons.Material.Rounded.ArrowDownward),
         new("oldest", "Oldest first", "arrow_upward", MudBlazor.Icons.Material.Rounded.ArrowUpward),
-        new("az", "A–Z by streamer", null, null),
+        new("az", "A–Z by channel", null, null),
     ];
 
     private static readonly (string Key, string Label, string Icon)[] Filters =
@@ -327,6 +362,20 @@
             ? null
             : Library.Streamers(_query).FirstOrDefault(streamer => streamer.Login == _selectedChannel);
 
+    // "2 channels, 14 recordings" for the current search and filter.
+    private string LibraryCounts
+    {
+        get
+        {
+            int channels = Library.Streamers(_query).Count;
+            int recordings = Library.AllRecordings(_query).Count;
+            return $"{Count(channels, "channel")}, {Count(recordings, "recording")}";
+        }
+    }
+
+    private static string Count(int count, string noun) =>
+        count == 1 ? $"1 {noun}" : $"{count} {noun}s";
+
     // "Recording now", or the day of the channel's latest matching recording.
     private string ChannelMeta(StreamerView streamer, IReadOnlyList<RecordingView> recordings) =>
         streamer.IsRecording ? "Recording now"
@@ -346,6 +395,12 @@
         }
 
         _selectedChannel = login;
+    }
+
+    private async Task CloseAsync()
+    {
+        if (Shell is not null)
+            await Shell.CloseModalDrawer();
     }
 
     private async Task CloseColumnAsync()
@@ -491,7 +546,7 @@
     // no-match message follows if the filter still matches nothing. LibraryUrl normalizes
     // state to recording, saved or null, and null with no search is not a no-match.
     private NoMatchState NoMatch => _query.Search is { } search
-        ? new($"No recordings match “{search}”", "Try another title, streamer or category.", "Clear search", ClearSearchAsync)
+        ? new($"No recordings match “{search}”", "Try another title, channel or category.", "Clear search", ClearSearchAsync)
         : new(
             "No recordings match",
             _query.State == "recording" ? "Nothing is recording right now." : "No saved recordings.",

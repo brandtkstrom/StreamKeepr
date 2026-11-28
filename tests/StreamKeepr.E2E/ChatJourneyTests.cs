@@ -11,6 +11,10 @@ namespace StreamKeepr.E2E;
 [Trait("Category", "E2E")]
 public sealed class ChatJourneyTests(MockAppFixture app)
 {
+    // Design system: the chat drawer's header is 64px and its Close control a 40px button.
+    private const double HeaderHeight = 64;
+    private const double CloseSize = 40;
+
     [Fact]
     public async Task Opens_the_chat_pane_seeks_and_persists_the_open_state()
     {
@@ -107,6 +111,92 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         Assert.Equal(await TokenColourAsync(page, "--primary"), await RingAsync(page.Locator("[data-sk='chat-log']")));
 
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-chat");
+    }
+
+    [Fact]
+    public async Task The_drawer_header_closes_persists_and_returns_focus_to_the_player()
+    {
+        await using Journey session =
+            await LibraryJourneyTests.OpenAsync(app);
+        IPage page = session.Page;
+
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
+        await session.OpenRecordingAsync(saved);
+
+        ILocator pane = await OpenDrawerAsync(page);
+
+        // The header is 64px and ends with a 40px Close control named "Close chat".
+        ILocator head = page.Locator("[data-sk-chat] > header");
+        Assert.Equal(HeaderHeight, Math.Round((await head.BoundingBoxAsync())!.Height));
+        ILocator close = page.GetByRole(AriaRole.Button, new() { Name = "Close chat", Exact = true });
+        await close.WaitForAsync();
+        LocatorBoundingBoxResult closeBox = (await close.BoundingBoxAsync())!;
+        Assert.Equal(CloseSize, Math.Round(closeBox.Width));
+        Assert.Equal(CloseSize, Math.Round(closeBox.Height));
+
+        // Focus elsewhere first: the Close control must return focus to the Chat button.
+        await page.Locator("[data-sk='seek']").FocusAsync();
+        await close.ClickAsync();
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-open", "false");
+        Assert.True(await FocusedIsChatButtonAsync(page),
+            "closing from the header returns focus to the player's Chat button");
+
+        // The sk-ui cookie is written asynchronously; wait for the closed state before reloading.
+        await page.WaitForFunctionAsync(
+            """() => decodeURIComponent(document.cookie).includes('"chat":false')""");
+
+        await session.ReloadAsync();
+        await page.Locator("[data-sk='seek'][aria-disabled='false']")
+            .WaitForAsync(new() { Timeout = 20_000 });
+        Assert.Equal("false", await page.Locator("[data-sk-chat]").GetAttributeAsync("data-open"));
+    }
+
+    [Fact]
+    public async Task Escape_closes_the_drawer_only_when_nothing_else_owns_it()
+    {
+        await using Journey session =
+            await LibraryJourneyTests.OpenAsync(app);
+        IPage page = session.Page;
+
+        ILocator saved = (await LibraryHooks.RowAsync(page, LibraryHooks.SavedRow));
+        await session.OpenRecordingAsync(saved);
+
+        ILocator pane = await OpenDrawerAsync(page);
+
+        // With the library open, Escape closes the library and leaves chat open.
+        ILocator drawer = page.Locator(LibraryHooks.Drawer);
+        await page.Locator("[data-drawer-toggle]").ClickAsync();
+        await LibraryJourneyTests.Expect(
+            async () => await drawer.GetAttributeAsync("data-drawer") == "expanded" ? 1 : 0, 1);
+        await page.Locator("[data-sk='chat-log']").FocusAsync();
+        await page.Keyboard.PressAsync("Escape");
+        await LibraryJourneyTests.Expect(
+            async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-open", "true");
+
+        // With nothing else open, Escape closes the drawer and returns focus from inside it.
+        await page.Locator("[data-sk='chat-log']").FocusAsync();
+        await page.Keyboard.PressAsync("Escape");
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-open", "false");
+        Assert.True(await FocusedIsChatButtonAsync(page),
+            "Escape from inside the drawer returns focus to the player's Chat button");
+    }
+
+    private static Task<bool> FocusedIsChatButtonAsync(IPage page) =>
+        page.EvaluateAsync<bool>(
+            """() => document.activeElement === document.querySelector("[data-sk-player] [data-sk='chat']")""");
+
+    /// <summary>Opens the watch recording's chat drawer with the player's Chat button.</summary>
+    private static async Task<ILocator> OpenDrawerAsync(IPage page)
+    {
+        ILocator pane = page.Locator("[data-sk-chat]");
+        ILocator chat = page.Locator("[data-sk-player]")
+            .GetByRole(AriaRole.Button, new() { Name = "Chat", Exact = true });
+        await chat.WaitForAsync();
+        if (await pane.GetAttributeAsync("data-open") != "true")
+            await chat.ClickAsync();
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-open", "true");
+        return pane;
     }
 
     [Fact]
@@ -242,7 +332,7 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
 
         // The seeded chat holds a moderator message and the streamer's broadcaster message.
-        await SeekToChatAsync();
+        await SeekToChatAsync(page);
         ILocator moderatorBadge = page.Locator("[data-message-id='seed-1']")
             .GetByRole(AriaRole.Img, new() { Name = "Moderator", Exact = true });
         ILocator broadcasterBadge = page.Locator("[data-message-id='seed-streamer']")
@@ -309,7 +399,9 @@ public sealed class ChatJourneyTests(MockAppFixture app)
             await page.Locator("[data-message-id='seed-1']")
                 .GetByText("MOD", new() { Exact = true }).CountAsync());
 
-        ILocator toggle = await OpenSettingsAsync();
+        ILocator toggle = await OpenSettingsAsync(page, page
+            .GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true })
+            .GetByRole(AriaRole.Checkbox, new() { Name = "Show badges", Exact = true }));
         await Assertions.Expect(toggle).ToBeCheckedAsync(new() { Timeout = 20_000 });
 
         while (chatRequests.TryDequeue(out _)) { }
@@ -328,12 +420,14 @@ public sealed class ChatJourneyTests(MockAppFixture app)
         await session.ReloadAsync();
         await Assertions.Expect(page.Locator("[data-sk-chat]"))
             .ToHaveAttributeAsync("data-badges", "false", new() { Timeout = 20_000 });
-        await SeekToChatAsync();
+        await SeekToChatAsync(page);
         ILocator reloadedBadge = page.Locator("[data-message-id='seed-1']").Locator("img");
         // Attached first: ToBeHidden also passes for a node that is not there at all.
         await reloadedBadge.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 20_000 });
         await Assertions.Expect(reloadedBadge).ToBeHiddenAsync();
-        ILocator reloadedToggle = await OpenSettingsAsync();
+        ILocator reloadedToggle = await OpenSettingsAsync(page, page
+            .GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true })
+            .GetByRole(AriaRole.Checkbox, new() { Name = "Show badges", Exact = true }));
         await Assertions.Expect(reloadedToggle).Not.ToBeCheckedAsync(new() { Timeout = 20_000 });
 
         // The reload left the setting off; turning it back on restores the images.
@@ -349,31 +443,163 @@ public sealed class ChatJourneyTests(MockAppFixture app)
                 "img => img.complete && img.naturalWidth > 0",
                 await image.ElementHandleAsync());
 
-        async Task SeekToChatAsync()
-        {
-            await page.Locator("[data-sk='seek'][aria-disabled='false']")
-                .WaitForAsync(new() { Timeout = 20_000 });
-            ILocator seek = page.Locator("[data-sk='seek']");
-            await seek.FocusAsync();
-            await page.Keyboard.PressAsync("Home");
-            for (int i = 0; i < 4; i++)
-                await page.Keyboard.PressAsync("ArrowRight");
-        }
+    }
 
-        async Task<ILocator> OpenSettingsAsync()
+    [Fact]
+    public async Task Chat_font_settings_scale_text_badges_and_persist()
+    {
+        await using Journey session = await LibraryJourneyTests.OpenAsync(app);
+        IPage page = session.Page;
+        var chatRequests = new ConcurrentQueue<string>();
+        page.Request += (_, request) =>
         {
-            ILocator toggleInSheet = page
-                .GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true })
-                .GetByRole(AriaRole.Checkbox, new() { Name = "Show badges", Exact = true });
-            if (!await toggleInSheet.IsVisibleAsync())
+            if (request.Url.Contains("/chat?", StringComparison.Ordinal))
+                chatRequests.Enqueue(request.Url);
+        };
+
+        const string ImageHost = Journey.MockBadgeImageHost;
+        await page.RouteAsync($"{ImageHost}**", async route =>
+        {
+            await route.FulfillAsync(new RouteFulfillOptions
             {
-                await page.GetByRole(AriaRole.Banner)
-                    .GetByRole(AriaRole.Link, new() { Name = "Settings", Exact = true }).ClickAsync();
-            }
+                Status = 200,
+                ContentType = "image/svg+xml",
+                Body = Journey.MockBadgeImage,
+            });
+        });
 
-            await Assertions.Expect(toggleInSheet).ToBeVisibleAsync(new() { Timeout = 20_000 });
-            return toggleInSheet;
+        // The mock_nova recording carries the badge catalog used by the seeding.
+        ILocator saved = await LibraryHooks.RowAsync(
+            page, LibraryHooks.SavedRow, hasText: "Ranked climb to Diamond");
+        await session.OpenRecordingAsync(saved);
+        ILocator pane = page.Locator("[data-sk-chat]");
+        if (await pane.GetAttributeAsync("data-open") != "true")
+            await page.Locator("[data-sk-player] [data-sk='chat']").ClickAsync();
+
+        await SeekToChatAsync(page);
+        ILocator row = page.Locator("[data-message-id='seed-1']");
+        ILocator name = row.Locator("[data-chat-name]");
+        ILocator badgeImage = row.GetByRole(AriaRole.Img, new() { Name = "Moderator", Exact = true });
+        ILocator chip = page.Locator("[data-message-id='seed-unmatched']")
+            .GetByText("SUB", new() { Exact = true });
+        ILocator log = pane.Locator("[data-sk='chat-log']");
+        await Assertions.Expect(badgeImage).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        await chip.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 20_000 });
+
+        // Pause so a leaked arrow key shows as a jump rather than normal playback.
+        ILocator video = page.Locator("[data-sk='video']");
+        if (!await video.EvaluateAsync<bool>("v => v.paused"))
+        {
+            await page.EvaluateAsync("() => document.activeElement?.blur()");
+            await page.Keyboard.PressAsync("k");
         }
+        Assert.True(await video.EvaluateAsync<bool>("v => v.paused"));
+        double playhead = await video.EvaluateAsync<double>("v => v.currentTime");
+
+        // Baseline 100%/400: body2 messages, 700 names, an 18px badge image and a 12px chip.
+        Assert.InRange(await log.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 13.9, 14.1);
+        Assert.InRange(await name.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 13.9, 14.1);
+        Assert.Equal("400", await row.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+        Assert.Equal("700", await name.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+        Assert.InRange(await badgeImage.EvaluateAsync<double>("el => el.getBoundingClientRect().height"), 17.9, 18.1);
+        Assert.InRange(await chip.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 11.9, 12.1);
+        Assert.Equal("500", await chip.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+
+        // Settings opens over the recording; the pane stays behind it.
+        ILocator sheet = page.GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true });
+        ILocator size = sheet.GetByRole(AriaRole.Slider, new() { Name = "Chat font size", Exact = true });
+        ILocator readout = sheet.Locator("[data-chat-font-value]");
+        ILocator weight = sheet.GetByRole(AriaRole.Combobox, new() { Name = "Chat font weight", Exact = true });
+        await OpenSettingsAsync(page, size);
+        Assert.Equal("100", await size.InputValueAsync());
+        while (chatRequests.TryDequeue(out _)) { }
+
+        // Below 100% the text shrinks; the badge image and chip keep their design size.
+        await size.FocusAsync();
+        await page.Keyboard.PressAsync("ArrowLeft");
+        await Assertions.Expect(readout).ToHaveTextAsync("95%");
+        await page.Keyboard.PressAsync("ArrowLeft");
+        await Assertions.Expect(readout).ToHaveTextAsync("90%");
+        await Assertions.Expect(size).ToHaveAttributeAsync("aria-valuetext", "90 percent");
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-font-scale", "90");
+        Assert.InRange(await log.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 12.5, 12.7);
+        Assert.InRange(await badgeImage.EvaluateAsync<double>("el => el.getBoundingClientRect().height"), 17.9, 18.1);
+        Assert.InRange(await chip.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 11.9, 12.1);
+
+        // Above 100% the badge image and chip scale up with the message text.
+        await page.Keyboard.PressAsync("ArrowRight");
+        await Assertions.Expect(readout).ToHaveTextAsync("95%");
+        await page.Keyboard.PressAsync("ArrowRight");
+        await Assertions.Expect(readout).ToHaveTextAsync("100%");
+        await page.Keyboard.PressAsync("ArrowRight");
+        await Assertions.Expect(readout).ToHaveTextAsync("105%");
+        await Assertions.Expect(size).ToHaveAttributeAsync("aria-valuetext", "105 percent");
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-font-scale", "105");
+        Assert.InRange(await log.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 14.6, 14.8);
+        Assert.InRange(await badgeImage.EvaluateAsync<double>("el => el.getBoundingClientRect().height"), 18.8, 19.0);
+        Assert.InRange(await chip.EvaluateAsync<double>("el => parseFloat(getComputedStyle(el).fontSize)"), 12.5, 12.7);
+        Assert.True(await log.EvaluateAsync<bool>(
+            "el => el.scrollHeight - el.scrollTop - el.clientHeight < 24"));
+        // The open pane applies it without a chat refetch, and playback does not move. 300 ms
+        // is several times a keyed fetch's round trip against the local Mock app.
+        await page.WaitForTimeoutAsync(300);
+        Assert.Empty(chatRequests);
+        Assert.Equal(playhead, await video.EvaluateAsync<double>("v => v.currentTime"));
+
+        await weight.SelectOptionAsync(new SelectOptionValue { Label = "Bold (700)" });
+        await Assertions.Expect(pane).ToHaveAttributeAsync("data-font-weight", "700", new() { Timeout = 10_000 });
+        Assert.Equal("700", await name.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+        Assert.Equal("500", await chip.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+        Assert.Equal("700", await row.EvaluateAsync<string>("el => getComputedStyle(el).fontWeight"));
+        // The same quiet period after the weight change.
+        await page.WaitForTimeoutAsync(300);
+        Assert.Empty(chatRequests);
+        Assert.Equal(playhead, await video.EvaluateAsync<double>("v => v.currentTime"));
+
+        await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "chat-font-settings");
+
+        // The viewer's preference: a reload keeps both the pane's typography and the controls.
+        await session.ReloadAsync();
+        ILocator reloadedPane = page.Locator("[data-sk-chat]");
+        await Assertions.Expect(reloadedPane).ToHaveAttributeAsync(
+            "data-font-scale", "105", new() { Timeout = 20_000 });
+        await Assertions.Expect(reloadedPane).ToHaveAttributeAsync("data-font-weight", "700");
+        await SeekToChatAsync(page);
+        ILocator reloadedBadge = page.Locator("[data-message-id='seed-1']")
+            .GetByRole(AriaRole.Img, new() { Name = "Moderator", Exact = true });
+        await Assertions.Expect(reloadedBadge).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        Assert.InRange(await reloadedBadge.EvaluateAsync<double>("el => el.getBoundingClientRect().height"), 18.8, 19.0);
+
+        ILocator reloadedSize = page.GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true })
+            .GetByRole(AriaRole.Slider, new() { Name = "Chat font size", Exact = true });
+        await OpenSettingsAsync(page, reloadedSize);
+        Assert.Equal("105", await reloadedSize.InputValueAsync());
+        Assert.Equal("700", await page.GetByRole(AriaRole.Complementary, new() { Name = "Settings", Exact = true })
+            .GetByRole(AriaRole.Combobox, new() { Name = "Chat font weight", Exact = true })
+            .InputValueAsync());
+    }
+
+    private static async Task<ILocator> OpenSettingsAsync(IPage page, ILocator target)
+    {
+        if (!await target.IsVisibleAsync())
+        {
+            await page.GetByRole(AriaRole.Banner)
+                .GetByRole(AriaRole.Link, new() { Name = "Settings", Exact = true }).ClickAsync();
+        }
+
+        await Assertions.Expect(target).ToBeVisibleAsync(new() { Timeout = 20_000 });
+        return target;
+    }
+
+    private static async Task SeekToChatAsync(IPage page)
+    {
+        await page.Locator("[data-sk='seek'][aria-disabled='false']")
+            .WaitForAsync(new() { Timeout = 20_000 });
+        ILocator seek = page.Locator("[data-sk='seek']");
+        await seek.FocusAsync();
+        await page.Keyboard.PressAsync("Home");
+        for (int i = 0; i < 4; i++)
+            await page.Keyboard.PressAsync("ArrowRight");
     }
 
     private static async Task WaitForOffsetAsync(

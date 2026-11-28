@@ -12,6 +12,14 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
 {
     private const string Ready = "[data-sk='seek'][aria-disabled='false']";
 
+    // A recovered low-buffer stall is non-fatal by contract (docs/player-contract.md §13):
+    // stats count it and playback continues without the overlay. Group 2 is the row's count.
+    private const string RecoveredErrorText =
+        @"^(None|⚠ (\d[\d,]*) errors? · mediaError · bufferStalledError)$";
+
+    // The copied snapshot keeps the last 10 errors (docs/player-contract.md §10).
+    private const int SnapshotErrorLimit = 10;
+
     [Fact]
     public async Task Plays_a_finished_recording_with_basic_controls_and_seek()
     {
@@ -570,7 +578,12 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.NotEqual("—", buffer);
         Assert.Contains(" ms", lastSegment);
         Assert.NotEqual("—", segments);
-        Assert.Equal("None", (await page.Locator("[data-sk='kv-errors']").InnerTextAsync()).Trim());
+        // A loaded runner can record a non-fatal buffer stall that hls.js recovers from; the
+        // contract counts it for stats without failing playback (#338). The snapshot check
+        // below rejects a fatal error or any other kind and bounds this count.
+        string errorText = (await page.Locator("[data-sk='kv-errors']").InnerTextAsync()).Trim();
+        Assert.Matches(RecoveredErrorText, errorText);
+        int shownErrors = ErrorRowCount(errorText);
 
         ILocator bufferSpark = page.Locator("[data-sk='spark-buffer']");
         ILocator line = bufferSpark.Locator("polyline");
@@ -615,7 +628,28 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         Assert.Equal(id, snapshot.RootElement.GetProperty("recordingId").GetString());
         Assert.Equal("live", snapshot.RootElement.GetProperty("mode").GetString());
         Assert.True(snapshot.RootElement.GetProperty("samples").GetArrayLength() >= 3);
-        Assert.Equal(JsonValueKind.Array, snapshot.RootElement.GetProperty("errors").ValueKind);
+        // The contract counts non-fatal player errors and keeps playing; a recovered buffer
+        // stall is the only one this journey may see (#338). A fatal error or another kind is a
+        // product failure, not a flake, so it fails here.
+        JsonElement errors = snapshot.RootElement.GetProperty("errors");
+        Assert.Equal(JsonValueKind.Array, errors.ValueKind);
+        foreach (JsonElement error in errors.EnumerateArray())
+        {
+            Assert.False(error.GetProperty("fatal").GetBoolean(),
+                $"The stats snapshot recorded a fatal player error: {error}");
+            Assert.Equal("mediaError", error.GetProperty("type").GetString());
+            Assert.Equal("bufferStalledError", error.GetProperty("details").GetString());
+        }
+
+        // The row was sampled before this snapshot and the probe only accumulates errors, so a
+        // non-full ring must still hold at least what the row showed. At 10 the snapshot caps,
+        // so it can no longer bound a larger count (docs/player-contract.md §10).
+        if (errors.GetArrayLength() < SnapshotErrorLimit)
+        {
+            Assert.True(shownErrors <= errors.GetArrayLength(),
+                $"The row showed {shownErrors} error(s), but the snapshot recorded " +
+                $"{errors.GetArrayLength()}.");
+        }
 
         // Its close button hides it, hands focus to the player's stats button, and stops the sampler.
         await close.FocusAsync();
@@ -837,11 +871,14 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await page.WaitForTimeoutAsync(3_500);
         Assert.False(await player.EvaluateAsync<bool>("p => p.hasAttribute('data-idle')"), "never idle while paused");
 
-        // Typing in search is never a shortcut.
+        // Typing in search is never a shortcut. The field lives in the library now.
+        await LibraryHooks.OpenLibraryAsync(page);
         await page.Locator("[data-search-input]").FillAsync("m");
         Assert.False(await Video(page, "v => v.muted"));
         await page.Locator("[data-search-input]").FillAsync("");
         await page.EvaluateAsync("() => document.activeElement?.blur()");
+        await page.Locator("[data-drawer-toggle]").ClickAsync();
+        await page.Locator("[data-shell]:not([data-library-open])").WaitForAsync();
 
         await page.Keyboard.PressAsync("m");
         Assert.True(await Video(page, "v => v.muted"));
@@ -913,4 +950,16 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         page.WaitForFunctionAsync(
             "([t, tol]) => Math.abs(document.querySelector('[data-sk=video]').currentTime - t) <= tol",
             new object[] { seconds, tolerance });
+
+    /// <summary>The error count the stats row shows; "None" is zero.</summary>
+    private static int ErrorRowCount(string text)
+    {
+        Match match = Regex.Match(text, RecoveredErrorText);
+        Assert.True(match.Success, $"The stats error row does not match the contract: {text}");
+        return match.Groups[2].Success
+            ? int.Parse(match.Groups[2].Value,
+                System.Globalization.NumberStyles.AllowThousands,
+                System.Globalization.CultureInfo.InvariantCulture)
+            : 0;
+    }
 }

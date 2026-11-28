@@ -1,4 +1,4 @@
-<!-- @dsCard group="Layout" height=470 width=1100 subtitle="MudAppBar on desktop (signed in, signed out) and Dense below Breakpoint.Md (home, watching)" -->
+<!-- @dsCard group="Layout" height=470 width=1100 subtitle="MudAppBar on desktop (signed in, recording; signed out) and Dense below Breakpoint.Md (home, watching): labeled library toggle, wordmark, recording tally, search shortcut, settings, account" -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -8,6 +8,17 @@
   .wrap { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); }
   .cap { font: var(--text-caption); color: var(--text-secondary); margin: 0 0 var(--space-1); }
   .ds-appbar { border: 1px solid var(--divider); border-radius: var(--radius-md); }
+  .ds-lib { width: auto; padding: 0 var(--space-3); gap: var(--space-2); border-radius: var(--radius-full); color: var(--text-primary); font: var(--text-button); white-space: nowrap; }
+  .ds-lib .ds-i { width: 20px; height: 20px; }
+  .ds-tally {
+    display: inline-flex; align-items: center; gap: var(--space-2); height: 28px; padding: 0 var(--space-3);
+    border-radius: var(--radius-full); background: color-mix(in srgb, var(--rec) 12%, transparent);
+    color: var(--text-primary); font: var(--text-label); letter-spacing: var(--text-label-letter-spacing);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .ds-tally .dot { width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--rec); animation: ds-pulse 1.6s ease-in-out infinite; }
+  @keyframes ds-pulse { 50% { opacity: 0.35; } }
+  @media (prefers-reduced-motion: reduce) { .ds-tally .dot { animation: none; } }
   .acct { border-radius: var(--radius-full); padding-left: 6px; }
 </style>
 </head>
@@ -16,30 +27,32 @@
   <div>
     <p class="cap">Signed in · capture running</p>
     <header class="ds-appbar">
-      <button class="ds-ibtn" aria-label="Collapse library"><i data-i="menu"></i></button>
-      <a class="ds-wordmark" href="#" aria-label="StreamKeepr home"><span class="ds-logo rec" aria-hidden="true"><i data-i="logo"></i></span><span>Stream<b>Keepr</b></span></a>
-      <label class="ds-field ds-search"><i data-i="search" class="sm"></i><input value="speed" aria-label="Search recordings"></label>
-      <a class="ds-ibtn" href="#" aria-label="StreamKeepr on GitHub (opens in a new tab)" title="StreamKeepr on GitHub"><i data-i="github"></i></a><a class="ds-ibtn" href="#" aria-label="Twitch (opens in a new tab)" title="Twitch"><i data-i="livetv"></i></a><button class="ds-ibtn" aria-label="Settings"><i data-i="settings"></i></button>
+      <button class="ds-ibtn ds-lib" aria-label="Library"><i data-i="livetv"></i>Library</button>
+      <a class="ds-wordmark" href="#" aria-label="StreamKeepr home"><span class="ds-logo" aria-hidden="true"><i data-i="logo"></i></span><span>Stream<b>Keepr</b></span></a>
+      <span class="ds-grow"></span>
+      <span class="ds-tally"><span class="dot" aria-hidden="true"></span>1 channel recording</span>
+      <button class="ds-ibtn" aria-label="Search library"><i data-i="search"></i></button>
+      <button class="ds-ibtn" aria-label="Settings"><i data-i="settings"></i></button>
       <button class="ds-acct" aria-label="Twitch account: Pixel Wren" aria-haspopup="menu"><span class="ds-avatar a2">P</span></button>
     </header>
   </div>
   <div>
     <p class="cap">Signed out · nothing recording</p>
     <header class="ds-appbar">
-      <button class="ds-ibtn" aria-label="Open library"><i data-i="menu"></i></button>
+      <button class="ds-ibtn ds-lib" aria-label="Library"><i data-i="livetv"></i>Library</button>
       <a class="ds-wordmark" href="#" aria-label="StreamKeepr home"><span class="ds-logo" aria-hidden="true"><i data-i="logo"></i></span><span>Stream<b>Keepr</b></span></a>
-      <label class="ds-field ds-search"><i data-i="search" class="sm"></i><input placeholder="Search recordings, streamers, categories" aria-label="Search recordings"></label>
-      <a class="ds-ibtn" href="#" aria-label="StreamKeepr on GitHub (opens in a new tab)" title="StreamKeepr on GitHub"><i data-i="github"></i></a><a class="ds-ibtn" href="#" aria-label="Twitch (opens in a new tab)" title="Twitch"><i data-i="livetv"></i></a><button class="ds-ibtn" aria-label="Settings"><i data-i="settings"></i></button>
+      <span class="ds-grow"></span>
+      <button class="ds-ibtn" aria-label="Search library"><i data-i="search"></i></button>
+      <button class="ds-ibtn" aria-label="Settings"><i data-i="settings"></i></button>
       <a class="ds-btn twitch" href="#"><i data-i="link"></i>Connect with Twitch</a>
     </header>
   </div>
   <div>
     <p class="cap">Below Breakpoint.Md · Dense (48px) · Home and Settings</p>
     <header class="ds-appbar dense" style="max-width:400px">
-      <a class="ds-wordmark" href="#" style="margin-left:8px" aria-label="StreamKeepr home"><span class="ds-logo rec" aria-hidden="true"><i data-i="logo"></i></span><span>Stream<b>Keepr</b></span></a>
+      <a class="ds-wordmark" href="#" style="margin-left:8px" aria-label="StreamKeepr home"><span class="ds-logo" aria-hidden="true"><i data-i="logo"></i></span><span>Stream<b>Keepr</b></span></a>
       <span class="ds-grow"></span>
-      <button class="ds-ibtn" aria-label="Search recordings"><i data-i="search"></i></button>
-      <a class="ds-ibtn" href="#" aria-label="StreamKeepr on GitHub (opens in a new tab)" title="StreamKeepr on GitHub"><i data-i="github"></i></a><a class="ds-ibtn" href="#" aria-label="Twitch (opens in a new tab)" title="Twitch"><i data-i="livetv"></i></a>
+      <button class="ds-ibtn" aria-label="Search library"><i data-i="search"></i></button>
       <button class="ds-acct" aria-label="Twitch account: Pixel Wren" aria-haspopup="menu"><span class="ds-avatar a2">P</span></button>
     </header>
   </div>
@@ -48,7 +61,8 @@
     <header class="ds-appbar dense" style="max-width:400px">
       <button class="ds-ibtn" aria-label="Back to Home"><i data-i="arrowback"></i></button>
       <span class="ptitle ds-grow">Late-night speedrun practice</span>
-      <button class="ds-ibtn" aria-label="Search recordings"><i data-i="search"></i></button>
+      <button class="ds-ibtn" aria-label="Search library"><i data-i="search"></i></button>
+      <button class="ds-acct" aria-label="Twitch account: Pixel Wren" aria-haspopup="menu"><span class="ds-avatar a2">P</span></button>
     </header>
   </div>
 </div>

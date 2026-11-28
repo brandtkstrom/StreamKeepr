@@ -52,6 +52,7 @@ internal sealed class EmoteHttpClientFactory(HttpMessageHandler handler) : IHttp
             {
                 EmoteHttpClients.Bttv => EmoteHttpClients.BttvBaseAddress,
                 EmoteHttpClients.SevenTv => EmoteHttpClients.SevenTvBaseAddress,
+                EmoteHttpClients.Ffz => EmoteHttpClients.FfzBaseAddress,
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(name), name, "The test factory only knows the emote provider clients."),
             }),

@@ -23,6 +23,13 @@ public sealed class MockAuthTests
             SetCookies(response),
             cookie => cookie.StartsWith("sk-auth=", StringComparison.Ordinal));
 
+        // Persistent cookie, matching the production scheme, so a new browser session
+        // does not re-run sign-in while the ticket is valid.
+        Assert.Contains(
+            SetCookies(response),
+            cookie => cookie.StartsWith("sk-auth=", StringComparison.Ordinal)
+                && cookie.Contains("expires=", StringComparison.OrdinalIgnoreCase));
+
         Assert.IsType<MockStreamPoller>(factory.Services.GetRequiredService<IStreamPoller>());
         Assert.IsType<MockEventSubClient>(factory.Services.GetRequiredService<IEventSubClient>());
         Assert.Null(factory.Services.GetService<TwitchTokenProvider>());

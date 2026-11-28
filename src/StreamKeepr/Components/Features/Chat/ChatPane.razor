@@ -1,3 +1,4 @@
+@using System.Globalization
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 @inject UiPreferences Preferences
@@ -10,18 +11,22 @@
 @using StreamKeepr.Infrastructure.Storage
 
 @* Rendered once. ChatPane.razor.js owns the log, polling, and auto-scroll, and applies the viewer's
-   chat sync offset from Settings › Chat (UiPreferences); the root's data-open and
-   data-badges are painted here for the first frame, and the module owns both afterwards
-   because Blazor never re-renders the pane once it is ready. The pane has
-   no toggle of its own: the player's Chat button and C open and close it (sk:chat-toggle), and
-   closed it is not shown at all.
+   chat sync offset from Settings › Chat (UiPreferences); the root's data-open, data-badges,
+   font attributes and font custom properties are painted here for the first frame, and the
+   module owns them afterwards because Blazor never re-renders the pane once it is ready.
+   The pane has no toggle of its own: the player's Chat button and C open and close it
+   (sk:chat-toggle), the header's Close control closes it (#333), and closed it is not shown
+   at all. There is no autofocus and no focus trap.
    No MudBlazor components: it is drawn like an outlined MudPaper with plain markup.
    HideHeader renders the phone Chat tab (#175): the tab owns the disclosure, so the pane is
-   always open and the header is left out. *@
+   always open, the header is left out, and it has no Close control. *@
 <aside class="sk-chat"
        data-sk-chat
        data-open="@(_open ? "true" : "false")"
        data-badges="@(_showBadges ? "true" : "false")"
+       data-font-scale="@_fontScale.ToString(CultureInfo.InvariantCulture)"
+       data-font-weight="@_fontWeight.ToString(CultureInfo.InvariantCulture)"
+       style="@TypographyStyle"
        aria-label="Chat replay"
        @ref="_root">
     @if (!HideHeader)
@@ -37,6 +42,14 @@
                 @IslandIcon.Svg("HourglassEmpty")
                 <span class="sk-visually-hidden" data-sk="chat-state-label">Loading chat…</span>
             </span>
+            @* A close control, not a toggle (#333): the module closes the pane and persists the
+               closed state, then returns focus to the player's Chat button when focus was inside
+               the pane. Escape does the same; the phone tab renders no header. *@
+            <button type="button"
+                    class="sk-chat-close"
+                    data-sk="chat-close"
+                    aria-label="Close chat"
+                    aria-keyshortcuts="Escape">@IslandIcon.Svg("Close")</button>
         </header>
     }
 
@@ -86,12 +99,16 @@
 
     private double _syncOffset;
     private bool _showBadges;
+    private int _fontScale;
+    private int _fontWeight;
 
     protected override void OnInitialized()
     {
         _open = WantsOpen;
         _syncOffset = Preferences.ChatSyncOffset;
         _showBadges = Preferences.ChatShowBadges;
+        _fontScale = Preferences.ChatFontScale;
+        _fontWeight = Preferences.ChatFontWeight;
         Preferences.Changed += OnPreferencesChanged;
     }
 
@@ -112,6 +129,17 @@
         {
             _showBadges = showBadges;
             _ = InvokeAsync(() => InvokeModuleAsync("setShowBadges", _root, showBadges));
+        }
+
+        // Font size and weight are one preference pair for the log: apply both when either
+        // changes, and never touch the sync offset or the badges.
+        int fontScale = Preferences.ChatFontScale;
+        int fontWeight = Preferences.ChatFontWeight;
+        if (fontScale != _fontScale || fontWeight != _fontWeight)
+        {
+            _fontScale = fontScale;
+            _fontWeight = fontWeight;
+            _ = InvokeAsync(() => InvokeModuleAsync("setTypography", _root, fontScale, fontWeight));
         }
     }
 
@@ -183,6 +211,10 @@
     // A badge source is registered per profile (Twitch or Mock); the pane fetches only when one is.
     private bool BadgesEnabled => BadgeSources.Any();
 
+    // Painted for the first frame; the module owns the attributes and properties after it loads.
+    private string TypographyStyle => string.Create(CultureInfo.InvariantCulture,
+        $"--sk-chat-font-scale: {_fontScale}; --sk-chat-font-weight: {_fontWeight}");
+
     private object ToPayload(RecordingView recording, bool open) => new
     {
         recordingId = recording.Id,
@@ -208,6 +240,9 @@
         syncOffsetSec = _syncOffset,
         // Badge images and their text-chip fallback; the module and CSS own the visibility.
         showBadges = _showBadges,
+        // The chat log's font size and weight; the root carries them for the first frame.
+        fontScale = _fontScale,
+        fontWeight = _fontWeight,
     };
 
     private async Task InvokeModuleAsync(string identifier, params object[] args)

@@ -103,11 +103,12 @@
   --player-button: 40px;
   --icon-inline: 16px;
   --thumb-width: 112px;
+  --rec-col-width: clamp(360px, 28vw, 440px);
   --appbar-height-dense: 48px;
   --bottom-bar-height: 56px;
   --tab-bar-height: 48px;
   --player-peek: 88px;
-  --chat-width: 320px;
+  --chat-width: 400px;
   --form-max-width: 760px;
   --hover-opacity: 0.08;
   --ripple-opacity: 0.1;

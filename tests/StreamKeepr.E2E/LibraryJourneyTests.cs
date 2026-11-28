@@ -38,7 +38,14 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
         Assert.True(await page.Locator(Search).EvaluateAsync<bool>("el => el === document.activeElement"));
         await page.EvaluateAsync("() => document.activeElement?.blur()");
 
-        await LibraryHooks.OpenLibraryAsync(page);
+        // With the library closed the field is unmounted: / clicks the app bar shortcut first.
+        await page.Locator("[data-drawer-toggle]").ClickAsync();
+        await page.Locator("[data-shell]:not([data-library-open])").WaitForAsync();
+        await page.EvaluateAsync("() => document.activeElement?.blur()");
+        await page.Keyboard.PressAsync("/");
+        await page.Locator("[data-shell][data-library-open]").WaitForAsync();
+        Assert.True(await page.Locator(Search).EvaluateAsync<bool>("el => el === document.activeElement"));
+
         await page.Locator("[data-filter='saved']").ClickAsync();
         await Journey.WaitForUrlAsync(page, url => url.Contains("state=saved", StringComparison.Ordinal));
         await Expect(async () => (await RowStatesAsync(page)).Count(state => state is "rec" or "reconnecting"), 0);
@@ -46,23 +53,25 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
 
         // Selecting a recording keeps the filtered view instead of resetting it.
         await session.OpenRecordingAsync(await LibraryHooks.RowAsync(page));
+        // The watch page closes the library; reopening it shows the view survived.
+        await LibraryHooks.OpenLibraryAsync(page);
         Assert.Equal("true", await page.Locator("[data-filter='saved']").GetAttributeAsync("aria-pressed"));
         historyLength++; // selecting a recording is real navigation; view changes are not
 
-        await page.GetByRole(AriaRole.Button, new() { Name = "Library options" }).ClickAsync();
-        await page.GetByRole(AriaRole.Menuitem, new() { Name = "A–Z by streamer" }).ClickAsync();
+        await page.Locator("[data-sort]").ClickAsync();
+        await page.GetByRole(AriaRole.Menuitem, new() { Name = "A–Z by channel" }).ClickAsync();
         await Journey.WaitForUrlAsync(page, url => url.Contains("sort=az", StringComparison.Ordinal));
         // NavigateTo changes the URL before the circuit renders the new label, so retry the read.
-        await Assertions.Expect(page.Locator("[data-sort]")).ToContainTextAsync("A–Z by streamer");
+        await Assertions.Expect(page.Locator("[data-sort]")).ToContainTextAsync("A–Z by channel");
 
         // Every view change replaced the current entry instead of adding history.
         Assert.Equal(historyLength, await page.EvaluateAsync<int>("history.length"));
 
         await session.ReloadAsync();
-        await page.Locator($"{Search}[data-sk-ready]").WaitForAsync();
+        await page.Locator(LibraryHooks.ShellReady).WaitForAsync();
         await LibraryHooks.OpenLibraryAsync(page);
         Assert.Equal("true", await page.Locator("[data-filter='saved']").GetAttributeAsync("aria-pressed"));
-        Assert.Contains("A–Z by streamer", await page.Locator("[data-sort]").InnerTextAsync());
+        Assert.Contains("A–Z by channel", await page.Locator("[data-sort]").InnerTextAsync());
 
         await page.Locator(Search).FillAsync("zzzz-no-match");
         await page.Locator("[data-library-empty]").WaitForAsync();
@@ -182,69 +191,33 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     }
 
     [Fact]
-    public async Task Rail_sort_menu_opens_right_and_remains_usable()
+    public async Task Library_sort_menu_opens_leftward_and_remains_usable()
     {
         await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
         ILocator drawer = page.Locator(LibraryHooks.Drawer);
-        ILocator trigger = page.GetByRole(AriaRole.Button, new() { Name = "Library options" });
+        ILocator trigger = page.Locator("[data-sort]");
         ILocator menu = page.Locator("[role='menu']:not([hidden])");
 
-        // The open library keeps opening the menu leftward.
         await LibraryHooks.OpenLibraryAsync(page);
         await trigger.ClickAsync();
         await menu.WaitForAsync();
         LocatorBoundingBoxResult expandedTrigger = (await trigger.BoundingBoxAsync())!;
         LocatorBoundingBoxResult expandedMenu = (await menu.BoundingBoxAsync())!;
-        Assert.True(expandedMenu.X < expandedTrigger.X, "expanded menu opens leftward");
+        Assert.True(expandedMenu.X < expandedTrigger.X, "the expanded menu opens leftward over the channels");
+
         // Escape closes the menu, not the library around it.
         await page.Keyboard.PressAsync("Escape");
         await menu.WaitForAsync(new() { State = WaitForSelectorState.Hidden });
         Assert.Equal("expanded", await drawer.GetAttributeAsync("data-drawer"));
 
-        await page.Locator("[data-drawer-toggle]").ClickAsync();
-        await Expect(
-            async () => await drawer.GetAttributeAsync("data-drawer") == "rail" ? 1 : 0, 1);
-
+        // The trigger still works after Escape, and a choice updates the URL and its label.
         await trigger.ClickAsync();
         await menu.WaitForAsync();
-
-        double[] geometry = await page.EvaluateAsync<double[]>("""
-            () => {
-              const menu = document.querySelector("[role='menu']:not([hidden])");
-              const trigger = document.querySelector("[aria-label='Library options']");
-              const drawer = document.querySelector('nav[aria-label=Library]');
-              if (!menu || !trigger || !drawer) return [];
-              const m = menu.getBoundingClientRect();
-              const t = trigger.getBoundingClientRect();
-              const d = drawer.getBoundingClientRect();
-              const hit = document.elementFromPoint(m.left + m.width - 8, m.top + m.height / 2);
-              return [
-                m.left, m.top, m.width, m.height,
-                t.left, t.width,
-                d.left, d.width,
-                hit?.closest("[role=menu]:not([hidden])") ? 1 : 0,
-              ];
-            }
-            """);
-        Assert.Equal(9, geometry.Length);
-
-        double menuLeft = geometry[0];
-        double menuWidth = geometry[2];
-        double triggerLeft = geometry[4];
-        double drawerLeft = geometry[6];
-        double drawerWidth = geometry[7];
-        bool hit = geometry[8] == 1;
-
-        Assert.True(menuLeft >= triggerLeft - 1, "rail menu opens rightward");
-        Assert.True(
-            menuLeft + menuWidth > drawerLeft + drawerWidth,
-            "rail menu extends past the drawer");
-        Assert.True(hit, "the rail menu is not clipped by the drawer");
-
         await page.GetByRole(AriaRole.Menuitem, new() { Name = "Oldest first" }).ClickAsync();
         await Journey.WaitForUrlAsync(page, url => url.Contains("sort=oldest", StringComparison.Ordinal));
-        await AssertAxeCleanAsync(page, "library-rail-sort-menu");
+        await Assertions.Expect(page.Locator("[data-sort]")).ToContainTextAsync("Oldest first");
+        Assert.Equal("expanded", await drawer.GetAttributeAsync("data-drawer"));
     }
 
     [Fact]
@@ -404,10 +377,8 @@ public sealed class LibraryJourneyTests(MockAppFixture app)
     internal static async Task<IReadOnlyList<string>> RowStatesAsync(IPage page)
     {
         var states = new List<string>();
-        int channels = await page.Locator(LibraryHooks.Channel).CountAsync();
-        for (int i = 0; i < channels; i++)
+        foreach (string login in await LibraryHooks.ChannelLoginsAsync(page))
         {
-            string login = (await page.Locator(LibraryHooks.Channel).Nth(i).GetAttributeAsync("data-library-channel"))!;
             await LibraryHooks.OpenChannelAsync(page, login);
             foreach (string? state in await page.Locator(LibraryHooks.Row).EvaluateAllAsync<string?[]>("rows => rows.map(r => r.dataset.state)"))
                 states.Add(state ?? "");
