@@ -1,5 +1,6 @@
 using System.Data.Common;
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace StreamKeepr.Infrastructure.Records;
@@ -60,6 +61,24 @@ public static class RecordStoreConnection
 
         // One row: busy (0 or 1), frames in the log, frames checkpointed.
         return result.Read() && result.GetInt32(0) == 0;
+    }
+
+    /// <summary>
+    /// <see cref="CheckpointWriteAheadLog(DbConnection)"/> on a connection of its own, for a
+    /// caller that has just committed a deletion (a chat purge, a recording delete).
+    /// </summary>
+    public static bool CheckpointWriteAheadLog(IDbContextFactory<RecordStoreDbContext> contexts)
+    {
+        using RecordStoreDbContext db = contexts.CreateDbContext();
+        db.Database.OpenConnection();
+        try
+        {
+            return CheckpointWriteAheadLog(db.Database.GetDbConnection());
+        }
+        finally
+        {
+            db.Database.CloseConnection();
+        }
     }
 
     public static async Task ApplyPragmasAsync(DbConnection connection, CancellationToken ct)

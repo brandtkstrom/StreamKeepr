@@ -144,6 +144,9 @@ internal sealed class SessionRecords(IDbContextFactory<RecordStoreDbContext> con
         await db.Sessions.Where(session => session.Id == sessionId).ExecuteDeleteAsync(ct);
     }
 
+    /// <summary>See <see cref="RecordStoreConnection.CheckpointWriteAheadLog(IDbContextFactory{RecordStoreDbContext})"/>.</summary>
+    public bool CheckpointWriteAheadLog() => RecordStoreConnection.CheckpointWriteAheadLog(contexts);
+
     private static void EnsureUpdated(int updated, string sessionId)
     {
         if (updated == 0)

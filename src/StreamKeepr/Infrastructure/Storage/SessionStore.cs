@@ -334,11 +334,33 @@ public sealed class SessionStore(
         _records.FindAsync(SessionIdOf(Normalize(sessionDir)), ct);
 
     /// <summary>
-    /// Deletes a session's record and its dependent rows. The caller holds <see cref="LockFor"/>
-    /// and removes the library entry and folder itself.
+    /// Deletes a session's record and, in the same statement, every row that cascades from it:
+    /// metadata changes, chat, viewer samples, and the resume position. Then empties the
+    /// write-ahead log so the deleted rows' earlier page images leave the disk
+    /// (<c>secure_delete</c> already zeroes the database pages). The caller holds
+    /// <see cref="LockFor"/> and removes the library entry and folder itself. A failed delete
+    /// throws; a failed checkpoint only logs, because the delete is already committed.
     /// </summary>
-    public Task DeleteRecordAsync(string sessionId, CancellationToken ct) =>
-        _records.DeleteAsync(sessionId, ct);
+    public async Task DeleteRecordAsync(string sessionId, CancellationToken ct)
+    {
+        await _records.DeleteAsync(sessionId, ct);
+
+        try
+        {
+            if (!_records.CheckpointWriteAheadLog())
+            {
+                logger.LogWarning(
+                    "Deleted session {SessionId}, but an open reader kept the write-ahead log from being emptied; its old rows stay in it until later writes reuse it.",
+                    sessionId);
+            }
+        }
+        catch (Exception ex) when (RecordStoreFailures.IsStoreFailure(ex))
+        {
+            logger.LogWarning(ex,
+                "Deleted session {SessionId}, but the write-ahead log could not be emptied; its old rows stay in it until later writes reuse it.",
+                sessionId);
+        }
+    }
 
     private async Task ReopenCoreAsync(string directory, SessionRecord record, CancellationToken ct)
     {
