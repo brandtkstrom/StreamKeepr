@@ -320,14 +320,16 @@ public sealed class ToolPreflightTests
             exit 1
             """);
 
+        var storage = new StorageOptions
+        {
+            RecordingsRoot = recordingsRoot ?? Path.Combine(temp.Path, "recordings"),
+            DatabasePath = databasePath ?? Path.Combine(temp.Path, "data", "streamkeepr.db"),
+            DatabaseMinFreeGb = databaseMinFreeGb,
+        };
         return new ToolPreflight(
             Options.Create(new RecorderOptions { StreamlinkPath = streamlink }),
-            Options.Create(new StorageOptions
-            {
-                RecordingsRoot = recordingsRoot ?? Path.Combine(temp.Path, "recordings"),
-                DatabasePath = databasePath ?? Path.Combine(temp.Path, "data", "streamkeepr.db"),
-                DatabaseMinFreeGb = databaseMinFreeGb,
-            }),
+            Options.Create(storage),
+            new DataProtectionKeyLocation(AppDataPaths.DataProtectionKeysDirectory(storage.DatabasePath)),
             disk ?? new FakeDiskSpace(100 * DiskGuard.BytesPerGib, 200 * DiskGuard.BytesPerGib),
             NullLogger<ToolPreflight>.Instance);
     }

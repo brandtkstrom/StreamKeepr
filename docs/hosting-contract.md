@@ -116,7 +116,7 @@ Docker healthcheck: `/health/live`, interval 30 s, timeout 5 s, start period 60 
 
 ## 6. Data Protection
 
-- Keys persist to a `keys` directory beside the record store (`<directory of Storage:DatabasePath>/keys`, `/data/keys` in the container) with `SetApplicationName("StreamKeepr")`.
+- Keys persist to a `keys` directory beside the record store (`<directory of Storage:DatabasePath>/keys`, `/data/keys` in the container) with `SetApplicationName("StreamKeepr")`. The folder comes from one `DataProtectionKeyLocation` service, which both preflight and the key ring read; it is not configurable. The Mock profile registers a fixed `<temp>/streamkeepr-mock/keys` instead, because its record store is per process and deleted on shutdown, and its sign-in cookie must survive a restart.
 - Directory `0700`, files `0600`; create before auth or token use. The database directory itself is operator-owned and keeps its permissions.
 - Keys live on the data volume with the admin token ciphertext they protect, survive restarts, and are never on the media volume. Moving them there (#319) invalidated earlier cookies and tokens by design; the admin signs in again.
 - Losing the key ring invalidates cookies, antiforgery tokens, and the encrypted admin token; log it and require re-authentication.
