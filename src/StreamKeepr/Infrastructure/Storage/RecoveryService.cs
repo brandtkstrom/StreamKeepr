@@ -9,11 +9,12 @@ public sealed record RecoveredChannel(Resumable? Unfinished, Resumable? Finished
 
 /// <summary>
 /// Reconstructs runtime state before any coordinator starts. It walks the session records
-/// (ADR-0014), reconciles each one's folder: re-finalizes interrupted sessions, removes
-/// temp/orphan files, finalizes sessions that cannot continue, and loads the library. A folder
-/// without a record is ignored; a record whose folder is missing or unreadable is logged and
-/// skipped, never deleted. Each run ends with one Information summary whose counts account for
-/// every session record.
+/// (ADR-0014) and reconciles only their folders: it repairs the finalize and reopen crash
+/// windows (a Recording record with a final index completes; a Complete record without one is
+/// re-stitched), removes temp/orphan files, finalizes sessions that cannot continue, and loads
+/// the library. A folder without a record is ignored; a record whose folder or media is missing
+/// or unreadable is logged, skipped, and kept, and its media is never deleted. Each run ends
+/// with one Information summary whose counts account for every session record.
 /// </summary>
 public sealed class RecoveryService(
     SessionStore store,
@@ -32,6 +33,9 @@ public sealed class RecoveryService(
         var unfinished = new List<Resumable>();
         var finished = new List<Resumable>();
         var skipped = new HashSet<string>(StringComparer.Ordinal);
+        // Unfinished sessions with segment media but no complete segment line (a hard kill
+        // mid-line). Finalize would delete them as empty, so they may resume but never finalize.
+        var mediaWithoutSegments = new HashSet<string>(StringComparer.Ordinal);
         int sessionCount = 0;
         int completeCount = 0;
         int finalizedCount = 0;
@@ -42,7 +46,8 @@ public sealed class RecoveryService(
         {
             ct.ThrowIfCancellationRequested();
             sessionCount++;
-            switch (await InspectSessionAsync(root, record, unfinished, finished, skipped, ct))
+            switch (await InspectSessionAsync(
+                root, record, unfinished, finished, skipped, mediaWithoutSegments, ct))
             {
                 case Inspection.Complete:
                     completeCount++;
@@ -78,6 +83,17 @@ public sealed class RecoveryService(
             if (resumableIds.Contains(candidate.Session.Id))
                 continue;
 
+            if (mediaWithoutSegments.Contains(candidate.Session.Id))
+            {
+                logger.LogWarning(
+                    "Skipping session {SessionId}: {Directory} has segment media but no complete segment line, so finalize would delete it.",
+                    candidate.Session.Id,
+                    candidate.Session.Directory);
+                skipped.Add(candidate.Session.Id);
+                skippedCount++;
+                continue;
+            }
+
             await store.FinalizeAsync(candidate.Session, ct);
 
             // FinalizeAsync deletes the record of a session that never produced media (then its
@@ -97,7 +113,8 @@ public sealed class RecoveryService(
 
         await library.LoadAsync(root, store, ct);
 
-        // Recovery skipped these (unsafe name, missing folder, unreadable or unrepairable media);
+        // Recovery skipped these (unsafe name, missing folder or media, unreadable or unrepairable
+        // media);
         // never expose them even if LoadAsync could project their records.
         foreach (string skippedId in skipped)
             library.Remove(skippedId);
@@ -139,6 +156,7 @@ public sealed class RecoveryService(
         List<Resumable> unfinished,
         List<Resumable> finished,
         HashSet<string> skipped,
+        HashSet<string> mediaWithoutSegments,
         CancellationToken ct)
     {
         if (!store.TryResolveDirectory(root, record, out string directory))
@@ -184,41 +202,76 @@ public sealed class RecoveryService(
                 return Inspection.Skipped;
             }
 
-            try
-            {
-                await store.FinalizeAsync(session, ct);
-            }
-            catch (Exception ex) when (IsReadFailure(ex))
-            {
-                logger.LogWarning(
-                    ex,
-                    "Skipping complete session that could not be re-finalized at {Directory}.",
-                    directory);
-                skipped.Add(record.Id);
-                return Inspection.Skipped;
-            }
-
-            finished.Add(new Resumable(session, LastPart(directory) + 1, Complete: true));
-            return Inspection.Refinalized;
+            // Reopen crash window, or a lost index: re-stitch from the parts and store the
+            // recomputed aggregates.
+            return await RefinalizeAsync(session, finished, skipped, ct);
         }
 
-        int? lastPart = await CleanupRecordingAsync(directory, ct);
-        if (lastPart is null)
+        CleanedSession? cleaned = await CleanupRecordingAsync(directory, ct);
+        if (cleaned is null)
         {
             skipped.Add(record.Id);
             return Inspection.Skipped;
         }
 
-        unfinished.Add(new Resumable(session, lastPart.Value + 1));
+        // Finalize crash window: the index was written but the record never said Complete, or a
+        // reopen died between its record write and the index delete. Either way no recorder ran
+        // after the index, so the session completes; re-finalizing recomputes its aggregates.
+        if (await IndexIsValidAsync(directory, ct))
+        {
+            if (!cleaned.HasSegments)
+            {
+                logger.LogWarning(
+                    "Skipping recording session with a final index but no media parts at {Directory}.",
+                    directory);
+                skipped.Add(record.Id);
+                return Inspection.Skipped;
+            }
+
+            return await RefinalizeAsync(session, finished, skipped, ct);
+        }
+
+        if (!cleaned.HasSegments && cleaned.HasSegmentMedia)
+            mediaWithoutSegments.Add(record.Id);
+
+        unfinished.Add(new Resumable(session, cleaned.LastPart + 1));
         return Inspection.Unfinished;
+    }
+
+    /// <summary>
+    /// Stitches a session that has media parts into its final index and marks the record
+    /// Complete with recomputed aggregates, then adds it to finished. Unreadable media skips the
+    /// session and keeps it.
+    /// </summary>
+    private async Task<Inspection> RefinalizeAsync(
+        Session session, List<Resumable> finished, HashSet<string> skipped, CancellationToken ct)
+    {
+        try
+        {
+            await store.FinalizeAsync(session, ct);
+        }
+        catch (Exception ex) when (IsReadFailure(ex))
+        {
+            logger.LogWarning(
+                ex,
+                "Skipping session that could not be re-finalized at {Directory}.",
+                session.Directory);
+            skipped.Add(session.Id);
+            return Inspection.Skipped;
+        }
+
+        finished.Add(new Resumable(session, LastPart(session.Directory) + 1, Complete: true));
+        return Inspection.Refinalized;
     }
 
     /// <summary>
     /// Cleans a Recording session after a hard kill. Temp files are removed first; part
     /// playlists are then validated as a set, so one bad playlist skips the whole session
-    /// before any media is deleted.
+    /// before any media is deleted. Media an existing index names is also kept, so a session whose
+    /// part playlists were lost after its index was written keeps its media. Returns null when the
+    /// session must be skipped.
     /// </summary>
-    private async Task<int?> CleanupRecordingAsync(string directory, CancellationToken ct)
+    private async Task<CleanedSession?> CleanupRecordingAsync(string directory, CancellationToken ct)
     {
         foreach (string temp in Directory.EnumerateFiles(directory, "*.tmp").ToArray())
             File.Delete(temp);
@@ -234,6 +287,24 @@ public sealed class RecoveryService(
         {
             lastPart = Math.Max(lastPart, scanned.Playlist.PartNumber);
             referenced.UnionWith(PlaylistStitcher.ReferencedMedia(scanned.Playlist.Content));
+        }
+
+        string indexPath = Path.Combine(directory, SessionStore.IndexFileName);
+        if (File.Exists(indexPath))
+        {
+            try
+            {
+                string index = await PartPlaylistReader.ReadAllTextAsync(indexPath, ct);
+                referenced.UnionWith(PlaylistStitcher.ReferencedMedia(index));
+            }
+            catch (Exception ex) when (IsReadFailure(ex))
+            {
+                logger.LogWarning(
+                    ex,
+                    "Skipping session with an unreadable index at {Directory}; its media is kept.",
+                    directory);
+                return null;
+            }
         }
 
         int removed = 0;
@@ -257,7 +328,10 @@ public sealed class RecoveryService(
                 directory);
         }
 
-        return lastPart;
+        return new CleanedSession(
+            lastPart,
+            HasSegments: parts.Any(part => part.HasSegments),
+            HasSegmentMedia: Directory.EnumerateFiles(directory, "*.m4s").Any());
     }
 
     private async Task<List<ScannedPart>?> ScanPartsAsync(
@@ -332,4 +406,7 @@ public sealed class RecoveryService(
             or InvalidDataException or NotSupportedException;
 
     private sealed record ScannedPart(PartPlaylist Playlist, bool HasSegments);
+
+    /// <summary>A cleaned Recording session: its last part and what media is left.</summary>
+    private sealed record CleanedSession(int LastPart, bool HasSegments, bool HasSegmentMedia);
 }

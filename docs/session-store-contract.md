@@ -163,27 +163,28 @@ Live snapshot:
 
 Recovery runs once at startup, before any channel coordinator processes events. No recorder child may survive concurrently; the container teardown guarantees this.
 
-For each session record (ADR-0014; #320 extends this):
+Recovery iterates the session records (ADR-0014) and reconciles only their folders; it never scans the recordings root for sessions. A skipped session keeps its record and is never listed; recovery never deletes media it cannot account for. For each session record:
 
 1. A folder under the recordings root without a record is ignored: never listed, cleaned, or deleted. A legacy `session.json` is never read.
 2. Resolve the folder `recordingsRoot/{channel}/{id}`. If the id or channel is unsafe, or the folder is missing: log and skip; keep the record.
 3. If `Status == Complete`:
    - If `index.m3u8` is a final index (`PlaylistStitcher.IsFinalIndex`: it parses, has at least one segment, and has an `#EXT-X-ENDLIST` line), add `Resumable(Session, LastPart + 1, Complete: true)` to finished.
-   - If the index is missing but a part playlist has segments (`ParsedPart.HasSegments`), re-finalize (stitch, atomic index, record Complete, library upsert), then add to finished.
+   - If the index is missing or not final (the reopen crash window, or a lost index) but a part playlist has segments (`ParsedPart.HasSegments`), re-finalize: re-stitch from the parts, write the index atomically, store the recomputed aggregates on the Complete record, and upsert the library; then add to finished.
    - If no part has segments, log and skip; do not serve, and leave media untouched (finalize would delete the folder as empty).
 4. If `Status == Recording`:
    - Delete stale `*.tmp` files.
    - Ignore `chat/`; chat recovery is independent and append-only.
-   - Parse every part playlist. If any parse fails, log and skip the session; leave media untouched.
-   - Delete `*.m4s` and `init_*.mp4` not referenced by any part playlist (`PlaylistStitcher.ReferencedMedia`). Init files come from `PlaylistTimeline.TryReadMapUri`, the same `#EXT-X-MAP` rule thumbnails use, so a map with trailing attributes such as `BYTERANGE` still names its file. The set is deliberately looser than `ParsePart`: an unterminated last line still counts, so media whose playlist line was still being written is never deleted.
+   - Parse every part playlist. If any parse fails, log and skip the session; leave media untouched. An unreadable `index.m3u8` also skips the session.
+   - Delete `*.m4s` and `init_*.mp4` referenced by neither a part playlist nor an existing `index.m3u8` (`PlaylistStitcher.ReferencedMedia`). Init files come from `PlaylistTimeline.TryReadMapUri`, the same `#EXT-X-MAP` rule thumbnails use, so a map with trailing attributes such as `BYTERANGE` still names its file. The set is deliberately looser than `ParsePart`: an unterminated last line still counts, so media whose playlist line was still being written is never deleted.
    - Part playlists and the index are read through `PartPlaylistReader`.
-   - Add `Resumable(Session, LastPart + 1, Complete: false)` to unfinished.
+   - If `index.m3u8` is a final index, this is the finalize crash window (index written, record not yet Complete) or a reopen that died between its record write and the index delete; no recorder ran after the index. If a part has segments, re-finalize as in step 3 (the record becomes Complete with recomputed aggregates) and add to finished; otherwise log and skip, keeping the media.
+   - Otherwise add `Resumable(Session, LastPart + 1, Complete: false)` to unfinished.
 5. Per watched channel:
-   - For watched, unpaused channels, keep the newest unfinished session as `Unfinished`.
-   - Finalize every other unfinished session (older, paused, or removed) and add it to finished.
+   - For watched, unpaused channels, keep the newest unfinished session as `Unfinished`, even one without media yet; its next part still comes from the part files.
+   - Finalize every other unfinished session (older, paused, or removed) and add it to finished. A session without media is deleted by that finalize: the record first (its metadata, chat, viewer, and resume rows cascade), then its folder. A session whose parts have no complete segment line but whose folder still holds `*.m4s` media (a hard kill mid-line) is logged and skipped instead, so its media is never deleted.
    - Keep the newest finished session as `Finished`.
 6. Return `RecoveredChannel(Unfinished, Finished)` per watched channel.
-7. Load the library from the session records (`RecordingLibrary.LoadAsync`), which marks it loaded, then remove every skipped session from it.
+7. Load the library from the session records (`RecordingLibrary.LoadAsync`), which marks it loaded, then remove every skipped session from it. The load itself never lists a record whose folder is missing, so a Recording record without a folder cannot appear with zero parts.
 
 The supervisor maps `Unfinished` to `Idle.Resume` and `Finished` to `Idle.Finished`; a paused channel starts as `Paused(Finished)` rather than resuming. `LastPart` parses the numeric part from `pNNN.m3u8`.
 
@@ -252,10 +253,11 @@ public sealed record RecordingSummary(
 |---|---|
 | Session record write fails on open | The recorder does not start; the part ends "open failed" and the reducer retries or cools down. |
 | Metadata change write fails | Logged; recording continues; the change is lost. |
-| Crash or record write failure during finalize | Index may be written; the record still says Recording; recovery finalizes it. |
-| Crash or record write failure during reopen | The record still says Complete with its index; the session reopens on the next live observation. A crash after the record write leaves a Recording record whose index recovery replaces. |
+| Crash or record write failure during finalize | Index may be written; the record still says Recording; recovery re-finalizes it to Complete with recomputed aggregates, even as the newest session of a watched channel. |
+| Crash or record write failure during reopen | The record still says Complete with its index; the session reopens on the next live observation. A crash after the record write leaves a Recording record with a final index, which recovery re-finalizes to Complete; a Complete record that lost its index is re-stitched from the parts. |
 | Session folder without a record | Ignored; never listed or deleted. A legacy `session.json` is never read. |
-| Record whose folder is missing | Log and skip; keep the record; not listed. |
+| Record whose folder is missing | Log and skip; keep the record; not listed, even by a library load. |
+| Recording record without media | The newest of a watched channel resumes; any other is deleted with its folder (dependent rows cascade). If its folder still holds segment media, log and skip; never delete the media. |
 | Unparseable part playlist | Log and skip the session; never delete media. |
 | Complete session with missing index | Re-finalize from parts; if no parts, log and skip. |
 | Missing segment referenced by a playlist | Log; do not rewrite the playlist; playback may 404. |
@@ -327,8 +329,11 @@ Stitching:
 Recovery:
 
 - Newest unfinished per watched channel; older/paused/removed sessions finalized.
-- Complete session becomes finished; missing index re-finalized.
-- Folders without a record ignored; a record with a missing folder or an unparseable part playlist skipped, kept, and left untouched.
+- Complete session becomes finished; missing index re-finalized with updated aggregates.
+- Finalize crash window: a Recording record with a final index becomes Complete with recomputed aggregates; so does a reopen that died before deleting the index.
+- A Recording record with a final index but no part playlists keeps its media and is skipped.
+- An older Recording record without media is deleted with its dependent rows and folder; one whose only segment line is unterminated keeps its media.
+- Folders without a record ignored; a Complete or Recording record with a missing folder, or with an unparseable part playlist, skipped, kept, not listed, and left untouched.
 - A restart loads the library from the record store; a finalize or reopen whose record write failed recovers as Complete.
 - `.tmp` deletion and orphan media cleanup only for valid sessions.
 - `MarkLoaded` after recovery; library contains all valid sessions.

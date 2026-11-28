@@ -289,8 +289,8 @@ public sealed class SessionStore(
 
     /// <summary>
     /// Derives the summary of every recorded session under <paramref name="recordingsRoot"/> for
-    /// a library load. A session whose folder name is unsafe or whose media cannot be read is
-    /// logged and left out; its record is kept.
+    /// a library load. A session whose folder name is unsafe, whose folder is missing, or whose
+    /// media cannot be read is logged and left out; its record is kept.
     /// </summary>
     public async Task<IReadOnlyList<RecordingSummary>> SummarizeAllAsync(
         string recordingsRoot, CancellationToken ct)
@@ -302,6 +302,17 @@ public sealed class SessionStore(
             ct.ThrowIfCancellationRequested();
             if (!TryResolveDirectory(recordingsRoot, record, out string directory))
                 continue;
+
+            // A Recording projection reads no file when its folder is gone, so check first:
+            // a session whose folder is missing is never listed.
+            if (!Directory.Exists(directory))
+            {
+                logger.LogWarning(
+                    "Not listing session {SessionId}: its folder {Directory} is missing.",
+                    record.Id,
+                    directory);
+                continue;
+            }
 
             try
             {

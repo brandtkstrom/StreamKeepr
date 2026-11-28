@@ -133,6 +133,21 @@ public sealed class RecordingLibraryLoadTests
     }
 
     [Fact]
+    public async Task Load_never_lists_a_recording_record_whose_folder_is_missing()
+    {
+        using var context = new SessionStoreTestContext();
+        await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
+        Directory.Delete(context.Directory, recursive: true);
+
+        var library = new RecordingLibrary(context.Clock, NullLogger<RecordingLibrary>.Instance);
+        await library.LoadAsync(context.Root, context.Store, CancellationToken.None);
+
+        Assert.True(library.IsLoaded);
+        Assert.Null(library.Find(context.Session.Id));
+        Assert.NotNull(await context.Store.TryLoadAsync(context.Directory, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Load_logs_one_summary_with_the_recording_count_and_elapsed_time()
     {
         using var logs = new ListLoggerProvider();
