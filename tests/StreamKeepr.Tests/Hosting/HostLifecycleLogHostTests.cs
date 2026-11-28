@@ -3,6 +3,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
+using StreamKeepr.Infrastructure.Twitch;
+using StreamKeepr.Tests.Runtime;
 
 namespace StreamKeepr.Tests.Hosting;
 
@@ -24,7 +26,11 @@ public sealed class HostLifecycleLogHostTests
             [$"{TwitchOptions.SectionName}:Channels:1"] = "beta",
             [$"{TwitchOptions.SectionName}:EventSubTransport"] = "Conduit",
             [$"{ChatOptions.SectionName}:Enabled"] = "true",
-        });
+        },
+        // Watched channels make startup recovery resolve their profiles; the real poller would
+        // call Twitch, so startup time would depend on the network.
+        configureTestServices: services =>
+            services.AddSingleton<IStreamPoller>(new ScriptedStreamPoller()));
         using HttpClient client = factory.CreateClient();
 
         await factory.Logs.WaitForAsync(StartedFragment);
