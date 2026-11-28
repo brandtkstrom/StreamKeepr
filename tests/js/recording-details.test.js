@@ -119,7 +119,7 @@ describe("RecordingDetails.razor.js title steps", () => {
 });
 
 describe("RecordingDetails.razor.js title observer", () => {
-  it("measures through a ResizeObserver and releases it on dispose", () => {
+  it("measures through the font load and a ResizeObserver, then releases it on dispose", async () => {
     const root = document.createElement("div");
     root.innerHTML = '<div class="sk-details-head"><h2 data-details-title>Title</h2></div>';
     const head = root.querySelector(".sk-details-head");
@@ -129,6 +129,16 @@ describe("RecordingDetails.razor.js title observer", () => {
 
     const originalRects = Range.prototype.getClientRects;
     Range.prototype.getClientRects = () => [{ top: 0 }, { top: 20 }, { top: 40 }];
+
+    const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
+    let resolveFonts;
+    const fontsReady = new Promise((resolve) => {
+      resolveFonts = resolve;
+    });
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: { ready: fontsReady },
+    });
 
     const originalObserver = globalThis.ResizeObserver;
     const observers = [];
@@ -154,9 +164,19 @@ describe("RecordingDetails.razor.js title observer", () => {
       expect(observers).toHaveLength(1);
       expect(observers[0].target).toBe(head);
 
-      // A width change re-runs the measurement; one line at the new width clears the step.
+      // A font load re-runs the measurement; one line now clears the step.
       Range.prototype.getClientRects = () => [{ top: 0 }];
+      resolveFonts();
+      await fontsReady;
+      expect(title.hasAttribute("data-title-step")).toBe(false);
+
+      // A width change re-runs it again; three lines take the second step.
+      Range.prototype.getClientRects = () => [{ top: 0 }, { top: 20 }, { top: 40 }];
       observers[0].callback([{ contentRect: { width: 299 } }]);
+      expect(title.getAttribute("data-title-step")).toBe("2");
+
+      Range.prototype.getClientRects = () => [{ top: 0 }];
+      observers[0].callback([{ contentRect: { width: 298 } }]);
       expect(title.hasAttribute("data-title-step")).toBe(false);
 
       details.disposeTitle(root);
@@ -164,6 +184,8 @@ describe("RecordingDetails.razor.js title observer", () => {
     } finally {
       details.disposeTitle(root);
       Range.prototype.getClientRects = originalRects;
+      if (originalFonts) Object.defineProperty(document, "fonts", originalFonts);
+      else delete document.fonts;
       if (originalObserver) globalThis.ResizeObserver = originalObserver;
       else delete globalThis.ResizeObserver;
       root.remove();
