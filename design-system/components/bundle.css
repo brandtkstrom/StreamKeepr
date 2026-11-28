@@ -349,27 +349,40 @@ mark.ds-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .ds-drawer-foot.warn .row .ds-i, .ds-drawer-foot.warn .t { color: var(--warning); }
 .ds-drawer-foot.warn .ds-progress { --c: var(--warning); }
 
-/* Stats: Stream section, viewer count over the recording's timeline (tertiary series) */
-.ds-viewers { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--divider); }
-.ds-viewers h3 { margin: 0 0 var(--space-2); font: var(--text-subtitle1); letter-spacing: 0.00938em; display: flex; align-items: center; gap: var(--space-2); }
-.ds-viewers h3 .sw { width: 10px; height: 10px; border-radius: 2px; }
-.ds-viewers .vgrid { display: grid; grid-template-columns: 220px 1fr; gap: var(--space-3); align-items: stretch; }
-.ds-viewers .ds-tile { display: flex; flex-direction: column; }
-.ds-viewers .ds-kv { grid-template-columns: auto 1fr; margin-top: var(--space-2); }
-.ds-vchart { position: relative; background: var(--surface-raised); border-radius: var(--radius-md); padding: var(--space-3) var(--space-3) 26px 44px; min-height: 160px; }
-.ds-vchart .plot { position: relative; height: 100%; min-height: 120px; }
-.ds-vchart svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-.ds-vchart .grid line { stroke: var(--divider); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.ds-vchart .area { fill: color-mix(in srgb, var(--tertiary) 18%, transparent); }
-.ds-vchart .line { fill: none; stroke: var(--tertiary); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
-.ds-vchart .ylab { position: absolute; left: -38px; width: 32px; text-align: right; transform: translateY(-50%); font: var(--text-caption); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
-.ds-vchart .xlab { position: absolute; bottom: -22px; transform: translateX(-50%); font: var(--text-caption); color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.ds-vchart .xlab.first { transform: none; }
-.ds-vchart .xlab.last { transform: translateX(-100%); }
-.ds-vchart .playhead { position: absolute; top: -4px; bottom: 0; width: 0; border-left: 1px dashed var(--primary); }
-.ds-vchart .playhead .knob { position: absolute; left: -5px; width: 9px; height: 9px; border-radius: var(--radius-full); background: var(--primary); box-shadow: 0 0 0 2px var(--surface-raised); transform: translateY(-50%); }
-.ds-vchart .playhead .tag { position: absolute; top: -2px; left: 6px; padding: 0 6px; border-radius: var(--radius-sm); background: var(--primary); color: var(--primary-contrast-text); font: var(--text-caption); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.ds-vchart .edge { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: var(--radius-full); background: var(--rec); box-shadow: 0 0 0 2px var(--surface-raised); }
+/* Viewers: the recording's audience as one flat readout over a full-width signal (tertiary) */
+.ds-vpanel { container-type: inline-size; }
+.ds-vpanel .ds-panel-body { padding: 0 var(--space-4) var(--space-4); }
+.ds-vicon { color: var(--tertiary); }
+.ds-ihead[aria-expanded="true"] .vhint { display: none; }
+.ds-vread { display: flex; align-items: flex-start; flex-wrap: wrap; gap: var(--space-3) var(--space-8); padding-bottom: var(--space-3); }
+.ds-vnow { display: flex; flex-direction: column; gap: 2px; min-width: 144px; }
+.ds-vlbl { font: var(--text-overline); line-height: 16px; letter-spacing: 0.08333em; text-transform: uppercase; color: var(--text-secondary); white-space: nowrap; }
+.ds-vcount { font: var(--text-stat-hero); font-variant-numeric: tabular-nums; }
+.ds-vfigs { display: flex; align-items: flex-start; gap: var(--space-6); margin: 0; }
+.ds-vfig { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ds-vfig dt { font: var(--text-overline); line-height: 16px; letter-spacing: 0.08333em; text-transform: uppercase; color: var(--text-secondary); white-space: nowrap; }
+.ds-vfig dd { margin: 0; font: var(--text-stat-value); letter-spacing: 0.01071em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ds-vat { font: var(--text-caption); letter-spacing: 0.03333em; color: var(--text-secondary); }
+.ds-vsignal { position: relative; padding: 10px var(--space-1) 26px 40px; }
+.ds-vsignal .plot { position: relative; height: 140px; cursor: pointer; touch-action: none; }
+.ds-vsignal svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.ds-vsignal .grid line { stroke: var(--divider); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ds-vsignal .area { fill: color-mix(in srgb, var(--tertiary) 18%, transparent); }
+.ds-vsignal .line { fill: none; stroke: var(--tertiary); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.ds-vsignal .ylab { position: absolute; left: -38px; width: 32px; text-align: right; transform: translateY(-50%); font: var(--text-caption); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.ds-vsignal .xlab { position: absolute; bottom: -22px; transform: translateX(-50%); font: var(--text-caption); color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ds-vsignal .xlab.first { transform: none; }
+.ds-vsignal .xlab.last { transform: translateX(-100%); }
+.ds-vsignal .chapter { position: absolute; bottom: 0; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: var(--tertiary); }
+.ds-vsignal .peak { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: var(--radius-full); border: 2px solid var(--tertiary); background: var(--surface); }
+.ds-vsignal .playhead { position: absolute; top: -4px; bottom: 0; width: 0; border-left: 1px dashed var(--primary); }
+.ds-vsignal .playhead .knob { position: absolute; left: -5px; width: 9px; height: 9px; border-radius: var(--radius-full); background: var(--primary); box-shadow: 0 0 0 2px var(--surface); transform: translateY(-50%); }
+.ds-vsignal .playhead .tag { position: absolute; top: -2px; left: 6px; padding: 0 6px; border-radius: var(--radius-sm); background: var(--primary); color: var(--primary-contrast-text); font: var(--text-caption); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ds-vsignal .edge { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: var(--radius-full); background: var(--rec); box-shadow: 0 0 0 2px var(--surface); }
+@container (max-width: 560px) {
+  .ds-vread { gap: var(--space-3); }
+  .ds-vfigs { width: 100%; justify-content: space-between; gap: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--divider); }
+}
 
 /* Responsive, player-first layout (MudBlazor Layout 2 wireframe: app bar + clipped drawer) */
 .ds-appbar.dense { height: var(--appbar-height-dense); padding: 0 var(--space-1); gap: 0; }
@@ -542,9 +555,6 @@ mark.ds-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .ds-player:has(.ds-pstats) { container-type: inline-size; }
 /* Narrow players (phones in fullscreen landscape, small windows): the card takes the left half and scrolls. */
 @container (max-width: 560px) { .ds-pstats { width: 50%; min-width: 220px; } .ds-pstats .spark svg { display: none; } }
-
-/* The viewer chart, moved out of Stats into its own panel under Chapters. */
-.ds-viewers.panel { margin: 0; padding: 0; border: 0; }
 
 /* An avatar with the channel's Twitch profile image fills the circle; the initial on the
    channel colour is the fallback when there is no image. */

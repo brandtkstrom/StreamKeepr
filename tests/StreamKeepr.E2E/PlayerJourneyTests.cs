@@ -391,7 +391,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
     }
 
     [Fact]
-    public async Task Stats_shows_the_viewer_tile_and_chart_and_the_chart_seeks()
+    public async Task Stats_shows_the_viewer_readout_and_chart_and_the_chart_seeks()
     {
         await using Journey session = await OpenAsync(app);
         IPage page = session.Page;
@@ -417,15 +417,22 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         ILocator panel = page.Locator("[data-viewers-panel]");
         await Assertions.Expect(panel).ToBeVisibleAsync(new() { Timeout = 10_000 });
         await Assertions.Expect(panel.Locator("[data-collapsible-toggle]")).ToHaveAttributeAsync("aria-expanded", "true");
-        await Assertions.Expect(panel.Locator("[data-viewers-hint]"))
-            .ToHaveTextAsync(new Regex(@"^[\d,—]+ at \d+:\d\d · peak [\d,]+$"));
+        ILocator hint = panel.Locator("[data-viewers-hint]");
+        await Assertions.Expect(hint).ToHaveTextAsync(new Regex(@"^peak [\d,]+ at \d+:\d\d$"));
+        await Assertions.Expect(hint).ToBeHiddenAsync();
+        await panel.Locator("[data-collapsible-toggle]").ClickAsync();
+        await Assertions.Expect(hint).ToBeVisibleAsync();
+        await Assertions.Expect(panel.Locator("[data-collapsible-toggle]")).ToHaveAttributeAsync("aria-expanded", "false");
+        await panel.Locator("[data-collapsible-toggle]").ClickAsync();
+        await Assertions.Expect(panel.Locator("[data-collapsible-toggle]")).ToHaveAttributeAsync("aria-expanded", "true");
 
-        ILocator tile = panel.Locator("[data-sk='viewer-tile']");
-        await Assertions.Expect(tile).ToBeVisibleAsync();
-        await Assertions.Expect(tile.Locator("[data-sk='viewer-now']"))
+        ILocator readout = panel.Locator("[data-sk='viewer-readout']");
+        await Assertions.Expect(readout).ToBeVisibleAsync();
+        await Assertions.Expect(readout.Locator("[data-sk='viewer-now']"))
             .ToHaveTextAsync(now.ToString("N0", System.Globalization.CultureInfo.InvariantCulture));
-        await Assertions.Expect(tile.Locator("[data-sk='viewer-peak']")).ToHaveTextAsync(new Regex(@"^[\d,]+ at \d+:\d\d$"));
-        await Assertions.Expect(tile.Locator("[data-sk='viewer-average']")).ToHaveTextAsync(new Regex(@"^[\d,]+$"));
+        await Assertions.Expect(readout.Locator("[data-sk='viewer-peak']")).ToHaveTextAsync(new Regex(@"^[\d,]+$"));
+        await Assertions.Expect(readout.Locator("[data-sk='viewer-peak-at']")).ToHaveTextAsync(new Regex(@"^at \d+:\d\d$"));
+        await Assertions.Expect(readout.Locator("[data-sk='viewer-average']")).ToHaveTextAsync(new Regex(@"^[\d,]+$"));
 
         ILocator chart = panel.GetByRole(AriaRole.Img, new() { NameRegex = new Regex("^Viewer count over the recording: ") });
         await Assertions.Expect(chart).ToHaveAttributeAsync("data-sk", "viewer-chart");
@@ -448,7 +455,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await Assertions.Expect(panel.Locator("[data-sk='tip-viewers']"))
             .ToHaveTextAsync(new Regex(@"^\d+:\d\d · [\d,]+ viewers?$"));
 
-        // A click seeks the player to that recording time, and the tile follows the playhead.
+        // A click seeks the player to that recording time, and the readout follows the playhead.
         LocatorBoundingBoxResult box = (await chart.BoundingBoxAsync())!;
         double target = domain * 0.75;
         await page.Mouse.ClickAsync(box.X + (box.Width * 0.75f), box.Y + (box.Height / 2));
@@ -457,7 +464,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
             new object[] { target, 2.0 },
             new PageWaitForFunctionOptions { Timeout = 10_000 });
         double position = await page.Locator("[data-sk='video']").EvaluateAsync<double>("v => v.currentTime");
-        await Assertions.Expect(tile.Locator("[data-sk='viewer-at']"))
+        await Assertions.Expect(readout.Locator("[data-sk='viewer-at']"))
             .ToHaveTextAsync($"Viewers at {Timecode(position)}");
 
         // The Statistics overlay's Stream row shows the same count at the playhead.
@@ -470,7 +477,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
 
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-viewers");
 
-        // On a phone the Stats tab ends with the chart; the tile stacks above the full-width chart.
+        // On a phone the Stats tab ends with the chart; the readout stacks above the full-width chart.
         await using Journey phone = await OpenAsync(app, viewport: new() { Width = 375, Height = 812 });
         page = phone.Page;
         await page.GotoAsync(new Uri(new Uri(page.Url), href).ToString(),
@@ -478,7 +485,7 @@ public sealed class PlayerJourneyTests(MockAppFixture app)
         await page.Locator(Ready).WaitForAsync(new() { Timeout = 30_000 });
         await page.GetByRole(AriaRole.Tab, new() { Name = "Stats" }).ClickAsync();
         ILocator tab = page.Locator("[role='tabpanel'] [data-viewers-panel]");
-        await Assertions.Expect(tab.Locator("[data-sk='viewer-tile']")).ToBeVisibleAsync(new() { Timeout = 10_000 });
+        await Assertions.Expect(tab.Locator("[data-sk='viewer-readout']")).ToBeVisibleAsync(new() { Timeout = 10_000 });
         await Assertions.Expect(tab.GetByRole(AriaRole.Img, new() { NameRegex = new Regex("^Viewer count over the recording: ") }))
             .ToBeVisibleAsync();
         await new LibraryJourneyTests(app).AssertAxeCleanAsync(page, "player-viewers-phone");

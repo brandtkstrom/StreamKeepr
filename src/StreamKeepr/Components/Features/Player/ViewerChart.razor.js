@@ -21,7 +21,8 @@ import { isLiveState } from "/js/recording-state.js";
 
 // Mirrors the data-sk hooks ViewerChart.razor renders (ViewersPanelTests guards the markup).
 const HOOKS = [
-  "viewer-tile", "viewer-at", "viewer-count", "viewer-now", "viewer-peak", "viewer-average",
+  "viewer-readout", "viewer-at", "viewer-count", "viewer-now-label", "viewer-now",
+  "viewer-peak", "viewer-peak-at", "viewer-average",
   "viewer-chart", "viewer-svg", "tip-viewers", "table-viewers", "rows-viewers",
 ];
 
@@ -41,11 +42,11 @@ function readSamples(body) {
     .map((sample) => ({ at: sample.at, count: sample.count }));
 }
 
-/** "1,489 at 54:40 · peak 1,658": the panel header's hint. */
-export function formatViewersHint(samples, at) {
+/** "peak 1,658 at 38:00": the panel header's collapsed summary. */
+export function formatViewersPeak(samples) {
   if (!samples?.length) return "";
   const summary = viewerSummary(samples);
-  return `${formatCount(viewerCountAt(samples, at))} at ${formatTimecode(at)} · peak ${formatCount(summary.peak)}`;
+  return `peak ${formatCount(summary.peak)} at ${formatTimecode(summary.peakAt)}`;
 }
 
 export function createViewerChart(root, {
@@ -97,8 +98,6 @@ export function createViewerChart(root, {
   }
 
   function renderPlayhead() {
-    const node = hint();
-    if (node) node.textContent = formatViewersHint(viewers.samples, playheadAt);
     if (!geometry) return;
     const count = viewerCountAt(viewers.samples, playheadAt);
     if (el["viewer-at"]) el["viewer-at"].textContent = `Viewers at ${formatTimecode(playheadAt)}`;
@@ -133,28 +132,31 @@ export function createViewerChart(root, {
 
     el["viewer-chart"]?.setAttribute("aria-label", viewerChartLabel(samples, { live }));
     renderTable(samples);
+    if (el["viewer-now-label"]) el["viewer-now-label"].textContent = live ? "Now" : "Last";
+
+    const node = hint();
+    if (node) node.textContent = has ? formatViewersPeak(samples) : "";
 
     if (!has) {
       geometry = null;
       el["viewer-svg"]?.replaceChildren();
       el["viewer-chart"]?.querySelector("[data-chart-overlay]")?.remove();
       hideTip();
-      const node = hint();
-      if (node) node.textContent = "";
     } else {
       geometry = drawViewerChart(
         el["viewer-chart"],
         el["viewer-svg"],
         viewerChartGeometry(samples, { durationSec: viewers.durationSec }),
-        { live });
+        { live, chapters: options.chapters });
       // A refresh must not leave a stale tooltip: reposition the active one against the new data.
       if (hoverAt !== null) showTip(hoverAt);
       else hideTip();
 
       const summary = viewerSummary(samples);
       if (el["viewer-now"]) el["viewer-now"].textContent = formatCount(summary.now);
-      if (el["viewer-peak"])
-        el["viewer-peak"].textContent = `${formatCount(summary.peak)} at ${formatTimecode(summary.peakAt)}`;
+      if (el["viewer-peak"]) el["viewer-peak"].textContent = formatCount(summary.peak);
+      if (el["viewer-peak-at"])
+        el["viewer-peak-at"].textContent = `at ${formatTimecode(summary.peakAt)}`;
       if (el["viewer-average"]) el["viewer-average"].textContent = formatCount(summary.average);
       renderPlayhead();
     }

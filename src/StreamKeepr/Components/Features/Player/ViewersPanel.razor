@@ -3,9 +3,10 @@
 
 @* The Viewers panel (design system: Viewers): the stream's viewer count across the recording,
    under Chapters, Md and up. It was the Stream section of the old stats panel. The chart is a
-   JS island (ViewerChart) that loads the samples and tells this panel whether there are any:
-   none, no panel. Tab is the phone Stats tab's copy, under Video and Network, with no header.
-   The disclosure is Blazor's, like ChaptersPanel; the island inside never re-renders. *@
+   JS island (ViewerChart) that loads the samples, draws the readout and signal, and tells this
+   panel whether there are any: none, no panel. Tab is the phone Stats tab's copy, under Video
+   and Network, with no header. The disclosure is Blazor's, like ChaptersPanel; the island
+   inside never re-renders. *@
 @if (Tab)
 {
     <div class="sk-viewers-tab" data-viewers-panel hidden="@(_hasSamples ? null : "hidden")">
@@ -26,9 +27,11 @@ else
                 aria-expanded="@(Preferences.ViewersOpen ? "true" : "false")"
                 aria-controls="@_bodyId"
                 @onclick="() => ToggleAsync(!Preferences.ViewersOpen)">
-            <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Groups" Size="MudBlazor.Size.Small" />
+            <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Groups"
+                               Color="MudBlazor.Color.Tertiary"
+                               Size="MudBlazor.Size.Small" />
             <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2">Viewers</MudBlazor.MudText>
-            @* ViewerChart.razor.js writes the live hint; Blazor renders it empty and never changes it. *@
+            @* ViewerChart.razor.js writes the peak summary; Blazor renders it empty and never changes it. *@
             <span class="hint mud-typography mud-typography-caption" data-viewers-hint></span>
             <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.ExpandMore" Class="chev" />
         </button>

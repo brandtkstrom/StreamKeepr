@@ -88,6 +88,9 @@ export const VIEWER_CHART_HEIGHT = 100;
 const TIME_STEPS = [
   1, 2, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 360, 480, 600, 900, 1200, 1800,
   2400, 3600, 5400, 7200, 10800, 14400, 21600, 28800, 43200, 86400,
+  // Days upwards: a live session can outgrow the hour-scale steps, and the axis still owes
+  // four or five labels rather than one per day.
+  172800, 259200, 345600, 604800, 1209600, 2592000, 5184000, 10368000,
 ];
 const MIN_TIME_LABELS = 4;
 const MAX_TIME_LABELS = 5;
@@ -207,11 +210,12 @@ function htmlElement(name, attributes, text = "") {
 }
 
 /**
- * Redraws the chart: gridlines, area and line in the SVG, and the HTML axis labels, playhead
- * and live-edge dot in the chart element. Everything drawn here is presentational; the chart
- * element is role="img" with a summary label, and the samples live in the hidden table.
+ * Redraws the chart: gridlines, area and line in the SVG, and the HTML axis labels, chapter
+ * ticks, peak ring, playhead and live-edge dot in the chart element. Everything drawn here is
+ * presentational; the chart element is role="img" with a summary label, and the samples live
+ * in the hidden table.
  */
-export function drawViewerChart(chart, svg, geometry, { live = false } = {}) {
+export function drawViewerChart(chart, svg, geometry, { live = false, chapters = [] } = {}) {
   if (!chart || !svg) return geometry;
 
   svg.replaceChildren();
@@ -250,6 +254,23 @@ export function drawViewerChart(chart, svg, geometry, { live = false } = {}) {
     label.style.left = percent(tick.fraction);
     overlay.append(label);
   });
+
+  // Chapter starts sit on the baseline, like the seek bar's chapter ticks. 0:00 is the axis start.
+  for (const at of Array.isArray(chapters) ? chapters : []) {
+    if (!Number.isFinite(at) || at <= 0 || at >= geometry.domain) continue;
+    const chapter = htmlElement("span", { class: "chapter", "data-chapter": "" });
+    chapter.style.left = percent(at / geometry.domain);
+    overlay.append(chapter);
+  }
+
+  // The recording's first maximum, as a quiet ring under the playhead.
+  if (geometry.points.length > 0) {
+    const peak = geometry.points.reduce((best, point) => (point.count > best.count ? point : best));
+    const ring = htmlElement("span", { class: "peak", "data-peak": "" });
+    ring.style.left = percent(peak.x / geometry.width);
+    ring.style.top = percent(peak.y / geometry.height);
+    overlay.append(ring);
+  }
 
   const playhead = htmlElement("span", { class: "playhead", "data-playhead": "" });
   playhead.append(

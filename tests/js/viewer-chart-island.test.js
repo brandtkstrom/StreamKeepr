@@ -8,10 +8,13 @@ const MARKUP = `
   <section data-viewers-panel>
     <button><span data-viewers-hint></span></button>
     <div data-sk-viewers>
-      <div data-sk="viewer-tile">
-        <div data-sk="viewer-at">Viewers at 0:00</div><div data-sk="viewer-count">—</div>
-        <dl><dt>Now</dt><dd data-sk="viewer-now">—</dd><dt>Peak</dt><dd data-sk="viewer-peak">—</dd>
-            <dt>Average</dt><dd data-sk="viewer-average">—</dd></dl>
+      <div data-sk="viewer-readout">
+        <span data-sk="viewer-at">Viewers at 0:00</span><span data-sk="viewer-count">—</span>
+        <dl>
+          <dt data-sk="viewer-now-label">Now</dt><dd data-sk="viewer-now">—</dd>
+          <dt>Average</dt><dd data-sk="viewer-average">—</dd>
+          <dt>Peak</dt><dd><span data-sk="viewer-peak">—</span> <span data-sk="viewer-peak-at"></span></dd>
+        </dl>
       </div>
       <div data-sk="viewer-chart" role="img" aria-label="No viewer data for this recording.">
         <svg data-sk="viewer-svg" viewBox="0 0 1000 100"></svg><span data-sk="tip-viewers"></span>
@@ -87,9 +90,9 @@ describe("ViewerChart.razor.js", () => {
     document.body.replaceChildren();
   });
 
-  function start({ state = "recording", fetch = viewerFetch() } = {}) {
+  function start({ state = "recording", fetch = viewerFetch(), chapters } = {}) {
     chart = createViewerChart(document.querySelector("[data-sk-viewers]"), { dotNet, fetch });
-    chart.init({ recordingId: "r1", state });
+    chart.init({ recordingId: "r1", state, chapters });
     return chart;
   }
 
@@ -106,7 +109,7 @@ describe("ViewerChart.razor.js", () => {
       });
     }
 
-    it("fetches the samples, draws the tile, chart and table, and tells .NET there are some", async () => {
+    it("fetches the samples, draws the readout, chart and table, and tells .NET there are some", async () => {
       const fetch = withSamples();
       start({ state: "saved", fetch });
       await flush();
@@ -115,8 +118,10 @@ describe("ViewerChart.razor.js", () => {
       expect(fetch.calls[0].url).toBe("/api/recordings/r1/viewers");
       expect(dotNet.calls).toContainEqual(["SetHasSamples", true]);
 
+      expect(hook("viewer-now-label").textContent).toBe("Last");
       expect(hook("viewer-now").textContent).toBe("1,492");
-      expect(hook("viewer-peak").textContent).toBe("1,658 at 38:00");
+      expect(hook("viewer-peak").textContent).toBe("1,658");
+      expect(hook("viewer-peak-at").textContent).toBe("at 38:00");
       expect(hook("viewer-average").textContent).toBe("1,218");
       expect(hook("viewer-chart").getAttribute("aria-label")).toBe(
         "Viewer count over the recording: from 380 at the start to a peak of 1,658 at 38:00, 1,492 at the end.");
@@ -129,13 +134,29 @@ describe("ViewerChart.razor.js", () => {
       expect(xLabels).toEqual(["0:00", "15:00", "30:00", "45:00", "1:02:13"]);
       const yLabels = [...hook("viewer-chart").querySelectorAll("[data-axis='y']")].map((n) => n.textContent);
       expect(yLabels).toEqual(["0", "1k", "2k"]);
-      // A finished recording has no live edge.
+      // A finished recording has no live edge; the peak is marked on the line.
       expect(hook("viewer-chart").querySelector("[data-live-edge]")).toBeNull();
+      expect(hook("viewer-chart").querySelector("[data-peak]")).not.toBeNull();
 
       const table = [...document.querySelectorAll('[data-sk="rows-viewers"] tr')]
         .map((row) => [...row.children].map((cell) => cell.textContent));
       expect(table).toHaveLength(5);
       expect(table[2]).toEqual(["38:00", "1,658"]);
+    });
+
+    it("marks chapter starts on the baseline and the peak on the signal", async () => {
+      start({ state: "saved", fetch: withSamples(), chapters: [0, 750, 2280, 2830] });
+      await flush();
+
+      const chart = hook("viewer-chart");
+      const chapters = [...chart.querySelectorAll("[data-chapter]")];
+      expect(chapters).toHaveLength(3);
+      expect(chapters.map((node) => node.style.left)).toEqual(["20.09%", "61.08%", "75.81%"]);
+
+      const peak = chart.querySelector("[data-peak]");
+      expect(peak).not.toBeNull();
+      expect(peak.style.left).toBe("61.08%");
+      expect(peak.style.top).toBe("17.1%");
     });
 
     it("fetches the final samples once when the capture finishes, then stops refreshing", async () => {
@@ -147,6 +168,7 @@ describe("ViewerChart.razor.js", () => {
       await flush();
       expect(fetch).toHaveBeenCalledTimes(2);
       expect(hook("viewer-chart").querySelector("[data-live-edge]")).toBeNull();
+      expect(hook("viewer-now-label").textContent).toBe("Last");
 
       vi.advanceTimersByTime(180_000);
       expect(fetch).toHaveBeenCalledTimes(2);
@@ -165,6 +187,7 @@ describe("ViewerChart.razor.js", () => {
       expect(edge()).not.toBeNull();
       expect(edge().style.left).toBe("99.13%");
       expect(hook("viewer-chart").getAttribute("aria-label")).toContain("1,658 now.");
+      expect(hook("viewer-now-label").textContent).toBe("Now");
 
       samples = VIEWER_SAMPLES;
       durationSec = 3733;
@@ -218,7 +241,7 @@ describe("ViewerChart.razor.js", () => {
       expect(hook("viewer-now").textContent).toBe("—");
     });
 
-    it("follows the playhead in the tile and on the chart", async () => {
+    it("follows the playhead in the readout and on the chart", async () => {
       start({ state: "saved", fetch: withSamples() });
       await flush();
 
@@ -313,13 +336,14 @@ describe("ViewerChart.razor.js", () => {
       expect(warn).not.toHaveBeenCalled();
     });
 
-    it("writes the panel header's hint and follows the playhead in it", async () => {
+    it("writes the collapsed peak summary and does not follow the playhead", async () => {
       start({ state: "saved", fetch: withSamples() });
       await flush();
-      expect(hint().textContent).toBe("380 at 0:00 · peak 1,658");
+      expect(hint().textContent).toBe("peak 1,658 at 38:00");
 
       playhead(2300);
-      expect(hint().textContent).toBe("1,658 at 38:20 · peak 1,658");
+      expect(hint().textContent).toBe("peak 1,658 at 38:00");
+      expect(hook("viewer-at").textContent).toBe("Viewers at 38:20");
     });
 
     it("publishes the samples for the Statistics overlay", async () => {

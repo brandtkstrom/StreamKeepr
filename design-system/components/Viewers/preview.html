@@ -1,4 +1,4 @@
-<!-- @dsCard group="Playback" height=420 width=1000 subtitle="Viewers: the stream's viewer count across the recording, in tertiary, as a panel under Chapters" -->
+<!-- @dsCard group="Playback" height=420 width=1000 subtitle="Viewers while a recording is live: the playhead reading and peak, over a full-width signal with chapter starts on the baseline" -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -10,31 +10,35 @@
 </head>
 <body class="ds">
 <div class="wrap">
-  <section class="ds-panel" aria-labelledby="sk-viewers-h" data-sk="viewers">
-    <div class="ds-panel-head ds-ihead" aria-expanded="true" role="button"><i data-i="groups"></i><h2 id="sk-viewers-h">Viewers</h2><span class="ds-cap">1,489 at 54:40 · peak 1,658</span><i data-i="expand" class="ds-chev"></i></div>
+  <section class="ds-panel ds-vpanel" aria-labelledby="sk-viewers-h">
+    <div class="ds-panel-head ds-ihead" aria-expanded="true" role="button"><i data-i="groups" class="ds-vicon"></i><h2 id="sk-viewers-h">Viewers</h2><span class="ds-cap vhint">peak 1,658 at 38:00</span><i data-i="expand" class="ds-chev"></i></div>
     <div class="ds-panel-body">
-      <section class="ds-viewers panel">
-        <div class="vgrid">
-          <div class="ds-tile"><div class="lbl">Viewers at 54:40</div><div class="val">1,489</div>
-            <dl class="ds-kv"><dt>Now</dt><dd>1,492</dd><dt>Peak</dt><dd>1,658 at 38:00</dd><dt>Average</dt><dd>1,288</dd></dl></div>
-          <div class="ds-vchart" role="img" aria-label="Viewer count over the recording: from 380 at the start to a peak of 1,658 at 38:00, 1,492 now">
-            <div class="plot">
-              <svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true">
-                <g class="grid"><line x1="0" y1="0" x2="1000" y2="0"/><line x1="0" y1="50" x2="1000" y2="50"/><line x1="0" y1="100" x2="1000" y2="100"/></g>
-                <path class="area" d="M0.0 81.0 L16.1 75.8 L32.2 73.66 L48.2 71.07 L64.3 66.09 L80.4 62.73 L96.5 61.83 L112.5 59.15 L128.6 54.9 L144.7 53.24 L160.8 52.85 L176.8 49.89 L192.9 46.65 L209.0 46.36 L225.1 45.87 L241.2 42.75 L257.2 40.74 L273.3 41.31 L289.4 40.31 L305.5 37.33 L321.5 36.62 L337.6 37.46 L353.7 35.81 L369.8 33.37 L385.9 33.77 L401.9 34.3 L418.0 32.04 L434.1 30.37 L450.2 31.3 L466.2 30.82 L482.3 27.89 L498.4 26.66 L514.5 27.08 L530.5 24.99 L546.6 21.61 L562.7 20.97 L578.8 21.09 L594.9 18.75 L610.9 17.08 L627.0 18.7 L643.1 19.9 L659.2 18.99 L675.2 20.02 L691.3 23.62 L707.4 25.58 L723.5 26.24 L739.5 29.08 L755.6 31.78 L771.7 30.28 L787.8 27.52 L803.9 27.38 L819.9 27.13 L836.0 24.71 L852.1 23.84 L868.2 25.53 L884.2 25.48 L900.3 23.53 L916.4 23.89 L932.5 25.58 L948.6 24.64 L964.6 23.05 L980.7 24.27 L996.8 25.42 L996.8 100 L0 100 Z"/>
-                <path class="line" d="M0.0 81.0 L16.1 75.8 L32.2 73.66 L48.2 71.07 L64.3 66.09 L80.4 62.73 L96.5 61.83 L112.5 59.15 L128.6 54.9 L144.7 53.24 L160.8 52.85 L176.8 49.89 L192.9 46.65 L209.0 46.36 L225.1 45.87 L241.2 42.75 L257.2 40.74 L273.3 41.31 L289.4 40.31 L305.5 37.33 L321.5 36.62 L337.6 37.46 L353.7 35.81 L369.8 33.37 L385.9 33.77 L401.9 34.3 L418.0 32.04 L434.1 30.37 L450.2 31.3 L466.2 30.82 L482.3 27.89 L498.4 26.66 L514.5 27.08 L530.5 24.99 L546.6 21.61 L562.7 20.97 L578.8 21.09 L594.9 18.75 L610.9 17.08 L627.0 18.7 L643.1 19.9 L659.2 18.99 L675.2 20.02 L691.3 23.62 L707.4 25.58 L723.5 26.24 L739.5 29.08 L755.6 31.78 L771.7 30.28 L787.8 27.52 L803.9 27.38 L819.9 27.13 L836.0 24.71 L852.1 23.84 L868.2 25.53 L884.2 25.48 L900.3 23.53 L916.4 23.89 L932.5 25.58 L948.6 24.64 L964.6 23.05 L980.7 24.27 L996.8 25.42"/>
-              </svg>
-              <span class="ylab" style="top:0">2k</span><span class="ylab" style="top:50%">1k</span><span class="ylab" style="top:100%">0</span>
-              <span class="xlab first" style="left:0">0:00</span><span class="xlab" style="left:24.12%">15:00</span><span class="xlab" style="left:48.23%">30:00</span><span class="xlab" style="left:72.35%">45:00</span><span class="xlab last" style="left:100%">1:02:13</span>
-              <span class="playhead" style="left:87.89%"><span class="knob" style="top:calc(25.53% + 4px)"></span><span class="tag">54:40</span></span>
-              <span class="edge" style="left:100%;top:25.42%" title="Live edge"></span>
-            </div>
-          </div>
+      <div class="ds-vread">
+        <div class="ds-vnow"><span class="ds-vlbl">Viewers at 54:40</span><span class="ds-vcount">1,489</span></div>
+        <dl class="ds-vfigs">
+          <div class="ds-vfig"><dt>Now</dt><dd>1,492</dd></div>
+          <div class="ds-vfig"><dt>Average</dt><dd>1,288</dd></div>
+          <div class="ds-vfig"><dt>Peak</dt><dd>1,658 <span class="ds-vat">at 38:00</span></dd></div>
+        </dl>
+      </div>
+      <div class="ds-vsignal">
+        <div class="plot" role="img" aria-label="Viewer count over the recording: from 380 at the start to a peak of 1,658 at 38:00, 1,492 now">
+          <svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true">
+            <g class="grid"><line x1="0" y1="0" x2="1000" y2="0"/><line x1="0" y1="50" x2="1000" y2="50"/><line x1="0" y1="100" x2="1000" y2="100"/></g>
+            <path class="area" d="M0.0 81.0 L16.1 75.8 L32.2 73.66 L48.2 71.07 L64.3 66.09 L80.4 62.73 L96.5 61.83 L112.5 59.15 L128.6 54.9 L144.7 53.24 L160.8 52.85 L176.8 49.89 L192.9 46.65 L209.0 46.36 L225.1 45.87 L241.2 42.75 L257.2 40.74 L273.3 41.31 L289.4 40.31 L305.5 37.33 L321.5 36.62 L337.6 37.46 L353.7 35.81 L369.8 33.37 L385.9 33.77 L401.9 34.3 L418.0 32.04 L434.1 30.37 L450.2 31.3 L466.2 30.82 L482.3 27.89 L498.4 26.66 L514.5 27.08 L530.5 24.99 L546.6 21.61 L562.7 20.97 L578.8 21.09 L594.9 18.75 L610.9 17.08 L627.0 18.7 L643.1 19.9 L659.2 18.99 L675.2 20.02 L691.3 23.62 L707.4 25.58 L723.5 26.24 L739.5 29.08 L755.6 31.78 L771.7 30.28 L787.8 27.52 L803.9 27.38 L819.9 27.13 L836.0 24.71 L852.1 23.84 L868.2 25.53 L884.2 25.48 L900.3 23.53 L916.4 23.89 L932.5 25.58 L948.6 24.64 L964.6 23.05 L980.7 24.27 L996.8 25.42 L996.8 100 L0 100 Z"/>
+            <path class="line" d="M0.0 81.0 L16.1 75.8 L32.2 73.66 L48.2 71.07 L64.3 66.09 L80.4 62.73 L96.5 61.83 L112.5 59.15 L128.6 54.9 L144.7 53.24 L160.8 52.85 L176.8 49.89 L192.9 46.65 L209.0 46.36 L225.1 45.87 L241.2 42.75 L257.2 40.74 L273.3 41.31 L289.4 40.31 L305.5 37.33 L321.5 36.62 L337.6 37.46 L353.7 35.81 L369.8 33.37 L385.9 33.77 L401.9 34.3 L418.0 32.04 L434.1 30.37 L450.2 31.3 L466.2 30.82 L482.3 27.89 L498.4 26.66 L514.5 27.08 L530.5 24.99 L546.6 21.61 L562.7 20.97 L578.8 21.09 L594.9 18.75 L610.9 17.08 L627.0 18.7 L643.1 19.9 L659.2 18.99 L675.2 20.02 L691.3 23.62 L707.4 25.58 L723.5 26.24 L739.5 29.08 L755.6 31.78 L771.7 30.28 L787.8 27.52 L803.9 27.38 L819.9 27.13 L836.0 24.71 L852.1 23.84 L868.2 25.53 L884.2 25.48 L900.3 23.53 L916.4 23.89 L932.5 25.58 L948.6 24.64 L964.6 23.05 L980.7 24.27 L996.8 25.42"/>
+          </svg>
+          <span class="ylab" style="top:0">2k</span><span class="ylab" style="top:50%">1k</span><span class="ylab" style="top:100%">0</span>
+          <span class="xlab first" style="left:0">0:00</span><span class="xlab" style="left:24.12%">15:00</span><span class="xlab" style="left:48.23%">30:00</span><span class="xlab" style="left:72.35%">45:00</span><span class="xlab last" style="left:100%">1:02:13</span>
+          <span class="chapter" style="left:20.09%"></span><span class="chapter" style="left:61.08%"></span><span class="chapter" style="left:75.81%"></span>
+          <span class="peak" style="left:61.09%;top:17.08%"></span>
+          <span class="playhead" style="left:87.89%"><span class="knob" style="top:25.53%"></span><span class="tag">54:40</span></span>
+          <span class="edge" style="left:99.68%;top:25.42%" title="Live edge"></span>
         </div>
-      </section>
+      </div>
     </div>
   </section>
-  <section class="ds-panel" aria-label="Viewers, collapsed"><div class="ds-panel-head ds-ihead" aria-expanded="false" role="button"><i data-i="groups"></i><h2>Viewers</h2><span class="ds-cap">1,489 at 54:40 · peak 1,658</span><i data-i="expand" class="ds-chev"></i></div></section>
+  <section class="ds-panel ds-vpanel" aria-label="Viewers, collapsed"><div class="ds-panel-head ds-ihead" aria-expanded="false" role="button"><i data-i="groups" class="ds-vicon"></i><h2>Viewers</h2><span class="ds-cap vhint">peak 1,658 at 38:00</span><i data-i="expand" class="ds-chev"></i></div></section>
 </div>
 <script src="../icons.js"></script>
 </body>
