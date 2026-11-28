@@ -16,7 +16,7 @@ public sealed class RecordingDetailsTests
     private static readonly DateTimeOffset Now = new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task The_title_block_shows_the_title_streamer_category_start_counts_and_size()
+    public async Task The_title_block_shows_the_title_channel_facts_and_file()
     {
         await using BunitContext context = CreateContext(out _, timeZoneId: "Asia/Tokyo");
 
@@ -28,11 +28,34 @@ public sealed class RecordingDetailsTests
         Assert.Equal("Title", cut.Find("[data-details-title]").TextContent);
         Assert.Equal("ann", cut.Find("[data-details-streamer]").TextContent);
         Assert.Equal("Food", cut.Find("[data-details-category]").TextContent);
-        Assert.Equal("Wed, Nov 11, 2026 · 9:00 PM", cut.Find("[data-details-start]").TextContent);
-        Assert.Equal("1,342 segments", cut.Find("[data-details-segments]").TextContent);
-        Assert.Equal("3 parts", cut.Find("[data-details-parts]").TextContent);
+        Assert.Equal("Wed, Nov 11, 2026", cut.Find("[data-details-start]").TextContent.Trim());
+        Assert.Equal("9:00 PM – 11:00 PM", cut.Find("[data-details-time]").TextContent.Trim());
+        Assert.Equal("2h 14m", cut.Find("[data-details-duration]").TextContent.Trim());
+        Assert.Equal("1 chapter", cut.Find("[data-details-chapters]").TextContent.Trim());
         Assert.Equal("9.8 GB", cut.Find("[data-details-size]").TextContent);
+        Assert.Equal("1,342 segments", cut.Find("[data-details-segments]").TextContent.Trim());
+        Assert.Equal("3 parts", cut.Find("[data-details-parts]").TextContent.Trim());
         Assert.Single(cut.FindAll("button[aria-label='More actions']"));
+    }
+
+    [Fact]
+    public async Task The_title_is_measured_after_render_and_when_the_recording_changes()
+    {
+        await using BunitContext context = CreateContext(out BunitJSModuleInterop module);
+
+        IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
+        cut.WaitForAssertion(() => Assert.Contains(
+            module.Invocations,
+            invocation => invocation.Identifier == "watchTitle"));
+
+        int before = module.Invocations.Count(invocation => invocation.Identifier == "watchTitle");
+        cut.Render(parameters => parameters.Add(
+            component => component.Recording,
+            Recording() with { Title = "A much longer recording title" }));
+
+        cut.WaitForAssertion(() => Assert.Equal(
+            before + 1,
+            module.Invocations.Count(invocation => invocation.Identifier == "watchTitle")));
     }
 
     [Fact]
@@ -101,9 +124,9 @@ public sealed class RecordingDetailsTests
             Recording(state: state, sizeBytes: 10_522_669_875));
 
         Assert.Empty(cut.FindAll("[data-details-size]"));
-        Assert.DoesNotContain("GB", cut.Find("[data-details-counts]").TextContent);
-        Assert.Contains("1,342 segments", cut.Find("[data-details-counts]").TextContent);
-        Assert.Contains("3 parts", cut.Find("[data-details-counts]").TextContent);
+        Assert.Empty(cut.FindAll("[data-details-segments]"));
+        Assert.Empty(cut.FindAll("[data-details-parts]"));
+        Assert.Contains("Elapsed", cut.Find("[data-details-facts]").TextContent);
     }
 
     [Fact]
@@ -116,6 +139,111 @@ public sealed class RecordingDetailsTests
             Recording(category: null));
 
         Assert.Equal("No category", cut.Find("[data-details-category]").TextContent);
+    }
+
+    [Fact]
+    public async Task The_channel_byline_links_to_the_channels_twitch_page()
+    {
+        await using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
+
+        var link = cut.Find("[data-details-channel]");
+        Assert.Equal("https://www.twitch.tv/ann", link.GetAttribute("href"));
+        Assert.Equal("_blank", link.GetAttribute("target"));
+        Assert.Equal("noopener noreferrer", link.GetAttribute("rel"));
+        Assert.Equal(
+            "ann",
+            link.QuerySelector("[data-details-streamer]")!.TextContent.Trim());
+        Assert.Equal(
+            "on Twitch",
+            link.QuerySelector("[data-details-channel-where]")!.TextContent.Trim());
+        Assert.Contains(
+            "(opens in a new tab)",
+            link.QuerySelector("[data-details-channel-hint]")!.TextContent);
+        Assert.NotNull(link.QuerySelector("[data-details-avatar]"));
+    }
+
+    [Fact]
+    public async Task The_streamer_display_name_replaces_the_login_in_the_byline()
+    {
+        await using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<RecordingDetails> cut = context.Render<RecordingDetails>(parameters => parameters
+            .Add(component => component.Recording, Recording())
+            .Add(component => component.Streamer, new StreamerView(
+                "ann", "Ann Smith", null, false, false, false, 1, null)));
+
+        Assert.Equal("Ann Smith", cut.Find("[data-details-streamer]").TextContent.Trim());
+        Assert.Equal(
+            "https://www.twitch.tv/ann",
+            cut.Find("[data-details-channel]").GetAttribute("href"));
+    }
+
+    [Theory]
+    [InlineData(0, "No chapters")]
+    [InlineData(1, "1 chapter")]
+    [InlineData(2, "2 chapters")]
+    public async Task The_chapter_count_matches_the_filtered_chapters_panel(
+        int count,
+        string label)
+    {
+        await using BunitContext context = CreateContext(out _);
+        Chapter[] chapters = Enumerable.Range(0, count)
+            .Select(index => new Chapter(index * 60, $"Chapter {index}", "Food"))
+            .ToArray();
+
+        IRenderedComponent<RecordingDetails> cut = Render(
+            context,
+            Recording(chapters: chapters));
+
+        Assert.Equal(label, cut.Find("[data-details-chapters]").TextContent.Trim());
+    }
+
+    [Fact]
+    public async Task A_live_recording_reads_elapsed_and_now()
+    {
+        await using BunitContext context = CreateContext(out _);
+
+        IRenderedComponent<RecordingDetails> cut = Render(
+            context,
+            Recording(state: RecordingState.Recording));
+
+        Assert.Contains("Elapsed", cut.Find("[data-details-facts]").TextContent);
+        Assert.Equal("12:00 PM – now", cut.Find("[data-details-time]").TextContent.Trim());
+        Assert.Empty(cut.FindAll("[data-details-size]"));
+    }
+
+    [Fact]
+    public async Task A_time_range_across_midnight_carries_the_end_date()
+    {
+        await using BunitContext context = CreateContext(out _);
+        RecordingView recording = Recording() with
+        {
+            StartedAt = new DateTimeOffset(2026, 11, 11, 23, 30, 0, TimeSpan.Zero),
+            EndedAt = new DateTimeOffset(2026, 11, 12, 1, 0, 0, TimeSpan.Zero),
+        };
+
+        IRenderedComponent<RecordingDetails> cut = Render(context, recording);
+
+        Assert.Equal(
+            "11:30 PM – Nov 12, 1:00 AM",
+            cut.Find("[data-details-time]").TextContent.Trim());
+    }
+
+    [Fact]
+    public async Task A_missing_end_time_falls_back_to_the_duration()
+    {
+        await using BunitContext context = CreateContext(out _);
+        RecordingView recording = Recording() with
+        {
+            EndedAt = null,
+            DurationSec = 3600,
+        };
+
+        IRenderedComponent<RecordingDetails> cut = Render(context, recording);
+
+        Assert.Equal("12:00 PM – 1:00 PM", cut.Find("[data-details-time]").TextContent.Trim());
     }
 
     [Fact]
@@ -210,13 +338,16 @@ public sealed class RecordingDetailsTests
         ViewerClock clock = context.Services.GetRequiredService<ViewerClock>();
         IRenderedComponent<RecordingDetails> cut = Render(context, Recording());
 
-        Assert.Equal("Wed, Nov 11, 2026 · 12:00 PM", cut.Find("[data-details-start]").TextContent);
+        Assert.Equal("Wed, Nov 11, 2026", cut.Find("[data-details-start]").TextContent.Trim());
+        Assert.Equal("12:00 PM – 2:00 PM", cut.Find("[data-details-time]").TextContent.Trim());
 
         clock.TrySetTimeZone("Asia/Tokyo");
 
-        cut.WaitForAssertion(() => Assert.Equal(
-            "Wed, Nov 11, 2026 · 9:00 PM",
-            cut.Find("[data-details-start]").TextContent));
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("Wed, Nov 11, 2026", cut.Find("[data-details-start]").TextContent.Trim());
+            Assert.Equal("9:00 PM – 11:00 PM", cut.Find("[data-details-time]").TextContent.Trim());
+        });
     }
 
     [Theory]

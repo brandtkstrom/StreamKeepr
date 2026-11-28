@@ -20,7 +20,7 @@
                 @onclick="() => ToggleAsync(!Preferences.DetailsOpen)">
             <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.Toc" Size="MudBlazor.Size.Small" />
             <MudBlazor.MudText Typo="MudBlazor.Typo.h6" HtmlTag="h2">Chapters</MudBlazor.MudText>
-            <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="hint" data-chapter-count>@CountLabel(count)</MudBlazor.MudText>
+            <MudBlazor.MudText Typo="MudBlazor.Typo.caption" HtmlTag="span" Class="hint" data-chapter-count>@ChapterList.CountLabel(count)</MudBlazor.MudText>
             <MudBlazor.MudIcon Icon="@MudBlazor.Icons.Material.Rounded.ExpandMore" Class="chev" />
         </button>
         <MudBlazor.MudCollapse Expanded="@Preferences.DetailsOpen">
@@ -35,8 +35,6 @@
     private readonly string _bodyId = $"sk-chapters-body-{Guid.NewGuid():N}";
 
     [Parameter, EditorRequired] public RecordingView Recording { get; set; } = null!;
-
-    internal static string CountLabel(int count) => count == 1 ? "1 chapter" : $"{count} chapters";
 
     protected override void OnInitialized() => Preferences.Changed += OnPreferencesChanged;
 

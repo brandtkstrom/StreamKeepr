@@ -27,10 +27,22 @@ public sealed class FormatTests
         Assert.Equal(expected, Format.Duration(seconds));
 
     [Fact]
-    public void FullDate_formats_the_viewer_local_start_date() =>
+    public void Date_formats_the_viewer_local_date() =>
         Assert.Equal(
-            "Wed, Nov 11, 2026 · 10:00 AM",
-            Format.FullDate(new DateTimeOffset(2026, 11, 11, 10, 0, 0, TimeSpan.Zero)));
+            "Wed, Nov 11, 2026",
+            Format.Date(new DateTimeOffset(2026, 11, 11, 10, 0, 0, TimeSpan.Zero)));
+
+    [Fact]
+    public void Time_formats_the_viewer_local_time() =>
+        Assert.Equal(
+            "10:00 AM",
+            Format.Time(new DateTimeOffset(2026, 11, 11, 10, 0, 0, TimeSpan.Zero)));
+
+    [Fact]
+    public void MonthDayTime_formats_a_range_end_on_another_day() =>
+        Assert.Equal(
+            "Nov 12, 1:00 AM",
+            Format.MonthDayTime(new DateTimeOffset(2026, 11, 12, 1, 0, 0, TimeSpan.Zero)));
 
     [Theory]
     [InlineData(0, 3600, "0%")]

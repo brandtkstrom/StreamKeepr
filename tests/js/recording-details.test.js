@@ -102,3 +102,71 @@ describe("RecordingDetails.razor.js menu activation", () => {
     expect(clicked).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("RecordingDetails.razor.js title steps", () => {
+  it("keeps a one-line title at the base size", () => {
+    expect(details.titleStepForLines(1)).toBe(0);
+  });
+
+  it("takes the first step at two lines", () => {
+    expect(details.titleStepForLines(2)).toBe(1);
+  });
+
+  it("takes the second step at three or more lines", () => {
+    expect(details.titleStepForLines(3)).toBe(2);
+    expect(details.titleStepForLines(9)).toBe(2);
+  });
+});
+
+describe("RecordingDetails.razor.js title observer", () => {
+  it("measures through a ResizeObserver and releases it on dispose", () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<div class="sk-details-head"><h2 data-details-title>Title</h2></div>';
+    const head = root.querySelector(".sk-details-head");
+    const title = root.querySelector("[data-details-title]");
+    Object.defineProperty(head, "clientWidth", { configurable: true, value: 300 });
+    document.body.appendChild(root);
+
+    const originalRects = Range.prototype.getClientRects;
+    Range.prototype.getClientRects = () => [{ top: 0 }, { top: 20 }, { top: 40 }];
+
+    const originalObserver = globalThis.ResizeObserver;
+    const observers = [];
+    globalThis.ResizeObserver = class {
+      constructor(callback) {
+        this.callback = callback;
+        observers.push(this);
+      }
+
+      observe(target) {
+        this.target = target;
+      }
+
+      disconnect() {
+        this.disconnected = true;
+      }
+    };
+
+    try {
+      details.watchTitle(root);
+
+      expect(title.getAttribute("data-title-step")).toBe("2");
+      expect(observers).toHaveLength(1);
+      expect(observers[0].target).toBe(head);
+
+      // A width change re-runs the measurement; one line at the new width clears the step.
+      Range.prototype.getClientRects = () => [{ top: 0 }];
+      observers[0].callback([{ contentRect: { width: 299 } }]);
+      expect(title.hasAttribute("data-title-step")).toBe(false);
+
+      details.disposeTitle(root);
+      expect(observers[0].disconnected).toBe(true);
+    } finally {
+      details.disposeTitle(root);
+      Range.prototype.getClientRects = originalRects;
+      if (originalObserver) globalThis.ResizeObserver = originalObserver;
+      else delete globalThis.ResizeObserver;
+      root.remove();
+    }
+  });
+});

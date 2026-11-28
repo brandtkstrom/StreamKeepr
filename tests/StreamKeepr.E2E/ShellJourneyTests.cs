@@ -280,16 +280,28 @@ public sealed class ShellJourneyTests(MockAppFixture app)
             "Ranked climb to Diamond",
             (await details.Locator("[data-details-title]").InnerTextAsync()).Trim());
         Assert.Equal(
-            "mock_nova",
+            "Nova Vale",
             (await details.Locator("[data-details-streamer]").InnerTextAsync()).Trim());
+        Assert.Equal(
+            "https://www.twitch.tv/mock_nova",
+            await details.Locator("[data-details-channel]").GetAttributeAsync("href"));
+        await Assertions.Expect(
+            page.GetByRole(
+                AriaRole.Link,
+                new() { Name = "Nova Vale on Twitch (opens in a new tab)" }))
+            .ToBeVisibleAsync();
         Assert.Equal(
             "Apex Legends",
             (await details.Locator("[data-details-category]").InnerTextAsync()).Trim());
+        Assert.Equal(
+            "1 chapter",
+            (await details.Locator("[data-details-chapters]").InnerTextAsync()).Trim());
+        Assert.NotEmpty(await details.Locator("[data-details-time]").InnerTextAsync());
+        Assert.NotEmpty(await details.Locator("[data-details-size]").InnerTextAsync());
         Assert.Contains(
             "segments",
             await details.Locator("[data-details-segments]").InnerTextAsync());
         Assert.Equal("1 part", (await details.Locator("[data-details-parts]").InnerTextAsync()).Trim());
-        Assert.NotEmpty(await details.Locator("[data-details-size]").InnerTextAsync());
 
         // The collapsed state is layout preference state and survives a reload.
         await chapters.Locator("[data-collapsible-toggle]").ClickAsync();

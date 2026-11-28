@@ -239,6 +239,61 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
         await page.GetByRole(AriaRole.Tab, new() { Name = "Stats" }).WaitForAsync();
     }
 
+    [Fact]
+    public async Task A_long_title_steps_down_two_type_sizes_and_a_short_one_returns_to_the_base()
+    {
+        await using Journey session = await OpenAsync(app, viewport: Desktop);
+        IPage page = session.Page;
+        await OpenRecordingAsync(page, "Late night jazz");
+        await SettleAsync(page, compact: false);
+
+        // The component measures on first render. No seeded recording has a title long enough
+        // to exercise both steps, so this test calls the same module with changing text; the
+        // component's invocation is covered by RecordingDetailsTests.
+        const string mediumDesktop =
+            "A medium-length recording title that fills more than one line at the desktop width, wraps onto a second line, and still stops well before the third line";
+        Assert.Equal("1", await SetTitleAsync(page, mediumDesktop));
+        Assert.Equal("20px", await TitleFontSizeAsync(page));
+
+        string longTitle = string.Concat(
+            Enumerable.Repeat("A very long recording title ", 30));
+        Assert.Equal("2", await SetTitleAsync(page, longTitle));
+        Assert.Equal("18px", await TitleFontSizeAsync(page));
+
+        Assert.Equal("none", await SetTitleAsync(page, "Short"));
+        Assert.Equal("24px", await TitleFontSizeAsync(page));
+
+        // Compact repeats the two steps at their smaller sizes: 18px and 16px over a 20px base.
+        await page.SetViewportSizeAsync(Phone.Width, Phone.Height);
+        await SettleAsync(page, compact: true);
+
+        const string mediumCompact = "A medium-length title that wraps once";
+        Assert.Equal("1", await SetTitleAsync(page, mediumCompact));
+        Assert.Equal("18px", await TitleFontSizeAsync(page));
+
+        Assert.Equal("2", await SetTitleAsync(page, longTitle));
+        Assert.Equal("16px", await TitleFontSizeAsync(page));
+
+        Assert.Equal("none", await SetTitleAsync(page, "Short"));
+        Assert.Equal("20px", await TitleFontSizeAsync(page));
+    }
+
+    private static async Task<string> SetTitleAsync(IPage page, string text) =>
+        await page.EvaluateAsync<string>("""
+            async (value) => {
+              const module = await import('/Components/Features/Details/RecordingDetails.razor.js');
+              const title = document.querySelector('[data-details-title]');
+              const summary = document.querySelector('[data-details-summary]');
+              title.textContent = value;
+              module.watchTitle(summary);
+              return title.getAttribute('data-title-step') ?? 'none';
+            }
+            """, text);
+
+    private static async Task<string> TitleFontSizeAsync(IPage page) =>
+        await page.EvaluateAsync<string>(
+            "getComputedStyle(document.querySelector('[data-details-title]')).fontSize");
+
     private static async Task OpenRecordingAsync(IPage page, string title)
     {
         string href = (await (await LibraryHooks.RowAsync(page, LibraryHooks.Row, title)).First

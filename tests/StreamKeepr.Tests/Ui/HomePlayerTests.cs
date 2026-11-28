@@ -173,8 +173,12 @@ public sealed class HomePlayerTests
 
         Assert.NotNull(home.Find("[data-watch-top] [data-slot='player'] [data-sk-player]"));
         Assert.NotNull(home.Find("[data-watch-summary] [data-details-summary]"));
-        Assert.Empty(home.FindAll("[data-watch-summary] [data-details-category]"));
-        Assert.Empty(home.FindAll("[data-watch-summary] [data-details-counts]"));
+        Assert.Equal(
+            "true",
+            home.Find("[data-watch-summary] [data-details-summary]").GetAttribute("data-compact"));
+        Assert.NotNull(home.Find("[data-watch-summary] [data-details-category]"));
+        Assert.NotNull(home.Find("[data-watch-summary] [data-details-chapters]"));
+        Assert.Empty(home.FindAll("[data-watch-summary] [data-details-size]"));
         Assert.NotNull(home.Find("[data-watch-summary] [data-details-streamer]"));
         Assert.NotNull(home.Find("[data-watch-summary] [data-details-start]"));
         Assert.NotNull(home.Find("[data-watch-summary] [data-details-duration]"));

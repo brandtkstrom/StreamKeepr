@@ -79,7 +79,7 @@ else
             @if (Selected is { } phone)
             {
                 <div class="sk-watch-summary" data-watch-summary>
-                    <RecordingDetailsSummary Recording="phone" Compact="true" AvatarUrl="@AvatarUrlFor(phone)" />
+                    <RecordingDetailsSummary Recording="phone" Compact="true" Streamer="@StreamerFor(phone)" />
                     <RecordingDetailsBody Recording="phone" />
                 </div>
 
@@ -123,7 +123,7 @@ else
             <div class="sk-watch-info" data-slot="details">
                 @if (Selected is { } detailed)
                 {
-                    <RecordingDetails Recording="detailed" AvatarUrl="@AvatarUrlFor(detailed)" />
+                    <RecordingDetails Recording="detailed" Streamer="@StreamerFor(detailed)" />
                     <ChaptersPanel Recording="detailed" />
                 }
             </div>
@@ -163,10 +163,11 @@ else
     private RecordingView? Selected =>
         RecordingId is not null && Library.IsLoaded ? Library.Find(RecordingId) : null;
 
-    // The channel's Twitch profile image for the title block, the same one the drawer shows.
-    private string? AvatarUrlFor(RecordingView recording) =>
+    // The channel's identity for the title block, the same pair the drawer shows. A channel
+    // missing from the index falls back to the recording's login in the component.
+    private StreamerView? StreamerFor(RecordingView recording) =>
         Library.Streamers(new LibraryQuery())
-            .FirstOrDefault(streamer => streamer.Login == recording.StreamerLogin)?.AvatarUrl;
+            .FirstOrDefault(streamer => streamer.Login == recording.StreamerLogin);
 
     // Captured chat always replays; a live recording only waits for chat while capture is on.
     private bool ShowChat => Selected is { } recording &&

@@ -153,4 +153,12 @@
   --text-stat-hero: normal 400 1.5rem/1.334 var(--font-sans);
   --text-stat-hero-letter-spacing: 0px;
   --text-stat-hero-numeric: tabular-nums;
+  --text-title-step-1: normal 400 1.25rem/1.35 var(--font-sans);
+  --text-title-step-1-letter-spacing: 0px;
+  --text-title-step-2: normal 400 1.125rem/1.35 var(--font-sans);
+  --text-title-step-2-letter-spacing: 0px;
+  --text-title-step-1-compact: normal 500 1.125rem/1.4 var(--font-sans);
+  --text-title-step-1-compact-letter-spacing: 0.0075em;
+  --text-title-step-2-compact: normal 500 1rem/1.4 var(--font-sans);
+  --text-title-step-2-compact-letter-spacing: 0.0075em;
 }

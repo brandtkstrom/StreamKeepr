@@ -44,6 +44,18 @@
                 (recording.DurationSec <= 0 || chapter.StartSeconds <= recording.DurationSec))
             .ToArray();
 
+    /// <summary>The one count label for the title block and the Chapters panel.</summary>
+    public static string CountLabel(int count) => count switch
+    {
+        0 => "No chapters",
+        1 => "1 chapter",
+        _ => string.Create(CultureInfo.InvariantCulture, $"{count:N0} chapters"),
+    };
+
+    /// <summary>The label over the filtered chapters this recording actually shows.</summary>
+    public static string CountLabel(RecordingView recording) =>
+        CountLabel(Visible(recording).Count);
+
     private async Task SeekToChapterAsync(Chapter chapter) =>
         await Bridge.SeekAsync(chapter.StartSeconds);
 
