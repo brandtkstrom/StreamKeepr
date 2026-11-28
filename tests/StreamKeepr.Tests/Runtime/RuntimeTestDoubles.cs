@@ -106,7 +106,6 @@ internal sealed class TrackingTimeProvider : TimeProvider
         TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
         Interlocked.Increment(ref _active);
-        _created.Writer.TryWrite(dueTime);
 
         int completed = 0;
         void Complete()
@@ -125,6 +124,10 @@ internal sealed class TrackingTimeProvider : TimeProvider
             dueTime,
             period);
 
+        // Announce only once the fake clock holds the timer. A reader that advances the clock
+        // as soon as it sees the announcement would otherwise outrun the registration, and the
+        // timer would then be due relative to the advanced time and never fire.
+        _created.Writer.TryWrite(dueTime);
         return new TrackedTimer(timer, Complete);
     }
 
