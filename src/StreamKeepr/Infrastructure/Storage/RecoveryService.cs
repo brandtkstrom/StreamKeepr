@@ -8,10 +8,12 @@ namespace StreamKeepr.Infrastructure.Storage;
 public sealed record RecoveredChannel(Resumable? Unfinished, Resumable? Finished);
 
 /// <summary>
-/// Reconstructs runtime state from the recordings volume before any coordinator starts. It
-/// re-finalizes interrupted sessions, removes temp/orphan files, finalizes sessions that cannot
-/// continue, and loads the library. Corrupt folders are logged and skipped, never deleted.
-/// Each run ends with one Information summary whose counts account for every session folder.
+/// Reconstructs runtime state before any coordinator starts. It walks the session records
+/// (ADR-0014), reconciles each one's folder: re-finalizes interrupted sessions, removes
+/// temp/orphan files, finalizes sessions that cannot continue, and loads the library. A folder
+/// without a record is ignored; a record whose folder is missing or unreadable is logged and
+/// skipped, never deleted. Each run ends with one Information summary whose counts account for
+/// every session record.
 /// </summary>
 public sealed class RecoveryService(
     SessionStore store,
@@ -36,34 +38,21 @@ public sealed class RecoveryService(
         int deletedCount = 0;
         int skippedCount = 0;
 
-        if (Directory.Exists(root))
+        foreach (SessionRecord record in await store.LoadRecordsAsync(ct))
         {
-            foreach (string channelDirectory in Directory.EnumerateDirectories(root))
+            ct.ThrowIfCancellationRequested();
+            sessionCount++;
+            switch (await InspectSessionAsync(root, record, unfinished, finished, skipped, ct))
             {
-                ct.ThrowIfCancellationRequested();
-                if (IsHidden(channelDirectory))
-                    continue;
-
-                foreach (string sessionDirectory in Directory.EnumerateDirectories(channelDirectory))
-                {
-                    ct.ThrowIfCancellationRequested();
-                    if (IsHidden(sessionDirectory))
-                        continue;
-
-                    sessionCount++;
-                    switch (await InspectSessionAsync(sessionDirectory, unfinished, finished, skipped, ct))
-                    {
-                        case Inspection.Complete:
-                            completeCount++;
-                            break;
-                        case Inspection.Refinalized:
-                            finalizedCount++;
-                            break;
-                        case Inspection.Skipped:
-                            skippedCount++;
-                            break;
-                    }
-                }
+                case Inspection.Complete:
+                    completeCount++;
+                    break;
+                case Inspection.Refinalized:
+                    finalizedCount++;
+                    break;
+                case Inspection.Skipped:
+                    skippedCount++;
+                    break;
             }
         }
 
@@ -91,8 +80,9 @@ public sealed class RecoveryService(
 
             await store.FinalizeAsync(candidate.Session, ct);
 
-            // FinalizeAsync deletes a session that never produced media.
-            if (Directory.Exists(candidate.Session.Directory))
+            // FinalizeAsync deletes the record of a session that never produced media (then its
+            // folder, which may outlive a failed delete), so the record decides.
+            if (await store.TryLoadAsync(candidate.Session.Directory, ct) is not null)
             {
                 finished.Add(candidate with { Complete = true });
                 finalizedCount++;
@@ -107,8 +97,8 @@ public sealed class RecoveryService(
 
         await library.LoadAsync(root, store, ct);
 
-        // A Complete session that could not be repaired may still have been projected by
-        // LoadAsync from its parts; never expose an unplayable entry.
+        // Recovery skipped these (unsafe name, missing folder, unreadable or unrepairable media);
+        // never expose them even if LoadAsync could project their records.
         foreach (string skippedId in skipped)
             library.Remove(skippedId);
 
@@ -144,26 +134,33 @@ public sealed class RecoveryService(
     }
 
     private async Task<Inspection> InspectSessionAsync(
-        string directory,
+        string root,
+        SessionRecord record,
         List<Resumable> unfinished,
         List<Resumable> finished,
         HashSet<string> skipped,
         CancellationToken ct)
     {
-        if (!File.Exists(Path.Combine(directory, SessionStore.ManifestFileName)))
+        if (!store.TryResolveDirectory(root, record, out string directory))
         {
-            logger.LogWarning("Skipping session without a manifest at {Directory}.", directory);
+            skipped.Add(record.Id);
             return Inspection.Skipped;
         }
 
-        // TryLoadAsync logs and returns null for an unreadable manifest.
-        if (await store.TryLoadAsync(directory, ct) is not { } manifest)
+        // A recorded session whose folder is gone keeps its record and stays out of the
+        // library; recovery never recreates or deletes anything for it.
+        if (!Directory.Exists(directory))
+        {
+            logger.LogWarning(
+                "Skipping session {SessionId}: its folder {Directory} is missing.", record.Id, directory);
+            skipped.Add(record.Id);
             return Inspection.Skipped;
+        }
 
         var session = new Session(
-            manifest.Id, manifest.Channel, manifest.StreamId, manifest.StartedAt, directory);
+            record.Id, record.Channel, record.StreamId, record.StartedAt, directory);
 
-        if (manifest.Status == SessionStatus.Complete)
+        if (record.Status == SessionStatus.Complete)
         {
             if (await IndexIsValidAsync(directory, ct))
             {
@@ -174,7 +171,7 @@ public sealed class RecoveryService(
             List<ScannedPart>? parts = await ScanPartsAsync(directory, ct);
             if (parts is null)
             {
-                skipped.Add(manifest.Id);
+                skipped.Add(record.Id);
                 return Inspection.Skipped;
             }
 
@@ -183,7 +180,7 @@ public sealed class RecoveryService(
                 logger.LogWarning(
                     "Skipping complete session without an index or media parts at {Directory}.",
                     directory);
-                skipped.Add(manifest.Id);
+                skipped.Add(record.Id);
                 return Inspection.Skipped;
             }
 
@@ -197,7 +194,7 @@ public sealed class RecoveryService(
                     ex,
                     "Skipping complete session that could not be re-finalized at {Directory}.",
                     directory);
-                skipped.Add(manifest.Id);
+                skipped.Add(record.Id);
                 return Inspection.Skipped;
             }
 
@@ -208,7 +205,7 @@ public sealed class RecoveryService(
         int? lastPart = await CleanupRecordingAsync(directory, ct);
         if (lastPart is null)
         {
-            skipped.Add(manifest.Id);
+            skipped.Add(record.Id);
             return Inspection.Skipped;
         }
 
@@ -329,9 +326,6 @@ public sealed class RecoveryService(
                     .ThenByDescending(candidate => candidate.Session.Id, StringComparer.Ordinal)
                     .First(),
                 StringComparer.Ordinal);
-
-    private static bool IsHidden(string path) =>
-        Path.GetFileName(path).StartsWith(".", StringComparison.Ordinal);
 
     private static bool IsReadFailure(Exception exception) =>
         exception is FormatException or IOException or UnauthorizedAccessException

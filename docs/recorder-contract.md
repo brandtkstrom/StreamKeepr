@@ -141,7 +141,7 @@ Precedence when more than one applies: `Killed` > `Stopped` > `Exited`. A reques
 
 ## 8. Boundary and cleanup
 
-- The recorder writes only part files. It never writes the session manifest, the stitched index, progress, or library state.
+- The recorder writes only part files. It never writes the session record, the stitched index, progress, or library state.
 - `IRecorder.RunAsync` returns one `PartOutcome` (kind, detail, part size or null, duration, a failed flag, and an optional unverified-shutdown fault) on every path and never publishes `RecorderExited`. The coordinator publishes exactly one `RecorderExited` per part from the outcome, so `PartProducingMedia` always precedes it.
 - Everything after both tools start runs inside the job's failure boundary, including the stop registration and the stall watchdog. A watchdog that fails ends the wait like any other error, since no stall could be detected without it. A failure in the part-end media check, media publish, or cleanup, after both tools are stopped and verified, fails the outcome but never skips the report.
 - An unexpected exception after the tools start is reported, not thrown: the job force-kills each tool still running, verifies each stop exactly as the bounded shutdown does, finalizes and reports the part, and returns an outcome with `Failed = true` and the error in the detail. If a forced stop cannot be verified, the outcome carries the fault and is fatal.

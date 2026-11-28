@@ -38,7 +38,7 @@ public readonly record struct JobId(string SessionId, int Part)
     public override string ToString() => $"{SessionId}/p{Part:D3}";
 }
 
-// Complete means the manifest is already Complete and must be reopened before the next part.
+// Complete means the session record is already Complete and must be reopened before the next part.
 public sealed record Resumable(Session Session, int NextPart, bool Complete = false);
 
 public sealed record DvrSettings(

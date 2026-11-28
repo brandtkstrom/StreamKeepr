@@ -109,6 +109,18 @@ internal sealed class TestRecordStore : IDisposable
     public static Task<ChannelStore> LoadChannelStoreInAsync(string recordingsRoot, params string[] seeds) =>
         new TestRecordStore(recordingsRoot).LoadChannelStoreAsync(seeds);
 
+    /// <summary>
+    /// A started record store kept inside <paramref name="recordingsRoot"/>, for tests that build
+    /// a session store over that root. Calling it again for the same root is a restart against
+    /// the same database, so session records survive like they do across process starts.
+    /// </summary>
+    public static IDbContextFactory<RecordStoreDbContext> ContextsIn(string recordingsRoot)
+    {
+        var records = new TestRecordStore(recordingsRoot);
+        records.StartAsync().GetAwaiter().GetResult();
+        return records.Contexts;
+    }
+
     public void Dispose() => _temp?.Dispose();
 
     /// <summary>What <c>AddDbContextFactory</c> provides, without a service provider to own.</summary>

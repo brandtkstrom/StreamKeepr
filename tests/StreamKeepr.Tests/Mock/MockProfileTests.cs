@@ -422,6 +422,7 @@ public sealed class MockLiveFeedTests : IDisposable
             var recorder = Options.Create(new RecorderOptions { SegmentSeconds = 2 });
             var sessions = new SessionStore(
                 recorder,
+                TestRecordStore.ContextsIn(root),
                 Library,
                 Clock,
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<SessionStore>.Instance, TestRetry.Immediate);
@@ -603,19 +604,18 @@ public sealed class MockSeederTests : IDisposable
             library.All,
             summary => !summary.IsRecording && summary.Chapters.Count > 0);
 
-        string growingManifest = Path.Combine(
-            MockCatalog.SessionFor(MockCatalog.Growing, _root).Directory,
-            SessionStore.ManifestFileName);
-        Assert.True(File.Exists(growingManifest));
+        string growingDirectory = MockCatalog.SessionFor(MockCatalog.Growing, _root).Directory;
+        Assert.False(File.Exists(Path.Combine(growingDirectory, "session.json")));
     }
 
     [Fact]
     public async Task Seeds_viewer_samples_for_finished_recordings_only()
     {
-        (MockSeeder seeder, _, RecordingLibrary library) = CreateSeeder(
-            new MockSeedOptions { ScaleRecordings = 2 });
-
+        var options = new MockSeedOptions { ScaleRecordings = 2 };
+        (MockSeeder seeder, _, RecordingLibrary library) = CreateSeeder(options);
         await seeder.StartAsync(CancellationToken.None);
+
+        await CreateViewerSeeder(library, options).StartAsync(CancellationToken.None);
 
         foreach (RecordingSummary summary in library.All)
         {
@@ -673,13 +673,18 @@ public sealed class MockSeederTests : IDisposable
         (MockSeeder first, _, _) = CreateSeeder();
         await first.StartAsync(CancellationToken.None);
 
-        (MockSeeder restarted, ChannelStore channels, _) =
+        (MockSeeder restarted, ChannelStore channels, RecordingLibrary library) =
             CreateSeeder(new MockSeedOptions { ResetOnStart = false });
         await restarted.StartAsync(CancellationToken.None);
 
         Assert.Equal(
             MockCatalog.Streamers.Select(streamer => streamer.Login),
             channels.Snapshot.Select(entry => entry.Login));
+
+        // The per-process record store starts empty, so the kept recordings are recorded again.
+        Assert.Equal(8, library.All.Count);
+        Assert.All(library.All, summary => Assert.True(summary.HasThumbnail));
+        Assert.Equal(2, library.All.Count(summary => summary.IsRecording));
     }
 
     [Fact]
@@ -737,7 +742,7 @@ public sealed class MockSeederTests : IDisposable
             new FakeTimeProvider(MockCatalog.T0),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<RecordingLibrary>.Instance);
         var sessions = new SessionStore(
-            recorder, library, new FakeTimeProvider(MockCatalog.T0),
+            recorder, records.Contexts, library, new FakeTimeProvider(MockCatalog.T0),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<SessionStore>.Instance, TestRetry.Immediate);
 
         var seeder = new MockSeeder(
@@ -746,11 +751,17 @@ public sealed class MockSeederTests : IDisposable
             Options.Create(seedOptions ?? new MockSeedOptions()),
             channels,
             sessions,
-            library,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<MockSeeder>.Instance);
 
         return (seeder, channels, library);
     }
+
+    private MockViewerSeeder CreateViewerSeeder(RecordingLibrary library, MockSeedOptions options) =>
+        new(
+            Options.Create(new StorageOptions { RecordingsRoot = _root, MinFreeGb = 1 }),
+            Options.Create(options),
+            library,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<MockViewerSeeder>.Instance);
 
     public void Dispose()
     {
