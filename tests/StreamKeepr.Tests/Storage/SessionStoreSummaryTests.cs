@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Storage;
 
 namespace StreamKeepr.Tests.Storage;
@@ -101,5 +103,37 @@ public sealed class SessionStoreSummaryTests
 
         Assert.NotNull(summary);
         Assert.Empty(summary.Chapters);
+    }
+
+    [Fact]
+    public async Task Summary_has_chat_only_when_the_session_has_a_chat_row()
+    {
+        using var context = new SessionStoreTestContext();
+        context.WritePart(
+            1,
+            PlaylistTestData.Segment("p001_00001.m4s", "2026-11-10T16:35:00Z", 6));
+        await context.Store.OpenAsync(context.Session, context.Live, CancellationToken.None);
+
+        // A legacy chat/ sidecar is never read (ADR-0014).
+        string legacy = Path.Combine(context.Directory, "chat");
+        Directory.CreateDirectory(legacy);
+        await File.WriteAllTextAsync(Path.Combine(legacy, "meta.json"), "{}", CancellationToken.None);
+        await File.WriteAllTextAsync(Path.Combine(legacy, "20261110T1630Z.jsonl"), "{}\n", CancellationToken.None);
+        Assert.False((await context.Store.SummarizeAsync(context.Directory, CancellationToken.None))!.HasChat);
+
+        await using (RecordStoreDbContext db = await context.RecordStore.Contexts.CreateDbContextAsync())
+        {
+            db.ChatSessions.Add(new ChatSessionRow
+            {
+                SessionId = context.Session.Id,
+                Source = ChatSources.Anonymous,
+                Transport = "wss",
+                Status = ChatStates.Recording,
+                StartedAt = SessionStoreTestContext.StartedAt,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        Assert.True((await context.Store.SummarizeAsync(context.Directory, CancellationToken.None))!.HasChat);
     }
 }

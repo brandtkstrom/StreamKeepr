@@ -113,7 +113,7 @@ Compose stops the old container gracefully. Active recordings finalize, and the 
 ## Stopping and data
 
 - `docker compose stop` stops the service, and active recordings finalize within the 50 s grace period.
-- `docker compose down` removes the container but keeps both volumes: `recordings` holds the recordings and sign-in keys, and `data` holds the record store (the channel list, and more as it moves over).
+- `docker compose down` removes the container but keeps both volumes: `recordings` holds the recordings, and `data` holds the record store (the channel list, the encrypted admin sign-in token, the EventSub conduit, and more as it moves over) and the sign-in keys under `/data/keys`.
 - **`docker compose down --volumes` deletes every recording and the record store.** Only use it to start over.
 - Before an upgrade changes the record store, the app writes a backup to `/data/backups` and keeps the three newest. A damaged or newer-than-the-app database stops startup with an error naming the file; the app never resets it.
 

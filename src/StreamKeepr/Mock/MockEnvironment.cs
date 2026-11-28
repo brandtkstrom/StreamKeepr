@@ -5,8 +5,8 @@ using StreamKeepr.Hosting;
 namespace StreamKeepr.Mock;
 
 /// <summary>
-/// Wires the <c>Mock</c> environment: a disposable recordings root and a per-process record store
-/// under the system temp directory, dummy Twitch credentials, and the existing fake Streamlink
+/// Wires the <c>Mock</c> environment: a disposable recordings root, a per-process record store
+/// and a fixed Data Protection key folder under the system temp directory, dummy Twitch credentials, and the existing fake Streamlink
 /// fixture. The Mock profile deliberately ignores <c>Storage:RecordingsRoot</c>,
 /// <c>Storage:DatabasePath</c> and any user-secret values, so a developer launch can never point
 /// it at production media, records, or credentials.
@@ -58,6 +58,17 @@ public static class MockEnvironment
             DataDirectoryName,
             $"{RecordStoreDirectoryPrefix}{Environment.ProcessId}-{Guid.NewGuid():N}",
             StorageOptions.DatabaseFileName));
+    }
+
+    /// <summary>
+    /// The Mock Data Protection key ring: one fixed folder beside the per-process record stores,
+    /// never inside one (each is deleted on shutdown) or inside the recordings root (the seeder
+    /// may reset it). Keys therefore survive a restart and the browser stays signed in.
+    /// </summary>
+    public static string KeysDirectory(string tempPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(tempPath);
+        return Path.GetFullPath(Path.Combine(tempPath, DataDirectoryName, AppDataPaths.KeysDirectoryName));
     }
 
     /// <summary>
@@ -163,6 +174,9 @@ public static class MockEnvironment
             options.ClientSecret = ClientSecret;
             options.Channels.Clear();
         });
+
+        // Registered before the host's default, which then keeps this one.
+        builder.Services.AddSingleton(new DataProtectionKeyLocation(KeysDirectory(Path.GetTempPath())));
 
         builder.Services.PostConfigure<RecorderOptions>(options =>
         {

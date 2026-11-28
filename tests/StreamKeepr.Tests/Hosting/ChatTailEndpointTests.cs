@@ -4,12 +4,12 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Hosting;
 using StreamKeepr.Infrastructure.Media;
 using StreamKeepr.Infrastructure.Storage;
+using StreamKeepr.Tests.Storage;
 
 namespace StreamKeepr.Tests.Hosting;
 
@@ -29,13 +29,9 @@ public sealed class ChatTailEndpointTests : IDisposable
     public ChatTailEndpointTests()
     {
         Directory.CreateDirectory(_root);
-        var chat = Options.Create(new ChatOptions());
-        _store = new ChatLogStore(
-            Options.Create(new StorageOptions { RecordingsRoot = _root }),
-            chat,
-            _clock,
-            NullLogger<ChatLogStore>.Instance);
-        _reader = new ChatReader(_store, chat, NullLogger<ChatReader>.Instance);
+        var records = new ChatTestRecords(_root);
+        _store = records.CreateStore(new ChatOptions(), _clock);
+        _reader = ChatTestRecords.CreateReader(_store, new ChatOptions());
         _summary = new RecordingSummary(
             "20261110T163000Z_1",
             "chan",
@@ -52,6 +48,7 @@ public sealed class ChatTailEndpointTests : IDisposable
             Chapters: [],
             HasChat: true);
         _library.Upsert(_summary);
+        records.AddSession(_summary);
 
         string directory = _store.SessionDirectory(_summary);
         Directory.CreateDirectory(directory);
@@ -289,20 +286,12 @@ public sealed class ChatTailEndpointTests : IDisposable
 
 
     [Fact]
-    public async Task Tail_deduplicates_a_message_stored_in_two_buckets()
+    public async Task Tail_deduplicates_a_message_stored_by_two_writers()
     {
         StoreSession(("m1", 3), ("m2", 9));
 
-        string chatDirectory = ChatLogLayout.ChatDirectory(_store.SessionDirectory(_summary));
-        string source = Assert.Single(
-            Directory.GetFiles(chatDirectory, "*.jsonl"),
-            path => !path.EndsWith("events.jsonl", StringComparison.Ordinal));
-        string duplicate = File.ReadLines(source)
-            .First(line => line.Contains("\"id\":\"m1\"", StringComparison.Ordinal));
-        string olderBucket = Path.Combine(
-            chatDirectory,
-            ChatLogLayout.BucketFileName(Now.AddMinutes(-20), 600));
-        File.WriteAllText(olderBucket, duplicate + Environment.NewLine);
+        // A later writer (after a restart) has no memory of the ids already stored.
+        StoreSession(("m1", 3));
 
         (HttpStatusCode status, JsonDocument? json) =
             await GetAsync("?tail=true&toSec=20");
@@ -483,7 +472,7 @@ public sealed class ChatTailEndpointTests : IDisposable
         context.Request.QueryString = new QueryString(query);
         context.Response.Body = new MemoryStream();
 
-        IResult result = ChatEndpoint.Handle(_summary.Id, context, _library, _reader);
+        IResult result = await ChatEndpoint.Handle(_summary.Id, context, _library, _reader);
         await result.ExecuteAsync(context);
 
         context.Response.Body.Position = 0;

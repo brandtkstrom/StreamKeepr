@@ -14,6 +14,7 @@ namespace StreamKeepr.Hosting;
 public sealed class ToolPreflight(
     IOptions<RecorderOptions> recorderOptions,
     IOptions<StorageOptions> storageOptions,
+    DataProtectionKeyLocation keyLocation,
     IDiskSpace disk,
     ILogger<ToolPreflight> logger) : IHostedService
 {
@@ -42,8 +43,11 @@ public sealed class ToolPreflight(
 
         string recordingsRoot = storageOptions.Value.RecordingsRoot;
         OwnerOnlyFileSystem.EnsureWritableRecordingsRoot(recordingsRoot);
-        OwnerOnlyFileSystem.EnsureWritableKeyDirectory(AppDataPaths.KeysDirectory(recordingsRoot));
         EnsureDatabaseVolume(storageOptions.Value);
+
+        // The key ring normally lives in the database directory, so it is probed once that is
+        // writable.
+        OwnerOnlyFileSystem.EnsureWritableKeyDirectory(keyLocation.Directory);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

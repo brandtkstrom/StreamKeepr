@@ -1,3 +1,5 @@
+using StreamKeepr.Infrastructure.Records;
+
 namespace StreamKeepr.Infrastructure.Storage;
 
 /// <summary>
@@ -8,9 +10,9 @@ internal sealed class ChatTombstones
 {
     private readonly HashSet<string> _deletes;
     private readonly long[] _clearAll;
-    private readonly StoredChatEvent[] _clearUser;
+    private readonly ChatEventRow[] _clearUser;
 
-    private ChatTombstones(HashSet<string> deletes, long[] clearAll, StoredChatEvent[] clearUser)
+    private ChatTombstones(HashSet<string> deletes, long[] clearAll, ChatEventRow[] clearUser)
     {
         _deletes = deletes;
         _clearAll = clearAll;
@@ -19,52 +21,62 @@ internal sealed class ChatTombstones
 
     public bool IsEmpty => _deletes.Count == 0 && _clearAll.Length == 0 && _clearUser.Length == 0;
 
-    public static ChatTombstones From(IEnumerable<StoredChatEvent> events)
+    public static ChatTombstones From(IEnumerable<ChatEventRow> events)
     {
         ArgumentNullException.ThrowIfNull(events);
-        StoredChatEvent[] all = events.ToArray();
+        ChatEventRow[] all = events.ToArray();
         return new ChatTombstones(
-            all.Where(e => e.Kind == ChatEventKinds.Delete && e.TargetId is not null)
-                .Select(e => e.TargetId!)
+            all.Where(e => e.Kind == ChatEventKinds.Delete && e.TargetMessageId is not null)
+                .Select(e => e.TargetMessageId!)
                 .ToHashSet(StringComparer.Ordinal),
             all.Where(e => e.Kind == ChatEventKinds.ClearAll).Select(e => e.At).ToArray(),
             all.Where(e => e.Kind == ChatEventKinds.ClearUser).ToArray());
     }
 
     /// <summary>True when the message itself was deleted or cleared.</summary>
-    public bool Removes(StoredChatMessage message)
+    public bool Removes(ChatMessageRow message)
     {
         ArgumentNullException.ThrowIfNull(message);
-        return _deletes.Contains(message.Id) ||
-               ClearedAll(message.At) ||
-               _clearUser.Any(clear =>
-                   message.At <= clear.At &&
-                   ((clear.TargetUid is not null &&
-                     string.Equals(clear.TargetUid, message.UserId, StringComparison.Ordinal)) ||
-                    TargetsLogin(clear, message.Login)));
+        return Removes(message.MessageId, message.At, message.UserId, message.Login);
     }
+
+    /// <inheritdoc cref="Removes(ChatMessageRow)"/>
+    public bool Removes(string messageId, long at, string? userId, string? login) =>
+        _deletes.Contains(messageId) ||
+        ClearedAll(at) ||
+        _clearUser.Any(clear =>
+            at <= clear.At &&
+            ((clear.TargetUserId is not null &&
+              string.Equals(clear.TargetUserId, userId, StringComparison.Ordinal)) ||
+             TargetsLogin(clear, login)));
 
     /// <summary>
     /// True when the message quotes removed text: its parent was deleted or removed, or the
     /// parent's author was cleared at or after the reply (and so after the earlier parent).
     /// The parent may predate capture, so the author rule cannot rely on finding it.
     /// </summary>
-    public bool RedactsReply(StoredChatMessage message, IReadOnlySet<string> removedIds)
+    public bool RedactsReply(ChatMessageRow message, IReadOnlySet<string> removedIds)
     {
         ArgumentNullException.ThrowIfNull(message);
+        return RedactsReply(message.At, message.ReplyMessageId, message.ReplyLogin, removedIds);
+    }
+
+    /// <inheritdoc cref="RedactsReply(ChatMessageRow, IReadOnlySet{string})"/>
+    public bool RedactsReply(long at, string? replyId, string? replyLogin, IReadOnlySet<string> removedIds)
+    {
         ArgumentNullException.ThrowIfNull(removedIds);
-        if (message.Reply is not { } reply)
+        if (replyId is null)
             return false;
 
-        return _deletes.Contains(reply.Id) ||
-               removedIds.Contains(reply.Id) ||
-               ClearedAll(message.At) ||
-               _clearUser.Any(clear => message.At <= clear.At && TargetsLogin(clear, reply.Login));
+        return _deletes.Contains(replyId) ||
+               removedIds.Contains(replyId) ||
+               ClearedAll(at) ||
+               _clearUser.Any(clear => at <= clear.At && TargetsLogin(clear, replyLogin));
     }
 
     private bool ClearedAll(long at) => _clearAll.Any(clearedAt => at <= clearedAt);
 
-    private static bool TargetsLogin(StoredChatEvent clear, string? login) =>
+    private static bool TargetsLogin(ChatEventRow clear, string? login) =>
         login is not null &&
         clear.TargetLogin is not null &&
         string.Equals(clear.TargetLogin, login, StringComparison.OrdinalIgnoreCase);

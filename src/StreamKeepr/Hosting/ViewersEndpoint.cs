@@ -1,5 +1,5 @@
-using Microsoft.Extensions.Options;
-using StreamKeepr.Configuration;
+using Microsoft.EntityFrameworkCore;
+using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Storage;
 
 namespace StreamKeepr.Hosting;
@@ -16,23 +16,17 @@ public static class ViewersEndpoint
         string id,
         HttpContext context,
         RecordingLibrary library,
-        IOptions<StorageOptions> storage,
+        IDbContextFactory<RecordStoreDbContext> records,
         TimeProvider clock,
-        ILoggerFactory loggers,
         CancellationToken ct)
     {
         // Samples grow while live; this applies to 404s as well.
         context.Response.Headers.CacheControl = "no-store";
 
-        if (library.Find(id) is not { } summary
-            || !RecordingsPath.TryResolveSession(
-                storage.Value.RecordingsRoot, summary.Channel, summary.Id, out string directory))
-        {
+        if (library.Find(id) is not { } summary)
             return Results.NotFound();
-        }
 
-        IReadOnlyList<ViewerSample> samples = await ViewerSamples.ReadAsync(
-            directory, loggers.CreateLogger(typeof(ViewersEndpoint).FullName!), ct);
+        IReadOnlyList<ViewerSample> samples = await ViewerSamples.ReadAsync(records, summary.Id, ct);
         // Whole seconds, as in the issue's schema; sample offsets keep their 0.1 s precision.
         long duration = (long)Math.Round(
             summary.DurationAt(clock.GetUtcNow()), MidpointRounding.AwayFromZero);

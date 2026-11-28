@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
@@ -9,8 +10,9 @@ using StreamKeepr.Configuration;
 namespace StreamKeepr.Hosting;
 
 /// <summary>
-/// Registers Data Protection with a key ring persisted on the recordings volume,
-/// alongside the admin token store and outside the media surface. The repository
+/// Registers Data Protection with a key ring persisted in <see cref="DataProtectionKeyLocation"/>:
+/// by default beside the record store (<see cref="AppDataPaths.DataProtectionKeysDirectory"/>),
+/// on the same volume as the admin token ciphertext and outside the media surface. The repository
 /// is configured through <see cref="KeyManagementOptions"/> rather than
 /// PersistKeysToFileSystem so its path comes from validated storage options and
 /// key files can be restricted to the owner.
@@ -24,13 +26,16 @@ public static class DataProtectionKeyRing
         services.AddDataProtection()
             .SetApplicationName(ApplicationName);
 
+        // A profile that registered its own location first (Mock) keeps it.
+        // StorageOptions is bound and validated by the host before this resolves, so a missing
+        // path still reports the option error.
+        services.TryAddSingleton(serviceProvider => new DataProtectionKeyLocation(
+            AppDataPaths.DataProtectionKeysDirectory(
+                serviceProvider.GetRequiredService<IOptions<StorageOptions>>().Value.DatabasePath)));
+
         services.AddSingleton<IConfigureOptions<KeyManagementOptions>>(serviceProvider =>
         {
-            // StorageOptions is bound and validated by the host before this options
-            // instance is resolved, so a missing root still reports the option error.
-            var recordingsRoot = serviceProvider.GetRequiredService<IOptions<StorageOptions>>()
-                .Value.RecordingsRoot;
-            var keyDirectory = AppDataPaths.KeysDirectory(recordingsRoot);
+            var keyDirectory = serviceProvider.GetRequiredService<DataProtectionKeyLocation>().Directory;
             var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
 
             // Data Protection is resolved while the request pipeline is built, which

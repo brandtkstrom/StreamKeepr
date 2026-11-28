@@ -22,7 +22,7 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 | `TwitchStreamPoller` / `EventSubClient` | Singletons, supervised | Observations and push notifications |
 | `ChatCaptureService` | Singleton `BackgroundService` | Session-to-chat reconciliation and chat-event routing |
 | `IrcChatClient` / `MockChatSource` | Singleton `BackgroundService` + `IChatSource` | The read-only IRC connection or its deterministic Mock substitute |
-| `ChatLogStore` | Singleton | The per-session chat writer registry (`ChatSessionWriter`) and chat log reads; file naming is `ChatLogLayout`, the finalize purge `ChatLogPurge` |
+| `ChatLogStore` | Singleton | The per-session chat writer registry (`ChatSessionWriter`, batched writes to the record store) and chat log reads; table access and the finalize purge are `ChatRecords` |
 
 Chat capture is isolated from the DVR path: a source or store failure is logged and retried, never propagated into a channel loop, the host, or `/health/live`. If the source's event stream fails, `ChatCaptureService` stops both its loops, logs an error, closes open outages and session writers, and restarts capture after 5 s. Shutdown closes open outages the same way.
 
@@ -40,7 +40,7 @@ Chat capture is isolated from the DVR path: a source or store failure is logged 
 | `Emotes:Animated` | `false` | Loads each enabled provider's animated asset instead of its static first frame. Off keeps the static rendering that ADR 0011 chose; BetterTTV animated assets are far larger than its static ones. |
 | `TwitchUserOAuthToken`, `TwitchLogin` | unset | Optional dedicated `chat:read` identity (`docs/twitch-auth-contract.md`); a rejected token falls back to anonymous. |
 | `LeadInSeconds` | `12` | How much earlier the content at a part start aired than its first PDT. |
-| `BucketMinutes` | `10` | Bucket length; buckets are floored on Unix time, so any value 1–60 works. |
+| `BucketMinutes` | `10` | Unused since chat moved into the record store; still validated (1–60) until the legacy keys are removed. |
 | `MaxChannels` | `100` | Joined-channel cap; joins beyond it are refused and logged. |
 | `JoinIntervalMs` | `600` | Spacing between `JOIN`s (Twitch allows 20 per 10 s). |
 | `ConnectTimeoutSeconds`, `RegistrationTimeoutSeconds` | `10`, `15` | WebSocket connect and IRC registration limits. |

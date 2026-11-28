@@ -71,7 +71,7 @@ ADR-0002 applies.
 
 - Only `.m3u8`, `.m4s`, `.mp4`, `.jpg`, and `.png` are served. Any other extension returns 404.
 - Any decoded path segment starting with `.` returns 404. Reject `..` and encoded traversal before touching the filesystem.
-- `session.json`, `admin-tokens.json`, `progress.json`, `.streamkeepr`, `chat/`, exports, and `.tmp` files are never served. Chat is served only by the bounded `/api/recordings/{id}/chat` endpoint, and `viewers.jsonl` only by `/api/recordings/{id}/viewers`.
+- `session.json`, `admin-tokens.json`, `progress.json`, `.streamkeepr`, `chat/`, exports, and `.tmp` files are never served. Chat is served only by the bounded `/api/recordings/{id}/chat` endpoint, and viewer samples (record-store rows) only by `/api/recordings/{id}/viewers`.
 - `ServeUnknownFileTypes = false`; the explicit content type map supplies:
   - `.m3u8` → `application/vnd.apple.mpegurl`
   - `.m4s` → `video/iso.segment`
@@ -116,9 +116,9 @@ Docker healthcheck: `/health/live`, interval 30 s, timeout 5 s, start period 60 
 
 ## 6. Data Protection
 
-- `AddDataProtection().PersistKeysToFileSystem(<recordings>/.streamkeepr/keys).SetApplicationName("StreamKeepr")`.
-- Directory `0700`, files `0600`; create before auth or token use.
-- Keys live on the recordings volume, survive restarts, and are never served (the media allowlist blocks `.streamkeepr`).
+- Keys persist to a `keys` directory beside the record store (`<directory of Storage:DatabasePath>/keys`, `/data/keys` in the container) with `SetApplicationName("StreamKeepr")`. The folder comes from one `DataProtectionKeyLocation` service, which both preflight and the key ring read; it is not configurable. The Mock profile registers a fixed `<temp>/streamkeepr-mock/keys` instead, because its record store is per process and deleted on shutdown, and its sign-in cookie must survive a restart.
+- Directory `0700`, files `0600`; create before auth or token use. The database directory itself is operator-owned and keeps its permissions.
+- Keys live on the data volume with the admin token ciphertext they protect, survive restarts, and are never on the media volume. Moving them there (#319) invalidated earlier cookies and tokens by design; the admin signs in again.
 - Losing the key ring invalidates cookies, antiforgery tokens, and the encrypted admin token; log it and require re-authentication.
 - An unwritable key directory fails startup with a clear message.
 - No keys are baked into the image or committed.
@@ -133,7 +133,8 @@ long-lived routes out of HTTP metrics.
 
 - `ffmpeg -version`, `ffprobe -version`, `streamlink --version`; log the first line of each. Missing tools throw a clear `InvalidOperationException` naming the tool.
 - Recordings root: create it, write and delete `.write-probe`, and fail with the UID 1654 / named-volume-or-chown message on `UnauthorizedAccessException` or `IOException`.
-- Data Protection key directory: create and probe; fail with the same ownership guidance.
+- Database directory (`Storage:DatabasePath`): create and probe, and check `Storage:DatabaseMinFreeGb`.
+- Data Protection key directory (inside the database directory): create `0700` and probe; fail with the same ownership guidance for the data volume.
 - Any failure stops startup; no partial channel start.
 
 ## 8. Container

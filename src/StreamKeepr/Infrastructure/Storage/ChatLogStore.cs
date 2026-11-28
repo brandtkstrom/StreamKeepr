@@ -1,27 +1,35 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
 using StreamKeepr.Domain;
+using StreamKeepr.Infrastructure.Records;
 
 namespace StreamKeepr.Infrastructure.Storage;
 
 /// <summary>
-/// Owns the per-session chat log. One <see cref="ChatSessionWriter"/> per active session;
-/// readers never take a write lock. Chat is best-effort and must never fail recording: read
-/// failures are logged and degrade to what could be read. File naming lives in
-/// <see cref="ChatLogLayout"/>, JSON I/O in <see cref="ChatLogJson"/>, and the finalize purge in
-/// <see cref="ChatLogPurge"/>.
+/// Owns the per-session chat log in the record store (ADR-0014). One
+/// <see cref="ChatSessionWriter"/> per active session buffers rows and writes them in batches of
+/// <see cref="BatchSize"/>, whenever <see cref="Flush"/> runs (chat capture calls it every
+/// second), and on close. Readers use their own contexts and never wait on a writer. Chat is
+/// best-effort and must never fail recording: a write failure is logged and its batch skipped.
+/// Table access lives in <see cref="ChatRecords"/>.
 /// </summary>
 public sealed class ChatLogStore(
     IOptions<StorageOptions> storage,
     IOptions<ChatOptions> chatOptions,
+    IDbContextFactory<RecordStoreDbContext> contexts,
     TimeProvider clock,
     ILogger<ChatLogStore> logger)
 {
+    /// <summary>Buffered rows that trigger a write without waiting for the next flush.</summary>
+    public const int BatchSize = 100;
+
+    private readonly ChatRecords _records = new(contexts);
     private readonly object _gate = new();
     private readonly Dictionary<string, ChatSessionWriter> _bySession = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ChatSessionWriter> _byChannel = new(StringComparer.Ordinal);
 
-    /// <summary>The validated session directory for a summary.</summary>
+    /// <summary>The validated session directory for a summary; chat replay reads its part playlists.</summary>
     public string SessionDirectory(RecordingSummary summary)
     {
         ArgumentNullException.ThrowIfNull(summary);
@@ -33,14 +41,16 @@ public sealed class ChatLogStore(
 
     public void OpenSession(RecordingSummary summary, string source)
     {
-        ArgumentNullException.ThrowIfNull(summary);
+        // Validates the channel and id, as every chat entry point does.
+        _ = SessionDirectory(summary);
+
         lock (_gate)
         {
             if (_bySession.ContainsKey(summary.Id))
                 return;
 
             var writer = new ChatSessionWriter(
-                summary, SessionDirectory(summary), source, chatOptions.Value, clock, logger);
+                summary, source, chatOptions.Value, _records, BatchSize, clock, logger);
             _bySession[summary.Id] = writer;
             _byChannel[summary.Channel] = writer;
         }
@@ -53,6 +63,17 @@ public sealed class ChatLogStore(
             _byChannel.TryGetValue(channel, out writer);
 
         writer?.Append(evt);
+    }
+
+    /// <summary>Writes every open session's buffered rows, so live replay trails capture by at most one flush.</summary>
+    public void Flush()
+    {
+        ChatSessionWriter[] writers;
+        lock (_gate)
+            writers = _bySession.Values.ToArray();
+
+        foreach (ChatSessionWriter writer in writers)
+            writer.Flush();
     }
 
     public void CloseSession(string sessionId, bool finalize)
@@ -87,12 +108,23 @@ public sealed class ChatLogStore(
             writer.Close(finalize);
     }
 
-    internal StoredChatMeta? ReadMeta(string sessionDirectory) =>
-        ChatLogJson.TryRead<StoredChatMeta>(ChatLogLayout.MetaPath(sessionDirectory), logger);
+    /// <summary>True when the session has a chat row, which is what <c>HasChat</c> means.</summary>
+    public Task<bool> HasChatAsync(string sessionId, CancellationToken ct) =>
+        _records.HasChatAsync(sessionId, ct);
 
-    internal IReadOnlyList<StoredChatEvent> ReadEvents(string sessionDirectory) =>
-        ChatLogJson.ReadLinesTolerant<StoredChatEvent>(ChatLogLayout.EventsPath(sessionDirectory), logger);
+    internal Task<ChatSessionRow?> FindChatAsync(string sessionId, CancellationToken ct) =>
+        _records.FindSessionAsync(sessionId, ct);
 
-    internal IReadOnlyList<StoredChatMessage> ReadMessages(string bucketPath) =>
-        ChatLogJson.ReadLinesTolerant<StoredChatMessage>(bucketPath, logger);
+    internal Task<IReadOnlyList<ChatEventRow>> ReadEventsAsync(string sessionId, CancellationToken ct) =>
+        _records.EventsAsync(sessionId, ct);
+
+    internal Task<IReadOnlyList<ChatMessageRow>> ReadMessagesAsync(
+        string sessionId,
+        long fromAt,
+        long toAt,
+        bool newestFirst,
+        ChatCursor? after,
+        int take,
+        CancellationToken ct) =>
+        _records.MessagesAsync(sessionId, fromAt, toAt, newestFirst, after, take, ct);
 }

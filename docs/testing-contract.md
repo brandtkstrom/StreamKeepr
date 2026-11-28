@@ -53,7 +53,7 @@ tests/
 - Add `IStreamPoller` and `IEventSubClient` interfaces; the production classes implement them, and the Mock profile registers fakes. The supervisor depends on the interfaces.
 - Inject `TimeProvider` everywhere. Inject retry jitter/delay (`IRetryDelay` or `Func<TimeSpan, TimeSpan>`) so tests can make it deterministic; production uses random jitter.
 - Use `IHttpClientFactory` with stub `HttpMessageHandler`s for Helix, token refresh, and EventSub subscription requests. No test calls Twitch.
-- Use an in-memory `IAdminTokenStore` for auth/EventSub tests; the encrypted implementation is tested separately with a temp directory.
+- Use an in-memory `IAdminTokenStore` for auth/EventSub tests; the encrypted implementation is tested separately against a real temp record store and key ring.
 - Use `IIrcSocket`/`IIrcSocketFactory` with a scripted transcript for the IRC state machine and parser. The Mock profile uses `MockChatSource`; no test connects to Twitch IRC or an external IRC network.
 - Use a temp `StorageOptions.RecordingsRoot` and `WebApplicationFactory` settings per test class. Never write under the repo.
 - Use a real SQLite record store, never a fake or EF's in-memory provider. `TestRecordStore` wires the production registration in a temp directory; each `StartAsync` is one process start. `StreamKeeprAppFactory` keeps the database at `TestRecordStore.DatabasePathIn(root)`, so a restart on the same root keeps it.

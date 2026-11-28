@@ -99,7 +99,8 @@ flowchart LR
         WEB[Blazor UI + media endpoints]
     end
 
-    DISK[(Recordings volume<br>HLS parts, playlists,<br>thumbnails, chat logs)]
+    DISK[(Recordings volume<br>HLS parts, playlists,<br>thumbnails)]
+    DB[(Data volume<br>SQLite record store:<br>sessions, chat, positions,<br>admin token, conduit)]
     BROWSER[Browser<br>hls.js player]
 
     ES --> OBS
@@ -108,15 +109,17 @@ flowchart LR
     DVR -->|start / stop part| REC
     HLS --> REC
     REC --> DISK
-    IRC --> CHAT --> DISK
+    IRC --> CHAT --> DB
     DVR --> STORE --> DISK
+    STORE --> DB
     DISK --> WEB --> BROWSER
+    DB --> WEB
 ```
 
 - **One web project.** Everything runs in a single ASP.NET Core (.NET 11) app at [`src/StreamKeepr`](src/StreamKeepr): the recorder, Twitch integration, storage, and the Blazor Interactive Server UI built with MudBlazor.
 - **A pure state machine per channel.** Each watched channel has its own coordinator that feeds events (live, offline, recorder exited, timer fired) into a pure reducer ([`Domain/DvrReducer.cs`](src/StreamKeepr/Domain/DvrReducer.cs)). The reducer returns commands, and the coordinator runs them one at a time. States are `Idle`, `Recording`, `WaitingToRetry`, `CoolingDown`, and `Paused`.
 - **Sessions and parts.** A *session* is one continuous recording of a stream. Each recorder run writes one *part*: Streamlink pipes the stream into FFmpeg, which writes a part playlist and fMP4 segments. While a stream is live, the app serves a stitched *live index*; when it ends, the parts are stitched into one *session index* closed with `#EXT-X-ENDLIST`.
-- **Filesystem storage.** Media, manifests, and app state live under the recordings root. App state goes under a private `.streamkeepr/` folder (Data Protection keys, logs) that the media endpoint never serves.
+- **Storage.** Media (parts, playlists, thumbnails) lives under the recordings root; logs go under its private `.streamkeepr/` folder, which the media endpoint never serves. Durable records (channels, sessions, chat, viewer samples, resume positions, the encrypted admin token, and EventSub conduit state) live in one SQLite database on the data volume (ADR-0014), with the Data Protection keys beside it in `keys/`.
 - **Twitch.** An app access token drives Helix lookups and EventSub; Twitch OAuth signs in the administrator. Push-aware polling keeps coverage when EventSub is unavailable.
 
 The terms above are defined in [`GLOSSARY.md`](GLOSSARY.md). The binding design lives in the contracts under [`docs/`](docs) and the decisions in [`docs/adr/`](docs/adr); [`docs/decision-digest.md`](docs/decision-digest.md) is the entry point.
@@ -247,7 +250,7 @@ Open <http://localhost:5187>. The profile starts four fake channels and eight re
 
 `MockPoller` supplies deterministic observations, `MockEventSubClient` accepts test-controlled pushes, and the fake cookie auth signs in as `mock_admin` by default. None of these touch Twitch or construct the real HTTP or EventSub clients. The startup tool preflight still runs, so `ffmpeg` and `ffprobe` must be on `PATH`; Streamlink is always the committed fake fixture. On Windows that fixture runs through bash, so `bash.exe` (Git for Windows) must be on `PATH` or under `%ProgramFiles%\Git`.
 
-Mock data lives under the system temp directory (`.../streamkeepr-mock/recordings`), is reset on each start, and is never read from user secrets. Each Mock process also gets its own record store under `.../streamkeepr-mock/records-<id>/`, deleted on a clean shutdown; its channels are re-seeded every start. `Mock:RecordingsRoot` must be a directory below the system temp directory; the host rejects any other path. A non-empty custom root without the mock-seeded marker is refused rather than deleted. To keep the previous run:
+Mock data lives under the system temp directory (`.../streamkeepr-mock/recordings`), is reset on each start, and is never read from user secrets. Each Mock process also gets its own record store under `.../streamkeepr-mock/records-<id>/`, deleted on a clean shutdown; its channels are re-seeded every start. Its Data Protection keys stay in one fixed folder, `.../streamkeepr-mock/keys`, so the Mock sign-in cookie survives a restart. `Mock:RecordingsRoot` must be a directory below the system temp directory; the host rejects any other path. A non-empty custom root without the mock-seeded marker is refused rather than deleted. To keep the previous run:
 
 ```bash
 Mock__Seed__ResetOnStart=false dotnet run --project src/StreamKeepr --launch-profile Mock
@@ -347,7 +350,7 @@ Both lists default to empty, which ignores every `X-Forwarded-*` header. An app 
 
 ### Stop, restart, and logs
 
-`docker compose stop` sends SIGTERM through `init` to the app. Active recordings finalize within the host's 40 s shutdown budget, below Compose's 50 s grace period. `docker compose restart` (or `start`) recovers unfinished sessions on the next launch. Data Protection keys live under `/recordings/.streamkeepr/keys`, so sign-in cookies survive a restart. `docker compose down` keeps both volumes; `docker compose down --volumes` deletes recordings, keys, and the record store. Back up both volumes together. Before an upgrade migrates the record store, the app writes a backup to `/data/backups` (the three newest are kept); a damaged database, or one from a newer version, stops startup with an error naming the file and is never reset.
+`docker compose stop` sends SIGTERM through `init` to the app. Active recordings finalize within the host's 40 s shutdown budget, below Compose's 50 s grace period. `docker compose restart` (or `start`) recovers unfinished sessions on the next launch. Data Protection keys live under `/data/keys`, beside the record store that holds the encrypted admin token, so sign-in cookies and the token survive a restart. `docker compose down` keeps both volumes; `docker compose down --volumes` deletes recordings, keys, and the record store. Back up both volumes together. Before an upgrade migrates the record store, the app writes a backup to `/data/backups` (the three newest are kept); a damaged database, or one from a newer version, stops startup with an error naming the file and is never reset.
 
 Docker log rotation is capped at 10 MB per file with five files. The app also writes the same events as compact JSON to `<recordings>/.streamkeepr/logs/`: daily files, 50 MB each, seven kept, so they can take up to roughly 350 MB of the recordings volume. Set `Serilog__File__Enabled=false` to turn them off. Production logs at `Information` unless you change it.
 

@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
-using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
@@ -35,6 +34,7 @@ public sealed class SessionStore(
     public const string ThumbnailFileName = "thumb.jpg";
 
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.Ordinal);
+    private readonly IDbContextFactory<RecordStoreDbContext> _contexts = contexts;
     private readonly SessionRecords _records = new(contexts, logger);
 
     internal int MinTargetDuration => 2 * recorder.Value.SegmentSeconds;
@@ -173,46 +173,21 @@ public sealed class SessionStore(
     }
 
     /// <summary>
-    /// Appends one viewer sample to the session's <c>viewers.jsonl</c> under the session lock.
-    /// Never creates the session folder, so a sample cannot resurrect a deleted session. A
-    /// previous partial line is terminated first, so it costs only itself.
+    /// Inserts one viewer sample row for the session (<see cref="ViewerSamples"/>). It needs no
+    /// session lock: the row's foreign key makes a sample for a deleted or never-recorded session
+    /// fail instead of resurrecting it, and it never touches the session folder.
     /// </summary>
-    public async Task AppendViewerSampleAsync(
+    public Task AppendViewerSampleAsync(
         Session session, DateTimeOffset at, int count, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentOutOfRangeException.ThrowIfNegative(count);
 
-        string directory = Normalize(session.Directory);
-        string line = ViewerSamples.FormatLine(ViewerSamples.OffsetSeconds(session.StartedAt, at), count);
-        var gate = LockFor(directory);
-        await gate.WaitAsync(ct);
-        try
-        {
-            // OpenOrCreate creates the file but never its folder: a removed session throws
-            // DirectoryNotFoundException instead of being recreated.
-            await using var stream = new FileStream(
-                Path.Combine(directory, ViewerSamples.FileName),
-                FileMode.OpenOrCreate,
-                FileAccess.ReadWrite,
-                FileShare.Read);
-
-            bool needsSeparator = false;
-            if (stream.Length > 0)
-            {
-                stream.Seek(-1, SeekOrigin.End);
-                needsSeparator = stream.ReadByte() != '\n';
-            }
-
-            stream.Seek(0, SeekOrigin.End);
-            byte[] bytes = Encoding.UTF8.GetBytes(
-                (needsSeparator ? "\n" : "") + line + "\n");
-            await stream.WriteAsync(bytes, ct);
-        }
-        finally
-        {
-            gate.Release();
-        }
+        return ViewerSamples.AppendAsync(
+            _contexts,
+            session.Id,
+            new ViewerSample(ViewerSamples.OffsetSeconds(session.StartedAt, at), count),
+            ct);
     }
 
     /// <summary>
@@ -289,8 +264,8 @@ public sealed class SessionStore(
 
     /// <summary>
     /// Derives the summary of every recorded session under <paramref name="recordingsRoot"/> for
-    /// a library load. A session whose folder name is unsafe or whose media cannot be read is
-    /// logged and left out; its record is kept.
+    /// a library load. A session whose folder name is unsafe, whose folder is missing, or whose
+    /// media cannot be read is logged and left out; its record is kept.
     /// </summary>
     public async Task<IReadOnlyList<RecordingSummary>> SummarizeAllAsync(
         string recordingsRoot, CancellationToken ct)
@@ -302,6 +277,17 @@ public sealed class SessionStore(
             ct.ThrowIfCancellationRequested();
             if (!TryResolveDirectory(recordingsRoot, record, out string directory))
                 continue;
+
+            // A Recording projection reads no file when its folder is gone, so check first:
+            // a session whose folder is missing is never listed.
+            if (!Directory.Exists(directory))
+            {
+                logger.LogWarning(
+                    "Not listing session {SessionId}: its folder {Directory} is missing.",
+                    record.Id,
+                    directory);
+                continue;
+            }
 
             try
             {
@@ -417,7 +403,7 @@ public sealed class SessionStore(
         TryUpsertLibrary(
             directory,
             () => ToSummary(
-                directory, complete, parts.Count, timeline.SegmentCount, complete.SizeBytes,
+                complete, parts.Count, timeline.SegmentCount, complete.SizeBytes,
                 timeline.Chapters(complete.Metadata)));
 
         logger.LogInformation(
@@ -453,7 +439,7 @@ public sealed class SessionStore(
             var parts = await ReadPartsAsync(directory, ct);
             var live = PlaylistTimeline.Parse(PlaylistStitcher.Stitch(parts, MinTargetDuration, final: false));
             return ToSummary(
-                directory, record, parts.Count, live.SegmentCount, MediaSize(directory),
+                record, parts.Count, live.SegmentCount, MediaSize(directory),
                 live.Chapters(record.Metadata));
         }
 
@@ -471,14 +457,13 @@ public sealed class SessionStore(
         }
 
         return ToSummary(
-            directory, record, record.PartCount ?? 0, record.SegmentCount ?? 0, record.SizeBytes, chapters);
+            record, record.PartCount ?? 0, record.SegmentCount ?? 0, record.SizeBytes, chapters);
     }
 
     private static InvalidDataException MissingIndex(SessionRecord record) =>
         new($"Complete session {record.Id} has no index.");
 
-    private RecordingSummary ToSummary(
-        string directory,
+    private static RecordingSummary ToSummary(
         SessionRecord record,
         int partCount,
         int segmentCount,
@@ -501,10 +486,7 @@ public sealed class SessionStore(
             segmentCount,
             record.HasThumbnail,
             chapters,
-            // Interim until #317 moves chat into the record store: chat is still captured to the
-            // chat/ sidecar, so a session without a chat row still has chat when that exists.
-            // #317 removes the sidecar check and keeps only the row.
-            HasChat: record.HasChatSession || ChatLogLayout.HasChat(directory, logger));
+            HasChat: record.HasChatSession);
     }
 
     private async Task UpsertLibraryAsync(string directory, SessionRecord record, CancellationToken ct)

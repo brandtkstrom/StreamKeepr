@@ -309,6 +309,7 @@ public sealed class RecoveryServiceTests : IDisposable
         Assert.Null(recovered[Channel].Finished);
         Assert.Null(_context.Library.Find(session.Id));
         Assert.True(_context.Library.IsLoaded);
+        Assert.NotNull(await _context.Store.TryLoadAsync(session.Directory, CancellationToken.None));
     }
 
     [Fact]
@@ -328,6 +329,42 @@ public sealed class RecoveryServiceTests : IDisposable
         Assert.Equal(2, channel.Finished.NextPart);
         Assert.True(channel.Finished.Complete);
         Assert.False(_context.Library.Find(session.Id)!.IsRecording);
+    }
+
+    [Fact]
+    public async Task Complete_session_whose_indexed_media_is_gone_is_skipped_and_kept()
+    {
+        Session session = CreateSession("989", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(session, "989");
+        await _context.Store.FinalizeAsync(session, CancellationToken.None);
+        foreach (string media in Directory.EnumerateFiles(session.Directory, "*.m4s")
+                     .Concat(Directory.EnumerateFiles(session.Directory, "init_*.mp4")))
+        {
+            File.Delete(media);
+        }
+
+        IReadOnlyDictionary<string, RecoveredChannel> recovered =
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.False(recovered.ContainsKey(Channel) && recovered[Channel].Finished is not null);
+        Assert.Null(_context.Library.Find(session.Id));
+        Assert.True(File.Exists(Path.Combine(session.Directory, SessionStore.IndexFileName)));
+        Assert.NotNull(await _context.Store.TryLoadAsync(session.Directory, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Complete_session_missing_only_some_indexed_media_stays_listed()
+    {
+        Session session = CreateSession("988", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(session, "988");
+        await _context.Store.FinalizeAsync(session, CancellationToken.None);
+        File.Delete(Directory.EnumerateFiles(session.Directory, "*.m4s").First());
+
+        IReadOnlyDictionary<string, RecoveredChannel> recovered =
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.Equal(session.Id, recovered[Channel].Finished!.Session.Id);
+        Assert.NotNull(_context.Library.Find(session.Id));
     }
 
     [Fact]
@@ -388,6 +425,29 @@ public sealed class RecoveryServiceTests : IDisposable
         Assert.Equal(newer.Id, channel.Unfinished!.Session.Id);
         Assert.Null(channel.Finished);
         Assert.False(Directory.Exists(older.Directory));
+    }
+
+    [Fact]
+    public async Task Newest_empty_session_stays_resumable_from_its_first_part()
+    {
+        // The newest unfinished session of a watched channel resumes even with no media yet
+        // (it opened, then the process died before the first segment); only older ones go.
+        Session older = CreateSession("995", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(older, "995");
+        Session newest = CreateSession("996", SessionStoreTestContext.StartedAt.AddHours(1));
+        await _context.Store.OpenAsync(
+            newest, new LiveStream("996", "Title 996", "Just Chatting", newest.StartedAt, null),
+            CancellationToken.None);
+
+        IReadOnlyDictionary<string, RecoveredChannel> recovered =
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        RecoveredChannel channel = recovered[Channel];
+        Assert.Equal(newest.Id, channel.Unfinished!.Session.Id);
+        Assert.Equal(1, channel.Unfinished.NextPart);
+        Assert.Equal(older.Id, channel.Finished!.Session.Id);
+        Assert.True(Directory.Exists(newest.Directory));
+        Assert.NotNull(await _context.Store.TryLoadAsync(newest.Directory, CancellationToken.None));
     }
 
     [Fact]
@@ -503,6 +563,179 @@ public sealed class RecoveryServiceTests : IDisposable
             logs.Entries, entry => entry.Message.StartsWith("Recovered", StringComparison.Ordinal));
         Assert.Equal(0, summary.Properties["SessionCount"]);
         Assert.Equal(0, summary.Properties["SkippedCount"]);
+    }
+
+    [Fact]
+    public async Task Finalize_crash_window_recording_record_with_a_final_index_becomes_complete()
+    {
+        // Finalize wrote the index, then the record write failed (or the process died), so the
+        // newest session of a watched, unpaused channel still says Recording.
+        Session session = CreateSession("570", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(session, "570");
+        _context.Records.WritesFailing = true;
+        await Assert.ThrowsAnyAsync<Exception>(
+            () => _context.Store.FinalizeAsync(session, CancellationToken.None));
+        _context.Records.WritesFailing = false;
+        Assert.True(File.Exists(Path.Combine(session.Directory, SessionStore.IndexFileName)));
+
+        (RecoveryService recovery, RecordingLibrary library) = Restart();
+        IReadOnlyDictionary<string, RecoveredChannel> recovered =
+            await recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.Null(recovered[Channel].Unfinished);
+        Resumable finished = recovered[Channel].Finished!;
+        Assert.Equal(session.Id, finished.Session.Id);
+        Assert.True(finished.Complete);
+        Assert.Equal(2, finished.NextPart);
+
+        SessionRecord record = (await _context.Store.TryLoadAsync(session.Directory, CancellationToken.None))!;
+        Assert.Equal(SessionStatus.Complete, record.Status);
+        Assert.Equal(6.0, record.DurationSeconds);
+        Assert.Equal(1, record.PartCount);
+        Assert.Equal(1, record.SegmentCount);
+        Assert.NotNull(record.SizeBytes);
+        Assert.False(library.Find(session.Id)!.IsRecording);
+    }
+
+    [Fact]
+    public async Task Reopen_crash_window_recording_record_with_a_stale_index_becomes_complete_again()
+    {
+        // Reopen marked the record Recording, then died before deleting the index.
+        Session session = CreateSession("571", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(session, "571");
+        await _context.Store.FinalizeAsync(session, CancellationToken.None);
+        string indexPath = Path.Combine(session.Directory, SessionStore.IndexFileName);
+        string index = await File.ReadAllTextAsync(indexPath);
+        await _context.Store.ReopenAsync(session, CancellationToken.None);
+        await File.WriteAllTextAsync(indexPath, index);
+
+        (RecoveryService recovery, RecordingLibrary library) = Restart();
+        IReadOnlyDictionary<string, RecoveredChannel> recovered =
+            await recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.Null(recovered[Channel].Unfinished);
+        Assert.Equal(session.Id, recovered[Channel].Finished!.Session.Id);
+        Assert.Equal(2, recovered[Channel].Finished!.NextPart);
+        SessionRecord record = (await _context.Store.TryLoadAsync(session.Directory, CancellationToken.None))!;
+        Assert.Equal(SessionStatus.Complete, record.Status);
+        Assert.Equal(6.0, record.DurationSeconds);
+        Assert.False(library.Find(session.Id)!.IsRecording);
+    }
+
+    [Fact]
+    public async Task Complete_record_whose_index_was_lost_is_re_stitched_with_updated_aggregates()
+    {
+        // The index is gone and a second part was recorded after the stored aggregates.
+        Session session = CreateSession("572", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(session, "572");
+        await _context.Store.FinalizeAsync(session, CancellationToken.None);
+        File.Delete(Path.Combine(session.Directory, SessionStore.IndexFileName));
+        await File.WriteAllTextAsync(
+            Path.Combine(session.Directory, "p002.m3u8"),
+            PlaylistTestData.Playlist(6, "init_002.mp4", PlaylistTestData.Segment("p002_00000.m4s", "2026-11-10T17:35:00Z", 6)));
+        await File.WriteAllBytesAsync(Path.Combine(session.Directory, "init_002.mp4"), [1]);
+        await File.WriteAllBytesAsync(Path.Combine(session.Directory, "p002_00000.m4s"), [2, 3]);
+
+        (RecoveryService recovery, RecordingLibrary library) = Restart();
+        IReadOnlyDictionary<string, RecoveredChannel> recovered =
+            await recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.Equal(3, recovered[Channel].Finished!.NextPart);
+        SessionRecord record = (await _context.Store.TryLoadAsync(session.Directory, CancellationToken.None))!;
+        Assert.Equal(SessionStatus.Complete, record.Status);
+        Assert.Equal(12.0, record.DurationSeconds);
+        Assert.Equal(2, record.PartCount);
+        Assert.Equal(2, record.SegmentCount);
+
+        RecordingSummary summary = library.Find(session.Id)!;
+        Assert.Equal(12.0, summary.DurationSeconds);
+        Assert.Equal(2, summary.PartCount);
+        string index = await File.ReadAllTextAsync(Path.Combine(session.Directory, SessionStore.IndexFileName));
+        Assert.Contains("p002_00000.m4s", index, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Recording_record_whose_folder_is_missing_is_kept_and_not_listed_or_resumed()
+    {
+        Session session = CreateSession("573", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(session, "573");
+        Directory.Delete(session.Directory, recursive: true);
+
+        (RecoveryService recovery, RecordingLibrary library) = Restart();
+        IReadOnlyDictionary<string, RecoveredChannel> recovered =
+            await recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.Null(recovered[Channel].Unfinished);
+        Assert.Null(recovered[Channel].Finished);
+        Assert.Null(library.Find(session.Id));
+        Assert.False(Directory.Exists(session.Directory));
+        SessionRecord? record = await _context.Store.TryLoadAsync(session.Directory, CancellationToken.None);
+        Assert.Equal(SessionStatus.Recording, record!.Status);
+    }
+
+    [Fact]
+    public async Task Older_recording_record_without_media_is_deleted_with_its_rows_and_folder()
+    {
+        Session empty = CreateSession("574", SessionStoreTestContext.StartedAt);
+        await _context.Store.OpenAsync(
+            empty,
+            new LiveStream("574", "Title 574", "Just Chatting", empty.StartedAt, null),
+            CancellationToken.None);
+        Session newer = CreateSession("575", SessionStoreTestContext.StartedAt.AddHours(1));
+        await WriteRecordingAsync(newer, "575");
+
+        await _recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.Null(await _context.Store.TryLoadAsync(empty.Directory, CancellationToken.None));
+        await using (var db = await _context.RecordStore.Contexts.CreateDbContextAsync())
+        {
+            Assert.Equal(0, db.SessionMetadataChanges.Count(change => change.SessionId == empty.Id));
+        }
+
+        Assert.False(Directory.Exists(empty.Directory));
+        Assert.Null(_context.Library.Find(empty.Id));
+    }
+
+    [Fact]
+    public async Task Older_recording_record_whose_only_segment_line_is_unterminated_keeps_its_media()
+    {
+        // A hard kill mid-line leaves a part with no complete segment but with segment media.
+        // Finalize would treat the session as empty and delete the folder.
+        Session older = CreateSession("576", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(older, "576");
+        await File.WriteAllTextAsync(
+            Path.Combine(older.Directory, "p001.m3u8"),
+            "#EXTM3U\n#EXT-X-MAP:URI=\"init_001.mp4\"\n#EXTINF:6.0,\np001_00000.m4s");
+        Session newer = CreateSession("577", SessionStoreTestContext.StartedAt.AddHours(1));
+        await WriteRecordingAsync(newer, "577");
+
+        await _recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.True(File.Exists(Path.Combine(older.Directory, "p001_00000.m4s")));
+        Assert.NotNull(await _context.Store.TryLoadAsync(older.Directory, CancellationToken.None));
+        Assert.Null(_context.Library.Find(older.Id));
+    }
+
+    [Fact]
+    public async Task Recording_record_with_a_final_index_but_no_part_playlists_keeps_its_media()
+    {
+        Session session = CreateSession("578", SessionStoreTestContext.StartedAt);
+        await WriteRecordingAsync(session, "578");
+        _context.Records.WritesFailing = true;
+        await Assert.ThrowsAnyAsync<Exception>(
+            () => _context.Store.FinalizeAsync(session, CancellationToken.None));
+        _context.Records.WritesFailing = false;
+        File.Delete(Path.Combine(session.Directory, "p001.m3u8"));
+
+        IReadOnlyDictionary<string, RecoveredChannel> recovered =
+            await _recovery.RecoverAsync(Watched, CancellationToken.None);
+
+        Assert.Null(recovered[Channel].Unfinished);
+        Assert.Null(recovered[Channel].Finished);
+        Assert.True(File.Exists(Path.Combine(session.Directory, "p001_00000.m4s")));
+        Assert.True(File.Exists(Path.Combine(session.Directory, "init_001.mp4")));
+        Assert.NotNull(await _context.Store.TryLoadAsync(session.Directory, CancellationToken.None));
+        Assert.Null(_context.Library.Find(session.Id));
     }
 
     private RecoveryService CreateRecovery(ILoggerFactory loggers) =>

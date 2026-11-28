@@ -7,6 +7,7 @@ using Microsoft.Extensions.Time.Testing;
 using StreamKeepr.Configuration;
 using StreamKeepr.Infrastructure.Twitch;
 using StreamKeepr.Tests.Hosting;
+using StreamKeepr.Tests.Records;
 
 namespace StreamKeepr.Tests.Twitch;
 
@@ -14,25 +15,37 @@ public sealed class ConduitRetirementTests : IDisposable
 {
     private const string ClientId = "client-id";
 
-    private readonly string _root = Path.Combine(
-        Path.GetTempPath(), "streamkeepr-tests", Guid.NewGuid().ToString("N"));
+    private readonly TestRecordStore _records = new();
     private readonly FakeConduitTwitch _twitch = new();
     private readonly ConduitStateStore _state;
     private readonly List<TwitchTokenProvider> _tokenProviders = [];
 
     public ConduitRetirementTests()
     {
-        _state = new ConduitStateStore(
-            Options.Create(new StorageOptions { RecordingsRoot = _root }),
-            NullLogger<ConduitStateStore>.Instance);
+        _records.StartAsync().GetAwaiter().GetResult();
+        _state = NewStateStore();
     }
 
     public void Dispose()
     {
         foreach (TwitchTokenProvider tokens in _tokenProviders)
             tokens.Dispose();
-        if (Directory.Exists(_root))
-            Directory.Delete(_root, recursive: true);
+        _records.Dispose();
+    }
+
+    [Fact]
+    public async Task WebSocket_mode_retires_a_conduit_saved_before_a_restart()
+    {
+        string conduit = _twitch.AddConduit();
+        await _state.SaveAsync(new ConduitState(conduit, ClientId), CancellationToken.None);
+
+        // A later start in WebSocket mode reads the same record store.
+        await _records.StartAsync();
+        ConduitStateStore restarted = NewStateStore();
+        await CreateRetirement(EventSubTransportMode.WebSocket, restarted).RetireAsync(CancellationToken.None);
+
+        Assert.Empty(_twitch.Conduits);
+        Assert.Null(await restarted.LoadAsync(CancellationToken.None));
     }
 
     [Fact]
@@ -119,7 +132,11 @@ public sealed class ConduitRetirementTests : IDisposable
             service => service is ConduitRetirementService);
     }
 
-    private ConduitRetirementService CreateRetirement(EventSubTransportMode mode)
+    private ConduitStateStore NewStateStore() =>
+        new(_records.Contexts, TimeProvider.System, NullLogger<ConduitStateStore>.Instance);
+
+    private ConduitRetirementService CreateRetirement(
+        EventSubTransportMode mode, IConduitStateStore? state = null)
     {
         var options = Options.Create(new TwitchOptions
         {
@@ -134,7 +151,7 @@ public sealed class ConduitRetirementTests : IDisposable
         _tokenProviders.Add(tokens);
         return new ConduitRetirementService(
             options,
-            _state,
+            state ?? _state,
             new EventSubConduitApi(factory, tokens, options, NullLogger<EventSubConduitApi>.Instance),
             NullLogger<ConduitRetirementService>.Instance);
     }

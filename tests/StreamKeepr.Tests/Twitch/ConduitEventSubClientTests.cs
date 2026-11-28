@@ -46,10 +46,10 @@ public sealed class ConduitEventSubClientTests : IDisposable
     {
         Directory.CreateDirectory(_root);
         _schedule = new PollSchedule(_clock);
-        var storage = Options.Create(new StorageOptions { RecordingsRoot = _root });
         _channels = TestRecordStore.LoadChannelStoreInAsync(_root).GetAwaiter().GetResult();
         AddChannel("streamer", "123");
-        _state = new ConduitStateStore(storage, NullLogger<ConduitStateStore>.Instance);
+        _state = new ConduitStateStore(
+            TestRecordStore.ContextsIn(_root), _clock, NullLogger<ConduitStateStore>.Instance);
         _tokens = new TwitchTokenProvider(
             new StubHttpClientFactory(_twitch), _options, _clock, NullLogger<TwitchTokenProvider>.Instance);
     }

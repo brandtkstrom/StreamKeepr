@@ -23,7 +23,7 @@ public sealed class MockSeedOptions
 
     /// <summary>
     /// Extra finished archive recordings for measuring the library at scale (#110). They have
-    /// a playlist, manifest, and thumbnail but no media segments, so they list but do not play.
+    /// a playlist, record, thumbnail, and init file but no media segments, so they list but do not play.
     /// </summary>
     [Range(0, 5000)]
     public int ScaleRecordings { get; set; }
@@ -34,7 +34,7 @@ public sealed class MockSeedOptions
 /// recovery runs: four fake channels and eight sessions, including a finished VOD, a complete
 /// two-part session, a two-part partial, a growing EVENT capture, thumbnails, and chapters. All
 /// IDs and timestamps come from <see cref="MockCatalog"/>.
-/// <see cref="MockSeedOptions.ScaleRecordings"/> adds media-less archive recordings for
+/// <see cref="MockSeedOptions.ScaleRecordings"/> adds segment-less archive recordings for
 /// measuring the library at scale.
 /// </summary>
 /// <remarks>
@@ -174,6 +174,8 @@ public sealed class MockSeeder(
         {
             if (withMedia)
                 MockMedia.CopyPartFiles(template, session.Directory, part);
+            else
+                MockMedia.CopyPartInit(template, session.Directory, part);
             string playlist = MockMedia.RenderPartPlaylist(
                 templatePlaylist,
                 part,

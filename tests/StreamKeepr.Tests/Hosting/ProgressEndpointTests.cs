@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using StreamKeepr.Infrastructure.Records;
 using StreamKeepr.Infrastructure.Storage;
 
 namespace StreamKeepr.Tests.Hosting;
@@ -21,6 +23,35 @@ public sealed class ProgressEndpointTests
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
         Assert.Equal(125.5, factory.Services.GetRequiredService<IProgressStore>().Get("r1"));
+    }
+
+    [Fact]
+    public async Task A_valid_position_is_written_through_to_the_record_store()
+    {
+        using var factory = new StreamKeeprAppFactory();
+        using HttpClient client = factory.CreateClient();
+        Seed(factory, "r1");
+        IDbContextFactory<RecordStoreDbContext> records =
+            factory.Services.GetRequiredService<IDbContextFactory<RecordStoreDbContext>>();
+        await using (RecordStoreDbContext db = await records.CreateDbContextAsync())
+        {
+            db.Sessions.Add(new SessionRow
+            {
+                Id = "r1",
+                Channel = "ann",
+                StreamId = "1",
+                StartedAt = StartedAt,
+                Status = SessionStatus.Complete,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using HttpResponseMessage response = await PutAsync(client, "r1", """{"positionSec":125.5}""");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        await using RecordStoreDbContext check = await records.CreateDbContextAsync();
+        ResumePositionRow row = await check.ResumePositions.SingleAsync();
+        Assert.Equal(("r1", 125.5), (row.SessionId, row.PositionSeconds));
     }
 
     [Theory]

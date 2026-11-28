@@ -155,20 +155,20 @@ public interface IAdminTokenStore
 }
 ```
 
-- File: `/recordings/.streamkeepr/admin-tokens.json`, encrypted with Data Protection, atomic write, Unix mode `0600`.
-- Data Protection keys: `/recordings/.streamkeepr/keys`, persisted before the first token save. Losing the key ring makes existing tokens unreadable; clear and re-authenticate.
+- Storage: the record store's single `AdminToken` row (ADR-0014), holding only Data Protection ciphertext; each write is one transaction. `admin-tokens.json` is neither read nor written.
+- Data Protection keys: `keys` beside the record store (`/data/keys` in the container), persisted before the first token save. Losing the key ring, or a row that will not decrypt or parse, makes the token unreadable; delete the row and re-authenticate. A record store that cannot be reached is an error, not an unreadable token: nothing is cleared and the next call retries.
 - `GetAsync` returns null when no token exists; refreshes near expiry with the refresh token and saves the rotated pair. A refresh failure clears the token and returns null.
 - `RefreshAsync` forces a refresh even when the token is not near expiry. No token returns null without an HTTP call. Success persists the rotated pair and does **not** raise `Changed` (otherwise EventSub would cancel the session it is trying to repair). Failure clears the token, raises `Changed` once, and returns null. EventSub uses it once on a subscription `401`; a second `401` is an auth/configuration error, not another refresh.
 - `SaveAsync` replaces the stored token; the most recent admin sign-in wins. Log the login, never the token.
 - `ClearAsync` deletes the token and raises `Changed`; EventSub reconnects and falls back to polling.
 - `WaitForTokenAsync` completes when a token is available; it remains waiting after a clear.
-- No token is ever logged, returned to the browser, or written outside the encrypted file.
+- No token is ever logged, returned to the browser, or stored as anything but ciphertext.
 
 ### Conduit state
 
-- File: `/recordings/.streamkeepr/eventsub-conduit.json` with `conduit_id` and `client_id`. Not a secret; written atomically with mode `0600` like the other app data.
-- A missing or unreadable file means "no conduit": log, create a new one, and let the lost one expire on Twitch's side.
-- WebSocket mode at startup (`ConduitRetirementService`): if the file names a conduit under the current `ClientId`, delete it (404 counts as deleted) and the file. If the delete fails, keep the file so the next start retries. A conduit under another `ClientId` is forgotten without a delete.
+- Storage: the record store's single `EventSubConduit` row with the conduit ID and client ID (ADR-0014). Not a secret. `eventsub-conduit.json` is neither read nor written.
+- A missing or unreadable row (an empty ID) means "no conduit": log, create a new one, save it over the row, and let the lost one expire on Twitch's side. A record store that cannot be reached fails the session attempt instead, so a conduit that still exists is not forgotten; polling continues and the session retries.
+- WebSocket mode at startup (`ConduitRetirementService`): if the row names a conduit under the current `ClientId`, delete it (404 counts as deleted) and the row. If the delete fails, keep the row so the next start retries. A conduit under another `ClientId` is forgotten without a delete.
 - Logout and app shutdown do not touch the conduit; a restart within 72 hours resumes it without re-subscribing.
 
 ## 8. Subscriber-only streams
@@ -190,8 +190,8 @@ This corrects amendment A-06: a 90 s budget is only valid when polling is the ac
 
 ## 10. Startup order
 
-1. Configure Data Protection keys under `.streamkeepr/keys`.
-2. Load admin tokens; if unreadable, clear and log.
+1. Preflight probes the database directory and its `keys` directory; the record store is then opened and migrated, and Data Protection loads its keys.
+2. Load the admin token row; if unreadable, clear and log.
 3. Configure the OAuth handler and cookie scheme.
 4. Load channels and resolve missing profiles through `/helix/users`.
 5. Start the poller and EventSub. WebSocket mode waits for a token if none exists; Conduit mode needs only the app token. In WebSocket mode, a leftover conduit is deleted in the background.

@@ -1,11 +1,14 @@
 using Microsoft.Extensions.Options;
 using StreamKeepr.Configuration;
+using StreamKeepr.Infrastructure.Records;
 
 namespace StreamKeepr.Infrastructure.Storage;
 
 /// <summary>
-/// Reads bounded media-time windows and newest-N tails from the per-session chat log and
-/// applies tombstones, deduplication, and the per-recording sync offset.
+/// Reads bounded media-time windows and newest-N tails of a session's chat from the record
+/// store and applies tombstones, deduplication, and the per-recording sync offset. A media
+/// window becomes a wall-clock <c>At</c> range through the part playlists, so each read is one
+/// indexed range query by session.
 /// </summary>
 public sealed class ChatReader(
     ChatLogStore store,
@@ -18,37 +21,45 @@ public sealed class ChatReader(
     /// <summary>How far a tail query scans back from its playhead before giving up.</summary>
     private const double TailScanSeconds = 30 * 60;
 
-    /// <summary>The most bucket files a single tail query opens.</summary>
-    private const int MaxTailBuckets = 100;
+    /// <summary>
+    /// Wall-clock slack around a window's bounds, so a message at a boundary survives the
+    /// millisecond rounding of the mapping; anything read beyond the window is filtered out.
+    /// </summary>
+    private const double BoundarySlackSeconds = 1;
 
-    public ChatQueryResult Query(
+    /// <summary>Rows per read when a tail or a more-chat check pages through the log.</summary>
+    private const int PageSize = 500;
+
+    public Task<ChatQueryResult> QueryAsync(
         RecordingSummary summary,
         double fromSec,
         double toSec,
         int limit,
-        double syncOffsetSec) =>
-        QueryCore(summary, fromSec, toSec, limit, syncOffsetSec, tail: false);
-
+        double syncOffsetSec,
+        CancellationToken ct) =>
+        QueryCoreAsync(summary, fromSec, toSec, limit, syncOffsetSec, tail: false, ct);
 
     /// <summary>
     /// Newest <paramref name="limit"/> messages at or before <paramref name="toSec"/>,
     /// scanning backward until the tail is full, the recording starts, or the bounded
     /// scan is exhausted.
     /// </summary>
-    public ChatQueryResult QueryTail(
+    public Task<ChatQueryResult> QueryTailAsync(
         RecordingSummary summary,
         double toSec,
         int limit,
-        double syncOffsetSec) =>
-        QueryCore(summary, fromSec: 0, toSec, limit, syncOffsetSec, tail: true);
+        double syncOffsetSec,
+        CancellationToken ct) =>
+        QueryCoreAsync(summary, fromSec: 0, toSec, limit, syncOffsetSec, tail: true, ct);
 
-    private ChatQueryResult QueryCore(
+    private async Task<ChatQueryResult> QueryCoreAsync(
         RecordingSummary summary,
         double fromSec,
         double toSec,
         int limit,
         double syncOffsetSec,
-        bool tail)
+        bool tail,
+        CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(summary);
 
@@ -69,13 +80,10 @@ public sealed class ChatReader(
                 ChatStates.Unavailable, false, ChatSources.None);
         }
 
-        StoredChatMeta? meta = store.ReadMeta(directory);
-        bool hasChat = ChatLogLayout.HasChat(directory, logger);
-        string source = meta?.Source ?? ChatSources.None;
-        int leadIn = meta?.LeadInSec ?? options.Value.LeadInSeconds;
-        int bucketSeconds = meta?.BucketSeconds is > 0
-            ? meta.BucketSeconds
-            : options.Value.BucketSeconds;
+        ChatSessionRow? chat = await store.FindChatAsync(summary.Id, ct);
+        bool hasChat = chat is not null;
+        string source = chat?.Source ?? ChatSources.None;
+        int leadIn = chat?.LeadInSeconds ?? options.Value.LeadInSeconds;
 
         ChatTimeline timeline = ChatTimeline.Build(directory, leadIn, logger);
         if (!timeline.HasParts)
@@ -91,27 +99,29 @@ public sealed class ChatReader(
         double to = tail ? playhead : Math.Clamp(toSec, from, duration);
         double offset = Math.Clamp(syncOffsetSec, -MaxSyncOffsetSeconds, MaxSyncOffsetSeconds);
 
-        IReadOnlyList<StoredChatEvent> events = store.ReadEvents(directory);
-        ChatTombstones tombstones = ChatTombstones.From(events);
-        var removedIds = new HashSet<string>(StringComparer.Ordinal);
+        IReadOnlyList<ChatEventRow> events = hasChat
+            ? await store.ReadEventsAsync(summary.Id, ct)
+            : [];
+        var log = new LogView(summary.Id, timeline, ChatTombstones.From(events), offset);
 
-        List<ChatQueryMessage> messages;
-        bool hasMoreBefore;
-        bool hasMoreAfter;
+        List<ChatQueryMessage> messages = [];
+        bool hasMoreBefore = false;
+        bool hasMoreAfter = false;
+        if (hasChat && WallBounds(timeline, from, to, offset) is { } wall)
+        {
+            if (tail)
+            {
+                (messages, hasMoreBefore) = await ReadTailAsync(log, wall, from, to, limit, ct);
+            }
+            else
+            {
+                (messages, hasMoreBefore, hasMoreAfter) =
+                    await ReadWindowAsync(log, wall, from, to, limit, ct);
+            }
+        }
+
         if (tail)
-        {
-            (messages, hasMoreBefore) = ReadTail(
-                directory, timeline, tombstones, removedIds, from, to, offset, limit,
-                bucketSeconds);
-            hasMoreAfter = false;
             from = messages.Count > 0 ? messages[0].Mt : to;
-        }
-        else
-        {
-            (messages, hasMoreBefore, hasMoreAfter) = ReadWindow(
-                directory, timeline, tombstones, removedIds, from, to, offset, limit,
-                bucketSeconds);
-        }
 
         IReadOnlyList<ChatQueryGap> gaps = BuildGaps(events, timeline, from, to);
         string resultState = summary.IsRecording ? ChatStates.Recording : ChatStates.Complete;
@@ -130,75 +140,41 @@ public sealed class ChatReader(
             hasMoreAfter);
     }
 
-    private IReadOnlyList<string> BucketFiles(
-        string directory, ChatTimeline timeline, double from, double to, int bucketSeconds)
+    /// <summary>
+    /// The wall-clock <c>At</c> range that can hold messages shown in [from, to]. A message is
+    /// shown at <c>max(0, mapped + offset)</c>, so a window starting at 0 holds everything mapped
+    /// before it; otherwise the mapped time lies in [from - offset, to - offset]. Null when the
+    /// window covers no recorded part.
+    /// </summary>
+    private static WallWindow? WallBounds(ChatTimeline timeline, double from, double to, double offset)
     {
-        HashSet<string> names = BucketNames(timeline, from, to, bucketSeconds);
-        return ChatLogLayout.BucketFiles(directory, logger)
-            .Where(path => names.Contains(Path.GetFileName(path)))
-            .ToArray();
+        bool openStart = from <= 0;
+        double rawFrom = openStart ? double.NegativeInfinity : from - offset - BoundarySlackSeconds;
+        double rawTo = to - offset + BoundarySlackSeconds;
+        IReadOnlyList<(DateTimeOffset From, DateTimeOffset To)> ranges = timeline.WallRanges(rawFrom, rawTo);
+        if (ranges.Count == 0)
+            return null;
+
+        return new WallWindow(
+            ranges.Min(range => range.From).ToUnixTimeMilliseconds(),
+            ranges.Max(range => range.To).ToUnixTimeMilliseconds(),
+            openStart);
     }
 
-    private static HashSet<string> BucketNames(
-        ChatTimeline timeline, double from, double to, int bucketSeconds)
+    private async Task<(List<ChatQueryMessage> Messages, bool HasMoreBefore, bool HasMoreAfter)>
+        ReadWindowAsync(LogView log, WallWindow wall, double from, double to, int limit, CancellationToken ct)
     {
-        // One bucket of slack on each side covers messages near a boundary and the sync offset.
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        foreach ((DateTimeOffset rangeFrom, DateTimeOffset rangeTo) in timeline.WallRanges(from, to))
-        {
-            DateTimeOffset start = ChatLogLayout.BucketStart(rangeFrom, bucketSeconds)
-                .AddSeconds(-bucketSeconds);
-            DateTimeOffset end = ChatLogLayout.BucketStart(rangeTo, bucketSeconds)
-                .AddSeconds(bucketSeconds);
-            for (DateTimeOffset bucket = start; bucket <= end;
-                 bucket = bucket.AddSeconds(bucketSeconds))
-            {
-                names.Add(ChatLogLayout.BucketFileName(bucket, bucketSeconds));
-            }
-        }
+        IReadOnlyList<ChatMessageRow> rows = await store.ReadMessagesAsync(
+            log.SessionId, wall.From, wall.To, newestFirst: false, after: null, int.MaxValue, ct);
 
-        return names;
-    }
-
-
-    private (List<ChatQueryMessage> Messages, bool HasMoreBefore, bool HasMoreAfter)
-        ReadWindow(
-            string directory,
-            ChatTimeline timeline,
-            ChatTombstones tombstones,
-            HashSet<string> removedIds,
-            double from,
-            double to,
-            double offset,
-            int limit,
-            int bucketSeconds)
-    {
-        var candidates = new List<StoredChatMessage>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (string bucketPath in BucketFiles(directory, timeline, from, to, bucketSeconds))
-        {
-            foreach (StoredChatMessage message in store.ReadMessages(bucketPath))
-            {
-                if (!string.IsNullOrEmpty(message.Id) && !seen.Add(message.Id))
-                    continue;
-
-                if (tombstones.Removes(message))
-                    removedIds.Add(message.Id);
-                else
-                    candidates.Add(message);
-            }
-        }
-
-        var messages = new List<ChatQueryMessage>();
+        var shown = new List<(ChatMessageRow Row, double Media)>();
         bool hasMoreBefore = false;
         bool hasMoreAfter = false;
-        foreach (StoredChatMessage message in candidates)
+        foreach (ChatMessageRow row in rows)
         {
-            double? mapped = timeline.MapToMedia(message.At);
-            if (mapped is null)
+            if (!log.Admit(row) || log.Media(row) is not { } media)
                 continue;
 
-            double media = Math.Max(0, mapped.Value + offset);
             if (media < from)
             {
                 hasMoreBefore = true;
@@ -211,9 +187,11 @@ public sealed class ChatReader(
                 continue;
             }
 
-            messages.Add(ToQueryMessage(message, media, tombstones, removedIds));
+            shown.Add((row, media));
         }
 
+        // Converted after the whole read, so every removed id is known before replies are redacted.
+        List<ChatQueryMessage> messages = shown.Select(item => log.ToQueryMessage(item.Row, item.Media)).ToList();
         messages.Sort(CompareMessages);
 
         if (messages.Count > limit)
@@ -222,52 +200,30 @@ public sealed class ChatReader(
             messages.RemoveRange(limit, messages.Count - limit);
         }
 
+        if (!hasMoreBefore && !wall.OpenStart)
+            hasMoreBefore = await AnyShownAsync(log, long.MinValue, wall.From - 1, newestFirst: true, ct);
+
+        if (!hasMoreAfter)
+            hasMoreAfter = await AnyShownAsync(log, wall.To + 1, long.MaxValue, newestFirst: false, ct);
+
         return (messages, hasMoreBefore, hasMoreAfter);
     }
 
-    private (List<ChatQueryMessage> Messages, bool HasMoreBefore) ReadTail(
-        string directory,
-        ChatTimeline timeline,
-        ChatTombstones tombstones,
-        HashSet<string> removedIds,
-        double scanFrom,
-        double to,
-        double offset,
-        int limit,
-        int bucketSeconds)
+    private async Task<(List<ChatQueryMessage> Messages, bool HasMoreBefore)> ReadTailAsync(
+        LogView log, WallWindow wall, double scanFrom, double to, int limit, CancellationToken ct)
     {
-        // The scan is expressed in media time, but buckets are named by wall clock.
-        // Expand by the sync offset, and by one second so messages at the playhead
-        // boundary are not lost, before selecting the bucket files.
-        double rawFrom = Math.Max(0, scanFrom - offset);
-        double rawTo = to - offset + 1;
-        (IReadOnlyList<string> buckets, bool capped) =
-            TailBuckets(directory, timeline, rawFrom, rawTo, bucketSeconds);
-
-        var collected = new List<(StoredChatMessage Message, double Media)>();
-        // The writer emits identical rows for one id, so collapsing on the newest copy
-        // produces the same message set as the window query's oldest-first dedupe.
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        // Newest first, page by page, so a busy log stops as soon as the tail is full. The
+        // newest copy of a duplicated id wins, the same message set as the window's dedupe.
+        var collected = new List<(ChatMessageRow Row, double Media)>();
         bool sawOlder = false;
-        foreach (string bucketPath in buckets)
+        ChatCursor? cursor = null;
+        while (collected.Count <= limit)
         {
-            foreach (StoredChatMessage message in store.ReadMessages(bucketPath))
+            IReadOnlyList<ChatMessageRow> page = await store.ReadMessagesAsync(
+                log.SessionId, wall.From, wall.To, newestFirst: true, cursor, PageSize, ct);
+            foreach (ChatMessageRow row in page)
             {
-                if (!string.IsNullOrEmpty(message.Id) && !seen.Add(message.Id))
-                    continue;
-
-                if (tombstones.Removes(message))
-                {
-                    removedIds.Add(message.Id);
-                    continue;
-                }
-
-                double? mapped = timeline.MapToMedia(message.At);
-                if (mapped is null)
-                    continue;
-
-                double media = Math.Max(0, mapped.Value + offset);
-                if (media > to)
+                if (!log.Admit(row) || log.Media(row) is not { } media || media > to)
                     continue;
 
                 if (media < scanFrom)
@@ -276,63 +232,56 @@ public sealed class ChatReader(
                     continue;
                 }
 
-                collected.Add((message, media));
+                collected.Add((row, media));
             }
 
-            // One message beyond the limit proves that an older message exists.
-            if (collected.Count > limit)
+            if (page.Count < PageSize)
                 break;
+
+            cursor = new ChatCursor(page[^1].At, page[^1].Id);
         }
 
         var messages = new List<ChatQueryMessage>(collected.Count);
-        foreach ((StoredChatMessage message, double media) in collected)
-            messages.Add(ToQueryMessage(message, media, tombstones, removedIds));
+        foreach ((ChatMessageRow row, double media) in collected)
+            messages.Add(log.ToQueryMessage(row, media));
         messages.Sort(CompareMessages);
 
-        bool hasMoreBefore = sawOlder || capped;
+        // One message beyond the limit proves that an older message exists.
+        bool hasMoreBefore = sawOlder || messages.Count > limit;
         if (messages.Count > limit)
-        {
             messages.RemoveRange(0, messages.Count - limit);
-            hasMoreBefore = true;
-        }
+
+        if (!hasMoreBefore && !wall.OpenStart)
+            hasMoreBefore = await AnyShownAsync(log, long.MinValue, wall.From - 1, newestFirst: true, ct);
 
         return (messages, hasMoreBefore);
     }
 
-    private (IReadOnlyList<string> Files, bool Capped) TailBuckets(
-        string directory, ChatTimeline timeline, double from, double to, int bucketSeconds)
+    /// <summary>
+    /// True when a message in the <c>At</c> range would be shown somewhere in the recording:
+    /// it is not removed and falls inside a recorded part. Pages from the window outward and
+    /// stops at the first one.
+    /// </summary>
+    private async Task<bool> AnyShownAsync(
+        LogView log, long fromAt, long toAt, bool newestFirst, CancellationToken ct)
     {
-        HashSet<string> names = BucketNames(timeline, from, to, bucketSeconds);
-        IReadOnlyList<string> allFiles = ChatLogLayout.BucketFiles(directory, logger);
-        string[] files = allFiles
-            .Where(path => names.Contains(Path.GetFileName(path)))
-            .ToArray();
+        if (fromAt > toAt)
+            return false;
 
-        // Newest first so the scan can stop as soon as the tail is full.
-        return (
-            files.TakeLast(MaxTailBuckets).Reverse().ToArray(),
-            files.Length > MaxTailBuckets);
+        ChatCursor? cursor = null;
+        while (true)
+        {
+            IReadOnlyList<ChatMessageRow> page = await store.ReadMessagesAsync(
+                log.SessionId, fromAt, toAt, newestFirst, cursor, PageSize, ct);
+            if (page.Any(row => log.IsShown(row)))
+                return true;
+
+            if (page.Count < PageSize)
+                return false;
+
+            cursor = new ChatCursor(page[^1].At, page[^1].Id);
+        }
     }
-
-    private static ChatQueryMessage ToQueryMessage(
-        StoredChatMessage message,
-        double media,
-        ChatTombstones tombstones,
-        IReadOnlySet<string> removedIds) =>
-        new(
-            message.Id,
-            Math.Round(media, 3),
-            message.At,
-            message.UserId,
-            message.Login,
-            message.Display,
-            message.Color,
-            message.Badges,
-            message.Text,
-            message.Emotes,
-            message.Bits,
-            tombstones.RedactsReply(message, removedIds) ? null : message.Reply,
-            message.Action);
 
     private static int CompareMessages(ChatQueryMessage left, ChatQueryMessage right)
     {
@@ -342,26 +291,25 @@ public sealed class ChatReader(
             : string.CompareOrdinal(left.Id, right.Id);
     }
 
-
     private static IReadOnlyList<ChatQueryGap> BuildGaps(
-        IReadOnlyList<StoredChatEvent> events,
+        IReadOnlyList<ChatEventRow> events,
         ChatTimeline timeline,
         double from,
         double to)
     {
         var gaps = new List<ChatQueryGap>();
-        foreach (StoredChatEvent gap in events)
+        foreach (ChatEventRow gap in events)
         {
             (double? gapFrom, double? gapTo, double seconds) = gap.Kind switch
             {
-                ChatEventKinds.Gap or ChatEventKinds.Dropped when gap.From is { } start &&
-                                                                  gap.To is { } end =>
+                ChatEventKinds.Gap or ChatEventKinds.Dropped when gap.FromAt is { } start &&
+                                                                  gap.ToAt is { } end =>
                     (timeline.MapGapEndToMedia(start), timeline.MapGapEndToMedia(end),
                         (end - start) / 1000d),
 
                 // A truncated log is open-ended: nothing after the cap was captured.
                 ChatEventKinds.Truncated =>
-                    (timeline.MapGapEndToMedia(gap.From ?? gap.At), to, double.NaN),
+                    (timeline.MapGapEndToMedia(gap.FromAt ?? gap.At), to, double.NaN),
 
                 _ => (null, null, 0),
             };
@@ -411,4 +359,66 @@ public sealed class ChatReader(
             [],
             false,
             false);
+
+    /// <summary>A window's <c>At</c> bounds; an open start also holds chat before the first part.</summary>
+    private readonly record struct WallWindow(long From, long To, bool OpenStart);
+
+    /// <summary>
+    /// One query's view of a session's log: which rows it shows, where, and how. It remembers the
+    /// ids it has admitted (to drop duplicates) and removed (to redact replies that quote them).
+    /// </summary>
+    private sealed class LogView(string sessionId, ChatTimeline timeline, ChatTombstones tombstones, double offset)
+    {
+        private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _removed = new(StringComparer.Ordinal);
+
+        public string SessionId => sessionId;
+
+        /// <summary>
+        /// False for a duplicate id, a deleted or cleared message, and a row whose text a purge
+        /// removed; a removed id is remembered so replies quoting it are redacted.
+        /// </summary>
+        public bool Admit(ChatMessageRow row)
+        {
+            if (row.Text is null)
+                return false;
+
+            if (row.MessageId.Length > 0 && !_seen.Add(row.MessageId))
+                return false;
+
+            if (tombstones.Removes(row))
+            {
+                _removed.Add(row.MessageId);
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>Like <see cref="Admit"/> and <see cref="Media"/>, without remembering anything.</summary>
+        public bool IsShown(ChatMessageRow row) =>
+            row.Text is not null && !tombstones.Removes(row) && timeline.MapToMedia(row.At) is not null;
+
+        /// <summary>Where the row shows on the media timeline after the offset; null outside every part.</summary>
+        public double? Media(ChatMessageRow row) =>
+            timeline.MapToMedia(row.At) is { } mapped ? Math.Max(0, mapped + offset) : null;
+
+        public ChatQueryMessage ToQueryMessage(ChatMessageRow row, double media) =>
+            new(
+                row.MessageId,
+                Math.Round(media, 3),
+                row.At,
+                row.UserId,
+                row.Login,
+                row.Display,
+                row.Color,
+                ChatRecords.DeserializeList<StoredChatBadge>(row.BadgesJson),
+                row.Text!,
+                ChatRecords.DeserializeList<StoredChatEmote>(row.EmotesJson),
+                row.Bits,
+                row.ReplyMessageId is null || tombstones.RedactsReply(row, _removed)
+                    ? null
+                    : new StoredChatReply(row.ReplyMessageId, row.ReplyLogin, row.ReplyDisplay, row.ReplyText),
+                row.IsAction);
+    }
 }

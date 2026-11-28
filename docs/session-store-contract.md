@@ -6,7 +6,7 @@ Binding: yes. Where this contract differs from the plan, this contract wins.
 
 ## 1. Scope and boundary
 
-The session store owns the session records (`Sessions` and `SessionMetadataChanges` in the record store, ADR-0014), part stitching, startup recovery, the in-memory recording library, and disk-space checks. The recorder owns part files; the store owns the session records, `index.m3u8`, `thumb.jpg`, and library summaries. New sessions write no `session.json`; a legacy one is never read. The store never runs Streamlink/FFmpeg and never changes domain state. `ThumbnailService` grabs thumbnail frames with FFmpeg and hands each image to the store (§7). A session folder may also contain a `chat/` sidecar owned by `ChatLogStore`; the session store only derives `HasChat` and deletes the folder with the session. It may also contain `viewers.jsonl` (§7.2), which the store appends but never folds into the session record.
+The session store owns the session records (`Sessions` and `SessionMetadataChanges` in the record store, ADR-0014), part stitching, startup recovery, the in-memory recording library, and disk-space checks. The recorder owns part files; the store owns the session records, `index.m3u8`, `thumb.jpg`, and library summaries. New sessions write no `session.json`; a legacy one is never read. The store never runs Streamlink/FFmpeg and never changes domain state. `ThumbnailService` grabs thumbnail frames with FFmpeg and hands each image to the store (§7). Chat lives in the record store, owned by `ChatLogStore`; the session store only derives `HasChat` from it, and chat rows cascade when the session record is deleted. Viewer samples (§7.2) are rows in the record store's `ViewerSamples` table, keyed to the session but never folded into its record; a leftover `viewers.jsonl` is never read or written.
 
 ## 2. Session record
 
@@ -55,12 +55,12 @@ Always:
 - `Title` and `Game`: latest `Metadata` entry.
 - `HasThumbnail`: the record's flag.
 - `Chapters`: metadata changes after the first, positioned against the live stitch (Recording) or the session index (Complete). A Complete session without title changes reads no file.
-- `HasChat`: `HasChatSession`, or, until #317 moves chat into the record store, `chat/meta.json` or at least one `chat/*.jsonl` bucket exists. #317 removes the sidecar check.
+- `HasChat`: `HasChatSession`, true when the session has a `ChatSessions` row. A legacy `chat/` sidecar is never read.
 - `IsRecording`: `Status == Recording`.
 
-`SizeBytes` excludes `chat/`; the chat log has its own `Chat:MaxBytesPerSession` cap.
+`SizeBytes` counts media only; the chat log has its own `Chat:MaxBytesPerSession` cap.
 
-The `chat/` sidecar holds `meta.json` (advisory status, counts, lead-in, bucket length), `events.jsonl`, and message buckets named for their UTC start (`yyyyMMddTHHmmZ.jsonl`). A message row stores its Twitch fields plus `local: true` when `tmi-sent-ts` was missing and the capture clock stood in. Event kinds are `delete`, `clear_user`, `clear_all`, `roomstate` (including `uniqueChat`, Twitch's r9k mode), `notice` (the notice text), `gap`, `dropped`, `truncated`, `end`, and `purged`.
+The chat log is three record-store tables (ADR-0014), each keyed by session and cascading from it. `ChatSessions` holds one row per session with chat: source, transport, status (`recording` or `complete`), start and end, lead-in, last message time, message count, estimated stored bytes, the truncated flag, and purge totals; it is created by the first stored batch, so a session whose capture stored nothing has no row and no chat. `ChatMessages` rows carry the Twitch fields (`At` in Unix milliseconds, badges and emotes as the chat API's JSON) plus `Local` when `tmi-sent-ts` was missing and the capture clock stood in. `ChatEvents` kinds are `delete`, `clear_user`, `clear_all`, `roomstate` (including `UniqueChat`, Twitch's r9k mode), `notice` (the notice text in `Reason`), `gap`, `dropped`, `truncated`, `end`, and `purged`. Each active session's `ChatSessionWriter` buffers rows and writes them in one transaction per batch: when 100 rows are buffered, on every 1 s capture tick, and on close, so live replay trails capture by about a second. A failed batch is logged and skipped and never reaches recording; a `gap` event (reason `store-failed`) covering the skipped batch's time range is buffered for the next batch, so replay shows the loss instead of a silent hole. Replay reads a session's messages by an `At` range derived from the requested media window.
 
 ## 3. Atomic writes
 
@@ -84,7 +84,7 @@ Two per-session synchronisation primitives exist:
 | `OpenAsync` | manifest | Takes the lock once, then calls core open/reopen. Never nests a locking `ReopenAsync`. |
 | `ReopenAsync` | manifest | Public entry; internal `ReopenCoreAsync` assumes the lock. |
 | `AppendMetadataAsync` | manifest | Read-modify-write is atomic under the lock. |
-| `AppendViewerSampleAsync` | manifest | Background append to `viewers.jsonl`; never creates the folder. |
+| `AppendViewerSampleAsync` | none | Background insert of one `ViewerSamples` row; never touches the folder. The row's foreign key fails a sample for a session without a record. |
 | `FinalizeAsync` | manifest | Writes the index, then the Complete record, and updates the library; the live refresher prunes the snapshot on its next pass. |
 | Recording-admin delete | manifest | Removes the library entry, deletes the files, and removes the lock entry; the endpoint returns 404 and the live refresher prunes the snapshot. |
 | Recovery finalize | manifest | Calls `FinalizeAsync`. |
@@ -163,27 +163,27 @@ Live snapshot:
 
 Recovery runs once at startup, before any channel coordinator processes events. No recorder child may survive concurrently; the container teardown guarantees this.
 
-For each session record (ADR-0014; #320 extends this):
+Recovery iterates the session records (ADR-0014) and reconciles only their folders; it never scans the recordings root for sessions. A skipped session keeps its record and is never listed; recovery never deletes media it cannot account for. For each session record:
 
 1. A folder under the recordings root without a record is ignored: never listed, cleaned, or deleted. A legacy `session.json` is never read.
 2. Resolve the folder `recordingsRoot/{channel}/{id}`. If the id or channel is unsafe, or the folder is missing: log and skip; keep the record.
 3. If `Status == Complete`:
-   - If `index.m3u8` is a final index (`PlaylistStitcher.IsFinalIndex`: it parses, has at least one segment, and has an `#EXT-X-ENDLIST` line), add `Resumable(Session, LastPart + 1, Complete: true)` to finished.
-   - If the index is missing but a part playlist has segments (`ParsedPart.HasSegments`), re-finalize (stitch, atomic index, record Complete, library upsert), then add to finished.
+   - If `index.m3u8` is a final index (`PlaylistStitcher.IsFinalIndex`: it parses, has at least one segment, and has an `#EXT-X-ENDLIST` line), add `Resumable(Session, LastPart + 1, Complete: true)` to finished, unless none of the media files the index names (`PlaylistStitcher.ReferencedMedia`) exist: then log and skip, keeping the record and the folder. Some missing files only log a warning, since the rest still plays; one directory listing per session keeps this cheap.
+   - If the index is missing or not final (the reopen crash window, or a lost index) but a part playlist has segments (`ParsedPart.HasSegments`), re-finalize: re-stitch from the parts, write the index atomically, store the recomputed aggregates on the Complete record, and upsert the library; then add to finished.
    - If no part has segments, log and skip; do not serve, and leave media untouched (finalize would delete the folder as empty).
 4. If `Status == Recording`:
    - Delete stale `*.tmp` files.
-   - Ignore `chat/`; chat recovery is independent and append-only.
-   - Parse every part playlist. If any parse fails, log and skip the session; leave media untouched.
-   - Delete `*.m4s` and `init_*.mp4` not referenced by any part playlist (`PlaylistStitcher.ReferencedMedia`). Init files come from `PlaylistTimeline.TryReadMapUri`, the same `#EXT-X-MAP` rule thumbnails use, so a map with trailing attributes such as `BYTERANGE` still names its file. The set is deliberately looser than `ParsePart`: an unterminated last line still counts, so media whose playlist line was still being written is never deleted.
+      - Parse every part playlist. If any parse fails, log and skip the session; leave media untouched. An unreadable `index.m3u8` also skips the session.
+   - Delete `*.m4s` and `init_*.mp4` referenced by neither a part playlist nor an existing `index.m3u8` (`PlaylistStitcher.ReferencedMedia`). Init files come from `PlaylistTimeline.TryReadMapUri`, the same `#EXT-X-MAP` rule thumbnails use, so a map with trailing attributes such as `BYTERANGE` still names its file. The set is deliberately looser than `ParsePart`: an unterminated last line still counts, so media whose playlist line was still being written is never deleted.
    - Part playlists and the index are read through `PartPlaylistReader`.
-   - Add `Resumable(Session, LastPart + 1, Complete: false)` to unfinished.
+   - If `index.m3u8` is a final index, this is the finalize crash window (index written, record not yet Complete) or a reopen that died between its record write and the index delete; no recorder ran after the index. If a part has segments, re-finalize as in step 3 (the record becomes Complete with recomputed aggregates) and add to finished; otherwise log and skip, keeping the media.
+   - Otherwise add `Resumable(Session, LastPart + 1, Complete: false)` to unfinished.
 5. Per watched channel:
-   - For watched, unpaused channels, keep the newest unfinished session as `Unfinished`.
-   - Finalize every other unfinished session (older, paused, or removed) and add it to finished.
+   - For watched, unpaused channels, keep the newest unfinished session as `Unfinished`, even one without media yet; its next part still comes from the part files.
+   - Finalize every other unfinished session (older, paused, or removed) and add it to finished. A session without media is deleted by that finalize: the record first (its metadata, chat, viewer, and resume rows cascade), then its folder. A session whose parts have no complete segment line but whose folder still holds `*.m4s` media (a hard kill mid-line) is logged and skipped instead, so its media is never deleted.
    - Keep the newest finished session as `Finished`.
 6. Return `RecoveredChannel(Unfinished, Finished)` per watched channel.
-7. Load the library from the session records (`RecordingLibrary.LoadAsync`), which marks it loaded, then remove every skipped session from it.
+7. Load the library from the session records (`RecordingLibrary.LoadAsync`), which marks it loaded, then remove every skipped session from it. The load itself never lists a record whose folder is missing, so a Recording record without a folder cannot appear with zero parts.
 
 The supervisor maps `Unfinished` to `Idle.Resume` and `Finished` to `Idle.Finished`; a paused channel starts as `Paused(Finished)` rather than resuming. `LastPart` parses the numeric part from `pNNN.m3u8`.
 
@@ -194,7 +194,7 @@ The supervisor maps `Unfinished` to `Idle.Resume` and `Finished` to `Idle.Finish
 - `AppendMetadataAsync(session, live)`: under the lock, read the record; if the latest title and game are unchanged, return. Otherwise insert a metadata change and upsert the library with live counts and chapters. A failed insert throws and changes nothing; the coordinator logs it and keeps recording.
 - `FinalizeAsync(session)`: under the lock, collect the part playlists that have segments in numeric order. If none, delete the record, remove the library entry, and delete the session directory. Otherwise stitch final, write `index.m3u8` atomically, then mark the record `Complete` with `EndedAt` (kept if already set), `DurationSeconds`, `SizeBytes`, `PartCount`, and `SegmentCount`, and project the library summary from the record, parts, and index already in memory instead of re-reading them under the lock. The record is the commit point: if its write fails, the session stays Recording in the record and the library, and startup recovery finalizes it. Finalize does not invalidate the cache directly; the endpoint switches to the index on the next request, and the next live refresh sees a Complete summary and removes the session's live entry.
 - `SeedAsync(session, metadata, endedAt)`: Mock seeding only. Records a Recording session with a known metadata history without touching its folder; a following finalize keeps `endedAt`.
-- Recording-admin delete: take the manifest lock, remove the library entry, delete the session record (its metadata rows cascade), delete the directory, and remove the lock entry; the endpoint returns 404 immediately and the next live refresh removes the session's live entry. Export leases are checked by the caller. The session directory includes `chat/` and `viewers.jsonl`, so chat and viewer samples are deleted with the recording. `FinalizeAsync` does not rewrite chat; the chat writer closes and optionally purges deleted text on its own finalize path.
+- Recording-admin delete: take the manifest lock, remove the library entry, delete the session record (its metadata rows cascade), delete the directory, and remove the lock entry; the endpoint returns 404 immediately and the next live refresh removes the session's live entry. Export leases are checked by the caller. The session record's chat, viewer-sample and resume-position rows cascade with it, so they are deleted with the recording. `FinalizeAsync` does not rewrite chat; the chat writer closes and optionally purges deleted text on its own finalize path.
 - `LiveIndex.GetOrRefreshAsync(summary)`: returns a live snapshot for a Recording session or the finalized index for a Complete session (thumbnail path only). The refresh gate is released before the caller takes the manifest lock.
 - `SaveThumbnailAsync(dir, image)`: under the lock, if the session has no record (deleted) or `thumb.jpg` exists, delete the image and return false (recording an existing unrecorded `thumb.jpg`); otherwise rename it to `thumb.jpg`, set `HasThumbnail`, and upsert the library.
 
@@ -208,13 +208,13 @@ The supervisor maps `Unfinished` to `Idle.Resume` and `Finished` to `Idle.Finish
 
 ### 7.2 Viewer samples (#186)
 
-- `viewers.jsonl` in the session root is append-only, one camelCase object per line: `{"v":1,"at":123.4,"count":1658}`. `at` is seconds from `session.StartedAt`, rounded to 0.1 s and clamped to `>= 0`; `count` is the Helix `viewer_count`. `ViewerSamples` owns the format.
-- `AppendViewerSampleAsync(session, at, count)` appends one line under the session lock. It never creates the session folder, so a sample after a delete fails instead of recreating it. If the file does not end in a newline (a torn write), it writes one first, so a partial line costs only itself.
+- Samples are rows in the record store's `ViewerSamples` table (ADR-0014, #318): session id, `OffsetSeconds`, `Count`. The offset is seconds from `session.StartedAt`, rounded to 0.1 s and clamped to `>= 0`; `count` is the Helix `viewer_count`. `ViewerSamples` owns the table. `viewers.jsonl` is neither read nor written; a leftover one is ignored.
+- `AppendViewerSampleAsync(session, at, count)` inserts one row per observation. It takes no session lock and never touches the session folder; the row's foreign key makes a sample after a delete fail instead of resurrecting the session.
 - `ChannelCoordinator` samples after each `StreamStatusObserved` whose observation is `Live` with a non-null count, while the channel has an open session: `Recording`, or `WaitingToRetry` (reconnecting). The first such observation after the session opens samples at once; later ones wait until 60 s of observation time (`StreamStatusObserved.At`, not a timer) after the previous sample. `Unknown`, `Offline`, uncounted (EventSub-only) observations, and `CoolingDown` add nothing: a gap is a missing point, never a synthetic or flat sample. A failed write still starts the 60 s wait, so a persistent failure warns at most once a minute. The cadence is in memory, so a restart samples at the next observation.
 - Sampling never blocks or fails recording: a write failure logs one warning and is otherwise ignored. No per-sample `Information` log.
-- The file survives finalize, is not counted in `SizeBytes`, is never served by `/media` (`.jsonl` is not allowlisted), and is deleted with the session folder. There is no backfill; a session without the file has no samples.
-- Reads (`ViewerSamples.ReadAsync`) are tolerant: a malformed, partial, wrong-version, or negative line is skipped with one warning per read, and at most 50,000 samples are returned.
-- `MockViewerSeeder` writes deterministic samples every 10 s across each finished recording; the Mock poller gives each live observation a deterministic count, so the growing capture samples through the real coordinator path.
+- Samples survive finalize and restarts, are not counted in `SizeBytes`, and cascade when the session record is deleted. There is no backfill; a session without rows has no samples.
+- Reads (`ViewerSamples.ReadAsync`) return the session's samples oldest first (by offset, then insertion), at most 50,000; a session without samples, or without a record, returns none.
+- `MockViewerSeeder` inserts deterministic samples every 10 s across each finished recording (the Mock record store starts empty each process, so it always seeds); the Mock poller gives each live observation a deterministic count, so the growing capture samples through the real coordinator path.
 
 ## 8. Recording library
 
@@ -252,10 +252,11 @@ public sealed record RecordingSummary(
 |---|---|
 | Session record write fails on open | The recorder does not start; the part ends "open failed" and the reducer retries or cools down. |
 | Metadata change write fails | Logged; recording continues; the change is lost. |
-| Crash or record write failure during finalize | Index may be written; the record still says Recording; recovery finalizes it. |
-| Crash or record write failure during reopen | The record still says Complete with its index; the session reopens on the next live observation. A crash after the record write leaves a Recording record whose index recovery replaces. |
+| Crash or record write failure during finalize | Index may be written; the record still says Recording; recovery re-finalizes it to Complete with recomputed aggregates, even as the newest session of a watched channel. |
+| Crash or record write failure during reopen | The record still says Complete with its index; the session reopens on the next live observation. A crash after the record write leaves a Recording record with a final index, which recovery re-finalizes to Complete; a Complete record that lost its index is re-stitched from the parts. |
 | Session folder without a record | Ignored; never listed or deleted. A legacy `session.json` is never read. |
-| Record whose folder is missing | Log and skip; keep the record; not listed. |
+| Record whose folder is missing | Log and skip; keep the record; not listed, even by a library load. |
+| Recording record without media | The newest of a watched channel resumes; any other is deleted with its folder (dependent rows cascade). If its folder still holds segment media, log and skip; never delete the media. |
 | Unparseable part playlist | Log and skip the session; never delete media. |
 | Complete session with missing index | Re-finalize from parts; if no parts, log and skip. |
 | Missing segment referenced by a playlist | Log; do not rewrite the playlist; playback may 404. |
@@ -270,7 +271,6 @@ public sealed record RecordingSummary(
 | Delete races export | Export lease refuses deletion (F10). |
 | Thumbnail fails | Log; no thumbnail; retried up to 3 times per process lifetime; recording unaffected. |
 | Viewer sample write fails | One warning; the sample is lost; recording and status unaffected. |
-| Torn `viewers.jsonl` line | Next append starts a new line; reads skip the partial line with a warning. |
 | Delete races a thumbnail grab | The delete holds the session lock; `SaveThumbnailAsync` finds no record and discards the image. |
 | Disk full | `DiskGuard` stops the part; retry/cooldown; finalize may fail and be retried by recovery. |
 | Part number reaches 1000 | Hard error; the session finalizes with the existing parts. |
@@ -313,8 +313,8 @@ Writes and locks:
 
 Viewer samples:
 
-- Line schema, offset rounding and clamp; survives finalize, stays out of the session record; append after delete fails without recreating the folder; torn last line terminated.
-- Tolerant capped read; coordinator cadence (≤ 1 per 60 s of observation time), gaps for Unknown/Offline/uncounted, reconnecting sessions sample, write failure is one warning.
+- Row per observation, offset rounding and clamp; survives finalize and restart, stays out of the session record; append without a record fails without creating the folder; delete cascades the rows; no `viewers.jsonl`.
+- Oldest-first capped read, none for a session without samples; coordinator cadence (≤ 1 per 60 s of observation time), gaps for Unknown/Offline/uncounted, reconnecting sessions sample, write failure is one warning.
 
 Stitching:
 
@@ -327,8 +327,12 @@ Stitching:
 Recovery:
 
 - Newest unfinished per watched channel; older/paused/removed sessions finalized.
-- Complete session becomes finished; missing index re-finalized.
-- Folders without a record ignored; a record with a missing folder or an unparseable part playlist skipped, kept, and left untouched.
+- Complete session becomes finished; missing index re-finalized with updated aggregates.
+- Finalize crash window: a Recording record with a final index becomes Complete with recomputed aggregates; so does a reopen that died before deleting the index.
+- A Recording record with a final index but no part playlists keeps its media and is skipped.
+- A Complete record whose index names no existing media is skipped, kept, and not listed; one missing only some media stays listed.
+- An older Recording record without media is deleted with its dependent rows and folder; one whose only segment line is unterminated keeps its media.
+- Folders without a record ignored; a Complete or Recording record with a missing folder, or with an unparseable part playlist, skipped, kept, not listed, and left untouched.
 - A restart loads the library from the record store; a finalize or reopen whose record write failed recovers as Complete.
 - `.tmp` deletion and orphan media cleanup only for valid sessions.
 - `MarkLoaded` after recovery; library contains all valid sessions.

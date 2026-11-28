@@ -51,7 +51,7 @@ public interface ILibraryView : IDisposable
 - `SizeBytes` is null while recording; otherwise media bytes.
 - `PlaylistUrl` is `/media/{channel}/{id}/index.m3u8`.
 - `ResumeSec` is the recording's resume position, or null when it has none. Recording/reconnecting sessions have one once a viewer leaves the live edge; complete sessions never hold one within 30 s of the end.
-- `HasChat` is true when the session's `chat/` folder has metadata or at least one bucket; it gates the chat pane.
+- `HasChat` is true when the session has a chat row in the record store; it gates the chat pane.
 
 ### State derivation
 
@@ -127,13 +127,13 @@ public interface IConnectionStatusView : IDisposable
 ## 3b. Chat replay
 
 - `GET /api/recordings/{id}/chat?fromSec=&toSec=&limit=&syncOffsetSec=&tail=` is public and read-only. It returns a bounded media-time window from the session's chat log; `Cache-Control: no-store`.
-- Non-tail requests (`tail` absent or `false`) are unchanged: `fromSec` is required and non-negative; `toSec` defaults to `fromSec + 120` and the window is capped at 600 s; the oldest `limit` messages are returned.
-- `tail=true` selects the newest `limit` messages at or before the playhead. `toSec` is required and is the playhead; `fromSec` is ignored. The query scans backward across chat buckets until it fills the tail, reaches the recording start, or hits its safety cap of 30 minutes or 100 bucket files. The resulting `fromSec` echoes the oldest returned message (or the clamped playhead when empty), `hasMoreBefore` reports whether the bounded scan found older messages beyond the returned tail, and `hasMoreAfter` is always `false`.
+- Non-tail requests (`tail` absent or `false`) are unchanged: `fromSec` is required and non-negative; `toSec` defaults to `fromSec + 120` and the window is capped at 600 s; the oldest `limit` messages are returned. `hasMoreBefore` and `hasMoreAfter` report whether a visible message exists before or after the window (`hasMoreAfter` also when `limit` cut the window short).
+- `tail=true` selects the newest `limit` messages at or before the playhead. `toSec` is required and is the playhead; `fromSec` is ignored. The query scans backward until it fills the tail, reaches the recording start, or hits its safety cap of 30 minutes. The resulting `fromSec` echoes the oldest returned message (or the clamped playhead when empty), `hasMoreBefore` reports whether a visible older message exists beyond the returned tail, and `hasMoreAfter` is always `false`.
 - In both modes `limit` defaults to 300 and is capped at 1000; `syncOffsetSec` must be within ±30 s (out of range is 400). Timeline mapping, tombstones, redactions, deduplication, gaps, part boundaries, and clamping are shared by both modes.
 - The response envelope is `v`, `recordingId`, `state` (`recording` | `complete` | `starting` | `unavailable`), `hasChat`, `source` (`irc-anonymous` | `irc-token` | `mock` | `none`), `leadInSec`, `fromSec`, `toSec`, `syncOffsetSec`, `messages`, `gaps`, `hasMoreBefore`, `hasMoreAfter`. Messages carry `id`, `mt`, `at`, user fields, badges, text, emote ranges, bits, reply, and the action flag.
 - Each gap is `{from, to, seconds}`: `from`/`to` in media seconds clipped to the window, `seconds` the wall-clock length for the divider. Gaps come from IRC outages (last message to rejoin), queue overflow (`dropped`), a truncated log (from the cap to the window end), and unrecorded time between parts, which is a single media point (`from == to`) because the stitched timeline is contiguous.
 - Deleted and cleared messages are hidden, and a surviving reply's `reply` is `null` when it quotes removed text, whether or not purge ran.
-- Unknown recordings are 404; malformed or out-of-range queries are 400; a recording without chat is 200 with `hasChat:false`. Raw `.jsonl` files are never served.
+- Unknown recordings are 404; malformed or out-of-range queries are 400; a recording without chat is 200 with `hasChat:false`.
 - The pane receives the endpoint's `limit` and sync range in its load payload. It keeps one fetch in flight; after a failure it waits 1 s, doubling to 30 s, before trying again. Seeks and sync changes replace the request in flight.
 
 ## 3c. Emote catalogs
@@ -176,11 +176,11 @@ public interface IProgressStore
 }
 ```
 
-- File: `/recordings/.streamkeepr/progress.json`, a JSON map of recording id to position.
-- Load at startup; corrupt/missing file logs and starts empty.
-- In-memory reads; atomic writes at most every 10 s and on graceful shutdown; no write per keystroke.
+- Storage: the record store's `ResumePositions` table (ADR-0014, #318), one row per session with its position and update time. `progress.json` is neither read nor written; a leftover one is logged once at startup as ignored.
+- Load at startup into an in-memory projection; rows that are negative or not finite are skipped, and an unreadable store logs and starts empty.
+- Reads are synchronous from the projection. Each change updates the projection, raises `Changed`, then writes its row through (upsert or delete), one write at a time in change order. A failed write logs a warning and never throws: the projection keeps the change and playback and recording carry on (ADR-0014's write-failure policy).
 - `SetAsync` validates the recording exists. For a finished recording it clamps to `[0, duration]` and clears positions within 30 s of the end. For a recording still being captured it only clamps the lower bound to 0: the live edge sits inside the 30 s margin and the library's duration trails the player's, so neither the margin nor the upper clamp applies. When the capture finishes, a position within 30 s of the final end is dropped (and so is one loaded at startup for a session recovered as finished), so the finished recording opens at 0. Unknown id is a no-op for in-process callers; the HTTP endpoint returns 404.
-- `ClearAsync` removes the entry; delete also clears it.
+- `ClearAsync` removes the entry and its row; deleting the session record cascades the row, and the library removal prunes the projection.
 - `Changed` fires per update; `ILibraryView` throttles resume-bar updates.
 - `PUT /api/recordings/{id}/progress` is public while viewing is open (empty allowlist); in private mode it requires an allowed sign-in and answers `401` otherwise (ADR-0013). Body `{ positionSec }`; 204 on success; 400 for a non-finite or negative position; 404 for an unknown recording. `Cache-Control: no-store`.
 

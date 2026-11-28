@@ -36,6 +36,52 @@ public sealed class MockAuthTests
     }
 
     [Fact]
+    public async Task The_admin_cookie_survives_a_restart_with_a_new_record_store()
+    {
+        // Each Mock process gets its own record store, deleted on shutdown; the key ring must
+        // not go with it, or every restart signs the browser out (compose-smoke checks this).
+        string cookie;
+        using (var first = new MockAppFactory(signedIn: true))
+        using (HttpClient client = first.CreateClient())
+        using (HttpResponseMessage response = await client.GetAsync("/"))
+        {
+            response.EnsureSuccessStatusCode();
+            cookie = SetCookies(response)
+                .Single(value => value.StartsWith("sk-auth=", StringComparison.Ordinal))
+                .Split(';')[0];
+        }
+
+        using var restarted = new MockAppFactory(signedIn: true);
+        using HttpClient again = restarted.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = false });
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/");
+        request.Headers.Add("Cookie", cookie);
+        using HttpResponseMessage after = await again.SendAsync(request);
+
+        after.EnsureSuccessStatusCode();
+        Assert.DoesNotContain(
+            SetCookies(after),
+            value => value.StartsWith("sk-auth=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Mock_keys_live_outside_the_per_process_record_store_and_the_recordings_root()
+    {
+        string temp = Path.GetTempPath();
+
+        string keys = MockEnvironment.KeysDirectory(temp);
+
+        Assert.Equal(
+            Path.GetFullPath(Path.Combine(temp, MockEnvironment.DataDirectoryName, "keys")),
+            keys);
+        string recordStore = Path.GetDirectoryName(MockEnvironment.NewRecordStorePath(temp))!;
+        Assert.False(keys.StartsWith(recordStore, StringComparison.Ordinal), "the record store is deleted on shutdown");
+        Assert.False(
+            keys.StartsWith(MockEnvironment.ResolveRecordingsRoot(null, temp), StringComparison.Ordinal),
+            "the seeder may reset the recordings root");
+    }
+
+    [Fact]
     public async Task Signed_out_toggle_omits_the_admin_cookie()
     {
         using var factory = new MockAppFactory(signedIn: false);

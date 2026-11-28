@@ -1,40 +1,41 @@
 using System.Text;
 using StreamKeepr.Configuration;
+using StreamKeepr.Infrastructure.Records;
 
 namespace StreamKeepr.Infrastructure.Storage;
 
 /// <summary>
-/// Appends one active session's chat log: messages to their time bucket (deduplicated by
-/// id), other events to <c>events.jsonl</c>, and advisory <c>meta.json</c> refreshes. It
-/// enforces the per-session byte cap and, on finalize, runs the opt-in purge. All methods
-/// are serialized by its own lock.
+/// Captures one active session's chat into the record store: messages (deduplicated by id) and
+/// other events are buffered and written in batches, when a batch fills, on
+/// <see cref="Flush"/>, and on close. It enforces the per-session byte cap and, on finalize,
+/// runs the opt-in purge. A failed write is logged, its batch skipped (ADR-0014) and replayed as a gap; it never
+/// throws to capture. All methods are serialized by its own lock.
 /// </summary>
 internal sealed class ChatSessionWriter(
     RecordingSummary summary,
-    string sessionDirectory,
     string source,
     ChatOptions options,
+    ChatRecords records,
+    int batchSize,
     TimeProvider clock,
     ILogger logger)
 {
-    /// <summary>The <c>transport</c> recorded in <c>meta.json</c>; both sources speak IRC over WebSocket.</summary>
+    /// <summary>The <c>Transport</c> recorded on the chat row; both sources speak IRC over WebSocket.</summary>
     private const string Transport = "wss";
 
     /// <summary>Twitch rarely resends an id far apart; this bounds the dedupe set's memory.</summary>
     private const int RecentIdWindow = 4096;
 
-    /// <summary>Meta is advisory; refreshing it every N messages keeps rewrites cheap.</summary>
-    private const int MetaRefreshEveryMessages = 25;
+    /// <summary>Per-row overhead in the stored-bytes estimate: ids, times and flags.</summary>
+    private const int RowOverheadBytes = 32;
 
     private readonly object _gate = new();
     private readonly HashSet<string> _recentIds = new(StringComparer.Ordinal);
     private readonly Queue<string> _recentOrder = new();
-    private readonly string _directory = ChatLogLayout.ChatDirectory(sessionDirectory);
-    private readonly string _eventsPath = ChatLogLayout.EventsPath(sessionDirectory);
-    private readonly string _metaPath = ChatLogLayout.MetaPath(sessionDirectory);
-    private string? _bucketPath;
-    private StreamWriter? _bucket;
-    private StreamWriter? _events;
+    private readonly List<ChatMessageRow> _pendingMessages = [];
+    private readonly List<ChatEventRow> _pendingEvents = [];
+    private long _pendingBytes;
+    private bool _pendingTruncated;
     private bool _closed;
     private bool _truncated;
     private int _messageCount;
@@ -59,60 +60,81 @@ internal sealed class ChatSessionWriter(
             if (evt is ChatSourceEvent.MessageEvent message)
             {
                 AppendMessage(message.Message);
-                return;
+            }
+            else if (ToEvent(evt) is { } row)
+            {
+                _pendingEvents.Add(row);
+                if (evt is ChatSourceEvent.Dropped drop)
+                    LogDropped(drop);
             }
 
-            StoredChatEvent? stored = evt switch
-            {
-                ChatSourceEvent.Delete delete =>
-                    StoredChatEvent.Create(ChatEventKinds.Delete, delete.AtMs) with { TargetId = delete.TargetId },
-                ChatSourceEvent.Clear clear =>
-                    StoredChatEvent.Create(clear.TargetUserId is null && clear.TargetLogin is null
-                            ? ChatEventKinds.ClearAll
-                            : ChatEventKinds.ClearUser,
-                        clear.AtMs) with
-                    {
-                        TargetUid = clear.TargetUserId,
-                        TargetLogin = clear.TargetLogin,
-                    },
-                ChatSourceEvent.RoomState room =>
-                    StoredChatEvent.Create(ChatEventKinds.RoomState, room.AtMs) with
-                    {
-                        EmoteOnly = room.EmoteOnly,
-                        SubscribersOnly = room.SubscribersOnly,
-                        UniqueChat = room.UniqueChat,
-                        Slow = room.SlowSeconds,
-                    },
-                ChatSourceEvent.Notice notice =>
-                    StoredChatEvent.Create(ChatEventKinds.Notice, notice.AtMs) with { Reason = notice.Text },
-                ChatSourceEvent.Gap gap =>
-                    StoredChatEvent.Create(ChatEventKinds.Gap, gap.AtMs) with
-                    {
-                        From = gap.FromMs,
-                        To = gap.ToMs,
-                        Reason = gap.Reason,
-                    },
-                ChatSourceEvent.Dropped dropped =>
-                    StoredChatEvent.Create(ChatEventKinds.Dropped, dropped.AtMs) with
-                    {
-                        From = dropped.FromMs,
-                        To = dropped.ToMs,
-                        Count = dropped.Count,
-                        Reason = ChatGapReasons.QueueFull,
-                    },
-                _ => null,
-            };
+            if (_pendingMessages.Count + _pendingEvents.Count >= batchSize)
+                FlushLocked();
+        }
+    }
 
-            if (stored is not null)
-                WriteEvent(stored);
+    /// <summary>Writes whatever is buffered; a no-op when nothing is.</summary>
+    public void Flush()
+    {
+        lock (_gate)
+            FlushLocked();
+    }
 
-            if (evt is ChatSourceEvent.Dropped drop)
-                LogDropped(drop);
+    private ChatEventRow? ToEvent(ChatSourceEvent evt)
+    {
+        ChatEventRow row;
+        switch (evt)
+        {
+            case ChatSourceEvent.Delete delete:
+                row = NewEvent(ChatEventKinds.Delete, delete.AtMs);
+                row.TargetMessageId = delete.TargetId;
+                return row;
+
+            case ChatSourceEvent.Clear clear:
+                row = NewEvent(
+                    clear.TargetUserId is null && clear.TargetLogin is null
+                        ? ChatEventKinds.ClearAll
+                        : ChatEventKinds.ClearUser,
+                    clear.AtMs);
+                row.TargetUserId = clear.TargetUserId;
+                row.TargetLogin = clear.TargetLogin;
+                return row;
+
+            case ChatSourceEvent.RoomState room:
+                row = NewEvent(ChatEventKinds.RoomState, room.AtMs);
+                row.EmoteOnly = room.EmoteOnly;
+                row.SubscribersOnly = room.SubscribersOnly;
+                row.UniqueChat = room.UniqueChat;
+                row.SlowSeconds = room.SlowSeconds;
+                return row;
+
+            case ChatSourceEvent.Notice notice:
+                row = NewEvent(ChatEventKinds.Notice, notice.AtMs);
+                row.Reason = notice.Text;
+                return row;
+
+            case ChatSourceEvent.Gap gap:
+                row = NewEvent(ChatEventKinds.Gap, gap.AtMs);
+                row.FromAt = gap.FromMs;
+                row.ToAt = gap.ToMs;
+                row.Reason = gap.Reason;
+                return row;
+
+            case ChatSourceEvent.Dropped dropped:
+                row = NewEvent(ChatEventKinds.Dropped, dropped.AtMs);
+                row.FromAt = dropped.FromMs;
+                row.ToAt = dropped.ToMs;
+                row.Count = dropped.Count;
+                row.Reason = ChatGapReasons.QueueFull;
+                return row;
+
+            default:
+                return null;
         }
     }
 
     /// <summary>
-    /// Logged only when the range is stored. A range arriving after the session is closed or
+    /// Logged only when the range is kept. A range arriving after the session is closed or
     /// truncated is discarded with it; the truncation warning already covers that loss.
     /// </summary>
     private void LogDropped(ChatSourceEvent.Dropped dropped) =>
@@ -132,62 +154,59 @@ internal sealed class ChatSessionWriter(
                 return;
 
             _closed = true;
-            CloseLog(finalize);
+            FlushLocked();
+            if (finalize)
+                Finish();
+
             logger.LogInformation(
                 "Chat session {SessionId} for {Channel} closed with {MessageCount} messages ({Bytes} message bytes); finalized: {Finalized}.",
                 summary.Id, summary.Channel, _messageCount, _approxBytes, finalize);
         }
     }
 
-    /// <summary>Ends the log on disk; a session with no log or no directory leaves nothing behind.</summary>
-    private void CloseLog(bool finalize)
+    /// <summary>Marks the chat complete and runs the opt-in purge; a session without chat is left without.</summary>
+    private void Finish()
     {
-        if (!Directory.Exists(sessionDirectory))
+        DateTimeOffset now = clock.GetUtcNow();
+        try
         {
-            CloseWriters();
+            if (!records.Finish(summary.Id, now) || options.PurgeDeletedText != ChatPurgeMode.OnFinalize)
+                return;
+        }
+        catch (Exception ex) when (RecordStoreFailures.IsStoreFailure(ex))
+        {
+            logger.LogWarning(ex, "Chat for {SessionId} could not be stored as complete.", summary.Id);
             return;
         }
 
-        if (!HasLog)
-            return;
-
-        if (finalize)
-            WriteEvent(StoredChatEvent.Create(ChatEventKinds.End, clock.GetUtcNow().ToUnixTimeMilliseconds()));
-
-        CloseWriters();
-        WriteMeta(finalize);
-
-        if (finalize && options.PurgeDeletedText == ChatPurgeMode.OnFinalize)
+        try
         {
-            ChatLogPurge.PurgeDeleted(
-                sessionDirectory,
-                summary.Id,
-                () => BuildMeta(finalize: true, previous: null),
-                clock,
-                logger);
+            records.Purge(summary.Id, now);
+        }
+        catch (Exception ex) when (RecordStoreFailures.IsStoreFailure(ex))
+        {
+            logger.LogWarning(ex, "Chat purge failed for {SessionId}; the log is unchanged and the query path still hides deleted text.",
+                summary.Id);
         }
     }
-
-    private bool HasLog => _messageCount > 0 || _bucketPath is not null || File.Exists(_eventsPath);
 
     private void Truncate()
     {
         // Open-ended: nothing after the last stored message is captured for the session.
         long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
-        WriteEvent(StoredChatEvent.Create(ChatEventKinds.Truncated, now) with
-        {
-            From = _lastMessageAt > 0 ? _lastMessageAt : now,
-            Count = _messageCount,
-        });
+        ChatEventRow truncated = NewEvent(ChatEventKinds.Truncated, now);
+        truncated.FromAt = _lastMessageAt > 0 ? _lastMessageAt : now;
+        truncated.Count = _messageCount;
+        _pendingEvents.Add(truncated);
+        _pendingTruncated = true;
         _truncated = true;
-        CloseWriters();
-        WriteMeta(finalize: false);
+        FlushLocked();
         logger.LogWarning(
             "Chat for {Session} reached {Limit} bytes; capture stopped for this session.",
             summary.Id, options.MaxBytesPerSession);
     }
 
-    /// <summary>Writes the message to its time bucket unless it is a recent duplicate.</summary>
+    /// <summary>Buffers the message unless it is a recent duplicate.</summary>
     private void AppendMessage(ChatMessage message)
     {
         if (message.Id.Length > 0 && !_recentIds.Add(message.Id))
@@ -200,112 +219,117 @@ internal sealed class ChatSessionWriter(
                 _recentIds.Remove(_recentOrder.Dequeue());
         }
 
-        string bucketPath = Path.Combine(_directory, ChatLogLayout.BucketFileName(
-            DateTimeOffset.FromUnixTimeMilliseconds(message.AtMs), options.BucketSeconds));
-        if (_bucketPath != bucketPath || _bucket is null)
-        {
-            _bucket?.Dispose();
-            _bucket = OpenAppend(bucketPath);
-            _bucketPath = bucketPath;
-        }
-
-        string line = ChatLogJson.Serialize(ToStored(message));
-        _bucket.WriteLine(line);
-        _bucket.Flush();
+        ChatMessageRow row = ToRow(message);
+        long bytes = EstimateBytes(row);
+        _pendingMessages.Add(row);
+        _pendingBytes += bytes;
         _messageCount++;
         _lastMessageAt = Math.Max(_lastMessageAt, message.AtMs);
-        _approxBytes += Encoding.UTF8.GetByteCount(line) + 1;
-
-        if (_messageCount == 1 || _messageCount % MetaRefreshEveryMessages == 0)
-            WriteMeta(finalize: false);
+        _approxBytes += bytes;
     }
 
-    private static StoredChatMessage ToStored(ChatMessage message) =>
-        new(
-            ChatLogFormat.Version,
-            message.Id,
-            message.AtMs,
-            message.AtIsLocal ? true : null,
-            message.UserId,
-            message.Login,
-            message.DisplayName,
-            message.Color,
-            message.Badges.Select(badge => new StoredChatBadge(
-                badge.Set, badge.Version, badge.Info)).ToArray(),
-            message.Text,
+    private ChatMessageRow ToRow(ChatMessage message) => new()
+    {
+        SessionId = summary.Id,
+        MessageId = message.Id,
+        At = message.AtMs,
+        Local = message.AtIsLocal ? true : null,
+        UserId = message.UserId,
+        Login = message.Login,
+        Display = message.DisplayName,
+        Color = message.Color,
+        BadgesJson = ChatRecords.SerializeBadges(
+            message.Badges.Select(badge => new StoredChatBadge(badge.Set, badge.Version, badge.Info))),
+        Text = message.Text,
+        EmotesJson = ChatRecords.SerializeEmotes(
             message.Emotes.Select(emote => new StoredChatEmote(
                 emote.Id,
-                emote.Ranges.Select(range => new StoredChatRange(
-                    range.Start, range.End)).ToArray())).ToArray(),
-            message.Bits,
-            message.Reply is null
-                ? null
-                : new StoredChatReply(
-                    message.Reply.Id,
-                    message.Reply.Login,
-                    message.Reply.DisplayName,
-                    message.Reply.Text),
-            message.Action);
+                emote.Ranges.Select(range => new StoredChatRange(range.Start, range.End)).ToArray()))),
+        Bits = message.Bits,
+        ReplyMessageId = message.Reply?.Id,
+        ReplyLogin = message.Reply?.Login,
+        ReplyDisplay = message.Reply?.DisplayName,
+        ReplyText = message.Reply?.Text,
+        IsAction = message.Action,
+    };
 
-    private void WriteEvent(StoredChatEvent evt)
+    /// <summary>The UTF-8 size of a row's text columns plus a fixed overhead; the cap's measure.</summary>
+    private static long EstimateBytes(ChatMessageRow row) =>
+        RowOverheadBytes +
+        Utf8(row.MessageId) + Utf8(row.UserId) + Utf8(row.Login) + Utf8(row.Display) +
+        Utf8(row.Color) + Utf8(row.BadgesJson) + Utf8(row.Text) + Utf8(row.EmotesJson) +
+        Utf8(row.ReplyMessageId) + Utf8(row.ReplyLogin) + Utf8(row.ReplyDisplay) + Utf8(row.ReplyText);
+
+    private static int Utf8(string? value) => value is null ? 0 : Encoding.UTF8.GetByteCount(value);
+
+    private ChatEventRow NewEvent(string kind, long at) => ChatRecords.NewEvent(summary.Id, kind, at);
+
+    /// <summary>
+    /// Writes the buffer as one batch. The buffer is cleared first, so a failed batch is logged
+    /// and skipped rather than retried forever against a broken store.
+    /// </summary>
+    private void FlushLocked()
     {
-        _events ??= OpenAppend(_eventsPath);
-        _events.WriteLine(ChatLogJson.Serialize(evt));
-        _events.Flush();
-    }
-
-    private static StreamWriter OpenAppend(string path)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var stream = new FileStream(
-            path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-        return new StreamWriter(stream, new UTF8Encoding(false)) { NewLine = "\n" };
-    }
-
-    private void CloseWriters()
-    {
-        _bucket?.Dispose();
-        _bucket = null;
-        _bucketPath = null;
-
-        _events?.Dispose();
-        _events = null;
-    }
-
-    private StoredChatMeta BuildMeta(bool finalize, StoredChatMeta? previous) =>
-        new(
-            ChatLogFormat.Version,
-            summary.Id,
-            summary.Channel,
-            source,
-            Transport,
-            finalize ? ChatStates.Complete : ChatStates.Recording,
-            previous?.StartedAt ?? summary.StartedAt,
-            finalize ? clock.GetUtcNow() : previous?.EndedAt,
-            options.LeadInSeconds,
-            options.BucketSeconds,
-            _lastMessageAt > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(_lastMessageAt) : null,
-            _messageCount,
-            _truncated,
-            previous?.LastError,
-            previous?.PurgedCount,
-            previous?.PurgedAt,
-            previous?.PurgedDeletedText);
-
-    private void WriteMeta(bool finalize)
-    {
-        if (!HasLog)
+        if (_pendingMessages.Count == 0 && _pendingEvents.Count == 0)
             return;
+
+        var batch = new ChatBatch(
+            summary.Id,
+            NewSession,
+            _pendingMessages.ToArray(),
+            _pendingEvents.ToArray(),
+            _pendingBytes,
+            _lastMessageAt,
+            _pendingTruncated);
+        _pendingMessages.Clear();
+        _pendingEvents.Clear();
+        _pendingBytes = 0;
+        _pendingTruncated = false;
 
         try
         {
-            Directory.CreateDirectory(_directory);
-            StoredChatMeta meta = BuildMeta(finalize, ChatLogJson.TryRead<StoredChatMeta>(_metaPath, logger));
-            ChatLogJson.WriteAllTextAtomically(_metaPath, ChatLogJson.Serialize(meta));
+            records.Write(batch);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (RecordStoreFailures.IsStoreFailure(ex))
         {
-            logger.LogWarning(ex, "Chat metadata could not be written for {Session}.", summary.Id);
+            logger.LogWarning(ex,
+                "Chat for {SessionId} could not be stored; {MessageCount} messages and {EventCount} events were skipped.",
+                summary.Id, batch.Messages.Count, batch.Events.Count);
+
+            // Count only what reached the store, for the byte cap and the close log.
+            _messageCount -= batch.Messages.Count;
+            _approxBytes -= batch.Bytes;
+            _pendingEvents.Add(LostBatchGap(batch));
         }
     }
+
+    /// <summary>
+    /// A gap over the skipped batch's time range, so replay shows the loss instead of a silent
+    /// hole. It is buffered for the next batch; if that one fails too, the next gap widens to
+    /// cover this one, so a broken store leaves at most one pending gap.
+    /// </summary>
+    private ChatEventRow LostBatchGap(ChatBatch batch)
+    {
+        IEnumerable<long> starts = batch.Messages.Select(message => message.At)
+            .Concat(batch.Events.Select(evt => evt.FromAt ?? evt.At));
+        IEnumerable<long> ends = batch.Messages.Select(message => message.At)
+            .Concat(batch.Events.Select(evt => evt.ToAt ?? evt.At));
+        long from = starts.Min();
+        long to = ends.Max();
+        ChatEventRow gap = NewEvent(ChatEventKinds.Gap, to);
+        gap.FromAt = from;
+        gap.ToAt = to;
+        gap.Reason = ChatGapReasons.StoreFailed;
+        return gap;
+    }
+
+    private ChatSessionRow NewSession() => new()
+    {
+        SessionId = summary.Id,
+        Source = source,
+        Transport = Transport,
+        Status = ChatStates.Recording,
+        StartedAt = summary.StartedAt,
+        LeadInSeconds = options.LeadInSeconds,
+    };
 }

@@ -620,8 +620,7 @@ public sealed class MockSeederTests : IDisposable
         foreach (RecordingSummary summary in library.All)
         {
             IReadOnlyList<ViewerSample> samples = await ViewerSamples.ReadAsync(
-                Path.Combine(_root, summary.Channel, summary.Id),
-                Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, CancellationToken.None);
+                _records[^1].Contexts, summary.Id, CancellationToken.None);
 
             if (summary.IsRecording)
             {
@@ -665,6 +664,35 @@ public sealed class MockSeederTests : IDisposable
         Assert.True(
             archive.Select(summary => summary.StartedAt.UtcDateTime.Date).Distinct().Count() > 10,
             "the archive spreads over many days so the drawer gets many day headers");
+    }
+
+    [Fact]
+    public async Task Scale_archive_recordings_survive_startup_recovery()
+    {
+        // In the app, recovery runs after the seed; an archive recording must still list.
+        (MockSeeder seeder, ChannelStore channels, _) = CreateSeeder(
+            new MockSeedOptions { ScaleRecordings = 8 });
+        await seeder.StartAsync(CancellationToken.None);
+
+        var library = new RecordingLibrary(
+            new FakeTimeProvider(MockCatalog.T0),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<RecordingLibrary>.Instance);
+        var store = new SessionStore(
+            Options.Create(new RecorderOptions()), _records[^1].Contexts, library,
+            new FakeTimeProvider(MockCatalog.T0),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<SessionStore>.Instance, TestRetry.Immediate);
+        var recovery = new RecoveryService(
+            store,
+            library,
+            Options.Create(new StorageOptions { RecordingsRoot = _root, MinFreeGb = 1 }),
+            new FakeTimeProvider(MockCatalog.T0),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<RecoveryService>.Instance);
+
+        await recovery.RecoverAsync(channels.Snapshot, CancellationToken.None);
+
+        Assert.Equal(
+            8,
+            library.All.Count(summary => summary.Title.StartsWith("Archive stream", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -761,6 +789,8 @@ public sealed class MockSeederTests : IDisposable
             Options.Create(new StorageOptions { RecordingsRoot = _root, MinFreeGb = 1 }),
             Options.Create(options),
             library,
+            // The record store CreateSeeder last started, which MockSeeder recorded into.
+            _records[^1].Contexts,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<MockViewerSeeder>.Instance);
 
     public void Dispose()
