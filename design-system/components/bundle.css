@@ -190,15 +190,17 @@ mark.ds-mark { background: var(--highlight); color: var(--highlight-contrast-tex
 .ds-player-top { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--player-scrim); }
 .ds-player-top b { font: var(--text-subtitle1); display: block; }
 .ds-player-top span { font: var(--text-caption); color: var(--player-text); opacity: 0.8; }
+.ds-player-top .chapter { display: inline-flex; align-items: center; gap: var(--space-1); margin-left: var(--space-2); opacity: 1; }
+.ds-player-top .chapter .ds-i { width: 14px; height: 14px; color: var(--tertiary); }
 .ds-player-bottom { position: absolute; left: 0; right: 0; bottom: 0; background: var(--player-scrim); padding: 0 var(--space-2); }
-.ds-seek { position: relative; height: 20px; display: flex; align-items: center; margin: 0 var(--space-2); }
+.ds-seek { position: relative; height: 28px; display: flex; align-items: center; margin: 0 var(--space-4); }
 .ds-seek .track { position: relative; flex: 1; height: 4px; border-radius: var(--radius-sm); background: rgba(255,255,255,0.24); }
 .ds-seek .buf, .ds-seek .played { position: absolute; left: 0; top: 0; bottom: 0; border-radius: inherit; }
 .ds-seek .buf { background: var(--player-buffered); }
 .ds-seek .played { background: var(--player-accent); }
 .ds-seek .knob { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: var(--radius-full); background: var(--player-accent); }
-.ds-seek .edge { position: absolute; top: 4px; width: 3px; height: 12px; margin-left: -1px; border-radius: 2px; background: var(--rec); }
-.ds-seek .tick { position: absolute; top: 6px; width: 3px; height: 8px; margin-left: -1px; border-radius: 2px; background: var(--tertiary); }
+.ds-seek .edge { position: absolute; top: 3px; width: 4px; height: 22px; margin-left: -2px; border-radius: 2px; background: var(--rec); }
+.ds-seek .tick { position: absolute; top: 8px; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: var(--tertiary); }
 .ds-controls { display: flex; align-items: center; gap: var(--space-1); height: var(--control-bar-height); }
 .ds-pbtn { display: inline-grid; place-items: center; width: var(--player-button); height: var(--player-button); border: 0; padding: 0; background: transparent; color: var(--player-text); border-radius: var(--radius-full); cursor: pointer; flex: none; }
 .ds-pbtn:hover { background: rgba(255,255,255,0.12); }

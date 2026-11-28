@@ -78,7 +78,7 @@ const CHIPS = {
 
 /** The hooks VideoPlayer.razor must render (VideoPlayerTests checks the markup). */
 export const HOOKS = [
-  "video", "title", "streamer", "chip", "center", "spinner", "overlay", "overlay-message",
+  "video", "title", "streamer", "chapter", "chapter-title", "chip", "center", "spinner", "overlay", "overlay-message",
   "retry", "seek", "buffered", "played", "ticks", "knob", "hover-time", "play", "back",
   "forward", "mute", "volume", "volume-level", "current", "duration", "speed", "speed-menu",
   "stats", "chat", "edge", "live", "waiting", "pip", "theater", "fullscreen",
@@ -107,6 +107,14 @@ export function createPlayer(
   const doc = root.ownerDocument;
   const el = Object.fromEntries(HOOKS.map((name) => [name, root.querySelector(`[data-sk="${name}"]`)]));
   const video = el.video;
+  // Built once: the seek tooltip changes text and visibility on every pointer move, never its
+  // children, so a scrub does not allocate DOM.
+  const hoverTimeLabel = document.createElement("span");
+  hoverTimeLabel.className = "time";
+  const hoverChapterLabel = document.createElement("span");
+  hoverChapterLabel.className = "chapter";
+  hoverChapterLabel.hidden = true;
+  el["hover-time"].replaceChildren(hoverTimeLabel, hoverChapterLabel);
   const listeners = new AbortController();
   const on = (target, type, handler) =>
     target?.addEventListener(type, handler, { signal: listeners.signal });
@@ -132,6 +140,7 @@ export function createPlayer(
   let hadPlaylist = false; // a live playlist with fragments has loaded since the source started
   let networkUnhealthy = false; // a live playlist refresh failed and has not recovered
   let chipState = null; // the state currently drawn in the chip
+  let chapterShown = null; // the chapter title currently drawn in the title strip
   let playWhenReady = false; // a selection or a VOD→live reload plays once metadata is ready
   let prefs = readPlayerPrefs(storage); // read once; applied on every load
   let theater = false;
@@ -223,6 +232,31 @@ export function createPlayer(
     return found;
   }
 
+  /** A chapter's visible title, or "" when it has none; shared by the strip and the tooltip. */
+  function chapterTitle(chapter) {
+    return typeof chapter?.title === "string" ? chapter.title.trim() : "";
+  }
+
+  /**
+   * The current chapter in the title strip. It is supplementary context for the playhead, not a
+   * live region; the chapter list and the seek tooltip remain the detailed views.
+   */
+  function renderChapter(time = video.currentTime) {
+    if (!el.chapter) return;
+    const text = chapterTitle(chapterAt(time));
+    if (!text) {
+      if (chapterShown === null) return;
+      chapterShown = null;
+      el["chapter-title"].textContent = "";
+      el.chapter.hidden = true;
+      return;
+    }
+    if (text === chapterShown) return;
+    chapterShown = text;
+    el["chapter-title"].textContent = text;
+    el.chapter.hidden = false;
+  }
+
   function renderTicks() {
     const total = duration();
     chapters = validChapters(view?.chapters, total);
@@ -256,6 +290,7 @@ export function createPlayer(
     );
     el.back.disabled = !ready;
     el.forward.disabled = !ready;
+    renderChapter(time);
   }
 
   function renderBuffered() {
@@ -275,6 +310,10 @@ export function createPlayer(
       el.live.hidden = !live;
       el.live.classList.toggle("at-edge", live && following);
       el.live.toggleAttribute("data-at-edge", live && following);
+      el.live.setAttribute(
+        "aria-label",
+        live && following ? "Jump to live edge (at the live edge)" : "Jump to live edge",
+      );
     }
     if (el.edge) {
       const end = seekableEnd();
@@ -842,7 +881,7 @@ export function createPlayer(
     dispatchPlayhead(true);
     renderPlayState();
     setIdle(false); // never idle while paused
-    // A pause leaves the live edge; Live edge or a seek to it follows again.
+    // A pause leaves the live edge; Jump to live or a seek to it follows again.
     if (live && following) {
       following = false;
       renderLive();
@@ -1054,17 +1093,24 @@ export function createPlayer(
     const total = duration();
     if (!Number.isFinite(total)) return;
     const time = ratio * total;
-    const chapter = chapterAt(time);
-    el["hover-time"].textContent = chapter?.title
-      ? `${formatTimecode(time)} · ${chapter.title}`
-      : formatTimecode(time);
-    el["hover-time"].style.left = percent(ratio);
+    const label = chapterTitle(chapterAt(time));
+    hoverTimeLabel.textContent = formatTimecode(time);
+    hoverChapterLabel.textContent = label;
+    hoverChapterLabel.hidden = !label;
+    // The chapter title makes the tooltip wider than the timecode alone; keep it inside the
+    // seek bar so a chapter at either end is not clipped by the player frame.
+    const width = el.seek.getBoundingClientRect().width;
+    // CSS also caps the tooltip at the seek width; the min keeps the math sane if it does not.
+    const half = Math.min(el["hover-time"].offsetWidth, width) / 2;
+    el["hover-time"].style.left = `${clamp(ratio * width, half, Math.max(half, width - half))}px`;
   }
 
   function preview(ratio) {
+    const time = ratio * duration();
     el.played.style.width = percent(ratio);
     el.knob.style.left = percent(ratio);
-    el.current.textContent = formatTimecode(ratio * duration());
+    el.current.textContent = formatTimecode(time);
+    renderChapter(time);
   }
 
   on(el.seek, "pointerdown", (event) => {
@@ -1154,7 +1200,7 @@ export function createPlayer(
       const nowLive = isLiveState(next.state);
       if (nowLive && !live) {
         // VOD→live: a finished session reopened. Reload the same playlist where the viewer
-        // is, keeping play/pause; Live edge is theirs to press.
+        // is, keeping play/pause; Jump to live is theirs to press.
         live = true;
         playWhenReady = !video.paused && !video.ended;
         void start(video.currentTime);

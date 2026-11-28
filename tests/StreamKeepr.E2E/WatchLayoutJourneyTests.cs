@@ -106,7 +106,7 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
               const style = getComputedStyle(document.documentElement);
               const px = (name) => parseFloat(style.getPropertyValue(name));
               return window.innerHeight - px('--appbar-height')
-                - (2 * px('--space-6')) - px('--player-peek');
+                - px('--space-4') - px('--space-6') - px('--player-peek');
             }
             """);
         Assert.InRange((double)player.Height, cap - 1, cap + 1);
@@ -225,12 +225,12 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
             """);
         Assert.Equal(new[] { "0px", "0px", "0px", "1px", "solid", "0px", "none", "0px" }, surface);
 
-        // The player and title block stop 24px left of the drawer; the scroll container reserves it.
+        // The player and title block stop 16px left of the drawer; the scroll container reserves it.
         LocatorBoundingBoxResult player = (await page.Locator("[data-slot='player']").BoundingBoxAsync())!;
         LocatorBoundingBoxResult details = (await page.Locator("[data-slot='details']").BoundingBoxAsync())!;
-        Assert.True(Math.Abs(player.X + player.Width - (drawerBox.X - 24)) <= 1,
+        Assert.True(Math.Abs(player.X + player.Width - (drawerBox.X - 16)) <= 1,
             $"the player ends at {player.X + player.Width}px, the drawer starts at {drawerBox.X}px");
-        Assert.True(Math.Abs(details.X + details.Width - (drawerBox.X - 24)) <= 1,
+        Assert.True(Math.Abs(details.X + details.Width - (drawerBox.X - 16)) <= 1,
             $"the title block ends at {details.X + details.Width}px, the drawer starts at {drawerBox.X}px");
         LocatorBoundingBoxResult main = (await page.Locator("main").BoundingBoxAsync())!;
         Assert.True(Math.Abs(main.X + main.Width - drawerBox.X) <= 1,
@@ -257,10 +257,10 @@ public sealed class WatchLayoutJourneyTests(MockAppFixture app)
         Assert.True(Math.Abs(closedMain.X + closedMain.Width - Desktop.Width) <= 1,
             $"the closed drawer still reserves room: main ends at {closedMain.X + closedMain.Width}px");
         await page.WaitForFunctionAsync(
-            $"() => document.querySelector('[data-slot=player]').getBoundingClientRect().right >= {Desktop.Width - 24 - 1}");
+            $"() => document.querySelector('[data-slot=player]').getBoundingClientRect().right >= {Desktop.Width - 16 - 1}");
         LocatorBoundingBoxResult expanded = (await page.Locator("[data-slot='player']").BoundingBoxAsync())!;
-        Assert.True(Math.Abs(expanded.X + expanded.Width - (Desktop.Width - 24)) <= 1,
-            $"the player ends at {expanded.X + expanded.Width}px, the view gutter at {Desktop.Width - 24}px");
+        Assert.True(Math.Abs(expanded.X + expanded.Width - (Desktop.Width - 16)) <= 1,
+            $"the player ends at {expanded.X + expanded.Width}px, the view gutter at {Desktop.Width - 16}px");
     }
 
     [Fact]
